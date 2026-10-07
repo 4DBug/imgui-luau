@@ -1,9 +1,16 @@
-require("imgui")
+-- LocalScript. Build the library first: `python3 tools/bundle.py` -> build/ImGui.luau (see default.project.json)
 
-local RunService = Instance.new("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local G = require(ReplicatedStorage:WaitForChild("ImGui"))
+
+local ImGui, ImVec4, ImGuiConfigFlags, ImGui_ImplRoblox = G.ImGui, G.ImVec4, G.ImGuiConfigFlags, G.ImGui_ImplRoblox
 
 local main_scale = 1.0
 local clear_color = ImVec4(0.45, 0.55, 0.60, 1.00)
+local show_demo_window = true
+local show_another_window = false
 local f = 0.0
 local counter = 0
 
@@ -11,24 +18,26 @@ ImGui.CreateContext()
 
 local io = ImGui.GetIO()
 io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard)
---io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.ViewportsEnable)
 
 local style = ImGui.GetStyle()
 style:ScaleAllSizes(main_scale)
 style.FontScaleDpi = main_scale
 
-ImGui_ImplLove.Init()
+ImGui_ImplRoblox.Init()
 
-RunService.Stepped:Connect(function(dt)
-    ImGui_ImplLove.NewFrame()
+RunService.Stepped:Connect(function()
+    ImGui_ImplRoblox.NewFrame()
     ImGui.NewFrame()
 
-    ImGui.ShowDemoWindow()
+    if show_demo_window then
+        ImGui.ShowDemoWindow()
+    end
 
     do
         ImGui.Begin("Hello, world!")
 
         ImGui.Text("This is some useful text.")
+        local _
         _, show_demo_window = ImGui.Checkbox("Demo Window", show_demo_window)
         _, show_another_window = ImGui.Checkbox("Another Window", show_another_window)
 
@@ -58,22 +67,6 @@ RunService.Stepped:Connect(function(dt)
     end
 
     ImGui.EndFrame()
-    return ImGui.Render()
+    ImGui.Render()
+    ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
 end)
-
-RunService.PreAnimation:Connect(function()
-    ImGui_ImplLove.RenderDrawData(ImGui.GetDrawData())
-
-    if bit32.band(io.ConfigFlags, ImGuiConfigFlags.ViewportsEnable) ~= 0 then
-        ImGui.UpdatePlatformWindows()
-        ImGui.RenderPlatformWindowsDefault()
-    end
-end)
-
-function love.keypressed(k) ImGui_ImplLove.KeyPressed(k) end
-function love.keyreleased(k) ImGui_ImplLove.KeyReleased(k) end
-function love.mousepressed(x, y, b) ImGui_ImplLove.MousePressed(x, y, b) end
-function love.mousereleased(x, y, b) ImGui_ImplLove.MouseReleased(x, y, b) end
-function love.wheelmoved(x, y) ImGui_ImplLove.WheelMoved(x, y) end
-function love.textinput(t) ImGui_ImplLove.TextInput(t) end
-function love.mousemoved(x, y) ImGui_ImplLove.MouseMoved(x, y) end

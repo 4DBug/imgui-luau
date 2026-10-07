@@ -1,26 +1,17 @@
-if _G.__IMGUI_ENV then setfenv(1, _G.__IMGUI_ENV) end -- [Roblox] shared env, see init.lua
 --- ImGui Backend for Roblox
---- Structurally mirrors imgui_impl_love.lua
----  - Renderer: software rasterizer drawing into a CanvasDraw canvas (EditableImage). CanvasDraw's own shape
----    functions can't do per-vertex colours, texture tinting or clip rects, so triangles are rasterized straight
----    into `Canvas.Buffer` (same RGBA8 layout as ImU32) and pushed with `Canvas:Render()`.
+---  - Renderer: exact software rasterizer (1:1 with imgui's triangles) into 256x256 EditableImage tiles at native
+---    screen resolution; only tiles whose content changed are redrawn/uploaded (see RenderDrawData).
 ---  - Platform: UserInputService
 ---  - Files: an in-memory file system (VFS), pre-filled with the fonts from imgui_impl_roblox_fonts.lua
----
---- Usage (LocalScript):
----   local G = require(ReplicatedStorage.imgui)
----   G.ImGui.CreateContext()
----   G.ImGui_ImplRoblox.Init(require(ReplicatedStorage.CanvasDraw))
+--- Requires "Allow Mesh / Image APIs" (EditableImage) in game settings.
 
 local UserInputService = game:GetService("UserInputService")
 local Players          = game:GetService("Players")
+local AssetService     = game:GetService("AssetService")
 
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
-local readu8, writeu8, writeu32 = buffer.readu8, buffer.writeu8, buffer.writeu32
-
--- EditableImage size limit. Bigger screens get a downscaled canvas that is stretched to fit.
--- Lower it to trade sharpness for speed.
-local MAX_CANVAS_SIZE = 1024
+local readu8, readu32, writeu32, readstring = buffer.readu8, buffer.readu32, buffer.writeu32, buffer.readstring
+local band, rshift = bit32.band, bit32.rshift
 
 local ImGui_ImplRoblox_GetBackendData
 local ImGui_ImplRoblox_UpdateTexture
@@ -196,49 +187,79 @@ function ImGui_ImplRoblox_UpdateTexture(tex)
 end
 
 ---------------------------------------------------------
--- RENDERING (software rasterizer into the canvas buffer)
+-- RENDERING (software rasterizer into tile buffers)
 ---------------------------------------------------------
 -- Buffer layout: 4 bytes per pixel, R G B A, row-major, 0-based offsets. ImU32 colours are already R | G<<8 | B<<16 | A<<24.
 -- Blending is non-premultiplied "over" with a transparent (alpha 0) background, so the game stays visible behind ImGui.
 
-local buf, buf_w -- current canvas buffer/width, set at the start of RenderDrawData
+local buf, buf_w -- buffer/width of the tile being drawn
+local TILE_SIZE -- Vector2, set below
 
--- Blends one pixel (r, g, b, a are 0..255)
+-- Blends one pixel (r, g, b, a are 0..255). One u32 read/write, one division in the general case.
+-- FillSpan below inlines the same math with per-span constants - keep the two in sync.
 local function BlendPixel(o, r, g, b, a)
     if a >= 255 then
         writeu32(buf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080)
         return
     end
     if a <= 0 then return end
-    local da = readu8(buf, o + 3)
+    local d = readu32(buf, o)
+    local da = rshift(d, 24)
     if da == 0 then
         writeu32(buf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216)
-    elseif da == 255 then
-        local sa = a / 255
-        local dr, dg, db = readu8(buf, o), readu8(buf, o + 1), readu8(buf, o + 2)
-        writeu8(buf, o,     dr + (r - dr) * sa + 0.5)
-        writeu8(buf, o + 1, dg + (g - dg) * sa + 0.5)
-        writeu8(buf, o + 2, db + (b - db) * sa + 0.5)
+        return
+    end
+    local sa = a / 255
+    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+    if da == 255 then
+        local ns = 1 - sa
+        writeu32(buf, o, floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256 + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080)
     else
-        local sa = a / 255
-        local k = (da / 255) * (1 - sa)
+        local k = da * ((1 - sa) / 255)
         local oa = sa + k
-        writeu8(buf, o,     (r * sa + readu8(buf, o) * k) / oa + 0.5)
-        writeu8(buf, o + 1, (g * sa + readu8(buf, o + 1) * k) / oa + 0.5)
-        writeu8(buf, o + 2, (b * sa + readu8(buf, o + 2) * k) / oa + 0.5)
-        writeu8(buf, o + 3, oa * 255 + 0.5)
+        local inv = 1 / oa
+        writeu32(buf, o, floor((r * sa + dr * k) * inv + 0.5) + floor((g * sa + dg * k) * inv + 0.5) * 256
+            + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
     end
 end
 
 -- Fills pixels [x0, x1) of row y with one colour
 local function FillSpan(y, x0, x1, r, g, b, a)
     if a <= 0 then return end
-    local o = (y * buf_w + x0) * 4
+    local o0 = (y * buf_w + x0) * 4
+    local o1 = o0 + (x1 - x0 - 1) * 4
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
-        for x = 0, x1 - x0 - 1 do writeu32(buf, o + x * 4, packed) end
-    else
-        for x = 0, x1 - x0 - 1 do BlendPixel(o + x * 4, r, g, b, a) end
+        for o = o0, o1, 4 do writeu32(buf, o, packed) end
+        return
+    end
+    local packed0 = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
+    local sa = a / 255
+    local ns = 1 - sa
+    local c1 = ns / 255
+    local rs, gs, bs = r * sa, g * sa, b * sa
+    local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
+    for o = o0, o1, 4 do
+        local d = readu32(buf, o)
+        local da = rshift(d, 24)
+        if d == last_d then
+            writeu32(buf, o, last_v)
+        elseif da == 0 then
+            writeu32(buf, o, packed0)
+        else
+            last_d = d
+            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+            if da == 255 then
+                last_v = floor(rs + dr * ns + 0.5) + floor(gs + dg * ns + 0.5) * 256 + floor(bs + db * ns + 0.5) * 65536 + 4278190080
+            else
+                local k = da * c1
+                local oa = sa + k
+                local inv = 1 / oa
+                last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                    + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+            end
+            writeu32(buf, o, last_v)
+        end
     end
 end
 
@@ -270,7 +291,26 @@ local function DrawRect(x0, y0, x1, y1, u0, v0, u1, v1, col, t, cx0, cy0, cx1, c
             local tr, tg, tb, ta = SampleTexture(t, u0, v0)
             r, g, b, a = r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255
         end
-        for y = py0, py1 - 1 do FillSpan(y, px0, px1, r, g, b, a) end
+        if a <= 0 then return end
+        -- Rows of a flat rect usually blend over identical rows: when this row's destination equals the previous
+        -- row's (exact string compare), the result is identical too, so memcpy the previous row's result.
+        local len = (px1 - px0) * 4
+        local prev_dst, prev_o = nil, 0
+        for y = py0, py1 - 1 do
+            local o = (y * buf_w + px0) * 4
+            if a >= 255 then
+                if prev_dst then buffer.copy(buf, o, buf, prev_o, len) else FillSpan(y, px0, px1, r, g, b, a); prev_dst = true end
+            else
+                local dst = readstring(buf, o, len)
+                if dst == prev_dst then
+                    buffer.copy(buf, o, buf, prev_o, len)
+                else
+                    FillSpan(y, px0, px1, r, g, b, a)
+                    prev_dst = dst
+                end
+            end
+            prev_o = o
+        end
         return
     end
 
@@ -383,46 +423,152 @@ local function TryDrawRect(va, vb, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
     return true
 end
 
+-- Tiles: the screen is covered by TILE x TILE EditableImages (one ImageLabel each). Every frame each primitive
+-- (triangle, or axis aligned quad) is hashed into the tiles it touches; only tiles whose hash changed are
+-- re-rasterized and uploaded. Static UI therefore costs ~nothing to draw, and the result is pixel-identical to a
+-- full redraw (the hash covers everything that affects a tile's pixels: geometry, uv, colour, texture, clip, order).
+local TILE = 256
+TILE_SIZE = Vector2.new(TILE, TILE)
+local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile (collision odds ~2^-62)
+
+-- Primitive arrays (reused between frames, no per-frame allocation)
+local pr_a, pr_b, pr_c, pr_d, pr_t = {}, {}, {}, {}, {} -- vertices (pr_d == false -> triangle), texture
+local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
+
+local function HashVertex(h1, h2, v)
+    local p, u, c = v[1], v[2], v[3]
+    local x, y = p[1], p[2]
+    local uv = u[1] * 8192 + u[2]
+    h1 = (h1 * 48271 + x * 4096 + y) % P1
+    h1 = (h1 * 48271 + uv * 4096) % P1
+    h1 = (h1 * 48271 + c) % P1
+    h2 = (h2 * 16807 + y * 4093 + x) % P2
+    h2 = (h2 * 16807 + uv * 65521) % P2
+    h2 = (h2 * 16807 + c) % P2
+    return h1, h2
+end
+
+local function GetTile(bd, index, tx, ty)
+    local tile = bd.Tiles[index]
+    if tile then return tile end
+    local img = AssetService:CreateEditableImage({ Size = Vector2.new(TILE, TILE) })
+    assert(img, "imgui_impl_roblox: EditableImage memory budget exceeded")
+    local label = Instance.new("ImageLabel")
+    label.Name = "Tile" .. index
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.Size = UDim2.fromOffset(TILE, TILE)
+    label.Position = UDim2.fromOffset(tx * TILE, ty * TILE)
+    label.ResampleMode = Enum.ResamplerMode.Pixelated
+    label.ImageContent = Content.fromObject(img)
+    label.Visible = false
+    label.Parent = bd.Gui
+    tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false }
+    bd.Tiles[index] = tile
+    return tile
+end
+
+local function DestroyTiles(bd)
+    for _, tile in pairs(bd.Tiles) do tile.Label:Destroy(); tile.Image:Destroy() end
+    bd.Tiles = {}
+end
+
 function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local bd = ImGui_ImplRoblox_GetBackendData()
-    local canvas = bd.Canvas
 
     if draw_data.Textures ~= nil then
         for _, tex in draw_data.Textures:iter() do
             if tex.Status ~= ImTextureStatus.OK then
                 ImGui_ImplRoblox_UpdateTexture(tex)
+                bd.ForceRedraw = true -- texture contents changed: tiles sampling it must be redrawn
             end
         end
     end
 
-    canvas:Clear()
-    buf, buf_w = canvas.Buffer, canvas.CurrentResX
-    local buf_h = canvas.CurrentResY
+    local sw, sh = floor(draw_data.DisplaySize.x), floor(draw_data.DisplaySize.y)
+    if sw <= 0 or sh <= 0 then return end
+    local cols, rows = ceil(sw / TILE), ceil(sh / TILE)
+    if cols ~= bd.TileCols or rows ~= bd.TileRows then
+        DestroyTiles(bd)
+        bd.TileCols, bd.TileRows = cols, rows
+    end
+    local ntiles = cols * rows
     local ox, oy = draw_data.DisplayPos.x, draw_data.DisplayPos.y
 
-    if draw_data.DisplaySize.x > 0.0 and draw_data.DisplaySize.y > 0.0 then
-        for _, draw_list in draw_data.CmdLists:iter() do
-            local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
-            for _, pcmd in draw_list.CmdBuffer:iter() do
-                if pcmd.UserCallback ~= nil then
-                    pcmd.UserCallback(draw_list, pcmd)
-                elseif pcmd.ElemCount > 0 then
-                    local clip = pcmd.ClipRect
-                    local cx0, cy0 = max(floor(clip.x - ox), 0), max(floor(clip.y - oy), 0)
-                    local cx1, cy1 = min(floor(clip.z - ox), buf_w), min(floor(clip.w - oy), buf_h)
-                    if cx1 > cx0 and cy1 > cy0 then
-                        local t = bd.Textures[pcmd:GetTexID()]
-                        local vo = pcmd.VtxOffset
-                        local i, last = pcmd.IdxOffset + 1, pcmd.IdxOffset + pcmd.ElemCount
-                        while i <= last do
-                            local ia, ic = idx[i], idx[i + 2]
-                            local va, vb, vc = vtx[vo + ia], vtx[vo + idx[i + 1]], vtx[vo + ic]
-                            if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic
-                                and TryDrawRect(va, vb, vc, vtx[vo + idx[i + 5]], t, cx0, cy0, cx1, cy1, ox, oy) then
-                                i = i + 6
-                            else
-                                DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
-                                i = i + 3
+    -- Per tile: hashes and the list of primitives touching it
+    local th1, th2, tn, tl = bd.TH1, bd.TH2, bd.TN, bd.TL
+    for t = 0, ntiles - 1 do
+        th1[t], th2[t], tn[t] = 0, 0, 0
+        if not tl[t] then tl[t] = {} end
+    end
+
+    -- Pass 1: collect primitives, hash them into tiles
+    local n = 0
+    for _, draw_list in draw_data.CmdLists:iter() do
+        local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
+        for _, pcmd in draw_list.CmdBuffer:iter() do
+            if pcmd.UserCallback ~= nil then
+                pcmd.UserCallback(draw_list, pcmd)
+            elseif pcmd.ElemCount > 0 then
+                local clip = pcmd.ClipRect
+                local cx0, cy0 = max(floor(clip.x - ox), 0), max(floor(clip.y - oy), 0)
+                local cx1, cy1 = min(floor(clip.z - ox), sw), min(floor(clip.w - oy), sh)
+                if cx1 > cx0 and cy1 > cy0 then
+                    local tex_id = pcmd:GetTexID()
+                    local t = bd.Textures[tex_id]
+                    local ch1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
+                    local ch2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+                    local vo = pcmd.VtxOffset
+                    local i, last = pcmd.IdxOffset + 1, pcmd.IdxOffset + pcmd.ElemCount
+                    while i <= last do
+                        local ia, ic = idx[i], idx[i + 2]
+                        local va, vb, vc = vtx[vo + ia], vtx[vo + idx[i + 1]], vtx[vo + ic]
+                        local vd = false
+                        local pa, pb, pc = va[1], vb[1], vc[1]
+                        local bx0, by0, bx1, by1
+                        if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic then
+                            local d = vtx[vo + idx[i + 5]]
+                            local pd = d[1]
+                            -- axis aligned quad (TL, TR, BR, BL) with one colour and a matching uv rect
+                            if pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2] then
+                                local col = va[3]
+                                local ta, tb, tc, td = va[2], vb[2], vc[2], d[2]
+                                if vb[3] == col and vc[3] == col and d[3] == col
+                                    and tb[1] == tc[1] and tb[2] == ta[2] and td[1] == ta[1] and td[2] == tc[2] then
+                                    vd = d
+                                    bx0, by0 = ceil(pa[1] - ox - 0.5), ceil(pa[2] - oy - 0.5)
+                                    bx1, by1 = ceil(pc[1] - ox - 0.5), ceil(pc[2] - oy - 0.5)
+                                end
+                            end
+                        end
+                        if vd then
+                            i = i + 6
+                        else
+                            bx0, by0 = floor(min(pa[1], pb[1], pc[1]) - ox), floor(min(pa[2], pb[2], pc[2]) - oy)
+                            bx1, by1 = ceil(max(pa[1], pb[1], pc[1]) - ox) + 1, ceil(max(pa[2], pb[2], pc[2]) - oy) + 1
+                            i = i + 3
+                        end
+                        if bx0 < cx0 then bx0 = cx0 end
+                        if by0 < cy0 then by0 = cy0 end
+                        if bx1 > cx1 then bx1 = cx1 end
+                        if by1 > cy1 then by1 = cy1 end
+                        if bx0 < bx1 and by0 < by1 then
+                            n = n + 1
+                            pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n] = va, vb, vc, vd, t
+                            pr_cx0[n], pr_cy0[n], pr_cx1[n], pr_cy1[n] = cx0, cy0, cx1, cy1
+                            local h1, h2 = HashVertex(ch1, ch2, va)
+                            h1, h2 = HashVertex(h1, h2, vb)
+                            h1, h2 = HashVertex(h1, h2, vc)
+                            if vd then h1, h2 = HashVertex(h1, h2, vd) end
+                            for ty = floor(by0 / TILE), floor((by1 - 1) / TILE) do
+                                for tx = floor(bx0 / TILE), floor((bx1 - 1) / TILE) do
+                                    local ti = ty * cols + tx
+                                    local k = tn[ti] + 1
+                                    tn[ti] = k
+                                    tl[ti][k] = n
+                                    th1[ti] = (th1[ti] * 48271 + h1) % P1
+                                    th2[ti] = (th2[ti] * 16807 + h2 + k) % P2
+                                end
                             end
                         end
                     end
@@ -431,50 +577,76 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         end
     end
 
-    canvas:Render()
+    -- Pass 2: redraw + upload changed tiles
+    local force = bd.ForceRedraw
+    bd.ForceRedraw = false
+    for ty = 0, rows - 1 do
+        for tx = 0, cols - 1 do
+            local ti = ty * cols + tx
+            local count = tn[ti]
+            local tile = bd.Tiles[ti]
+            if count == 0 then
+                if tile and tile.Visible then
+                    tile.Visible = false
+                    tile.Label.Visible = false
+                    tile.H1 = -1
+                end
+            else
+                tile = tile or GetTile(bd, ti, tx, ty)
+                if force or tile.H1 ~= th1[ti] or tile.H2 ~= th2[ti] then
+                    tile.H1, tile.H2 = th1[ti], th2[ti]
+                    local x0, y0 = tx * TILE, ty * TILE
+                    local x1, y1 = x0 + TILE, y0 + TILE
+                    buf, buf_w = tile.Buffer, TILE
+                    buffer.fill(buf, 0, 0)
+                    local list = tl[ti]
+                    local tox, toy = ox + x0, oy + y0
+                    for k = 1, count do
+                        local p = list[k]
+                        local cx0, cy0 = max(pr_cx0[p], x0) - x0, max(pr_cy0[p], y0) - y0
+                        local cx1, cy1 = min(pr_cx1[p], x1) - x0, min(pr_cy1[p], y1) - y0
+                        local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
+                        if vd then
+                            local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
+                            DrawRect(pa[1] - tox, pa[2] - toy, pc[1] - tox, pc[2] - toy, ta[1], ta[2], tc[1], tc[2], va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                        else
+                            DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
+                        end
+                    end
+                    tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+                end
+                if not tile.Visible then
+                    tile.Visible = true
+                    tile.Label.Visible = true
+                end
+            end
+        end
+    end
+
+    -- drop references so old vertex tables can be collected
+    for k = n + 1, bd.LastPrimCount do pr_a[k], pr_b[k], pr_c[k], pr_d[k], pr_t[k] = nil, nil, nil, nil, nil end
+    bd.LastPrimCount = n
 end
 
 ---------------------------------------------------------
 -- CORE LIFECYCLE
 ---------------------------------------------------------
 
--- Canvas resolution for a given screen size (capped by MAX_CANVAS_SIZE, aspect ratio kept)
-local function GetCanvasSize(screen)
-    local scale = max(1, screen.X / MAX_CANVAS_SIZE, screen.Y / MAX_CANVAS_SIZE)
-    return max(1, floor(screen.X / scale)), max(1, floor(screen.Y / scale))
-end
-
---- @param CanvasDraw table     # require(path.to.CanvasDraw)
---- @param parent     Instance? # where the ScreenGui goes, defaults to the local player's PlayerGui
-function ImGui_ImplRoblox_Init(CanvasDraw, parent)
-    assert(CanvasDraw, "ImGui_ImplRoblox.Init: pass the CanvasDraw module, e.g. Init(require(ReplicatedStorage.CanvasDraw))")
+--- @param parent Instance? # where the ScreenGui goes, defaults to the local player's PlayerGui
+function ImGui_ImplRoblox_Init(parent)
     local io = ImGui.GetIO()
 
     local gui = Instance.new("ScreenGui")
     gui.Name = "ImGui"
-    gui.IgnoreGuiInset = true -- so GetMouseLocation() and the canvas share the same origin
+    gui.IgnoreGuiInset = true -- so GetMouseLocation() and the tiles share the same origin
     gui.ResetOnSpawn = false
     gui.DisplayOrder = 1000
     gui.Parent = parent or Players.LocalPlayer:WaitForChild("PlayerGui")
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.fromScale(1, 1)
-    frame.BackgroundTransparency = 1
-    frame.Parent = gui
-
-    local screen = gui.AbsoluteSize
-    if screen.X < 1 or screen.Y < 1 then screen = workspace.CurrentCamera.ViewportSize end
-    local w, h = GetCanvasSize(screen)
-
-    local canvas = CanvasDraw.new(frame, Vector2.new(w, h), Color3.new(0, 0, 0))
-    canvas.AutoRender = false
-    canvas:SetStretchToFit(true)
-    canvas:SetClearRGBA(0, 0, 0, 0)
-    canvas:Clear()
-
     local bd = {
-        Time = os.clock(), Gui = gui, Canvas = canvas, Connections = {},
+        Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
+        Tiles = {}, TileCols = 0, TileRows = 0, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -484,7 +656,8 @@ function ImGui_ImplRoblox_Init(CanvasDraw, parent)
     platform_io.Platform_SetClipboardTextFn = ImGui_ImplRoblox_PlatformSetClipboardText
     platform_io.Platform_GetClipboardTextFn = ImGui_ImplRoblox_PlatformGetClipboardText
 
-    ImGui_ImplRoblox_UpdateMonitors(w, h)
+    local screen = gui.AbsoluteSize
+    ImGui_ImplRoblox_UpdateMonitors(screen.X, screen.Y)
 
     local function connect(signal, fn) table.insert(bd.Connections, signal:Connect(fn)) end
 
@@ -535,7 +708,7 @@ function ImGui_ImplRoblox_Shutdown()
     local io = ImGui.GetIO()
     local bd = ImGui_ImplRoblox_GetBackendData()
     for _, c in ipairs(bd.Connections) do c:Disconnect() end
-    bd.Canvas:Destroy()
+    DestroyTiles(bd)
     bd.Gui:Destroy()
 
     io.BackendPlatformUserData = nil
@@ -548,31 +721,24 @@ end
 function ImGui_ImplRoblox_NewFrame()
     local io = ImGui.GetIO()
     local bd = ImGui_ImplRoblox_GetBackendData()
-    local canvas = bd.Canvas
 
-    -- Follow screen size changes
     local screen = bd.Gui.AbsoluteSize
-    if screen.X >= 1 and screen.Y >= 1 then
-        local w, h = GetCanvasSize(screen)
-        if w ~= canvas.CurrentResX or h ~= canvas.CurrentResY then
-            canvas:Resize(Vector2.new(w, h))
-            ImGui_ImplRoblox_UpdateMonitors(w, h)
-        end
+    local w, h = floor(screen.X), floor(screen.Y)
+    if w ~= bd.ScreenW or h ~= bd.ScreenH then
+        bd.ScreenW, bd.ScreenH = w, h
+        ImGui_ImplRoblox_UpdateMonitors(w, h)
     end
-    local w, h = canvas.CurrentResX, canvas.CurrentResY
     ImVec2_CopyV(io.DisplaySize, w, h)
 
     local current_time = os.clock()
     io.DeltaTime = (current_time > bd.Time) and (current_time - bd.Time) or (1.0 / 60.0)
     bd.Time = current_time
 
-    -- Mouse position: screen pixels -> canvas pixels (the canvas is stretched over the whole screen)
     local m = UserInputService:GetMouseLocation()
-    local mx, my = m.X * w / max(screen.X, 1), m.Y * h / max(screen.Y, 1)
-    if mx ~= bd.MouseX or my ~= bd.MouseY then
-        bd.MouseX, bd.MouseY = mx, my
+    if m.X ~= bd.MouseX or m.Y ~= bd.MouseY then
+        bd.MouseX, bd.MouseY = m.X, m.Y
         io:AddMouseSourceEvent(ImGuiMouseSource.Mouse)
-        io:AddMousePosEvent(mx, my)
+        io:AddMousePosEvent(m.X, m.Y)
     end
 end
 
