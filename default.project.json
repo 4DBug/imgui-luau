@@ -1,0 +1,14 @@
+{
+  "name": "imgui",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "ImGui": { "$path": "build/ImGui.luau" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "ImGuiMain": { "$path": "main.client.luau" }
+      }
+    }
+  }
+}
