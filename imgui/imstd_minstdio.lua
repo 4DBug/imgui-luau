@@ -1,4 +1,3 @@
-if _G.__IMGUI_ENV then setfenv(1, _G.__IMGUI_ENV) end -- [Roblox] shared env, see init.lua
 --- ImGui Sincerely
 -- This is a minimal Lua impl of C-like sscanf, sprintf sub-set
 

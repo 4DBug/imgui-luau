@@ -1,21 +1,5 @@
-if _G.__IMGUI_ENV then setfenv(1, _G.__IMGUI_ENV) end -- [Roblox] shared env for all imgui ModuleScripts, see init.lua
 --- ImGui Sincerely WIP
 -- (Core Code)
-
---- [LuaJIT/LOVE] bit32 polyfill (Luau and Lua 5.2 have it built in). Results are unsigned like real bit32.
-if not bit32 then
-    local bit = require("bit")
-    local band, bor, bxor, bnot, lshift, rshift = bit.band, bit.bor, bit.bxor, bit.bnot, bit.lshift, bit.rshift
-    local U32 = 4294967296
-    bit32 = {
-        band   = function(...) return band(...) % U32 end,
-        bor    = function(...) return bor(...) % U32 end,
-        bxor   = function(...) return bxor(...) % U32 end,
-        bnot   = function(x) return bnot(x) % U32 end,
-        lshift = function(x, n) if n >= 32 then return 0 end return lshift(x, n) % U32 end,
-        rshift = function(x, n) if n >= 32 then return 0 end return rshift(x, n) % U32 end,
-    }
-end
 
 --- Flags:
 -- IMGUI_DISABLE_OBSOLETE_FUNCTIONS = true -- This flag is not implemented
@@ -32,37 +16,9 @@ ImGui = {}
 
 ImStd = {} -- Contains functions that originally don't belong to cpp namespaces
 
---- This executes Lua script at _filename and returns the result of the script.
---- @param _filename string
---- @return any
-function IM_INCLUDE(_filename) end
+-- IM_INCLUDE(name) is provided by the bundle (see tools/bundle.py): runs the bundled file once, returns its result.
 
---- [GMod] Platform specific include function
-if gmod then
-    IM_INCLUDE = include
-elseif IMGUI_ROOT then
-    --- [Roblox] files are ModuleScripts somewhere under the `imgui` ModuleScript (IMGUI_ROOT, set by init.lua)
-    IM_INCLUDE = function(_filename)
-        return require(IMGUI_ROOT:FindFirstChild((_filename:gsub("%.lua$", "")), true))
-    end
-else
-    IM_INCLUDE = function(_filename)
-        return require("imgui." .. _filename:gsub(".lua", ""))
-    end
-end
-
-function ImGui._GetTypeFunc()
-    local type
-    if gmod then
-        -- [GMod] `type` is [detoured](https://wiki.facepunch.com/gmod/Global.type). get the original function.
-        local upvalue_name
-        upvalue_name, type = debug.getupvalue(_G.type, 1)
-        assert(upvalue_name == "C_type")
-    else
-        type = getfenv(0).type or _G.type -- [Roblox] _G is not the global table there
-    end
-    return type
-end
+function ImGui._GetTypeFunc() return type end
 
 local function LUA_TableConstructorWrapper(T, size, userdata)
     local p = {}

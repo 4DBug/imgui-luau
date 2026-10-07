@@ -1,4 +1,3 @@
-if _G.__IMGUI_ENV then setfenv(1, _G.__IMGUI_ENV) end -- [Roblox] shared env, see init.lua
 --- ImGui Sincerely WIP
 -- (Widgets Code)
 
