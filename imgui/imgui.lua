@@ -59,7 +59,7 @@ function ImGui._GetTypeFunc()
         upvalue_name, type = debug.getupvalue(_G.type, 1)
         assert(upvalue_name == "C_type")
     else
-        type = _G.type
+        type = getfenv(0).type or _G.type -- [Roblox] _G is not the global table there
     end
     return type
 end
