@@ -5000,4 +5000,181 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
     if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
 end
 
+----------------------------------------------------------------
+-- Extra primitives (Ngon, Ellipse, Bezier, concave fill)
+----------------------------------------------------------------
+-- [port] These follow the 1.92 stroker this port uses (no ImDrawFlags_StrokeXXX placement flags).
+
+function MT.ImDrawList:PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments)
+    if num_segments == nil or num_segments <= 0 then
+        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y))
+    end
+    local cos_rot, sin_rot = ImCos(rot), ImSin(rot)
+    for i = 0, num_segments do
+        local a = a_min + (i / num_segments) * (a_max - a_min)
+        local px, py = ImCos(a) * radius.x, ImSin(a) * radius.y
+        self._Path:push_back(ImVec2(px * cos_rot - py * sin_rot + center.x, px * sin_rot + py * cos_rot + center.y))
+    end
+end
+
+function ImBezierCubicCalc(p1, p2, p3, p4, t)
+    local u = 1.0 - t
+    local w1, w2, w3, w4 = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return ImVec2(w1 * p1.x + w2 * p2.x + w3 * p3.x + w4 * p4.x, w1 * p1.y + w2 * p2.y + w3 * p3.y + w4 * p4.y)
+end
+
+function ImBezierQuadraticCalc(p1, p2, p3, t)
+    local u = 1.0 - t
+    local w1, w2, w3 = u * u, 2 * u * t, t * t
+    return ImVec2(w1 * p1.x + w2 * p2.x + w3 * p3.x, w1 * p1.y + w2 * p2.y + w3 * p3.y)
+end
+
+local function PathBezierCubicCurveToCasteljau(path, x1, y1, x2, y2, x3, y3, x4, y4, tess_tol, level)
+    local dx, dy = x4 - x1, y4 - y1
+    local d2 = math.abs((x2 - x4) * dy - (y2 - y4) * dx)
+    local d3 = math.abs((x3 - x4) * dy - (y3 - y4) * dx)
+    if (d2 + d3) * (d2 + d3) < tess_tol * (dx * dx + dy * dy) then
+        path:push_back(ImVec2(x4, y4))
+    elseif level < 10 then
+        local x12, y12 = (x1 + x2) * 0.5, (y1 + y2) * 0.5
+        local x23, y23 = (x2 + x3) * 0.5, (y2 + y3) * 0.5
+        local x34, y34 = (x3 + x4) * 0.5, (y3 + y4) * 0.5
+        local x123, y123 = (x12 + x23) * 0.5, (y12 + y23) * 0.5
+        local x234, y234 = (x23 + x34) * 0.5, (y23 + y34) * 0.5
+        local x1234, y1234 = (x123 + x234) * 0.5, (y123 + y234) * 0.5
+        PathBezierCubicCurveToCasteljau(path, x1, y1, x12, y12, x123, y123, x1234, y1234, tess_tol, level + 1)
+        PathBezierCubicCurveToCasteljau(path, x1234, y1234, x234, y234, x34, y34, x4, y4, tess_tol, level + 1)
+    end
+end
+
+local function PathBezierQuadraticCurveToCasteljau(path, x1, y1, x2, y2, x3, y3, tess_tol, level)
+    local dx, dy = x3 - x1, y3 - y1
+    local det = (x2 - x3) * dy - (y2 - y3) * dx
+    if det * det * 4.0 < tess_tol * (dx * dx + dy * dy) then
+        path:push_back(ImVec2(x3, y3))
+    elseif level < 10 then
+        local x12, y12 = (x1 + x2) * 0.5, (y1 + y2) * 0.5
+        local x23, y23 = (x2 + x3) * 0.5, (y2 + y3) * 0.5
+        local x123, y123 = (x12 + x23) * 0.5, (y12 + y23) * 0.5
+        PathBezierQuadraticCurveToCasteljau(path, x1, y1, x12, y12, x123, y123, tess_tol, level + 1)
+        PathBezierQuadraticCurveToCasteljau(path, x123, y123, x23, y23, x3, y3, tess_tol, level + 1)
+    end
+end
+
+function MT.ImDrawList:PathBezierCubicCurveTo(p2, p3, p4, num_segments)
+    local p1 = self._Path:back()
+    if num_segments == nil or num_segments == 0 then
+        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, self._Data.CurveTessellationTol, 0)
+    else
+        local t_step = 1.0 / num_segments
+        for i_step = 1, num_segments do self._Path:push_back(ImBezierCubicCalc(p1, p2, p3, p4, t_step * i_step)) end
+    end
+end
+
+function MT.ImDrawList:PathBezierQuadraticCurveTo(p2, p3, num_segments)
+    local p1 = self._Path:back()
+    if num_segments == nil or num_segments == 0 then
+        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, self._Data.CurveTessellationTol, 0)
+    else
+        local t_step = 1.0 / num_segments
+        for i_step = 1, num_segments do self._Path:push_back(ImBezierQuadraticCalc(p1, p2, p3, t_step * i_step)) end
+    end
+end
+
+function MT.ImDrawList:AddNgon(center, radius, col, num_segments, thickness)
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius - 0.5, 0.0, a_max, num_segments - 1)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddNgonFilled(center, radius, col, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
+    self:PathFillConvex(col)
+end
+
+function MT.ImDrawList:AddEllipse(center, radius, col, rot, num_segments, thickness)
+    if rot == nil then rot = 0.0 end
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddEllipseFilled(center, radius, col, rot, num_segments)
+    if rot == nil then rot = 0.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
+    self:PathFillConvex(col)
+end
+
+function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    self:PathLineTo(p1)
+    self:PathBezierCubicCurveTo(p2, p3, p4, num_segments or 0)
+    self:PathStroke(col, thickness or 1.0)
+end
+
+function MT.ImDrawList:AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    self:PathLineTo(p1)
+    self:PathBezierQuadraticCurveTo(p2, p3, num_segments or 0)
+    self:PathStroke(col, thickness or 1.0)
+end
+
+-- ponytail: ear-clipping, no anti-aliased fringe (upstream's AA triangulator not ported). O(n^2) is fine for UI polygons.
+--- @param points ImVec2[] # 1-based
+function MT.ImDrawList:AddConcavePolyFilled(points, points_count, col)
+    if points_count < 3 or bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    local idx = {}
+    local area = 0.0
+    for i = 1, points_count do
+        idx[i] = i
+        local a, b = points[i], points[i % points_count + 1]
+        area = area + (a.x * b.y - b.x * a.y)
+    end
+    local sign = (area >= 0) and 1 or -1
+    local function cross(o, a, b) return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) end
+    local guard = 0
+    while #idx > 3 and guard < points_count * points_count do
+        guard = guard + 1
+        local n = #idx
+        local clipped = false
+        for i = 1, n do
+            local ia, ib, ic = idx[(i - 2) % n + 1], idx[i], idx[i % n + 1]
+            local a, b, c = points[ia], points[ib], points[ic]
+            if cross(a, b, c) * sign > 0 then
+                local inside = false
+                for j = 1, n do
+                    local p = idx[j]
+                    if p ~= ia and p ~= ib and p ~= ic then
+                        local q = points[p]
+                        if cross(a, b, q) * sign >= 0 and cross(b, c, q) * sign >= 0 and cross(c, a, q) * sign >= 0 then inside = true; break end
+                    end
+                end
+                if not inside then
+                    self:AddTriangleFilled(a, b, c, col)
+                    table.remove(idx, i)
+                    clipped = true
+                    break
+                end
+            end
+        end
+        if not clipped then break end
+    end
+    if #idx == 3 then self:AddTriangleFilled(points[idx[1]], points[idx[2]], points[idx[3]], col) end
+end
+
+function MT.ImDrawList:PathFillConcave(col)
+    self:AddConcavePolyFilled(self._Path.Data, self._Path.Size, col)
+    self._Path.Size = 0
+end
+
 return true -- [Roblox] ModuleScripts must return exactly one value
