@@ -343,9 +343,9 @@ end
 -- Generic triangle: per-vertex colour + uv, top-left fill rule, clipped to [cx0, cx1) x [cy0, cy1)
 @native
 local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
-    local x0, y0 = va[1][1] - ox, va[1][2] - oy
-    local x1, y1 = vb[1][1] - ox, vb[1][2] - oy
-    local x2, y2 = vc[1][1] - ox, vc[1][2] - oy
+    local x0, y0 = va[1].x - ox, va[1].y - oy
+    local x1, y1 = vb[1].x - ox, vb[1].y - oy
+    local x2, y2 = vc[1].x - ox, vc[1].y - oy
     local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
     if area == 0 then return end
     if area < 0 then -- make the winding consistent so "inside" means all edge functions >= 0
@@ -370,7 +370,7 @@ local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
     local ra, ga, ba, aa = UnpackColor(va[3])
     local rb, gb, bb, ab = UnpackColor(vb[3])
     local rc, gc, bc, ac = UnpackColor(vc[3])
-    local ua, vva, ub, vvb, uc, vvc = va[2][1], va[2][2], vb[2][1], vb[2][2], vc[2][1], vc[2][2]
+    local ua, vva, ub, vvb, uc, vvc = va[2].x, va[2].y, vb[2].x, vb[2].y, vc[2].x, vc[2].y
 
     local textured = t and not (ua == ub and ua == uc and vva == vvb and vva == vvc)
     if t and not textured then -- constant uv (e.g. the atlas white pixel): fold the texel into the vertex colours
@@ -421,12 +421,12 @@ end
 @native
 local function TryDrawRect(va, vb, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
     local pa, pb, pc, pd = va[1], vb[1], vc[1], vd[1]
-    if not (pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2]) then return false end
+    if not (pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y) then return false end
     local col = va[3]
     if vb[3] ~= col or vc[3] ~= col or vd[3] ~= col then return false end
     local ta, tb, tc, td = va[2], vb[2], vc[2], vd[2]
-    if not (tb[1] == tc[1] and tb[2] == ta[2] and td[1] == ta[1] and td[2] == tc[2]) then return false end
-    DrawRect(pa[1] - ox, pa[2] - oy, pc[1] - ox, pc[2] - oy, ta[1], ta[2], tc[1], tc[2], col, t, cx0, cy0, cx1, cy1)
+    if not (tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y) then return false end
+    DrawRect(pa.x - ox, pa.y - oy, pc.x - ox, pc.y - oy, ta.x, ta.y, tc.x, tc.y, col, t, cx0, cy0, cx1, cy1)
     return true
 end
 
@@ -445,8 +445,8 @@ local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
 @native
 local function HashVertex(h1, h2, v)
     local p, u, c = v[1], v[2], v[3]
-    local x, y = p[1], p[2]
-    local uv = u[1] * 8192 + u[2]
+    local x, y = p.x, p.y
+    local uv = u.x * 8192 + u.y
     h1 = (h1 * 48271 + x * 4096 + y) % P1
     h1 = (h1 * 48271 + uv * 4096) % P1
     h1 = (h1 * 48271 + c) % P1
@@ -558,22 +558,22 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                             local d = vtx[vo + idx[i + 5]]
                             local pd = d[1]
                             -- axis aligned quad (TL, TR, BR, BL) with one colour and a matching uv rect
-                            if pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2] then
+                            if pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y then
                                 local col = va[3]
                                 local ta, tb, tc, td = va[2], vb[2], vc[2], d[2]
                                 if vb[3] == col and vc[3] == col and d[3] == col
-                                    and tb[1] == tc[1] and tb[2] == ta[2] and td[1] == ta[1] and td[2] == tc[2] then
+                                    and tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y then
                                     vd = d
-                                    bx0, by0 = ceil(pa[1] - ox - 0.5), ceil(pa[2] - oy - 0.5)
-                                    bx1, by1 = ceil(pc[1] - ox - 0.5), ceil(pc[2] - oy - 0.5)
+                                    bx0, by0 = ceil(pa.x - ox - 0.5), ceil(pa.y - oy - 0.5)
+                                    bx1, by1 = ceil(pc.x - ox - 0.5), ceil(pc.y - oy - 0.5)
                                 end
                             end
                         end
                         if vd then
                             i = i + 6
                         else
-                            bx0, by0 = floor(min(pa[1], pb[1], pc[1]) - ox), floor(min(pa[2], pb[2], pc[2]) - oy)
-                            bx1, by1 = ceil(max(pa[1], pb[1], pc[1]) - ox) + 1, ceil(max(pa[2], pb[2], pc[2]) - oy) + 1
+                            bx0, by0 = floor(min(pa.x, pb.x, pc.x) - ox), floor(min(pa.y, pb.y, pc.y) - oy)
+                            bx1, by1 = ceil(max(pa.x, pb.x, pc.x) - ox) + 1, ceil(max(pa.y, pb.y, pc.y) - oy) + 1
                             i = i + 3
                         end
                         if bx0 < cx0 then bx0 = cx0 end
@@ -639,7 +639,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
                         if vd then
                             local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
-                            DrawRect(pa[1] - tox, pa[2] - toy, pc[1] - tox, pc[2] - toy, ta[1], ta[2], tc[1], tc[2], va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                            DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
                         else
                             DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
                         end

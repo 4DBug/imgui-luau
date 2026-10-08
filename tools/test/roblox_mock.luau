@@ -167,12 +167,12 @@ local render_time = 0
 local realDemo = G.ImGui.ShowDemoWindow
 local realCH = G.ImGui.CollapsingHeader
 G.ImGui.CollapsingHeader = function(...)
-    if ARG_OPEN then G.ImGui.SetNextItemOpen(true, G.ImGuiCond.Always) end
+    if ARG_OPEN == true or (type(ARG_OPEN) == "table" and ARG_OPEN[(...)]) then G.ImGui.SetNextItemOpen(true, G.ImGuiCond.Always) end
     return realCH(...)
 end
 local realTN = G.ImGui.TreeNode
 G.ImGui.TreeNode = function(...)
-    if ARG_OPEN then G.ImGui.SetNextItemOpen(true, G.ImGuiCond.Always) end
+    if ARG_OPEN == true or (type(ARG_OPEN) == "table" and ARG_OPEN[(...)]) then G.ImGui.SetNextItemOpen(true, G.ImGuiCond.Always) end
     return realTN(...)
 end
 G.ImGui.ShowDemoWindow = function(...)
