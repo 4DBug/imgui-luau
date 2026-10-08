@@ -8844,7 +8844,11 @@ function ImGui.PushStyleVar(idx, val)
     end
     local var = g.Style[var_info.Key]
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, var))
-    g.Style[var_info.Key] = val
+    if type(val) == "number" then
+        g.Style[var_info.Key] = val
+    else -- copy into the style's own ImVec2: storing the caller's vector would alias it into the style forever
+        var.x = val.x; var.y = val.y
+    end
 end
 
 --- @param idx   ImGuiStyleVar
