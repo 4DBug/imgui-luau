@@ -197,6 +197,7 @@ local TILE_SIZE -- Vector2, set below
 
 -- Blends one pixel (r, g, b, a are 0..255). One u32 read/write, one division in the general case.
 -- FillSpan below inlines the same math with per-span constants - keep the two in sync.
+@native
 local function BlendPixel(o, r, g, b, a)
     if a >= 255 then
         writeu32(buf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080)
@@ -224,6 +225,7 @@ local function BlendPixel(o, r, g, b, a)
 end
 
 -- Fills pixels [x0, x1) of row y with one colour
+@native
 local function FillSpan(y, x0, x1, r, g, b, a)
     if a <= 0 then return end
     local o0 = (y * buf_w + x0) * 4
@@ -263,11 +265,13 @@ local function FillSpan(y, x0, x1, r, g, b, a)
     end
 end
 
+@native
 local function UnpackColor(col)
     return col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
 end
 
 -- Nearest texel at (u, v) as r, g, b, a (0..255)
+@native
 local function SampleTexture(t, u, v)
     local tw, th = t.Width, t.Height
     local tx, ty = floor(u * tw), floor(v * th)
@@ -279,6 +283,7 @@ local function SampleTexture(t, u, v)
 end
 
 -- Axis aligned, single colour quad (rects, glyphs, images). Pixel centers inside [x0, x1) x [y0, y1) are drawn.
+@native
 local function DrawRect(x0, y0, x1, y1, u0, v0, u1, v1, col, t, cx0, cy0, cx1, cy1)
     local r, g, b, a = UnpackColor(col)
     if a == 0 then return end
@@ -336,6 +341,7 @@ local function DrawRect(x0, y0, x1, y1, u0, v0, u1, v1, col, t, cx0, cy0, cx1, c
 end
 
 -- Generic triangle: per-vertex colour + uv, top-left fill rule, clipped to [cx0, cx1) x [cy0, cy1)
+@native
 local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
     local x0, y0 = va[1][1] - ox, va[1][2] - oy
     local x1, y1 = vb[1][1] - ox, vb[1][2] - oy
@@ -412,6 +418,7 @@ end
 
 -- Quads emitted by PrimRect/PrimRectUV/RenderText use indices (a, b, c, a, c, d) with a=TL, b=TR, c=BR, d=BL.
 -- When such a quad is axis aligned with one colour it is drawn with the much cheaper DrawRect.
+@native
 local function TryDrawRect(va, vb, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
     local pa, pb, pc, pd = va[1], vb[1], vc[1], vd[1]
     if not (pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2]) then return false end
@@ -435,6 +442,7 @@ local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile 
 local pr_a, pr_b, pr_c, pr_d, pr_t = {}, {}, {}, {}, {} -- vertices (pr_d == false -> triangle), texture
 local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
 
+@native
 local function HashVertex(h1, h2, v)
     local p, u, c = v[1], v[2], v[3]
     local x, y = p[1], p[2]
@@ -473,6 +481,7 @@ local function DestroyTiles(bd)
     bd.Tiles = {}
 end
 
+@native
 function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local bd = ImGui_ImplRoblox_GetBackendData()
 

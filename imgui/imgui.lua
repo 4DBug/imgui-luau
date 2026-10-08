@@ -4446,7 +4446,7 @@ end
 local function GetWindowBgColorIdx(window)
     if bit32.band(window.Flags, bit32.bor(ImGuiWindowFlags.Tooltip, ImGuiWindowFlags.Popup)) ~= 0 then
         return ImGuiCol.PopupBg
-    elseif bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+    elseif bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0 and not window.DockIsActive then
         return ImGuiCol.ChildBg
     else
         return ImGuiCol.WindowBg
@@ -6046,9 +6046,9 @@ function ImGui.UpdateMouseMovingWindowNewFrame()
 
     if g.MovingWindow then
         ImGui.KeepAliveID(g.ActiveId)
-        IM_ASSERT(g.MovingWindow and g.MovingWindow.RootWindow)
+        IM_ASSERT(g.MovingWindow and g.MovingWindow.RootWindowDockTree)
 
-        local moving_window = g.MovingWindow.RootWindow
+        local moving_window = g.MovingWindow.RootWindowDockTree
 
         local window_disappeared = (not moving_window.WasActive and not moving_window.Active)
         if g.IO.MouseDown[0] and ImGui.IsMousePosValid(g.IO.MousePos) and not window_disappeared then
