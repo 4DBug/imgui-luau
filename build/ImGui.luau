@@ -8855,7 +8855,11 @@ function ImGui.PushStyleVar(idx, val)
     end
     local var = g.Style[var_info.Key]
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, var))
-    g.Style[var_info.Key] = val
+    if type(val) == "number" then
+        g.Style[var_info.Key] = val
+    else -- copy into the style's own ImVec2: storing the caller's vector would alias it into the style forever
+        var.x = val.x; var.y = val.y
+    end
 end
 
 --- @param idx   ImGuiStyleVar
@@ -19130,8 +19134,8 @@ function ImGui.DebugNodeFontGlyph(font, glyph)
     ImGui.Text("Pos: (%.2f,%.2f)->(%.2f,%.2f)", glyph.X0, glyph.Y0, glyph.X1, glyph.Y1)
     ImGui.Text("UV: (%.3f,%.3f)->(%.3f,%.3f)", glyph.U0, glyph.V0, glyph.U1, glyph.V1)
     if glyph.PackId >= 0 then
-        local r = ImFontAtlasPackGetRect(font.OwnerAtlas, glyph.PackId)
-        if r then ImGui.Text("PackId: 0x%X (%dx%d rect at %d,%d)", glyph.PackId, r.w, r.h, r.x, r.y) end
+        local r = { uv0 = ImVec2(), uv1 = ImVec2() }
+        if font.OwnerAtlas:GetCustomRect(glyph.PackId, r) then ImGui.Text("PackId: 0x%X (%dx%d rect at %d,%d)", glyph.PackId, r.w, r.h, r.x, r.y) end
     end
     ImGui.Text("SourceIdx: %d", glyph.SourceIdx)
 end

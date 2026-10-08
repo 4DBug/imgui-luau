@@ -127,8 +127,8 @@ function ImGui.DebugNodeFontGlyph(font, glyph)
     ImGui.Text("Pos: (%.2f,%.2f)->(%.2f,%.2f)", glyph.X0, glyph.Y0, glyph.X1, glyph.Y1)
     ImGui.Text("UV: (%.3f,%.3f)->(%.3f,%.3f)", glyph.U0, glyph.V0, glyph.U1, glyph.V1)
     if glyph.PackId >= 0 then
-        local r = ImFontAtlasPackGetRect(font.OwnerAtlas, glyph.PackId)
-        if r then ImGui.Text("PackId: 0x%X (%dx%d rect at %d,%d)", glyph.PackId, r.w, r.h, r.x, r.y) end
+        local r = { uv0 = ImVec2(), uv1 = ImVec2() }
+        if font.OwnerAtlas:GetCustomRect(glyph.PackId, r) then ImGui.Text("PackId: 0x%X (%dx%d rect at %d,%d)", glyph.PackId, r.w, r.h, r.x, r.y) end
     end
     ImGui.Text("SourceIdx: %d", glyph.SourceIdx)
 end
