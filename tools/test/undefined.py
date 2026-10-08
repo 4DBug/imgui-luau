@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Static check: ImGui.X / ImGui:X / global ImFoo() calls in imgui/*.lua that nothing defines.
+"""Static check: ImGui.X / ImGui:X / global ImFoo() calls in the library *.lua files that nothing defines.
   python3 tools/test/undefined.py
 """
 import os, re, collections
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SRC = os.path.join(ROOT, "imgui")
+SRC = ROOT  # library *.lua at the root + backends/ (--no-demo: leave imgui_demo.lua out to check the library never needs it)
+import sys
+NO_DEMO = "--no-demo" in sys.argv
 files = {}
-for dp, _, fn in os.walk(SRC):
+for dp, fn in ((ROOT, os.listdir(ROOT)), (os.path.join(ROOT, "backends"), os.listdir(os.path.join(ROOT, "backends")))):
     for f in fn:
-        if f.endswith(".lua"):
+        if f.endswith(".lua") and not (NO_DEMO and f == "imgui_demo.lua"):
             files[os.path.relpath(os.path.join(dp, f), SRC)] = open(os.path.join(dp, f)).read()
 
 def strip(s):  # drop comments and strings (roughly) so we don't report text

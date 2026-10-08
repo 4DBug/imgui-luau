@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Summarise profile.out from `run.py --profile`: top functions by self and inclusive samples, mapped to imgui/*.lua lines
+# Summarise profile.out from `run.py --profile`: top functions by self and inclusive samples, mapped to source file lines
 import collections, json, os, re, sys, glob
 path = sys.argv[1] if len(sys.argv) > 1 else "profile.out"
 tmp = max(glob.glob("/tmp/imgui_test_*/ImGui.linemap.json"), key=os.path.getmtime)

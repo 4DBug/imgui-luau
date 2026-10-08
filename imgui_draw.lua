@@ -2953,11 +2953,11 @@ function MT.ImFontAtlas:AddFontFromFileTTF(filename, size_pixels, font_cfg_templ
 end
 
 function GetDefaultFontDataProggyClean()
-    return ImStd.ImFileLoadToMemory("resource/fonts/ProggyClean.ttf", "rb")
+    return ImStd.ImFileLoadToMemory("fonts/ProggyClean.ttf", "rb")
 end
 
 function GetDefaultFontDataProggyForever()
-    return ImStd.ImFileLoadToMemory("resource/fonts/ProggyForever.ttf", "rb")
+    return ImStd.ImFileLoadToMemory("fonts/ProggyForever.ttf", "rb")
 end
 
 -- TODO: IMGUI_DISABLE_DEFAULT_FONT, IMGUI_DISABLE_DEFAULT_FONT_BITMAP

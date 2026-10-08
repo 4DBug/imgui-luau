@@ -2,7 +2,7 @@
 """Headless test harness: runs build/ImGui.luau + a main script in the Luau CLI against a mocked Roblox
 (roblox_mock.luau). Rebuilds the bundle first.
 
-  python3 tools/test/run.py                      # 400 frames of main.client.luau, scripted random input
+  python3 tools/test/run.py                      # 400 frames of examples/example_roblox/main.client.luau, scripted random input
   python3 tools/test/run.py --open               # force every CollapsingHeader/TreeNode open (exercises whole demo)
   python3 tools/test/run.py --main my_test.luau  # different LocalScript
 """
@@ -15,7 +15,7 @@ LUAU = shutil.which("luau") or "/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau
 G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, warn, require, script, os"
 
 def build_run(args, flags):
-    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle.py"), TMP], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle.py"), TMP] + (["--no-demo"] if os.environ.get("NO_DEMO") else []), check=True, stdout=subprocess.DEVNULL)
     out = ["--" if args.roblox else "--!native", "--!optimize 2", flags, "local SOURCE_FNS = {}"]
     def add(key, path):
         s = "\n".join(l for l in open(path).read().split("\n") if not l.startswith("--!"))
@@ -39,7 +39,7 @@ def run(args, extra=""):
     return p.returncode, remap(p.stdout + p.stderr)
 
 def remap(text):
-    """run.luau:N -> imgui/<file>.lua:M"""
+    """run.luau:N -> <file>.lua:M"""
     import json, re
     lm = json.load(open(os.path.join(TMP, "ImGui.linemap.json")))
     def sub(m):
@@ -56,7 +56,7 @@ def remap(text):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frames", type=int, default=400)
-    ap.add_argument("--main", default=os.path.join(ROOT, "main.client.luau"))
+    ap.add_argument("--main", default=os.path.join(ROOT, "examples", "example_roblox", "main.client.luau"))
     ap.add_argument("--big", action="store_true", help="demo window forced to 900x1000")
     ap.add_argument("--roblox", action="store_true", help="like Studio: only @native functions get native code (default: whole bundle native)")
     ap.add_argument("--open-only", default="", help="comma list of CollapsingHeader/TreeNode labels to force open, e.g. Widgets,Basic")
