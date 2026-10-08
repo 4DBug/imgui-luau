@@ -185,21 +185,31 @@ local function LoadDecal(id)
     decal.status = "Loading " .. id .. "..."
     task.spawn(function()
         local image_id, err = ResolveImageId(id)
+        decal.thumb = nil
         if image_id then
+            -- 1) the image itself (needs permission), 2) its 420x420 thumbnail (may be allowed when 1 isn't)
             local ok, img = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri("rbxassetid://" .. image_id))
+            if not ok then
+                local ok2, img2 = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri("rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"))
+                if ok2 then ok, img = true, img2 end
+            end
             if ok then
                 local size = img.Size
                 local pixels = img:ReadPixelsBuffer(Vector2.zero, size)
                 img:Destroy()
                 if decal.tex then ImGui_ImplRoblox.DestroyTexture(decal.tex) end
+                decal.thumb = nil
                 decal.tex, decal.w, decal.h = ImGui_ImplRoblox.CreateTexture(pixels, size.X, size.Y), size.X, size.Y
                 decal.viewer.ViewReset = true
                 decal.status = string.format("Image %d: %dx%d", image_id, size.X, size.Y)
             else
-                decal.status = "Can't load pixels: " .. tostring(img) .. " (EditableImage needs an asset this experience may use)"
+                -- 3) no pixel access: Roblox still displays any asset, so show its thumbnail in an ImageLabel (no grid)
+                decal.thumb = "rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"
+                decal.status = "No pixel access (asset not owned by this experience's creator): display only, no zoom/grid"
             end
         else
-            decal.status = err
+            decal.thumb = "rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"
+            decal.status = (err or "") .. " - showing thumbnail"
         end
         decal.loading = false
     end)
@@ -218,7 +228,18 @@ local function ShowDecalViewer()
     end
     ImGui.EndDisabled()
     ImGui.SameLine(); ImGui.TextDisabled(decal.status)
-    if decal.tex then
+    if decal.thumb then
+        local avail = ImGui.GetContentRegionAvail()
+        local frame = ImGui.Embed("decal_thumb", G.ImVec2(-1, math.max(avail.y, 50)), G.ImGuiEmbedFlags.None, function(f)
+            local img = Instance.new("ImageLabel")
+            img.Name = "Image"
+            img.Size = UDim2.fromScale(1, 1)
+            img.BackgroundTransparency = 1
+            img.ScaleType = Enum.ScaleType.Fit
+            img.Parent = f
+        end)
+        if frame.Image.Image ~= decal.thumb then frame.Image.Image = decal.thumb end
+    elseif decal.tex then
         ExampleImageViewer_DrawOptions(decal.viewer)
         local avail = ImGui.GetContentRegionAvail()
         ExampleImageViewer_DrawCanvas(decal.viewer, G.ImVec2(math.max(avail.x, 50), math.max(avail.y, 50)), decal.tex, decal.w, decal.h)
