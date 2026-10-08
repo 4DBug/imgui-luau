@@ -266,7 +266,7 @@ end
 function ImGui.RenderDragDropTargetRectEx(draw_list, bb, rounding)
     local g = ImGui.GetCurrentContext()
     draw_list:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTargetBg), rounding, 0)
-    draw_list:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTarget), rounding, 0, g.Style.DragDropTargetBorderSize)
+    draw_list:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTarget), rounding, g.Style.DragDropTargetBorderSize)
 end
 
 --- @return ImGuiPayload?

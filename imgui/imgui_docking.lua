@@ -594,6 +594,7 @@ local function FixLargeWindowsWhenUndocking(size, ref_viewport)
 end
 
 function ImGui.DockContextProcessUndockWindow(ctx, window, clear_persistent_docking_ref)
+    if clear_persistent_docking_ref == nil then clear_persistent_docking_ref = true end -- C++ default argument
     if window.DockNode then
         ImGui.DockNodeRemoveWindow(window.DockNode, window, clear_persistent_docking_ref and 0 or window.DockId)
     else
@@ -1580,7 +1581,7 @@ function ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, dir,
     local g = ImGui.GetCurrentContext()
     local dock_spacing = g.Style.ItemInnerSpacing.x
     local axis = (dir == ImGuiDir.Left or dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
-    local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+    local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
     pos_new[o] = pos_old[o]
     size_new[o] = size_old[o]
 
@@ -1724,7 +1725,7 @@ function ImGui.DockNodePreviewDockSetup(host_window, host_node, payload_window, 
         local size_new, size_old = ImVec2(0, 0), ImVec2(data.FutureNode.Size.x, data.FutureNode.Size.y)
         ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, split_dir, payload_window.Size)
 
-        local split_ratio = ImSaturate(size_new[split_axis + 1] / data.FutureNode.Size[split_axis + 1])
+        local split_ratio = ImSaturate(size_new[split_axis] / data.FutureNode.Size[split_axis])
         data.FutureNode.Pos = pos_new
         data.FutureNode.Size = size_new
         data.SplitRatio = (split_dir == ImGuiDir.Right or split_dir == ImGuiDir.Down) and (1.0 - split_ratio) or split_ratio
@@ -1812,7 +1813,7 @@ function ImGui.DockNodePreviewDockRender(host_window, host_node, root_payload, d
                 local cc = draw_r_in:GetCenter()
                 local center = ImVec2(math.floor(cc.x), math.floor(cc.y))
                 dl:AddRectFilled(draw_r.Min, draw_r.Max, overlay_col, overlay_rounding)
-                dl:AddRect(draw_r_in.Min, draw_r_in.Max, overlay_col_lines, overlay_rounding, 0, thickness)
+                dl:AddRect(draw_r_in.Min, draw_r_in.Max, overlay_col_lines, overlay_rounding, thickness)
                 if dir == ImGuiDir.Left or dir == ImGuiDir.Right then
                     dl:AddLineV(center.x, draw_r_in.Min.y, draw_r_in.Max.y, overlay_col_lines, thickness)
                 end
@@ -1851,7 +1852,7 @@ function ImGui.DockNodeTreeSplit(ctx, parent_node, split_axis, split_inheritor_c
     parent_node.AuthorityForPos = ImGuiDataAuthority.DockNode
     parent_node.AuthorityForSize = ImGuiDataAuthority.DockNode
 
-    local a = split_axis + 1
+    local a = split_axis
     local size_avail = parent_node.Size[a] - g.Style.DockingSeparatorSize
     size_avail = ImMax(size_avail, g.Style.WindowMinSize[a] * 2.0)
     IM_ASSERT(size_avail > 0.0)
@@ -1937,7 +1938,7 @@ function ImGui.DockNodeTreeUpdatePosSize(node, pos, size, only_write_to_single_n
 
     if child_0_is_or_will_be_visible and child_1_is_or_will_be_visible then
         local spacing = g.Style.DockingSeparatorSize
-        local a = node.SplitAxis + 1
+        local a = node.SplitAxis
         local size_avail = ImMax(size[a] - spacing, 0.0)
 
         local size_min_each = ImTrunc(ImMin(size_avail, g.Style.WindowMinSize[a] * 2.0) * 0.5)
@@ -2006,7 +2007,7 @@ function ImGui.DockNodeTreeUpdateSplitter(node)
     if child_0.IsVisible and child_1.IsVisible then
         local axis = node.SplitAxis
         IM_ASSERT(axis ~= ImGuiAxis.None)
-        local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+        local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
         local bb = ImRect(ImVec2(child_0.Pos.x, child_0.Pos.y), ImVec2(child_1.Pos.x, child_1.Pos.y))
         bb.Min[a] = bb.Min[a] + child_0.Size[a]
         bb.Max[o] = bb.Max[o] + child_1.Size[o]
@@ -3097,7 +3098,7 @@ function ImGui.SplitterBehavior(bb, id, axis, size1, size2, min_size1, min_size2
     local bb_render = ImRect(bb.Min, bb.Max)
     if held then
         local d = g.IO.MousePos - g.ActiveIdClickOffset - bb_interact.Min
-        local mouse_delta = d[axis + 1]
+        local mouse_delta = d[axis]
 
         local size_1_maximum_delta = ImMax(0.0, size1 - min_size1)
         local size_2_maximum_delta = ImMax(0.0, size2 - min_size2)

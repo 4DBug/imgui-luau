@@ -4,12 +4,9 @@
 
   python3 tools/test/run.py                      # 400 frames of main.client.luau, scripted random input
   python3 tools/test/run.py --open               # force every CollapsingHeader/TreeNode open (exercises whole demo)
-  python3 tools/test/run.py --big --open --bench # timing, best of 5
-  python3 tools/test/run.py --check              # incremental vs forced redraw must be pixel identical
-  python3 tools/test/run.py --png out.png        # screenshot of the last frame
   python3 tools/test/run.py --main my_test.luau  # different LocalScript
 """
-import argparse, os, shutil, subprocess, sys, zlib, struct, tempfile
+import argparse, os, shutil, subprocess, sys, tempfile
 TMP = tempfile.mkdtemp(prefix="imgui_test_")  # per process: parallel runs must not share files
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +31,7 @@ def build_run(args, flags):
     return path
 
 def run(args, extra=""):
-    flags = "ARG_FRAMES=%d; ARG_BIG=%s; ARG_OPEN=%s; %s" % (args.frames, str(args.big).lower(), str(args.open).lower(), extra)
+    flags = "ARG_FRAMES=%d; ARG_BIG=%s; ARG_OPEN=%s; ARG_QUIET=%s; %s" % (args.frames, str(args.big).lower(), str(args.open).lower(), str(args.quiet).lower(), extra)
     try:
         p = subprocess.run([LUAU, "-O2", "--codegen", build_run(args, flags)], capture_output=True, text=True, timeout=args.timeout)
     except subprocess.TimeoutExpired as e:
@@ -56,57 +53,18 @@ def remap(text):
         return "%s:%d" % (best[1], n - best[0] + 1)
     return re.sub(r"\S*run\.luau:(\d+)", sub, text)
 
-def images(out):
-    return [l.split() for l in out.split("\n") if l.startswith("IMG ")]
-
-def write_png(img, path, crop=None):
-    _, fr, w, h, hx = img; w, h = int(w), int(h); px = bytes.fromhex(hx)
-    W, H = crop or (w, h)
-    raw = bytearray()
-    for y in range(H):
-        raw.append(0)
-        for x in range(W):
-            o = (y * w + x) * 4; r, g, b, a = px[o:o + 4]; k = a / 255
-            raw += bytes([int(r * k + 90 * (1 - k)), int(g * k + 90 * (1 - k)), int(b * k + 90 * (1 - k))])
-    def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
-    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
-                           + chunk(b'IDAT', zlib.compress(bytes(raw))) + chunk(b'IEND', b''))
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frames", type=int, default=400)
     ap.add_argument("--main", default=os.path.join(ROOT, "main.client.luau"))
     ap.add_argument("--big", action="store_true", help="demo window forced to 900x1000")
     ap.add_argument("--open", action="store_true", help="force all CollapsingHeader/TreeNode open")
-    ap.add_argument("--bench", action="store_true")
-    ap.add_argument("--check", action="store_true")
-    ap.add_argument("--png")
-    ap.add_argument("--crop", default="1100x1080")
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--quiet", action="store_true", help="no random input (scripted tests drive io themselves)")
     args = ap.parse_args()
 
-    if args.bench:
-        for mode in ["", "ARG_FORCE=true"]:
-            best = None
-            for _ in range(5):
-                code, out = run(args, mode)
-                if code: print(out[-3000:]); sys.exit(1)
-                line = [l for l in out.split("\n") if l.startswith("avg frame")][-1]
-                if best is None or float(line.split()[3]) < float(best.split()[3]): best = line
-            print("%-12s %s" % (mode or "incremental", best))
-        return
-    if args.check:
-        code, a = run(args, "ARG_DUMP=true")
-        code2, b = run(args, "ARG_DUMP=true; ARG_FORCE=true")
-        if code or code2: print((a if code else b)[-3000:]); sys.exit(1)
-        ok = [x[4] for x in images(a)] == [x[4] for x in images(b)]
-        print("PIXELS-IDENTICAL" if ok else "PIXELS-DIFFER"); sys.exit(0 if ok else 1)
-
-    code, out = run(args, "ARG_DUMP=true" if args.png else "")
-    print("\n".join(l if not l.startswith("IMG ") else l[:40] + "..." for l in out.split("\n"))[-4000:])
-    if args.png and images(out):
-        write_png(images(out)[-1], args.png, tuple(map(int, args.crop.split("x"))))
-        print("wrote", args.png)
+    code, out = run(args, "")
+    print(out[-4000:])
     sys.exit(code)
 
 try:
