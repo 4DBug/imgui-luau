@@ -1,0 +1,53 @@
+Dear ImGui for Roblox - not yet ported / known gaps
+====================================================
+Upstream reference: tools/test/upstream/ (ocornut/imgui docking branch, 1.93 WIP).
+Re-check with: python3 tools/test/missing.py [imgui|widgets|tables|draw]  and  python3 tools/test/undefined.py --no-demo
+(missing.py also lists names the port defines differently, e.g. the *V printf variants and DragFloat2..4 / DragInt2..4,
+which exist as ImGui.DragFloat2 = DragFloatN(2) etc. Those are NOT gaps.)
+
+
+FEATURES NOT PORTED
+-------------------
+- Multi-select / box-select: BeginMultiSelect, EndMultiSelect, MultiSelectItemHeader/Footer, MultiSelectAddSetAll,
+  MultiSelectAddSetRange, SetNextItemSelectionUserData, BeginBoxSelect/EndBoxSelect, DebugNodeMultiSelectState.
+  (Selectable/TreeNode call sites are stubbed with TODOs; the demo "Selection State & Multi-Select" section is not ported.)
+- Typing-select (type to jump in lists): GetTypingSelectRequest, TypingSelectFind*, DebugNodeTypingSelectState.
+- Examples > Assets Browser (needs multi-select + box-select).
+- Metrics > Tools > Item Picker (UpdateDebugToolItemPicker).
+- DebugFlashStyleColor / UpdateDebugToolFlashStyleColor (Style Editor "?" flash button).
+- DebugNodeInputTextState (Metrics > Internal state > InputText).
+- BringWindowToDisplayBehind: stub, does nothing.
+- ColorEdit4 / ColorPicker4: drag & drop target (dropping a color onto a color widget).
+- ImFontAtlas:AddFontFromMemoryCompressedTTF: stub (binary_to_compressed_c fonts can't be loaded).
+- ImGuiSizeCallbackData: SetNextWindowSizeConstraints custom callbacks only partially supported
+  (Examples > Constrained Resize).
+- LogSetNextTextDecoration (Selectable "[ ]" decoration in log/clipboard output).
+- stb_truetype: cmap high-byte mapping (some CJK fonts assert).
+- Context hooks removal (RemoveContextHook), SetContextName.
+- RegisterUserTexture / UnregisterUserTexture.
+- ErrorCheckNewFrameSanityChecks / ErrorCheckEndFrameSanityChecks (fewer usage-error asserts than upstream).
+- GetAllocatorFunctions (n/a in Luau).
+
+WON'T DO (platform)
+-------------------
+- Multi-viewports / platform windows: Roblox has one window. Viewport API exists for the main viewport only.
+- Gamepad navigation via a real gamepad backend (keyboard navigation works).
+- IME / non-ASCII keyboard text input (backend sends printable ASCII only).
+
+NOT VERIFIED LINE BY LINE AGAINST UPSTREAM
+------------------------------------------
+- Demo: Layout & Scrolling, Popups & Modal windows, Inputs & Focus.
+
+KNOWN ISSUES
+------------
+- Tables > "Columns flags": disabling every column asserts in TableUpdateLayout (upstream asserts too).
+- Style Editor > Colors uses a ListClipper (port-only change, upstream submits every row).
+
+PERFORMANCE IDEAS (not done)
+----------------------------
+- Opt-in cached windows (skip user code for idle windows).
+- Cheaper visible ColorEdit4 rows; cheaper Begin() for child windows.
+
+PLANNED EXTENSIONS
+------------------
+- ImGuizmo, ImNodes, ImGuiColorTextEdit, ImPlot, ImPlot3D (as separate extensions/, built with a --with flag).
