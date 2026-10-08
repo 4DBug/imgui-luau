@@ -1835,9 +1835,17 @@ function ImGui.ShowStyleEditor(ref)
             ImGui.SetNextWindowSizeConstraints(ImVec2(0.0, ImGui.GetTextLineHeightWithSpacing() * 10), ImVec2(FLT_MAX, FLT_MAX))
             ImGui.BeginChild("##colors", ImVec2(0, 0), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.NavFlattened), bit32.bor(ImGuiWindowFlags.AlwaysVerticalScrollbar, ImGuiWindowFlags.AlwaysHorizontalScrollbar))
             ImGui.PushItemWidth(ImGui.GetFontSize() * -12)
+            -- [Luau] clipped: only visible rows are submitted (upstream submits every color)
+            local visible_cols = {}
             for i = 0, ImGuiCol.COUNT - 1 do
+                if se.filter:PassFilter(ImGui.GetStyleColorName(i)) then visible_cols[#visible_cols + 1] = i end
+            end
+            local clipper = ImGuiListClipper()
+            clipper:Begin(#visible_cols)
+            while clipper:Step() do for row = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                local i = visible_cols[row + 1]
                 local name = ImGui.GetStyleColorName(i)
-                if se.filter:PassFilter(name) then
+                do
                     ImGui.PushID(i)
                     if ImGui.DebugFlashStyleColor then
                         if ImGui.Button("?") then ImGui.DebugFlashStyleColor(i) end
@@ -1853,7 +1861,8 @@ function ImGui.ShowStyleEditor(ref)
                     ImGui.TextUnformatted(name)
                     ImGui.PopID()
                 end
-            end
+            end end
+            clipper:End()
             ImGui.PopItemWidth()
             ImGui.EndChild()
             ImGui.EndTabItem()
