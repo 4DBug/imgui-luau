@@ -513,7 +513,9 @@ function ImDrawChannel() return { _CmdBuffer = ImVector(), _IdxBuffer = ImVector
 
 --- @return ImDrawListSplitter
 --- @nodiscard
-function ImDrawListSplitter() return { _Current = 0, _Count = 0, _Channels = ImVector() } end
+MT.ImDrawListSplitter = {} -- methods in imgui_draw.lua
+MT.ImDrawListSplitter.__index = MT.ImDrawListSplitter
+function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _Channels = ImVector() }, MT.ImDrawListSplitter) end
 
 --- @class ImDrawList
 --- @field CmdBuffer         ImVector<ImDrawCmd>
@@ -1000,6 +1002,7 @@ ImGuiConfigFlags = {
     NoMouse             = bitLShift(1, 4),
     NoMouseCursorChange = bitLShift(1, 5),
     NoKeyboard          = bitLShift(1, 6),
+    DockingEnable       = bitLShift(1, 7),
     ViewportsEnable     = bitLShift(1, 10),
     IsSRGB              = bitLShift(1, 20),
     IsTouchScreen       = bitLShift(1, 21)
@@ -1054,7 +1057,25 @@ function ImGuiIO()
         ConfigWindowsResizeFromEdges = true,
 
         ConfigDebugIniSettings = false,
+        ConfigWindowsCopyContentsWithCtrlC = false,
+        ConfigWindowsMoveFromTitleBarOnly = false,
+        ConfigErrorRecovery = true,
+        ConfigErrorRecoveryEnableAssert = true,
+        ConfigErrorRecoveryEnableDebugLog = true,
+        ConfigErrorRecoveryEnableTooltip = true,
+        ConfigDebugHighlightIdConflicts = false,
+        ConfigDebugHighlightIdConflictsShowItemPicker = true,
 
+        IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
+        IniSavingRate = 5.0,
+        LogFilename = "imgui_log.txt",
+        WantSaveIniSettings = false,
+
+        ConfigDockingNoSplit = false,
+        ConfigDockingNoDockingOver = false,
+        ConfigDockingWithShift = false,
+        ConfigDockingAlwaysTabBar = false,
+        ConfigDockingTransparentPayload = false,
         ConfigViewportsNoAutoMerge = false,
         ConfigViewportsNoTaskBarIcon = false,
         ConfigViewportsNoDecoration = true,
@@ -1084,6 +1105,7 @@ function ImGuiIO()
         MouseDoubleClicked = {[0] = false, [1] = false, [2] = false},
 
         MouseDoubleClickTime    = 0.30,
+        MouseSingleClickDelay   = 0.50,
         MouseDoubleClickMaxDist = 6.0,
         MouseDragThreshold      = 6.0,
         KeyRepeatDelay          = 0.275,
@@ -1546,6 +1568,7 @@ ImGuiHoveredFlags = {
     RootWindow                   = bitLShift(1, 1),
     AnyWindow                    = bitLShift(1, 2),
     NoPopupHierarchy             = bitLShift(1, 3),
+    DockHierarchy                = bitLShift(1, 4),
     AllowWhenBlockedByPopup      = bitLShift(1, 5),
     AllowWhenBlockedByActiveItem = bitLShift(1, 7),
     AllowWhenOverlappedByItem    = bitLShift(1, 8),
@@ -1560,11 +1583,22 @@ ImGuiHoveredFlags = {
     NoSharedDelay                = bitLShift(1, 17)
 }
 
+--- @enum ImGuiFocusedFlags
+ImGuiFocusedFlags = {
+    None             = 0,
+    ChildWindows     = bitLShift(1, 0), -- Return true if any children of the window is focused
+    RootWindow       = bitLShift(1, 1), -- Test from root window (top most parent of the current hierarchy)
+    AnyWindow        = bitLShift(1, 2), -- Return true if any window is focused
+    NoPopupHierarchy = bitLShift(1, 3), -- Do not consider popup hierarchy
+    DockHierarchy    = bitLShift(1, 4), -- Consider docking hierarchy
+}
+ImGuiFocusedFlags.RootAndChildWindows = bitOr(ImGuiFocusedFlags.RootWindow, ImGuiFocusedFlags.ChildWindows)
+
 ImGuiHoveredFlags.AllowWhenOverlapped = bitOr(ImGuiHoveredFlags.AllowWhenOverlappedByItem, ImGuiHoveredFlags.AllowWhenOverlappedByWindow)
 ImGuiHoveredFlags.RectOnly            = bitOr(ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.AllowWhenOverlapped)
 ImGuiHoveredFlags.RootAndChildWindows = bitOr(ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.ChildWindows)
 ImGuiHoveredFlags.DelayMask_ = bitOr(ImGuiHoveredFlags.DelayNone, ImGuiHoveredFlags.DelayShort, ImGuiHoveredFlags.DelayNormal, ImGuiHoveredFlags.NoSharedDelay)
-ImGuiHoveredFlags.AllowedMaskForIsWindowHovered = bitOr(ImGuiHoveredFlags.ChildWindows, ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.AnyWindow, ImGuiHoveredFlags.NoPopupHierarchy, ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary)
+ImGuiHoveredFlags.AllowedMaskForIsWindowHovered = bitOr(ImGuiHoveredFlags.ChildWindows, ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.AnyWindow, ImGuiHoveredFlags.NoPopupHierarchy, ImGuiHoveredFlags.DockHierarchy, ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary)
 ImGuiHoveredFlags.AllowedMaskForIsItemHovered = bitOr(ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.AllowWhenOverlapped, ImGuiHoveredFlags.AllowWhenDisabled, ImGuiHoveredFlags.NoNavOverride, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary, ImGuiHoveredFlags.DelayMask_)
 
 --- @enum ImGuiKey
@@ -1683,26 +1717,28 @@ ImGuiCol = {
     TabDimmed                 = 39,
     TabDimmedSelected         = 40,
     TabDimmedSelectedOverline = 41,
-    PlotLines                 = 42,
-    PlotLinesHovered          = 43,
-    PlotHistogram             = 44,
-    PlotHistogramHovered      = 45,
-    TableHeaderBg             = 46,
-    TableBorderStrong         = 47,
-    TableBorderLight          = 48,
-    TableRowBg                = 49,
-    TableRowBgAlt             = 50,
-    TextLink                  = 51,
-    TextSelectedBg            = 52,
-    TreeLines                 = 53,
-    DragDropTarget            = 54,
-    DragDropTargetBg          = 55,
-    UnsavedMarker             = 56,
-    NavCursor                 = 57,
-    NavWindowingHighlight     = 58,
-    NavWindowingDimBg         = 59,
-    ModalWindowDimBg          = 60,
-    COUNT                     = 61
+    DockingPreview            = 42,
+    DockingEmptyBg            = 43,
+    PlotLines                 = 44,
+    PlotLinesHovered          = 45,
+    PlotHistogram             = 46,
+    PlotHistogramHovered      = 47,
+    TableHeaderBg             = 48,
+    TableBorderStrong         = 49,
+    TableBorderLight          = 50,
+    TableRowBg                = 51,
+    TableRowBgAlt             = 52,
+    TextLink                  = 53,
+    TextSelectedBg            = 54,
+    TreeLines                 = 55,
+    DragDropTarget            = 56,
+    DragDropTargetBg          = 57,
+    UnsavedMarker             = 58,
+    NavCursor                 = 59,
+    NavWindowingHighlight     = 60,
+    NavWindowingDimBg         = 61,
+    ModalWindowDimBg          = 62,
+    COUNT = 63
 }
 
 --- @enum ImGuiBackendFlags
@@ -1992,8 +2028,124 @@ ImGuiTreeNodeFlags.DrawLinesMask_ = bitOr(ImGuiTreeNodeFlags.DrawLinesNone, ImGu
 --- @enum ImGuiTableFlags
 ImGuiTableFlags =
 {
-    None = 0,
+    None                       = 0,
+    Resizable                  = bitLShift(1, 0),
+    Reorderable                = bitLShift(1, 1),
+    Hideable                   = bitLShift(1, 2),
+    Sortable                   = bitLShift(1, 3),
+    NoSavedSettings            = bitLShift(1, 4),
+    ContextMenuInBody          = bitLShift(1, 5),
+    RowBg                      = bitLShift(1, 6),
+    BordersInnerH              = bitLShift(1, 7),
+    BordersOuterH              = bitLShift(1, 8),
+    BordersInnerV              = bitLShift(1, 9),
+    BordersOuterV              = bitLShift(1, 10),
+    NoBordersInBody            = bitLShift(1, 11),
+    NoBordersInBodyUntilResize = bitLShift(1, 12),
+    SizingFixedFit             = bitLShift(1, 13),
+    SizingFixedSame            = bitLShift(2, 13),
+    SizingStretchProp          = bitLShift(3, 13),
+    SizingStretchSame          = bitLShift(4, 13),
+    NoHostExtendX              = bitLShift(1, 16),
+    NoHostExtendY              = bitLShift(1, 17),
+    NoKeepColumnsVisible       = bitLShift(1, 18),
+    PreciseWidths              = bitLShift(1, 19),
+    NoClip                     = bitLShift(1, 20),
+    PadOuterX                  = bitLShift(1, 21),
+    NoPadOuterX                = bitLShift(1, 22),
+    NoPadInnerX                = bitLShift(1, 23),
+    ScrollX                    = bitLShift(1, 24),
+    ScrollY                    = bitLShift(1, 25),
+    SortMulti                  = bitLShift(1, 26),
+    SortTristate               = bitLShift(1, 27),
+    HighlightHoveredColumn     = bitLShift(1, 28),
 }
+ImGuiTableFlags.BordersH     = bitOr(ImGuiTableFlags.BordersInnerH, ImGuiTableFlags.BordersOuterH)
+ImGuiTableFlags.BordersV     = bitOr(ImGuiTableFlags.BordersInnerV, ImGuiTableFlags.BordersOuterV)
+ImGuiTableFlags.BordersInner = bitOr(ImGuiTableFlags.BordersInnerV, ImGuiTableFlags.BordersInnerH)
+ImGuiTableFlags.BordersOuter = bitOr(ImGuiTableFlags.BordersOuterV, ImGuiTableFlags.BordersOuterH)
+ImGuiTableFlags.Borders      = bitOr(ImGuiTableFlags.BordersInner, ImGuiTableFlags.BordersOuter)
+ImGuiTableFlags.SizingMask_  = bitOr(ImGuiTableFlags.SizingFixedFit, ImGuiTableFlags.SizingFixedSame, ImGuiTableFlags.SizingStretchProp, ImGuiTableFlags.SizingStretchSame)
 
+--- @enum ImGuiTableColumnFlags
+ImGuiTableColumnFlags =
+{
+    None                 = 0,
+    Disabled             = bitLShift(1, 0),
+    DefaultHide          = bitLShift(1, 1),
+    DefaultSort          = bitLShift(1, 2),
+    WidthStretch         = bitLShift(1, 3),
+    WidthFixed           = bitLShift(1, 4),
+    NoResize             = bitLShift(1, 5),
+    NoReorder            = bitLShift(1, 6),
+    NoHide               = bitLShift(1, 7),
+    NoClip               = bitLShift(1, 8),
+    NoSort               = bitLShift(1, 9),
+    NoSortAscending      = bitLShift(1, 10),
+    NoSortDescending     = bitLShift(1, 11),
+    NoHeaderLabel        = bitLShift(1, 12),
+    NoHeaderWidth        = bitLShift(1, 13),
+    PreferSortAscending  = bitLShift(1, 14),
+    PreferSortDescending = bitLShift(1, 15),
+    IndentEnable         = bitLShift(1, 16),
+    IndentDisable        = bitLShift(1, 17),
+    AngledHeader         = bitLShift(1, 18),
+
+    IsEnabled            = bitLShift(1, 24),
+    IsVisible            = bitLShift(1, 25),
+    IsSorted             = bitLShift(1, 26),
+    IsHovered            = bitLShift(1, 27),
+
+    NoDirectResize_      = bitLShift(1, 30),
+}
+ImGuiTableColumnFlags.WidthMask_  = bitOr(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.WidthFixed)
+ImGuiTableColumnFlags.IndentMask_ = bitOr(ImGuiTableColumnFlags.IndentEnable, ImGuiTableColumnFlags.IndentDisable)
+ImGuiTableColumnFlags.StatusMask_ = bitOr(ImGuiTableColumnFlags.IsEnabled, ImGuiTableColumnFlags.IsVisible, ImGuiTableColumnFlags.IsSorted, ImGuiTableColumnFlags.IsHovered)
+
+--- @enum ImGuiTableRowFlags
+ImGuiTableRowFlags = { None = 0, Headers = bitLShift(1, 0) }
+
+--- @enum ImGuiTableBgTarget
+ImGuiTableBgTarget = { None = 0, RowBg0 = 1, RowBg1 = 2, CellBg = 3 }
+
+--- @enum ImGuiSortDirection
+ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
+
+
+
+--- @class ImGuiPayload
+--- Drag and drop payload. `Data` is any Lua value (C++ stores raw bytes); `DataSize` kept for API parity.
+local IM_PAYLOAD = {}
+IM_PAYLOAD.__index = IM_PAYLOAD
+function IM_PAYLOAD:Clear() ImGuiPayload_Clear(self) end
+function IM_PAYLOAD:IsDataType(t) return ImGuiPayload_IsDataType(self, t) end
+function IM_PAYLOAD:IsPreview() return self.Preview end
+function IM_PAYLOAD:IsDelivery() return self.Delivery end
+function ImGuiPayload()
+    return setmetatable({ Data = nil, DataSize = 0, SourceId = 0, SourceParentId = 0, DataFrameCount = -1, DataType = "", Preview = false, Delivery = false }, IM_PAYLOAD)
+end
+function ImGuiPayload_Clear(p) p.SourceId = 0; p.SourceParentId = 0; p.Data = nil; p.DataSize = 0; p.DataType = ""; p.DataFrameCount = -1; p.Preview = false; p.Delivery = false end
+function ImGuiPayload_IsDataType(p, t) return p.DataFrameCount ~= -1 and p.DataType == t end
+function ImGuiPayload_IsPreview(p) return p.Preview end
+function ImGuiPayload_IsDelivery(p) return p.Delivery end
+
+--- @class ImGuiTextBuffer  # string builder: Buf is a list of string chunks
+local ImGuiTextBufferMT = {}
+ImGuiTextBufferMT.__index = ImGuiTextBufferMT
+function ImGuiTextBuffer() return setmetatable({ Buf = {} }, ImGuiTextBufferMT) end
+function ImGuiTextBufferMT:clear() self.Buf = {} end
+function ImGuiTextBufferMT:empty() return #self.Buf == 0 end
+function ImGuiTextBufferMT:append(str) self.Buf[#self.Buf + 1] = str end
+function ImGuiTextBufferMT:appendf(fmt, ...) self.Buf[#self.Buf + 1] = string.format(fmt, ...) end
+function ImGuiTextBufferMT:c_str() return table.concat(self.Buf) end
+function ImGuiTextBufferMT:size() return #self:c_str() end
+
+--- @class ImGuiSettingsHandler
+--- Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
+--- WriteAllFn(ctx, handler, buf: ImGuiTextBuffer)
+function ImGuiSettingsHandler()
+    return { TypeName = nil, TypeHash = 0, ClearAllFn = nil, ReadInitFn = nil, ReadOpenFn = nil, ReadLineFn = nil,
+             ApplyAllFn = nil, WriteAllFn = nil, CleanupFn = nil, UserData = nil }
+end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
