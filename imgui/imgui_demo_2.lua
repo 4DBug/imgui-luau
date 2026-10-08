@@ -838,7 +838,7 @@ local function DemoWindowLayout_TextClipping()
         else
             local clip_rect = ImVec4(p0.x, p0.y, p1.x, p1.y)
             draw_list:AddRectFilled(p0, p1, IM_COL32(90, 90, 120, 255))
-            draw_list:AddText(ImGui.GetFont(), ImGui.GetFontSize(), text_pos, IM_COL32_WHITE, text_str, nil, 0.0, clip_rect)
+            draw_list:AddText(ImGui.GetFont(), ImGui.GetFontSize(), text_pos, IM_COL32_WHITE, text_str, 1, #text_str + 1, 0.0, clip_rect)
         end
     until true end
 end

@@ -12930,6 +12930,86 @@ function ImGui.BeginTooltipHidden()
     return ret
 end
 
+-- [SECTION] MISC GETTERS/SETTERS, FOCUS
+
+function ImGui.NavMoveRequestResolveWithLastItem(result)
+    local g = GImGui
+    g.NavMoveScoringItems = false -- Ensure request doesn't need more processing
+    ImGui.NavApplyItemToResult(result)
+    ImGui.NavUpdateAnyRequestFlag()
+end
+
+function ImGui.SetKeyboardFocusHere(offset)
+    if offset == nil then offset = 0 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    IM_ASSERT(offset >= -1) -- -1 is allowed but not below
+
+    if g.DragDropActive or g.MovingWindow ~= nil then
+        return
+    end
+
+    ImGui.SetNavWindow(window)
+
+    local move_flags = bit32.bor(ImGuiNavMoveFlags.IsTabbing, ImGuiNavMoveFlags.Activate, ImGuiNavMoveFlags.FocusApi, ImGuiNavMoveFlags.NoSetNavCursorVisible)
+    local scroll_flags = window.Appearing and bit32.bor(ImGuiScrollFlags.KeepVisibleEdgeX, ImGuiScrollFlags.AlwaysCenterY) or bit32.bor(ImGuiScrollFlags.KeepVisibleEdgeX, ImGuiScrollFlags.KeepVisibleEdgeY)
+    ImGui.NavMoveRequestSubmit(ImGuiDir.None, (offset < 0) and ImGuiDir.Up or ImGuiDir.Down, move_flags, scroll_flags)
+    if offset == -1 then
+        ImGui.NavMoveRequestResolveWithLastItem(g.NavMoveResultLocal)
+    else
+        g.NavTabbingDir = 1
+        g.NavTabbingCounter = offset + 1
+    end
+end
+
+function ImGui.FocusItem()
+    local g = GImGui
+    local window = g.CurrentWindow
+    if g.DragDropActive or g.MovingWindow ~= nil then
+        return
+    end
+    local move_flags = bit32.bor(ImGuiNavMoveFlags.IsTabbing, ImGuiNavMoveFlags.FocusApi, ImGuiNavMoveFlags.NoSetNavCursorVisible, ImGuiNavMoveFlags.NoSelect)
+    local scroll_flags = window.Appearing and bit32.bor(ImGuiScrollFlags.KeepVisibleEdgeX, ImGuiScrollFlags.AlwaysCenterY) or bit32.bor(ImGuiScrollFlags.KeepVisibleEdgeX, ImGuiScrollFlags.KeepVisibleEdgeY)
+    ImGui.SetNavWindow(window)
+    ImGui.NavMoveRequestSubmit(ImGuiDir.None, ImGuiDir.Up, move_flags, scroll_flags)
+    ImGui.NavMoveRequestResolveWithLastItem(g.NavMoveResultLocal)
+end
+
+function ImGui.ActivateItemByID(id)
+    local g = GImGui
+    g.NavNextActivateId = id
+    g.NavNextActivateFlags = ImGuiActivateFlags.None
+end
+
+function ImGui.SetNavCursorVisible(visible)
+    local g = GImGui
+    if g.NavWindow and bit32.band(g.NavWindow.Flags, ImGuiWindowFlags.NoNavInputs) ~= 0 then
+        visible = false
+    elseif g.IO.ConfigNavCursorVisibleAlways then
+        visible = true
+    end
+    g.NavCursorVisible = visible
+end
+
+function ImGui.GetFrameCount() return GImGui.FrameCount end
+function ImGui.GetStateStorage() return GImGui.CurrentWindow.DC.StateStorage end
+function ImGui.SetStateStorage(tree)
+    local window = GImGui.CurrentWindow
+    window.DC.StateStorage = tree or window.StateStorage
+end
+function ImGui.SetNextFrameWantCaptureKeyboard(want) GImGui.WantCaptureKeyboardNextFrame = want and 1 or 0 end
+function ImGui.SetNextFrameWantCaptureMouse(want) GImGui.WantCaptureMouseNextFrame = want and 1 or 0 end
+function ImGui.GetVersion() return IMGUI_VERSION end
+
+local StyleColorNames = nil
+function ImGui.GetStyleColorName(idx)
+    if StyleColorNames == nil then
+        StyleColorNames = {}
+        for k, v in pairs(ImGuiCol) do if k ~= "COUNT" then StyleColorNames[v] = k end end
+    end
+    return StyleColorNames[idx] or "Unknown"
+end
+
 -- [SECTION] NAV END FRAME
 
 local NAV_WINDOWING_LIST_APPEAR_DELAY = 0.15

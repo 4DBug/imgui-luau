@@ -67,6 +67,9 @@ function ImS32(val) return bitAnd(val, 0xFFFFFFFF) end
 
 --- @alias ImDrawIdx unsigned_int
 
+IMGUI_VERSION     = "1.93.0 WIP"
+IMGUI_VERSION_NUM = 19298
+
 IM_UNICODE_CODEPOINT_INVALID = 0xFFFD
 IM_UNICODE_CODEPOINT_MAX     = 0xFFFF
 
@@ -1980,9 +1983,62 @@ ImGuiInputTextFlags = {
 --- @class ImGuiInputTextCallbackData
 
 --- @return ImGuiInputTextCallbackData
+-- Buf is a 1-based zero-terminated byte table; positions (CursorPos, pos...) are 0-based byte offsets like upstream.
+MT.ImGuiInputTextCallbackData = {}
+MT.ImGuiInputTextCallbackData.__index = MT.ImGuiInputTextCallbackData
 function ImGuiInputTextCallbackData()
-    return {}
+    return setmetatable({}, MT.ImGuiInputTextCallbackData)
 end
+
+function MT.ImGuiInputTextCallbackData:DeleteChars(pos, bytes_count)
+    IM_ASSERT(pos + bytes_count <= self.BufTextLen)
+    local buf = self.Buf
+    local n = self.BufTextLen - bytes_count - pos + 1 -- includes zero terminator
+    for i = 1, n do buf[pos + i] = buf[pos + bytes_count + i] end
+
+    if self.CursorPos >= pos + bytes_count then
+        self.CursorPos = self.CursorPos - bytes_count
+    elseif self.CursorPos >= pos then
+        self.CursorPos = pos
+    end
+    self.SelectionStart = self.CursorPos; self.SelectionEnd = self.CursorPos
+    self.BufDirty = true
+    self.BufTextLen = self.BufTextLen - bytes_count
+end
+
+--- @param new_text string
+function MT.ImGuiInputTextCallbackData:InsertChars(pos, new_text)
+    local new_text_len = #new_text
+    if new_text_len == 0 then return end
+    local is_resizable = bit32.band(self.Flags, ImGuiInputTextFlags.CallbackResize) ~= 0
+    -- We support partial insertion
+    local avail = self.BufSize - 1 - self.BufTextLen
+    if not is_resizable and new_text_len > avail then
+        new_text_len = avail -- ponytail: truncates by bytes, not to the closest UTF-8 codepoint
+    end
+    if new_text_len <= 0 then return end
+    -- ponytail: CallbackResize buffer growth not supported, text is truncated at BufSize instead
+    if self.BufTextLen + new_text_len + 1 > self.BufSize then
+        new_text_len = self.BufSize - 1 - self.BufTextLen
+        if new_text_len <= 0 then return end
+    end
+
+    local buf = self.Buf
+    for i = self.BufTextLen, pos + 1, -1 do buf[i + new_text_len] = buf[i] end
+    for i = 1, new_text_len do buf[pos + i] = string.byte(new_text, i) end
+    buf[self.BufTextLen + new_text_len + 1] = 0
+
+    self.BufDirty = true
+    self.BufTextLen = self.BufTextLen + new_text_len
+    if self.CursorPos >= pos then
+        self.CursorPos = self.CursorPos + new_text_len
+    end
+    self.SelectionStart = self.CursorPos; self.SelectionEnd = self.CursorPos
+end
+
+function MT.ImGuiInputTextCallbackData:SelectAll() self.SelectionStart = 0; self.SelectionEnd = self.BufTextLen end
+function MT.ImGuiInputTextCallbackData:ClearSelection() self.SelectionStart = self.BufTextLen; self.SelectionEnd = self.BufTextLen end
+function MT.ImGuiInputTextCallbackData:HasSelection() return self.SelectionStart ~= self.SelectionEnd end
 
 --- @alias ImGuiInputTextCallback fun(data: ImGuiInputTextCallbackData)
 

@@ -119,11 +119,7 @@ end
 
 --- Closable header: CollapsingHeader(label, &p_open). Returns visible, open.
 function DemoCollapsingHeaderClosable(label, open)
-    if not open then return false, open end
-    local visible = ImGui.CollapsingHeader(label, open)
-    -- ponytail: until CollapsingHeader(label, p_open) lands, a boolean 2nd arg is treated as flags=None by the library
-    if type(visible) == "table" then visible = visible[1] end
-    return visible, open
+    return ImGui.CollapsingHeader(label, open)
 end
 
 --- ImColor::HSV() as ImVec4

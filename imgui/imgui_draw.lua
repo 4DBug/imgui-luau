@@ -3129,6 +3129,12 @@ end
 
 -- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
+    if self._Splitter._Count > 1 then
+        self._Splitter:Merge(self)
+    end
+    self._Splitter._Current = 0 -- [Lua] recover from an error thrown mid-split
+    self._Splitter._Count = 1
+
     self.CmdBuffer:resize(0)
     self.IdxBuffer:resize(0)
     self.VtxBuffer:resize(0)
@@ -4205,6 +4211,11 @@ end
 --- @param wrap_width          float
 --- @param cpu_fine_clip_rect? ImVec4
 function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect)
+    -- Overload: AddText(pos, col, text, text_end?)
+    if type(font) == "table" and type(font[1]) == "number" then
+        font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect = nil, 0.0, font, font_size, pos, 1, col, 0.0, nil
+        if text_end == nil then text_end = #text + 1 end
+    end
     if text_begin == nil then text_begin = 1 end
 
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
