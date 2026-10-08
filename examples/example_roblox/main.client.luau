@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local G = require(ReplicatedStorage:WaitForChild("ImGui"))
+local ExampleImageViewerData, ExampleImageViewer_DrawOptions, ExampleImageViewer_DrawCanvas = G.ExampleImageViewerData, G.ExampleImageViewer_DrawOptions, G.ExampleImageViewer_DrawCanvas
 
 local ImGui, ImVec4, ImGuiConfigFlags, ImGui_ImplRoblox = G.ImGui, G.ImVec4, G.ImGuiConfigFlags, G.ImGui_ImplRoblox
 
@@ -158,6 +159,73 @@ function ImGui.DestroyEmbed(id)
     if e then e.Frame:Destroy(); embeds[gid] = nil end
 end
 
+-- Example: Decal Viewer. Loads a decal/image asset's pixels into an imgui texture and shows it in the demo's
+-- image viewer (zoom with the wheel, drag to pan, toggleable pixel grid).
+local AssetService = game:GetService("AssetService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local decal = { input = ImGui.NewTextBuffer("", 32), status = "Enter a decal or image id", tex = nil, w = 0, h = 0, loading = false,
+                viewer = ExampleImageViewerData(), show = true }
+
+-- A Decal asset wraps an Image asset with a different id; the image is almost always uploaded just before it
+-- (same creator, id slightly lower). ponytail: heuristic scan of 10 ids, InsertService:LoadAsset when owned is exact.
+local function ResolveImageId(id)
+    local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id)
+    if not ok then return nil, "GetProductInfo failed: " .. tostring(info) end
+    if info.AssetTypeId == 1 then return id end -- already an Image
+    if info.AssetTypeId ~= 13 then return nil, "asset is not a decal or image" end
+    for cand = id - 1, id - 10, -1 do
+        local ok2, ci = pcall(MarketplaceService.GetProductInfo, MarketplaceService, cand)
+        if ok2 and ci.AssetTypeId == 1 and ci.Creator and info.Creator and ci.Creator.Id == info.Creator.Id then return cand end
+    end
+    return nil, "couldn't find the decal's image id (try the image id directly)"
+end
+
+local function LoadDecal(id)
+    decal.loading = true
+    decal.status = "Loading " .. id .. "..."
+    task.spawn(function()
+        local image_id, err = ResolveImageId(id)
+        if image_id then
+            local ok, img = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri("rbxassetid://" .. image_id))
+            if ok then
+                local size = img.Size
+                local pixels = img:ReadPixelsBuffer(Vector2.zero, size)
+                img:Destroy()
+                if decal.tex then ImGui_ImplRoblox.DestroyTexture(decal.tex) end
+                decal.tex, decal.w, decal.h = ImGui_ImplRoblox.CreateTexture(pixels, size.X, size.Y), size.X, size.Y
+                decal.viewer.ViewReset = true
+                decal.status = string.format("Image %d: %dx%d", image_id, size.X, size.Y)
+            else
+                decal.status = "Can't load pixels: " .. tostring(img) .. " (EditableImage needs an asset this experience may use)"
+            end
+        else
+            decal.status = err
+        end
+        decal.loading = false
+    end)
+end
+
+local function ShowDecalViewer()
+    if not decal.show then return end
+    decal.show = ImGui.Begin("Decal Viewer", decal.show)
+    ImGui.SetNextItemWidth(ImGui.GetFontSize() * 12)
+    local enter = ImGui.InputTextWithHint("##id", "decal id", decal.input, 32, G.ImGuiInputTextFlags.CharsDecimal + G.ImGuiInputTextFlags.EnterReturnsTrue)
+    ImGui.SameLine()
+    ImGui.BeginDisabled(decal.loading)
+    if (ImGui.Button("Load") or enter) and not decal.loading then
+        local id = tonumber(ImGui.TextBufferToString(decal.input))
+        if id then LoadDecal(id) else decal.status = "Not a number" end
+    end
+    ImGui.EndDisabled()
+    ImGui.SameLine(); ImGui.TextDisabled(decal.status)
+    if decal.tex then
+        ExampleImageViewer_DrawOptions(decal.viewer)
+        local avail = ImGui.GetContentRegionAvail()
+        ExampleImageViewer_DrawCanvas(decal.viewer, G.ImVec2(math.max(avail.x, 50), math.max(avail.y, 50)), decal.tex, decal.w, decal.h)
+    end
+    ImGui.End()
+end
+
 -- Example: a ViewportFrame with a spinning part, edited live from imgui widgets
 local spin_speed = 1.0
 local part_color = ImVec4(0.80, 0.65, 0.97, 1.0)
@@ -211,6 +279,8 @@ RunService.Stepped:Connect(function()
     end
 
     PE()
+    ShowDecalViewer()
+
     if show_viewport_window then
         show_viewport_window = ImGui.Begin("Viewport", show_viewport_window)
         spin_speed = ImGui.SliderFloat("speed", spin_speed, 0.0, 5.0)
