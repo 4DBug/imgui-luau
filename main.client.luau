@@ -22,9 +22,56 @@ ImGui.CreateContext()
 local io = ImGui.GetIO()
 io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard, ImGuiConfigFlags.DockingEnable)
 
+-- Catppuccin Mocha, Mauve accent (https://catppuccin.com/palette)
+local function StyleColorsCatppuccinMocha(style)
+    local function hex(h, a)
+        return ImVec4(bit32.extract(h, 16, 8) / 255, bit32.extract(h, 8, 8) / 255, bit32.extract(h, 0, 8) / 255, a or 1.0)
+    end
+    local crust, mantle, base = 0x11111b, 0x181825, 0x1e1e2e
+    local surface0, surface1, surface2 = 0x313244, 0x45475a, 0x585b70
+    local overlay0, overlay2, text = 0x6c7086, 0x9399b2, 0xcdd6f4
+    local mauve, lavender = 0xcba6f7, 0xb4befe
+    local C, c = G.ImGuiCol, style.Colors
+    local function set(idx, h, a) c[idx] = hex(h, a) end
+    set(C.Text, text);                      set(C.TextDisabled, overlay0)
+    set(C.WindowBg, base);                  set(C.ChildBg, base, 0.0)
+    set(C.PopupBg, mantle, 0.98);           set(C.Border, surface1);          set(C.BorderShadow, crust, 0.0)
+    set(C.FrameBg, surface0);               set(C.FrameBgHovered, surface1);  set(C.FrameBgActive, surface2)
+    set(C.TitleBg, mantle);                 set(C.TitleBgActive, crust);      set(C.TitleBgCollapsed, mantle, 0.75)
+    set(C.MenuBarBg, mantle)
+    set(C.ScrollbarBg, mantle);             set(C.ScrollbarGrab, surface1)
+    set(C.ScrollbarGrabHovered, surface2);  set(C.ScrollbarGrabActive, overlay0)
+    set(C.CheckMark, mauve);                set(C.SliderGrab, mauve, 0.8);    set(C.SliderGrabActive, mauve)
+    set(C.Button, surface0);                set(C.ButtonHovered, surface1);   set(C.ButtonActive, mauve, 0.6)
+    set(C.Header, surface0);                set(C.HeaderHovered, surface1);   set(C.HeaderActive, mauve, 0.5)
+    set(C.Separator, surface1);             set(C.SeparatorHovered, mauve, 0.7); set(C.SeparatorActive, mauve)
+    set(C.ResizeGrip, mauve, 0.2);          set(C.ResizeGripHovered, mauve, 0.6); set(C.ResizeGripActive, mauve, 0.9)
+    set(C.InputTextCursor, text)
+    set(C.TabHovered, surface2);            set(C.Tab, surface0)
+    set(C.TabSelected, surface1);           set(C.TabSelectedOverline, mauve)
+    set(C.TabDimmed, mantle);               set(C.TabDimmedSelected, surface0); set(C.TabDimmedSelectedOverline, overlay0)
+    set(C.DockingPreview, mauve, 0.7);      set(C.DockingEmptyBg, crust)
+    set(C.PlotLines, overlay2);             set(C.PlotLinesHovered, mauve)
+    set(C.PlotHistogram, mauve, 0.8);       set(C.PlotHistogramHovered, lavender)
+    set(C.TableHeaderBg, surface0);         set(C.TableBorderStrong, surface1); set(C.TableBorderLight, surface0)
+    set(C.TableRowBg, base, 0.0);           set(C.TableRowBgAlt, surface0, 0.3)
+    set(C.TextLink, mauve);                 set(C.TextSelectedBg, mauve, 0.35)
+    set(C.TreeLines, surface2)
+    set(C.DragDropTarget, mauve, 0.9)
+    set(C.NavCursor, lavender);             set(C.NavWindowingHighlight, lavender, 0.7)
+    set(C.NavWindowingDimBg, crust, 0.5);   set(C.ModalWindowDimBg, crust, 0.6)
+end
+
 local style = ImGui.GetStyle()
+StyleColorsCatppuccinMocha(style)
 style:ScaleAllSizes(main_scale)
 style.FontScaleDpi = main_scale
+
+-- Fonts: ProggyClean stays the default (added first); the rest show up in Style Editor > Fonts
+io.Fonts:AddFontDefault()
+for _, name in ipairs({ "Cousine-Regular", "DroidSans", "Karla-Regular", "ProggyTiny", "Roboto-Medium" }) do
+    io.Fonts:AddFontFromFileTTF("resource/fonts/" .. name .. ".ttf", 13.0)
+end
 
 ImGui_ImplRoblox.Init(nil, render_scale)
 
