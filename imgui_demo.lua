@@ -1,7 +1,7 @@
 -- dear imgui demo (Luau port of imgui_demo.cpp). Optional: the library never calls into this file.
 
 do --[[ imgui_demo.lua ]]
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Demo Code) Port of imgui_demo.cpp (docking branch)
 -- This file: shared demo helpers, ShowDemoWindow(), DemoWindowMenuBar(), DemoWindowWidgets() dispatcher, example tree/image viewer helpers.
 -- Other parts (all global functions, loaded from the same bundle):
@@ -436,7 +436,7 @@ local function DemoWindowMenuBar(data)
                 ImGui.SetItemTooltip("Requires io.ConfigDebugIsDebuggerPresent=true to be set.\n\nWe otherwise disable some extra features to avoid casual users crashing the application.")
             end
             _, data.ShowStyleEditor = ImGui.MenuItem("Style Editor", nil, data.ShowStyleEditor)
-            _, data.ShowAbout = ImGui.MenuItem("About ImGui Sincerely", nil, data.ShowAbout)
+            _, data.ShowAbout = ImGui.MenuItem("About Dear ImGui", nil, data.ShowAbout)
 
             ImGui.EndMenu()
         end
@@ -698,7 +698,7 @@ function ImGui.ShowDemoWindow(p_open)
     if data.ShowAbout then RunApp(ImGui.ShowAboutWindow, "ShowAbout") end
     if data.ShowStyleEditor then
         local visible
-        data.ShowStyleEditor, visible = ImGui.Begin("ImGui Sincerely Style Editor", data.ShowStyleEditor)
+        data.ShowStyleEditor, visible = ImGui.Begin("Dear ImGui Style Editor", data.ShowStyleEditor)
         if visible then
             ImGui.ShowStyleEditor()
         end
@@ -728,7 +728,7 @@ function ImGui.ShowDemoWindow(p_open)
 
     -- Main body of the Demo window starts here.
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Demo", p_open, window_flags)
+    p_open, visible = ImGui.Begin("Dear ImGui Demo", p_open, window_flags)
     if no_close then p_open = nil end
     if not visible then
         -- Early out if the window is collapsed, as an optimization.
@@ -745,7 +745,7 @@ function ImGui.ShowDemoWindow(p_open)
     -- Menu Bar
     DemoWindowMenuBar(data)
 
-    ImGui.Text("ImGui Sincerely says hello! (%s) (%d)", IMGUI_VERSION or "WIP", IMGUI_VERSION_NUM or 0)
+    ImGui.Text("Dear ImGui says hello! (%s) (%d)", IMGUI_VERSION or "WIP", IMGUI_VERSION_NUM or 0)
     ImGui.Spacing()
 
     if ImGui.CollapsingHeader("Help") then
@@ -927,7 +927,7 @@ end
 end --[[ imgui_demo.lua ]]
 
 do --[[ imgui_demo_2.lua ]]
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Demo Code, part 2): DemoWindowLayout(), DemoWindowPopups(), DemoWindowTables(), DemoWindowColumns(),
 -- DemoWindowInputs() and all ShowExampleAppXXX() example apps.
 -- Port of imgui_demo.cpp (docking branch). Globals are shared with imgui_demo.lua (HelpMarker, ShowExampleMenuFile, ...)
@@ -7200,7 +7200,7 @@ local _
 local show_config_info = false
 function ImGui.ShowAboutWindow(p_open)
     local visible
-    p_open, visible = ImGui.Begin("About ImGui Sincerely", p_open, ImGuiWindowFlags.AlwaysAutoResize)
+    p_open, visible = ImGui.Begin("About Dear ImGui", p_open, ImGuiWindowFlags.AlwaysAutoResize)
     if not visible then ImGui.End(); return p_open end
     ImGui.Text("Dear ImGui %s (%d)", IMGUI_VERSION, IMGUI_VERSION_NUM)
     ImGui.TextLinkOpenURL("Homepage", "https://github.com/ocornut/imgui"); ImGui.SameLine()

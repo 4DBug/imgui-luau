@@ -1,4 +1,4 @@
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_textedit.h`
 
 -- ALL TABLES IN THIS FILE ARE 1-BASED!

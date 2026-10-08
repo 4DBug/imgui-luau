@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (internal structures/api)
 
 --- @meta

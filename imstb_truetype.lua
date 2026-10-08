@@ -1,4 +1,4 @@
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_truetype.h`
 
 --- STBTT_RASTERIZER_VERSION == 2
