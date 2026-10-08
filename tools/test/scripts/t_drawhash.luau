@@ -19,8 +19,8 @@ game:GetService("RunService").Stepped:Connect(function()
     ImGui.ShowDemoWindow(true)
     ImGui.Render()
     for _, dl in ImGui.GetDrawData().CmdLists:iter() do
-        local vd, id = dl.VtxBuffer.Data, dl.IdxBuffer.Data
-        for i = 1, dl.VtxBuffer.Size do local v = vd[i]; mix(v[1].x); mix(v[1].y); mix(v[2].x * 4096); mix(v[2].y * 4096); mix(v[3] / 64) end
+        local vb, id = dl.VtxBuffer.Buf, dl.IdxBuffer.Data
+        for i = 1, dl.VtxBuffer.Size do local o = (i - 1) * 36; mix(buffer.readf64(vb, o)); mix(buffer.readf64(vb, o + 8)); mix(buffer.readf64(vb, o + 16) * 4096); mix(buffer.readf64(vb, o + 24) * 4096); mix(buffer.readu32(vb, o + 32) / 64) end
         for i = 1, dl.IdxBuffer.Size do mix(id[i]) end
         for _, c in dl.CmdBuffer:iter() do mix(c.ClipRect.x); mix(c.ClipRect.y); mix(c.ClipRect.z); mix(c.ClipRect.w); mix(c.ElemCount) end
     end

@@ -6,6 +6,14 @@ FONT_ATLAS_DEFAULT_TEX_DATA_H = 27
 
 local IM_DRAWLIST_TEX_LINES_WIDTH_MAX = 32
 
+local writef64, writeu32, readf64, readu32 = buffer.writef64, buffer.writeu32, buffer.readf64, buffer.readu32
+-- Write vertex i (1-based) of a VtxBuffer.Buf
+local function WV(b, i, x, y, u, v, col)
+    local o = (i - 1) * 36
+    writef64(b, o, x); writef64(b, o + 8, y); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
+end
+local function WVP(b, i, p, uv, col) WV(b, i, p.x, p.y, uv.x, uv.y, col) end
+
 local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF
 local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE
 
@@ -321,28 +329,28 @@ function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx,
     local col_delta_b = bit32.band(bit32.rshift(col1, IM_COL32_B_SHIFT), 0xFF) - col0_b
 
     for vert_idx = vert_start_idx, vert_end_idx - 1 do
-        local vert = draw_list.VtxBuffer.Data[vert_idx]
-
-        local d = ImDot(vert[1] - gradient_p0, gradient_extent)
+        local vb = draw_list.VtxBuffer.Buf
+        local o = (vert_idx - 1) * 36
+        local d = (readf64(vb, o) - gradient_p0.x) * gradient_extent.x + (readf64(vb, o + 8) - gradient_p0.y) * gradient_extent.y
         local t = ImClamp(d * gradient_inv_length2, 0.0, 1.0)
 
         local r = math.floor(col0_r + col_delta_r * t)
         local g = math.floor(col0_g + col_delta_g * t)
         local b = math.floor(col0_b + col_delta_b * t)
 
-        vert[3] = bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(vert[3], IM_COL32_A_MASK))
+        writeu32(vb, o + 32, bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(readu32(vb, o + 32), IM_COL32_A_MASK)))
     end
 end
 
 -- Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
 function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, pivot_in, cos_a, sin_a, pivot_out)
-    local data = draw_list.VtxBuffer.Data
+    local data = draw_list.VtxBuffer.Buf
     local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
     for i = vert_start_idx, vert_end_idx - 1 do
-        local pos = data[i][1]
-        local x, y = pos.x - pix, pos.y - piy
-        pos.x = x * cos_a - y * sin_a + pox
-        pos.y = x * sin_a + y * cos_a + poy
+        local o = (i - 1) * 36
+        local x, y = readf64(data, o) - pix, readf64(data, o + 8) - piy
+        writef64(data, o, x * cos_a - y * sin_a + pox)
+        writef64(data, o + 8, x * sin_a + y * cos_a + poy)
     end
 end
 
@@ -364,18 +372,20 @@ function ImGui.ShadeVertsLinearUV(draw_list, vert_start_idx, vert_end_idx, a, b,
     )
 
     local vertex
-    local verts = draw_list.VtxBuffer.Data
+    local verts = draw_list.VtxBuffer.Buf
     if clamp then
         local min = ImMin(uv_a, uv_b)
         local max = ImMax(uv_a, uv_b)
         for vert_idx = vert_start_idx, vert_end_idx - 1 do
-            vertex = verts[vert_idx]
-            ImVec2_Copy(vertex[2], ImClamp(uv_a + ImMul(vertex[1] - a, scale), min, max))
+            local o = (vert_idx - 1) * 36
+            local uv = ImClamp(uv_a + ImMul(ImVec2(readf64(verts, o), readf64(verts, o + 8)) - a, scale), min, max)
+            writef64(verts, o + 16, uv.x); writef64(verts, o + 24, uv.y)
         end
     else
         for vert_idx = vert_start_idx, vert_end_idx - 1 do
-            vertex = verts[vert_idx]
-            ImVec2_Copy(vertex[2], uv_a + ImMul(vertex[1] - a, scale))
+            local o = (vert_idx - 1) * 36
+            local uv = uv_a + ImMul(ImVec2(readf64(verts, o), readf64(verts, o + 8)) - a, scale)
+            writef64(verts, o + 16, uv.x); writef64(verts, o + 24, uv.y)
         end
     end
 end
@@ -3588,7 +3598,7 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             i0 = i1
         end
 
-        local vtx_data = self.VtxBuffer.Data
+        local vtx_data = self.VtxBuffer.Buf
         i0 = points_count
         for i1 = 1, points_count do
             local n0 = temp_normals[i0]
@@ -3600,8 +3610,8 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             dm_y = dm_y * AA_SIZE * 0.5
 
             local vtx_write_ptr = self._VtxWritePtr
-            vtx_data[vtx_write_ptr + 0][1].x = points[i1].x - dm_x; vtx_data[vtx_write_ptr + 0][1].y = points[i1].y - dm_y; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv); vtx_data[vtx_write_ptr + 0][3] = col
-            vtx_data[vtx_write_ptr + 1][1].x = points[i1].x + dm_x; vtx_data[vtx_write_ptr + 1][1].y = points[i1].y + dm_y; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], uv); vtx_data[vtx_write_ptr + 1][3] = col_trans
+            WV(vtx_data, vtx_write_ptr + 0, points[i1].x - dm_x, points[i1].y - dm_y, uv.x, uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 1, points[i1].x + dm_x, points[i1].y + dm_y, uv.x, uv.y, col_trans)
             self._VtxWritePtr = vtx_write_ptr + 2
 
             local idx_write_ptr = self._IdxWritePtr
@@ -3617,10 +3627,10 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         local vtx_count = points_count
         self:PrimReserve(idx_count, vtx_count)
 
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i = 1, vtx_count do
             local vtx_write_ptr = self._VtxWritePtr
-            ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], points[i]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv); vtx_data[vtx_write_ptr + 0][3] = col
+            WVP(vtx_data, vtx_write_ptr + 0, points[i], uv, col)
             self._VtxWritePtr = vtx_write_ptr + 1
         end
         for i = 3, points_count do
@@ -3699,7 +3709,7 @@ function MT.ImDrawList:PrimRect(a, c, col)
     local uv = self._Data.TexUvWhitePixel
 
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -3711,21 +3721,11 @@ function MT.ImDrawList:PrimRect(a, c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], a)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv)
-    vtx_data[vtx_write_ptr + 0][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], uv)
-    vtx_data[vtx_write_ptr + 1][3] = col
-
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], c)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv)
-    vtx_data[vtx_write_ptr + 2][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], uv)
-    vtx_data[vtx_write_ptr + 3][3] = col
+    local ax, ay, cx, cy, u, v = a.x, a.y, c.x, c.y, uv.x, uv.y
+    WV(vtx_data, vtx_write_ptr + 0, ax, ay, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 1, cx, ay, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 2, cx, cy, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 3, ax, cy, u, v, col)
 
     self._VtxWritePtr = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
@@ -3739,7 +3739,7 @@ end
 --- @param col  any
 function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -3751,21 +3751,10 @@ function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], a)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv_a)
-    vtx_data[vtx_write_ptr + 0][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][2], uv_c.x, uv_a.y)
-    vtx_data[vtx_write_ptr + 1][3] = col
-
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], c)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv_c)
-    vtx_data[vtx_write_ptr + 2][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][2], uv_a.x, uv_c.y)
-    vtx_data[vtx_write_ptr + 3][3] = col
+    WV(vtx_data, vtx_write_ptr + 0, a.x, a.y, uv_a.x, uv_a.y, col)
+    WV(vtx_data, vtx_write_ptr + 1, c.x, a.y, uv_c.x, uv_a.y, col)
+    WV(vtx_data, vtx_write_ptr + 2, c.x, c.y, uv_c.x, uv_c.y, col)
+    WV(vtx_data, vtx_write_ptr + 3, a.x, c.y, uv_a.x, uv_c.y, col)
 
     self._VtxWritePtr   = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
@@ -3847,7 +3836,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
@@ -3893,17 +3882,17 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 local tex_uv1 = ImVec2(tex_uvs.z, tex_uvs.w)
                 for i = 0, points_count - 1 do
                     local vtx_write_ptr = self._VtxWritePtr
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], temp_points[temp_points_start + i * 2 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], tex_uv0); vtx_data[vtx_write_ptr + 0][3] = col
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 2 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], tex_uv1); vtx_data[vtx_write_ptr + 1][3] = col
+                    WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 2 + 0], tex_uv0, col)
+                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 1], tex_uv1, col)
                     self._VtxWritePtr = vtx_write_ptr + 2
                 end
             else
                 -- If we're not using a texture, we need the center vertex as well
                 for i = 0, points_count - 1 do
                     local vtx_write_ptr = self._VtxWritePtr
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], points[i + 1]);                              ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 2 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col_trans
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], temp_points[temp_points_start + i * 2 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col_trans
+                    WVP(vtx_data, vtx_write_ptr + 0, points[i + 1], opaque_uv, col)
+                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 0], opaque_uv, col_trans)
+                    WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 2 + 1], opaque_uv, col_trans)
                     self._VtxWritePtr = vtx_write_ptr + 3
                 end
             end
@@ -3926,7 +3915,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
@@ -3967,10 +3956,10 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Add vertices
             for i = 0, points_count - 1 do
                 local vtx_write_ptr = self._VtxWritePtr
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], temp_points[temp_points_start + i * 4 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col_trans
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 4 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], temp_points[temp_points_start + i * 4 + 2]); ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 3][1], temp_points[temp_points_start + i * 4 + 3]); ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col_trans
+                WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 4 + 0], opaque_uv, col_trans)
+                WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 4 + 1], opaque_uv, col)
+                WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 4 + 2], opaque_uv, col)
+                WVP(vtx_data, vtx_write_ptr + 3, temp_points[temp_points_start + i * 4 + 3], opaque_uv, col_trans)
                 self._VtxWritePtr = vtx_write_ptr + 4
             end
         end
@@ -3981,7 +3970,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
         local vtx_count = count * 4
         self:PrimReserve(idx_count, vtx_count)
 
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i1 = 1, count do
             local i2 = (i1 == points_count) and 1 or i1 + 1
             local p1 = points[i1]
@@ -3994,10 +3983,10 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             dy = dy * (thickness * 0.5)
 
             local vtx_write_ptr = self._VtxWritePtr
-            vtx_data[vtx_write_ptr + 0][1].x = p1.x + dy; vtx_data[vtx_write_ptr + 0][1].y = p1.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
-            vtx_data[vtx_write_ptr + 1][1].x = p2.x + dy; vtx_data[vtx_write_ptr + 1][1].y = p2.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
-            vtx_data[vtx_write_ptr + 2][1].x = p2.x - dy; vtx_data[vtx_write_ptr + 2][1].y = p2.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
-            vtx_data[vtx_write_ptr + 3][1].x = p1.x - dy; vtx_data[vtx_write_ptr + 3][1].y = p1.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col
+            WV(vtx_data, vtx_write_ptr + 0, p1.x + dy, p1.y - dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 1, p2.x + dy, p2.y - dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 2, p2.x - dy, p2.y + dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 3, p1.x - dy, p1.y + dx, opaque_uv.x, opaque_uv.y, col)
             self._VtxWritePtr = vtx_write_ptr + 4
 
             local idx_write_ptr = self._IdxWritePtr
@@ -4647,7 +4636,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     local cmd_count = draw_list.CmdBuffer.Size
     local cpu_fine_clip = bit32.band(flags, ImDrawTextFlags.CpuFineClip) ~= 0
 
-    local idx_data = draw_list.IdxBuffer.Data; local vtx_data = draw_list.VtxBuffer.Data
+    local idx_data = draw_list.IdxBuffer.Data; local vtx_data = draw_list.VtxBuffer.Buf
 
     local color_untinted = bit32.bor(col, bit32.bnot(IM_COL32_A_MASK))
 
@@ -4750,10 +4739,11 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                 local glyph_col = glyph.Colored and color_untinted or col
 
                 do
-                    local vtx0 = vtx_data[vtx_write + 0]; vtx0[1].x = x1; vtx0[1].y = y1; vtx0[3] = glyph_col; vtx0[2].x = u1; vtx0[2].y = v1;
-                    local vtx1 = vtx_data[vtx_write + 1]; vtx1[1].x = x2; vtx1[1].y = y1; vtx1[3] = glyph_col; vtx1[2].x = u2; vtx1[2].y = v1;
-                    local vtx2 = vtx_data[vtx_write + 2]; vtx2[1].x = x2; vtx2[1].y = y2; vtx2[3] = glyph_col; vtx2[2].x = u2; vtx2[2].y = v2;
-                    local vtx3 = vtx_data[vtx_write + 3]; vtx3[1].x = x1; vtx3[1].y = y2; vtx3[3] = glyph_col; vtx3[2].x = u1; vtx3[2].y = v2;
+                    local o = (vtx_write - 1) * 36
+                    writef64(vtx_data, o, x1); writef64(vtx_data, o + 8, y1); writef64(vtx_data, o + 16, u1); writef64(vtx_data, o + 24, v1); writeu32(vtx_data, o + 32, glyph_col)
+                    writef64(vtx_data, o + 36, x2); writef64(vtx_data, o + 44, y1); writef64(vtx_data, o + 52, u2); writef64(vtx_data, o + 60, v1); writeu32(vtx_data, o + 68, glyph_col)
+                    writef64(vtx_data, o + 72, x2); writef64(vtx_data, o + 80, y2); writef64(vtx_data, o + 88, u2); writef64(vtx_data, o + 96, v2); writeu32(vtx_data, o + 104, glyph_col)
+                    writef64(vtx_data, o + 108, x1); writef64(vtx_data, o + 116, y2); writef64(vtx_data, o + 124, u1); writef64(vtx_data, o + 132, v2); writeu32(vtx_data, o + 140, glyph_col)
                     idx_data[idx_write + 0] = vtx_index; idx_data[idx_write + 1] = vtx_index + 1; idx_data[idx_write + 2] = vtx_index + 2;
                     idx_data[idx_write + 3] = vtx_index; idx_data[idx_write + 4] = vtx_index + 2; idx_data[idx_write + 5] = vtx_index + 3;
                     vtx_write = vtx_write + 4
