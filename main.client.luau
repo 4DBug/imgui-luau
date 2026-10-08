@@ -74,10 +74,17 @@ for _, name in ipairs({ "Cousine-Regular", "DroidSans", "Karla-Regular", "Proggy
 end
 
 ImGui_ImplRoblox.Init(nil, render_scale)
+ImGui_ImplRoblox.SetRenderRate(60) -- tile redraws per second; imgui logic + your code still run every frame
+ImGui_ImplRoblox.SetProfiling(true) -- MicroProfiler (Ctrl+F6) labels; turn off when not profiling
+
+local function P(name) if ImGui_ImplRoblox.IsProfiling() then debug.profilebegin(name) end end
+local function PE() if ImGui_ImplRoblox.IsProfiling() then debug.profileend() end end
 
 RunService.Stepped:Connect(function()
+    P("ImGui frame")
     ImGui_ImplRoblox.NewFrame()
-    ImGui.NewFrame()
+    P("ImGui.NewFrame"); ImGui.NewFrame(); PE()
+    P("ImGui UI")
 
     -- Dockspace covering the whole screen; the centre stays transparent so the game shows through
     ImGui.DockSpaceOverViewport(0, nil, G.ImGuiDockNodeFlags.PassthruCentralNode)
@@ -119,7 +126,8 @@ RunService.Stepped:Connect(function()
         ImGui.End()
     end
 
-    ImGui.EndFrame()
-    ImGui.Render()
+    PE()
+    P("ImGui.Render"); ImGui.EndFrame(); ImGui.Render(); PE()
     ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
+    PE()
 end)

@@ -1,3 +1,4 @@
+debug = setmetatable({ profilebegin = function() end, profileend = function() end }, { __index = debug })
 -- Minimal Roblox mock for running the imgui Roblox backend + the real CanvasDraw module in the Luau CLI.
 local realG = {} -- (no getfenv: it would mark the global env unsafe and deoptimize everything)
 FAKE_TIME = 0
