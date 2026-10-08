@@ -70,7 +70,7 @@ style.FontScaleDpi = main_scale
 -- Fonts: ProggyClean stays the default (added first); the rest show up in Style Editor > Fonts
 io.Fonts:AddFontDefault()
 for _, name in ipairs({ "Cousine-Regular", "DroidSans", "Karla-Regular", "ProggyTiny", "Roboto-Medium" }) do
-    io.Fonts:AddFontFromFileTTF("resource/fonts/" .. name .. ".ttf", 13.0)
+    io.Fonts:AddFontFromFileTTF("fonts/" .. name .. ".ttf", 13.0)
 end
 
 ImGui_ImplRoblox.Init(nil, render_scale)

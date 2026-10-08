@@ -6,8 +6,13 @@ there, but keep this port's existing data structures and conventions. Read the s
 ## Runtime
 - Target is **Luau (Roblox)** only. All files are concatenated into one ModuleScript by `tools/bundle.py`; every
   file shares one global namespace. Globals defined by one file are visible to the others at call time.
-- Each `imgui/*.lua` file is a function body in the bundle. New files must be loaded with `IM_INCLUDE"file.lua"`
-  from an existing file (files named `imgui_demo*.lua` are loaded automatically, after `imgui.lua`).
+- Layout mirrors upstream: library at the repo root (`imgui.lua` incl. docking, drag & drop and the debug tools,
+  `imgui_widgets.lua` incl. tab bars, `imgui_draw.lua`, `imgui_tables.lua`, `imgui_internal.lua`, `imgui_h.lua`,
+  `imstb_*.lua`), demo in `imgui_demo.lua` only, backend in `backends/`, fonts in `fonts/`, the example LocalScript in
+  `examples/example_roblox/`. The library must never call into `imgui_demo.lua` (`tools/bundle.py --no-demo`,
+  `tools/test/undefined.py --no-demo`, `NO_DEMO=1 run.py --main tools/test/scripts/t_nodemo.luau`).
+- Each `.lua` file is a function body in the bundle. New files must be loaded with `IM_INCLUDE"file.lua"` from an
+  existing file. Merged-in sections are wrapped in `do ... end` so their locals stay private.
 - No `goto`, no `::labels::`, no `setfenv/getfenv`, no LuaJIT `bit`/`ffi`. Use `bit32`. For `continue` use
   `repeat ... until true` with `break`, and an explicit flag when the loop itself must break out of the wrapper.
 - Luau has a limit of 200 locals per function and 255 upvalues; split huge functions (like demo sections) into
@@ -17,7 +22,7 @@ there, but keep this port's existing data structures and conventions. Read the s
 - `ImVector`: 1-based `.Data`, `.Size`, methods `push_back/pop_back/resize/back/iter/erase/...` (imgui_h.lua).
   Indices that C++ stores as 0-based *values* (e.g. column index, tab order) stay 0-based unless the surrounding
   port code already shifted them; document `-- 0-based` / `-- 1-based` next to anything ambiguous.
-- `ImVec2(x, y)` stores `[1],[2]` with `.x/.y` aliases (metatable). Arithmetic operators exist. Prefer
+- `ImVec2(x, y)` stores named fields `.x/.y` (`[1],[2]` go through the metatable, slower). Arithmetic operators exist. Prefer
   `ImVec2_Copy(dst, src)` / `ImVec2_CopyV(dst, x, y)` when C++ assigns into an existing struct field.
   `ImVec4`, `ImRect` (`.Min/.Max`) likewise.
 - Structs: constructor function `ImGuiFoo()` returning a table, methods on `MT.ImGuiFoo` with
@@ -42,8 +47,8 @@ there, but keep this port's existing data structures and conventions. Read the s
   widgets that cannot work.
 
 ## Testing
-- `python3 tools/test/run.py` — runs main.client.luau 400 frames with scripted random input (mouse, clicks,
-  keys, typing). Errors print with `imgui/<file>.lua:<line>` mapped stack traces.
+- `python3 tools/test/run.py` — runs examples/example_roblox/main.client.luau 400 frames with scripted random input (mouse, clicks,
+  keys, typing). Errors print with `<file>.lua:<line>` mapped stack traces.
 - `--open` forces every CollapsingHeader/TreeNode open (exercises the whole demo). `--big` makes the demo
   incremental renderer is pixel identical to a full redraw. `--main file.luau` runs your own test LocalScript
   (copy main.client.luau as a template: `local G = require(ReplicatedStorage:WaitForChild("ImGui"))`, all
