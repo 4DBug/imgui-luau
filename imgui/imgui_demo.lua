@@ -887,4 +887,48 @@ function DemoWindowWidgets(data)
     end
 end
 
+----------------------------------------------------------------
+-- [SECTION] User Guide / ShowUserGuide()
+----------------------------------------------------------------
+
+function ImGui.ShowUserGuide()
+    local io = ImGui.GetIO()
+    ImGui.BulletText("Double-click on title bar to collapse window.")
+    ImGui.BulletText(
+        "Click and drag on lower corner or border to resize window.\n" ..
+        "(double-click to auto fit window to its contents)")
+    ImGui.BulletText("Ctrl+Click on a slider or drag box to input value as text.")
+    ImGui.BulletText("Tab/Shift+Tab to cycle through keyboard editable fields.")
+    ImGui.BulletText("Ctrl+Tab/Ctrl+Shift+Tab to focus windows.")
+    if io.FontAllowUserScaling then
+        ImGui.BulletText("Ctrl+Mouse Wheel to zoom window contents.")
+    end
+    ImGui.BulletText("While inputting text:\n")
+    ImGui.Indent()
+    ImGui.BulletText("Ctrl+Left/Right to word jump.")
+    ImGui.BulletText("Ctrl+A or double-click to select all.")
+    ImGui.BulletText("Ctrl+X/C/V to use clipboard cut/copy/paste.")
+    ImGui.BulletText("Ctrl+Z to undo, Ctrl+Y/Ctrl+Shift+Z to redo.")
+    ImGui.BulletText("Escape to revert.")
+    ImGui.Unindent()
+    ImGui.BulletText("With Keyboard controls enabled:")
+    ImGui.Indent()
+    ImGui.BulletText("Arrow keys or Home/End/PageUp/PageDown to navigate.")
+    ImGui.BulletText("Space to activate a widget.")
+    ImGui.BulletText("Return to input text into a widget.")
+    ImGui.BulletText("Escape to deactivate a widget, close popup,\nexit a child window or the menu layer, clear focus.")
+    ImGui.BulletText("Alt to jump to the menu layer of a window.")
+    ImGui.BulletText("Menu or Shift+F10 to open a context menu.")
+    ImGui.Unindent()
+    ImGui.BulletText("With Gamepad controls enabled:")
+    ImGui.Indent()
+    ImGui.BulletText("D-Pad: Navigate / Tweak / Resize (in Windowing mode).")
+    ImGui.BulletText("%s Face button: Activate / Open / Toggle. Hold: activate with text input.", io.ConfigNavSwapGamepadButtons and "East" or "South")
+    ImGui.BulletText("%s Face button: Cancel / Close / Exit.", io.ConfigNavSwapGamepadButtons and "South" or "East")
+    ImGui.BulletText("West Face button: Toggle Menu. Hold for Windowing mode (Focus/Move/Resize windows).")
+    ImGui.BulletText("North Face button: Open Context Menu.")
+    ImGui.BulletText("L1/R1: Tweak Slower/Faster, Focus Previous/Next (in Windowing Mode).")
+    ImGui.Unindent()
+end
+
 return true -- [Roblox] ModuleScripts must return exactly one value

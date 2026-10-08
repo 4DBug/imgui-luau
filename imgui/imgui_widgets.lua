@@ -6807,6 +6807,22 @@ end
 -- [SECTION] TREES
 ----------------------------------------------------------------
 
+-- va_list variants: identical in Lua (varargs)
+ImGui.TextColoredV = function(...) return ImGui.TextColored(...) end
+ImGui.TextDisabledV = function(...) return ImGui.TextDisabled(...) end
+ImGui.TextWrappedV = function(...) return ImGui.TextWrapped(...) end
+ImGui.TextAlignedV = function(...) return ImGui.TextAligned(...) end
+ImGui.LabelTextV = function(...) return ImGui.LabelText(...) end
+ImGui.BulletTextV = function(...) return ImGui.BulletText(...) end
+
+--- @param data_type ImGuiDataType
+--- @param v         number
+function ImGui.SetNextItemRefVal(data_type, v)
+    local g = GImGui
+    g.NextItemData.HasFlags = bit32.bor(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasRefVal)
+    g.NextItemData.RefVal = v
+end
+
 -- Overloads: TreeNode(label) / TreeNode(str_id, fmt, ...)
 --- @param label string
 function ImGui.TreeNode(label, fmt, ...)
