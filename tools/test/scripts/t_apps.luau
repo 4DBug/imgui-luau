@@ -14,6 +14,7 @@ local frame = 0
 game:GetService("RunService").Stepped:Connect(function()
     frame += 1
     G.ImGui_ImplRoblox.NewFrame(); ImGui.NewFrame()
+    if frame == 2 then local c = ImGui.GetCurrentContext().DebugMetricsConfig; c.ShowWindowsRects = true; c.ShowWindowsBeginOrder = true; c.ShowTablesRects = true; c.ShowTablesRectsType = 6; c.ShowTextEncodingViewer = true end
     for _, n in ipairs(names) do
         local fn = G[n]
         if fn then if open[n] == nil then open[n] = true end; if open[n] then open[n] = fn(open[n]) end

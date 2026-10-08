@@ -1123,6 +1123,7 @@ function ImGuiIO()
         WantTextInput       = nil,
 
         Framerate = 0,
+        MetricsRenderVertices = 0, MetricsRenderIndices = 0, MetricsRenderWindows = 0, MetricsActiveWindows = 0,
 
         NavActive = false,
         NavVisible = false,

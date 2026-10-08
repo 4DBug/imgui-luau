@@ -12669,7 +12669,7 @@ function ImGui.DebugRenderViewportThumbnail(draw_list, viewport, bb)
     end
 end
 
-local function RenderViewportsThumbnails()
+function ImGui.RenderViewportsThumbnails()
     local g = GImGui
     local window = g.CurrentWindow
 
@@ -12694,53 +12694,6 @@ local function RenderViewportsThumbnails()
     ImGui.Dummy(bb_full:GetSize() * SCALE)
 end
 
--- TODO:
---- @param open bool?
-function ImGui.ShowMetricsWindow(open)
-    local g = GImGui
-
-    local ret
-    open, ret = ImGui.Begin("ImGui Sincerely Metrics/Debugger", open)
-    if not ret or ImGui.GetCurrentWindow().BeginCount > 1 then
-        ImGui.End()
-        return open
-    end
-
-    if ImGui.TreeNode(string.format("Viewports (%d)", g.Viewports.Size)) then
-        -- ImGui.SetNextItemOpen(true, ImGuiCond.Once)
-        if ImGui.TreeNode("Windows Minimap") then
-            RenderViewportsThumbnails()
-            ImGui.TreePop()
-        end
-
-        ImGui.TreePop()
-    end
-
-    if ImGui.TreeNode("Memory allocations") then
-        local info = g.DebugAllocInfo
-        ImGui.Text("%d current allocations", info.TotalAllocCount - info.TotalFreeCount)
-        ImGui.Text("Releasing selected unused buffers after: %.2f secs", g.IO.ConfigMemoryCompactTimer)
-        if ImGui.SmallButton("GC now") then
-            g.GcCompactAll = true
-        end
-        ImGui.Text("Recent frames with allocations:")
-        local buf_size = #info.LastEntriesBuf
-        for n = buf_size, 1, -1 do
-            local idx = (info.LastEntriesIdx - n + buf_size) % buf_size + 1
-            local entry = info.LastEntriesBuf[idx]
-            ImGui.BulletText("Frame %06d: %+3d ( %2d alloc, %2d free )", entry.FrameCount, entry.AllocCount - entry.FreeCount, entry.AllocCount, entry.FreeCount)
-            if n == 0 then
-                ImGui.SameLine()
-                ImGui.Text("<- %d frames ago", g.FrameCount - entry.FrameCount)
-            end
-        end
-
-        ImGui.TreePop()
-    end
-
-    ImGui.End()
-    return open
-end
 
 
 
