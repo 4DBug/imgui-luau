@@ -28289,7 +28289,25 @@ end
 --- @param flags             ImDrawTextFlags
 --- @return ImVec2 text_size
 --- @return int    remaining
+local TEXT_SIZE_CACHE_MAX = 4096
+
 function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
+    -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
+    local cache_key = nil
+    if text_begin == 1 and out_offset == nil and wrap_width <= 0.0 and max_width >= FLT_MAX and type(text) == "string"
+        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+        local baked = font:GetFontBaked(size)
+        local cache = baked._TextSizeCache
+        if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
+            cache = {}; baked._TextSizeCache = cache; baked._TextSizeCacheN = 0
+        end
+        local e = cache[text]
+        if e then
+            return ImVec2(e[1] * (size / baked.Size), e[2] * size), #text + 1
+        end
+        cache_key = text
+    end
     if not text_end then
         text_end = #text + 1
     end
@@ -28388,6 +28406,11 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     end
 
     local out_remaining = s
+
+    if cache_key then
+        baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
+        baked._TextSizeCacheN += 1
+    end
 
     return text_size, out_remaining
 end
@@ -29735,6 +29758,17 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?")
 
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+    -- [Luau] square corners + whole-pixel thickness: 4 filled rects instead of a stroked path (same pixels, far cheaper here)
+    if (rounding == nil or rounding < 0.5 or bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone)
+        and thickness >= 1.0 and thickness % 1 == 0 and p_max.x - p_min.x > 2 * thickness and p_max.y - p_min.y > 2 * thickness then
+        local x0, y0, x1, y1, t = p_min.x, p_min.y, p_max.x, p_max.y, thickness
+        self:PrimReserve(24, 16)
+        self:PrimRect(ImVec2(x0, y0), ImVec2(x1, y0 + t), col)
+        self:PrimRect(ImVec2(x0, y1 - t), ImVec2(x1, y1), col)
+        self:PrimRect(ImVec2(x0, y0 + t), ImVec2(x0 + t, y1 - t), col)
+        self:PrimRect(ImVec2(x1 - t, y0 + t), ImVec2(x1, y1 - t), col)
         return
     end
     if bit32.band(self.Flags, ImDrawListFlags.AntiAliasedLines) ~= 0 then
