@@ -416,36 +416,28 @@ local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
     end
 end
 
--- Quads emitted by PrimRect/PrimRectUV/RenderText use indices (a, b, c, a, c, d) with a=TL, b=TR, c=BR, d=BL.
--- When such a quad is axis aligned with one colour it is drawn with the much cheaper DrawRect.
-@native
-local function TryDrawRect(va, vb, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
-    local pa, pb, pc, pd = va[1], vb[1], vc[1], vd[1]
-    if not (pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y) then return false end
-    local col = va[3]
-    if vb[3] ~= col or vc[3] ~= col or vd[3] ~= col then return false end
-    local ta, tb, tc, td = va[2], vb[2], vc[2], vd[2]
-    if not (tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y) then return false end
-    DrawRect(pa.x - ox, pa.y - oy, pc.x - ox, pc.y - oy, ta.x, ta.y, tc.x, tc.y, col, t, cx0, cy0, cx1, cy1)
-    return true
-end
-
--- Tiles: the screen is covered by TILE x TILE EditableImages (one ImageLabel each). Every frame each primitive
--- (triangle, or axis aligned quad) is hashed into the tiles it touches; only tiles whose hash changed are
--- re-rasterized and uploaded. Static UI therefore costs ~nothing to draw, and the result is pixel-identical to a
--- full redraw (the hash covers everything that affects a tile's pixels: geometry, uv, colour, texture, clip, order).
+-- Layers: every ImDrawList (one per top level window, popup, tooltip, plus the viewport bg/fg lists) gets its own
+-- Frame, stacked by draw order. A layer is covered by TILE x TILE EditableImages (one ImageLabel each) placed
+-- relative to the layer's origin (top-left of its content). Primitives are hashed into tiles in layer-relative
+-- coordinates, so moving a window only moves its Frame: no tile changes, nothing re-rasterized or uploaded.
+-- Only tiles whose hash changed are redrawn; the hash covers everything that affects a tile's pixels.
 local TILE = 256
 TILE_SIZE = Vector2.new(TILE, TILE)
 local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile (collision odds ~2^-62)
+local KEY_W = 64 -- tile key = ty * KEY_W + tx (layers up to 16384 px wide)
+local CLIP_PAD = 2048 -- content up to this far off screen is kept, so dragging a window past the edge doesn't redraw it
+local LAYER_KEEP_FRAMES = 120 -- unused layers are destroyed after this many rendered frames
 
 -- Primitive arrays (reused between frames, no per-frame allocation)
-local pr_a, pr_b, pr_c, pr_d, pr_t = {}, {}, {}, {}, {} -- vertices (pr_d == false -> triangle), texture
+local pr_a, pr_b, pr_c, pr_d, pr_t, pr_g = {}, {}, {}, {}, {}, {} -- vertices (pr_d == false -> triangle), texture, gradient kind
 local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
+local pr_bx0, pr_by0, pr_bx1, pr_by1 = {}, {}, {}, {}  -- clipped bounds (screen pixels)
+local pr_tex = {}                                      -- texture id
 
 @native
-local function HashVertex(h1, h2, v)
+local function HashVertex(h1, h2, v, ox, oy)
     local p, u, c = v[1], v[2], v[3]
-    local x, y = p.x, p.y
+    local x, y = p.x - ox, p.y - oy
     local uv = u.x * 8192 + u.y
     h1 = (h1 * 48271 + x * 4096 + y) % P1
     h1 = (h1 * 48271 + uv * 4096) % P1
@@ -456,13 +448,76 @@ local function HashVertex(h1, h2, v)
     return h1, h2
 end
 
-local function GetTile(bd, index, tx, ty)
-    local tile = bd.Tiles[index]
+-- Axis aligned quad with a linear colour gradient and constant uv (ColorPicker hue/SV/alpha bars, AddRectFilledMultiColor).
+-- kind 1: colour varies along y (ca top, cb bottom), kind 2: along x (ca left, cb right). Same pixels as the two triangles.
+@native
+local function DrawRectGradient(x0, y0, x1, y1, ca, cb, kind, t, u, v, cx0, cy0, cx1, cy1)
+    local px0, py0 = max(ceil(x0 - 0.5), cx0), max(ceil(y0 - 0.5), cy0)
+    local px1, py1 = min(ceil(x1 - 0.5), cx1), min(ceil(y1 - 0.5), cy1)
+    if px0 >= px1 or py0 >= py1 then return end
+    local ra, ga, ba, aa = UnpackColor(ca)
+    local rb, gb, bb, ab = UnpackColor(cb)
+    if t then
+        local tr, tg, tb, ta = SampleTexture(t, u, v)
+        ra, ga, ba, aa = ra * tr / 255, ga * tg / 255, ba * tb / 255, aa * ta / 255
+        rb, gb, bb, ab = rb * tr / 255, gb * tg / 255, bb * tb / 255, ab * ta / 255
+    end
+    if kind == 1 then
+        local inv = 1 / (y1 - y0)
+        for y = py0, py1 - 1 do
+            local f = (y + 0.5 - y0) * inv
+            local nf = 1 - f
+            FillSpan(y, px0, px1, ra * nf + rb * f, ga * nf + gb * f, ba * nf + bb * f, aa * nf + ab * f)
+        end
+    else
+        -- Every row gets the same colours: when a row's destination equals the previous row's, copy its result
+        local inv = 1 / (x1 - x0)
+        local len = (px1 - px0) * 4
+        local opaque = aa >= 255 and ab >= 255
+        local prev_dst, prev_o = nil, 0
+        for y = py0, py1 - 1 do
+            local o = (y * buf_w + px0) * 4
+            local dst = (not opaque) and readstring(buf, o, len) or true
+            if prev_dst ~= nil and dst == prev_dst then
+                buffer.copy(buf, o, buf, prev_o, len)
+            else
+                local oo = o
+                for x = px0, px1 - 1 do
+                    local f = (x + 0.5 - x0) * inv
+                    local nf = 1 - f
+                    BlendPixel(oo, ra * nf + rb * f, ga * nf + gb * f, ba * nf + bb * f, aa * nf + ab * f)
+                    oo = oo + 4
+                end
+                prev_dst = dst
+            end
+            prev_o = o
+        end
+    end
+end
+
+local function GetLayer(bd, draw_list)
+    local layer = bd.Layers[draw_list]
+    if layer then return layer end
+    local frame = Instance.new("Frame")
+    frame.Name = "Layer"
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.Size = UDim2.fromOffset(0, 0)
+    frame.Visible = false
+    frame.Parent = bd.Gui
+    layer = { Frame = frame, Tiles = {}, TH1 = {}, TH2 = {}, TN = {}, TL = {}, Touched = {}, NTouched = 0,
+              Visible = false, X = false, Y = false, Z = -1, LastUsed = 0 }
+    bd.Layers[draw_list] = layer
+    return layer
+end
+
+local function GetTile(bd, layer, key, tx, ty)
+    local tile = layer.Tiles[key]
     if tile then return tile end
     local img = AssetService:CreateEditableImage({ Size = Vector2.new(TILE, TILE) })
     assert(img, "imgui_impl_roblox: EditableImage memory budget exceeded")
     local label = Instance.new("ImageLabel")
-    label.Name = "Tile" .. index
+    label.Name = "Tile" .. key
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
     local scale = bd.Scale
@@ -472,15 +527,20 @@ local function GetTile(bd, index, tx, ty)
     label.ImageContent = Content.fromObject(img)
     label.Visible = false
     label.Active = bd.TilesActive
-    label.Parent = bd.Gui
+    label.Parent = layer.Frame
     tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false }
-    bd.Tiles[index] = tile
+    layer.Tiles[key] = tile
     return tile
 end
 
+local function DestroyLayer(layer)
+    for _, tile in pairs(layer.Tiles) do tile.Image:Destroy() end
+    layer.Frame:Destroy()
+end
+
 local function DestroyTiles(bd)
-    for _, tile in pairs(bd.Tiles) do tile.Label:Destroy(); tile.Image:Destroy() end
-    bd.Tiles = {}
+    for _, layer in pairs(bd.Layers) do DestroyLayer(layer) end
+    bd.Layers = {}
 end
 
 -- MicroProfiler labels, enabled with ImGui_ImplRoblox.SetProfiling(true)
@@ -514,56 +574,56 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
 
     local sw, sh = floor(draw_data.DisplaySize.x), floor(draw_data.DisplaySize.y)
     if sw <= 0 or sh <= 0 then PE(); return end
-    local cols, rows = ceil(sw / TILE), ceil(sh / TILE)
-    if cols ~= bd.TileCols or rows ~= bd.TileRows then
-        DestroyTiles(bd)
-        bd.TileCols, bd.TileRows = cols, rows
-    end
-    local ntiles = cols * rows
     local ox, oy = draw_data.DisplayPos.x, draw_data.DisplayPos.y
+    local lim_x0, lim_y0, lim_x1, lim_y1 = -CLIP_PAD, -CLIP_PAD, sw + CLIP_PAD, sh + CLIP_PAD
+    bd.FrameNo += 1
+    local frame_no = bd.FrameNo
+    local force = bd.ForceRedraw
+    bd.ForceRedraw = false
+    local scale = bd.Scale
 
-    -- Per tile: hashes and the list of primitives touching it
-    local th1, th2, tn, tl = bd.TH1, bd.TH2, bd.TN, bd.TL
-    for t = 0, ntiles - 1 do
-        th1[t], th2[t], tn[t] = 0, 0, 0
-        if not tl[t] then tl[t] = {} end
-    end
-
-    -- Pass 1: collect primitives, hash them into tiles
-    PB("ImGui tile hash")
     local n = 0
+    local z = 0
     for _, draw_list in draw_data.CmdLists:iter() do
+        -- Pass 1: collect this list's primitives and their bounds
+        PB("ImGui collect")
+        local first = n + 1
+        local lx0, ly0 = math.huge, math.huge
         local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
         for _, pcmd in draw_list.CmdBuffer:iter() do
             if pcmd.UserCallback ~= nil then
                 pcmd.UserCallback(draw_list, pcmd)
             elseif pcmd.ElemCount > 0 then
                 local clip = pcmd.ClipRect
-                local cx0, cy0 = max(floor(clip.x - ox), 0), max(floor(clip.y - oy), 0)
-                local cx1, cy1 = min(floor(clip.z - ox), sw), min(floor(clip.w - oy), sh)
+                local cx0, cy0 = max(floor(clip.x - ox), lim_x0), max(floor(clip.y - oy), lim_y0)
+                local cx1, cy1 = min(floor(clip.z - ox), lim_x1), min(floor(clip.w - oy), lim_y1)
                 if cx1 > cx0 and cy1 > cy0 then
                     local tex_id = pcmd:GetTexID()
                     local t = bd.Textures[tex_id]
-                    local ch1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
-                    local ch2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
                     local vo = pcmd.VtxOffset
                     local i, last = pcmd.IdxOffset + 1, pcmd.IdxOffset + pcmd.ElemCount
                     while i <= last do
                         local ia, ic = idx[i], idx[i + 2]
                         local va, vb, vc = vtx[vo + ia], vtx[vo + idx[i + 1]], vtx[vo + ic]
                         local vd = false
+                        local gk = false
                         local pa, pb, pc = va[1], vb[1], vc[1]
                         local bx0, by0, bx1, by1
                         if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic then
                             local d = vtx[vo + idx[i + 5]]
                             local pd = d[1]
-                            -- axis aligned quad (TL, TR, BR, BL) with one colour and a matching uv rect
+                            -- axis aligned quad (TL, TR, BR, BL)
                             if pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y then
                                 local col = va[3]
                                 local ta, tb, tc, td = va[2], vb[2], vc[2], d[2]
-                                if vb[3] == col and vc[3] == col and d[3] == col
-                                    and tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y then
-                                    vd = d
+                                if vb[3] == col and vc[3] == col and d[3] == col then
+                                    if tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y then vd = d end
+                                elseif ta.x == tb.x and ta.x == tc.x and ta.x == td.x and ta.y == tb.y and ta.y == tc.y and ta.y == td.y then
+                                    -- constant uv, linear gradient: vertical (top/bottom pairs equal) or horizontal (left/right pairs equal)
+                                    if vb[3] == col and d[3] == vc[3] then vd = d; gk = 1
+                                    elseif d[3] == col and vb[3] == vc[3] then vd = d; gk = 2 end
+                                end
+                                if vd then
                                     bx0, by0 = ceil(pa.x - ox - 0.5), ceil(pa.y - oy - 0.5)
                                     bx1, by1 = ceil(pc.x - ox - 0.5), ceil(pc.y - oy - 0.5)
                                 end
@@ -582,55 +642,93 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         if by1 > cy1 then by1 = cy1 end
                         if bx0 < bx1 and by0 < by1 then
                             n = n + 1
-                            pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n] = va, vb, vc, vd, t
+                            pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n], pr_g[n], pr_tex[n] = va, vb, vc, vd, t, gk, tex_id
                             pr_cx0[n], pr_cy0[n], pr_cx1[n], pr_cy1[n] = cx0, cy0, cx1, cy1
-                            local h1, h2 = HashVertex(ch1, ch2, va)
-                            h1, h2 = HashVertex(h1, h2, vb)
-                            h1, h2 = HashVertex(h1, h2, vc)
-                            if vd then h1, h2 = HashVertex(h1, h2, vd) end
-                            for ty = floor(by0 / TILE), floor((by1 - 1) / TILE) do
-                                for tx = floor(bx0 / TILE), floor((bx1 - 1) / TILE) do
-                                    local ti = ty * cols + tx
-                                    local k = tn[ti] + 1
-                                    tn[ti] = k
-                                    tl[ti][k] = n
-                                    th1[ti] = (th1[ti] * 48271 + h1) % P1
-                                    th2[ti] = (th2[ti] * 16807 + h2 + k) % P2
-                                end
-                            end
+                            pr_bx0[n], pr_by0[n], pr_bx1[n], pr_by1[n] = bx0, by0, bx1, by1
+                            if bx0 < lx0 then lx0 = bx0 end
+                            if by0 < ly0 then ly0 = by0 end
                         end
                     end
                 end
             end
         end
-    end
+        PE()
 
-    PE()
-
-    -- Pass 2: redraw + upload changed tiles
-    PB("ImGui raster+upload")
-    local force = bd.ForceRedraw
-    bd.ForceRedraw = false
-    for ty = 0, rows - 1 do
-        for tx = 0, cols - 1 do
-            local ti = ty * cols + tx
-            local count = tn[ti]
-            local tile = bd.Tiles[ti]
-            if count == 0 then
-                if tile and tile.Visible then
-                    tile.Visible = false
-                    tile.Label.Visible = false
-                    tile.H1 = -1
+        local layer = GetLayer(bd, draw_list)
+        layer.LastUsed = frame_no
+        if n < first then
+            if layer.Visible then layer.Visible = false; layer.Frame.Visible = false end
+        else
+            -- Pass 2: hash primitives into layer-relative tiles
+            PB("ImGui tile hash")
+            local th1, th2, tn, tl, touched = layer.TH1, layer.TH2, layer.TN, layer.TL, layer.Touched
+            for k = 1, layer.NTouched do tn[touched[k]] = 0 end
+            local nt = 0
+            for p = first, n do
+                local tex_id = pr_tex[p]
+                -- The clip rect only affects pixels inside the primitive's bounds, so hash the clipped bounds (relative)
+                -- instead of the clip itself: a window clipped by the (fixed) viewport rect stays hash-stable when moved.
+                local cx0, cy0, cx1, cy1 = pr_bx0[p] - lx0, pr_by0[p] - ly0, pr_bx1[p] - lx0, pr_by1[p] - ly0
+                local h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
+                local h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+                local vax, vay = lx0 + ox, ly0 + oy
+                h1, h2 = HashVertex(h1, h2, pr_a[p], vax, vay)
+                h1, h2 = HashVertex(h1, h2, pr_b[p], vax, vay)
+                h1, h2 = HashVertex(h1, h2, pr_c[p], vax, vay)
+                local vd = pr_d[p]
+                if vd then h1, h2 = HashVertex(h1, h2, vd, vax, vay) end
+                for ty = floor((pr_by0[p] - ly0) / TILE), floor((pr_by1[p] - 1 - ly0) / TILE) do
+                    for tx = floor((pr_bx0[p] - lx0) / TILE), floor((pr_bx1[p] - 1 - lx0) / TILE) do
+                        local key = ty * KEY_W + tx
+                        local k = tn[key]
+                        if not k or k == 0 then
+                            k = 0
+                            th1[key], th2[key] = 0, 0
+                            if not tl[key] then tl[key] = {} end
+                            nt = nt + 1
+                            touched[nt] = key
+                        end
+                        k = k + 1
+                        tn[key] = k
+                        tl[key][k] = p
+                        th1[key] = (th1[key] * 48271 + h1) % P1
+                        th2[key] = (th2[key] * 16807 + h2 + k) % P2
+                    end
                 end
-            else
-                tile = tile or GetTile(bd, ti, tx, ty)
-                if force or tile.H1 ~= th1[ti] or tile.H2 ~= th2[ti] then
-                    tile.H1, tile.H2 = th1[ti], th2[ti]
-                    local x0, y0 = tx * TILE, ty * TILE
+            end
+            layer.NTouched = nt
+            PE()
+
+            -- Place the layer (this is all a window move costs)
+            local frame = layer.Frame
+            if layer.X ~= lx0 or layer.Y ~= ly0 then
+                layer.X, layer.Y = lx0, ly0
+                frame.Position = UDim2.fromOffset(lx0 / scale, ly0 / scale)
+            end
+            z = z + 1
+            if layer.Z ~= z then layer.Z = z; frame.ZIndex = z end
+            if not layer.Visible then layer.Visible = true; frame.Visible = true end
+
+            -- Pass 3: redraw + upload changed tiles, hide unused ones
+            PB("ImGui raster+upload")
+            for key, tile in pairs(layer.Tiles) do
+                if not tn[key] or tn[key] == 0 then
+                    if tile.Visible then tile.Visible = false; tile.Label.Visible = false; tile.H1 = -1 end
+                end
+            end
+            for kk = 1, nt do
+                local key = touched[kk]
+                local count = tn[key]
+                local tx, ty = key % KEY_W, floor(key / KEY_W)
+                if tx < 0 then tx = tx + KEY_W; ty = ty - 1 end
+                local tile = GetTile(bd, layer, key, tx, ty)
+                if force or tile.H1 ~= th1[key] or tile.H2 ~= th2[key] then
+                    tile.H1, tile.H2 = th1[key], th2[key]
+                    local x0, y0 = lx0 + tx * TILE, ly0 + ty * TILE
                     local x1, y1 = x0 + TILE, y0 + TILE
                     buf, buf_w = tile.Buffer, TILE
                     buffer.fill(buf, 0, 0)
-                    local list = tl[ti]
+                    local list = tl[key]
                     local tox, toy = ox + x0, oy + y0
                     for k = 1, count do
                         local p = list[k]
@@ -639,7 +737,14 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
                         if vd then
                             local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
-                            DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                            local gk = pr_g[p]
+                            if gk == 1 then
+                                DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 1, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
+                            elseif gk == 2 then
+                                DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 2, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
+                            else
+                                DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                            end
                         else
                             DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
                         end
@@ -653,13 +758,25 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                     tile.Label.Visible = true
                 end
             end
+            PE()
+        end
+    end
+
+    -- Hide layers not drawn this frame; free long unused ones (closed windows, old tooltips)
+    for draw_list, layer in pairs(bd.Layers) do
+        if layer.LastUsed ~= frame_no then
+            if layer.Visible then layer.Visible = false; layer.Frame.Visible = false end
+            if frame_no - layer.LastUsed > LAYER_KEEP_FRAMES then
+                DestroyLayer(layer)
+                bd.Layers[draw_list] = nil
+            end
         end
     end
 
     -- drop references so old vertex tables can be collected
     for k = n + 1, bd.LastPrimCount do pr_a[k], pr_b[k], pr_c[k], pr_d[k], pr_t[k] = nil, nil, nil, nil, nil end
     bd.LastPrimCount = n
-    PE(); PE()
+    PE()
 end
 
 ---------------------------------------------------------
@@ -678,12 +795,13 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     gui.IgnoreGuiInset = true -- so GetMouseLocation() and the tiles share the same origin
     gui.ResetOnSpawn = false
     gui.DisplayOrder = 1000
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- layers (one Frame per draw list) stack by ZIndex
     gui.Parent = parent or Players.LocalPlayer:WaitForChild("PlayerGui")
 
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, NextRender = 0, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
+        Layers = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -783,7 +901,7 @@ function ImGui_ImplRoblox_NewFrame()
     local want = io.WantCaptureMouse
     if want ~= bd.TilesActive then
         bd.TilesActive = want
-        for _, tile in pairs(bd.Tiles) do tile.Label.Active = want end
+        for _, layer in pairs(bd.Layers) do for _, tile in pairs(layer.Tiles) do tile.Label.Active = want end end
     end
     PE()
 end
@@ -802,7 +920,6 @@ function ImGui_ImplRoblox_SetRenderScale(scale)
     if scale == bd.Scale then return end
     bd.Scale = scale
     DestroyTiles(bd)
-    bd.TileCols, bd.TileRows = 0, 0
     bd.ForceRedraw = true
 end
 

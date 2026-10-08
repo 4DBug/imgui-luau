@@ -67,7 +67,7 @@ def main():
     args = ap.parse_args()
 
     code, out = run(args, "")
-    print(out[-4000:])
+    print(out if os.environ.get("FULL_OUTPUT") else out[-4000:])
     sys.exit(code)
 
 try:
