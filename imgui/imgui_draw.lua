@@ -2614,6 +2614,7 @@ end
 --- @return int    remaining
 local TEXT_SIZE_CACHE_MAX = 4096
 
+@native
 function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
     -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
@@ -3546,6 +3547,7 @@ function MT.ImDrawList:ChannelsSetCurrent(n) self._Splitter:SetCurrentChannel(se
 --- @param points       ImVec2[]
 --- @param points_count int
 --- @param col          ImU32
+@native
 function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
     if points_count < 3 or bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
@@ -3654,6 +3656,7 @@ function MT.ImDrawList:_SetTexture(tex_ref)
     self:_OnChangedTexture()
 end
 
+@native
 function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
@@ -3690,6 +3693,7 @@ end
 --- @param a   ImVec2
 --- @param c   ImVec2
 --- @param col ImU32
+@native
 function MT.ImDrawList:PrimRect(a, c, col)
     local uv = self._Data.TexUvWhitePixel
 
@@ -3772,6 +3776,7 @@ end
 --- @param col          ImU32
 --- @param thickness    float
 --- @param flags?       ImDrawFlags
+@native
 function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
     if flags == nil then flags = 0 end
 
@@ -4032,6 +4037,7 @@ function MT.ImDrawList:PathRect(a, b, rounding, flags)
     end
 end
 
+@native
 function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
@@ -4074,6 +4080,7 @@ end
 --- @param rounding   float
 --- @param thickness? float
 --- @param flags?     ImDrawFlags
+@native
 function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     if thickness == nil then thickness = 1.0 end
     if flags     == nil then flags     = 0   end
@@ -4249,6 +4256,7 @@ end
 --- @param text_end            int
 --- @param wrap_width          float
 --- @param cpu_fine_clip_rect? ImVec4
+@native
 function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect)
     -- Overload: AddText(pos, col, text, text_end?)
     if type(font) == "table" and type(font[1]) == "number" then
@@ -4395,6 +4403,7 @@ end
 --- @param a_min_sample int
 --- @param a_max_sample int
 --- @param a_step       int
+@native
 function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, a_step)
     if radius < 0.5 then
         self._Path:push_back(center)
@@ -4483,6 +4492,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     IM_ASSERT_PARANOID(self._Path.Size == out_ptr - 1)
 end
 
+@native
 function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
     if radius < 0.5 then
         self._Path:push_back(center)
@@ -4570,6 +4580,7 @@ end
 --- @param text_end    int
 --- @param wrap_width? float
 --- @param flags?      ImDrawTextFlags
+@native
 function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, flags)
     if wrap_width == nil then wrap_width = .0 end
     if flags      == nil then flags      = 0  end
@@ -4780,31 +4791,35 @@ end
 --- @param color     ImU32
 --- @param dir       ImGuiDir
 --- @param scale?    float
+local arrow_a, arrow_b, arrow_c = ImVec2(), ImVec2(), ImVec2() -- scratch: the path is consumed by AddTriangleFilled before returning
+
 function ImGui.RenderArrow(draw_list, pos, color, dir, scale)
     if scale == nil then scale = 1.0 end
 
     local h = draw_list._Data.FontSize * 1.00
     local r = h * 0.40 * scale
 
-    local center = pos + ImVec2(h * 0.50, h * 0.50 * scale)
+    local cx, cy = pos.x + h * 0.50, pos.y + h * 0.50 * scale
 
-    local a, b, c
-
+    local ax, ay, bx, by, qx, qy
     if dir == ImGuiDir.Up or dir == ImGuiDir.Down then
         if dir == ImGuiDir.Up then r = -r end
-        a = ImVec2( 0.000,  0.750) * r
-        b = ImVec2(-0.866, -0.750) * r
-        c = ImVec2( 0.866, -0.750) * r
+        ax, ay = 0.000 * r, 0.750 * r
+        bx, by = -0.866 * r, -0.750 * r
+        qx, qy = 0.866 * r, -0.750 * r
     elseif dir == ImGuiDir.Left or dir == ImGuiDir.Right then
         if dir == ImGuiDir.Left then r = -r end
-        a = ImVec2( 0.750,  0.000) * r
-        b = ImVec2(-0.750,  0.866) * r
-        c = ImVec2(-0.750, -0.866) * r
-    elseif dir == ImGuiDir.None or dir == ImGuiDir.COUNT then
+        ax, ay = 0.750 * r, 0.000 * r
+        bx, by = -0.750 * r, 0.866 * r
+        qx, qy = -0.750 * r, -0.866 * r
+    else
         IM_ASSERT(false)
     end
 
-    draw_list:AddTriangleFilled(center + a, center + b, center + c, color)
+    arrow_a.x, arrow_a.y = cx + ax, cy + ay
+    arrow_b.x, arrow_b.y = cx + bx, cy + by
+    arrow_c.x, arrow_c.y = cx + qx, cy + qy
+    draw_list:AddTriangleFilled(arrow_a, arrow_b, arrow_c, color)
 end
 
 --- @param draw_list ImDrawList
