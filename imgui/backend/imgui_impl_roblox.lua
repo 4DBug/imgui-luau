@@ -528,7 +528,7 @@ local function GetTile(bd, layer, key, tx, ty)
     label.Visible = false
     label.Active = bd.TilesActive
     label.Parent = layer.Frame
-    tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false }
+    tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false, BX0 = TILE, BY0 = TILE, BX1 = 0, BY1 = 0 }
     layer.Tiles[key] = tile
     return tile
 end
@@ -727,8 +727,28 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                     local x0, y0 = lx0 + tx * TILE, ly0 + ty * TILE
                     local x1, y1 = x0 + TILE, y0 + TILE
                     buf, buf_w = tile.Buffer, TILE
-                    buffer.fill(buf, 0, 0)
                     local list = tl[key]
+                    -- Dirty region = old content bounds + new content bounds. Outside it the tile is already
+                    -- transparent, so only this region is cleared and uploaded (edge tiles are often mostly empty).
+                    local nx0, ny0, nx1, ny1 = TILE, TILE, 0, 0
+                    for k = 1, count do
+                        local p = list[k]
+                        local a, b = pr_bx0[p] - x0, pr_by0[p] - y0
+                        local c, d = pr_bx1[p] - x0, pr_by1[p] - y0
+                        if a < nx0 then nx0 = a end
+                        if b < ny0 then ny0 = b end
+                        if c > nx1 then nx1 = c end
+                        if d > ny1 then ny1 = d end
+                    end
+                    nx0, ny0, nx1, ny1 = max(nx0, 0), max(ny0, 0), min(nx1, TILE), min(ny1, TILE)
+                    local rx0, ry0, rx1, ry1 = min(nx0, tile.BX0), min(ny0, tile.BY0), max(nx1, tile.BX1), max(ny1, tile.BY1)
+                    tile.BX0, tile.BY0, tile.BX1, tile.BY1 = nx0, ny0, nx1, ny1
+                    local rw = rx1 - rx0
+                    if rw == TILE then
+                        buffer.fill(buf, ry0 * TILE * 4, 0, (ry1 - ry0) * TILE * 4)
+                    else
+                        for y = ry0, ry1 - 1 do buffer.fill(buf, (y * TILE + rx0) * 4, 0, rw * 4) end
+                    end
                     local tox, toy = ox + x0, oy + y0
                     for k = 1, count do
                         local p = list[k]
@@ -750,7 +770,14 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         end
                     end
                     PB("ImGui upload")
-                    tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+                    if rw == TILE and ry0 == 0 and ry1 == TILE then
+                        tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+                    elseif rw > 0 and ry1 > ry0 then
+                        local rh = ry1 - ry0
+                        local sub = buffer.create(rw * rh * 4)
+                        for y = 0, rh - 1 do buffer.copy(sub, y * rw * 4, buf, ((ry0 + y) * TILE + rx0) * 4, rw * 4) end
+                        tile.Image:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), sub)
+                    end
                     PE()
                 end
                 if not tile.Visible then

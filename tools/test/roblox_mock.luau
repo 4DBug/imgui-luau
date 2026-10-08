@@ -111,7 +111,12 @@ local AssetService = {}
 function AssetService:CreateEditableImage(opts)
     local img = { Size = opts.Size, Pixels = buffer.create(opts.Size.X * opts.Size.Y * 4) }
     UPLOADS = 0
-    function img:WritePixelsBuffer(origin, size, buf) buffer.copy(img.Pixels, 0, buf); _G_UPLOADS = (_G_UPLOADS or 0) + 1 end
+    function img:WritePixelsBuffer(origin, size, buf)
+        assert(buffer.len(buf) == size.X * size.Y * 4, "WritePixelsBuffer: buffer size mismatch")
+        assert(origin.X >= 0 and origin.Y >= 0 and origin.X + size.X <= opts.Size.X and origin.Y + size.Y <= opts.Size.Y, "WritePixelsBuffer: out of bounds")
+        for y = 0, size.Y - 1 do buffer.copy(img.Pixels, ((origin.Y + y) * opts.Size.X + origin.X) * 4, buf, y * size.X * 4, size.X * 4) end
+        _G_UPLOADS = (_G_UPLOADS or 0) + 1; _G_UPLOAD_PX = (_G_UPLOAD_PX or 0) + size.X * size.Y
+    end
     function img:Destroy() end
     return img
 end
@@ -223,4 +228,4 @@ for frame = 1, NFRAMES do
 
     if frame == 10 then render_time = 0; _G_UPLOADS = 0 end
 end
-print(string.format("avg frame total %.2f ms, of which render %.2f ms, uploads/frame %.2f", total / (NFRAMES - 10) * 1000, render_time / (NFRAMES - 10) * 1000, _G_UPLOADS / (NFRAMES - 10)))
+print(string.format("avg frame total %.2f ms, of which render %.2f ms, uploads/frame %.2f, upload KB/frame %.0f", total / (NFRAMES - 10) * 1000, render_time / (NFRAMES - 10) * 1000, _G_UPLOADS / (NFRAMES - 10), (_G_UPLOAD_PX or 0) * 4 / 1024 / (NFRAMES - 10)))

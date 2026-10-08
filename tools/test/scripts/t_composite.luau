@@ -56,6 +56,8 @@ game:GetService("RunService").Stepped:Connect(function()
     G.ImGui_ImplRoblox.NewFrame()
     io.DeltaTime = 1 / 60
     io:AddMousePosEvent(300 + (frame * 37) % 300, 100 + (frame * 53) % 500)
+    local dw = ImGui.FindWindowByName("ImGui Sincerely Demo")
+    if dw and frame % 3 == 0 then io:AddMousePosEvent(dw.Pos.x + 200, dw.Pos.y + 300); io:AddMouseWheelEvent(0, (frame % 30 < 18) and -1 or 1) end
     ImGui.NewFrame()
     ImGui.ShowDemoWindow(true)
     ImGui.SetNextWindowPos(ImVec2(20, 20)); ImGui.SetNextWindowSize(ImVec2(600, 700))
