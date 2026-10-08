@@ -21962,7 +21962,7 @@ local function StyleCopy(dst, src)
         elseif type(v) == "table" and getmetatable(v) ~= nil and type(v[1]) == "number" then
             local c = dst[k]
             if type(c) ~= "table" then c = setmetatable({}, getmetatable(v)); dst[k] = c end
-            for i = 1, #v do rawset(c, i, v[i]) end
+            for _, key in ipairs({ "x", "y", "z", "w" }) do if rawget(v, key) ~= nil then c[key] = v[key] end end
         else
             dst[k] = v
         end
@@ -26017,9 +26017,9 @@ function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, p
     local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
     for i = vert_start_idx, vert_end_idx - 1 do
         local pos = data[i][1]
-        local x, y = pos[1] - pix, pos[2] - piy
-        pos[1] = x * cos_a - y * sin_a + pox
-        pos[2] = x * sin_a + y * cos_a + poy
+        local x, y = pos.x - pix, pos.y - piy
+        pos.x = x * cos_a - y * sin_a + pox
+        pos.y = x * sin_a + y * cos_a + poy
     end
 end
 
@@ -29387,7 +29387,7 @@ function MT.ImDrawList:PrimRect(a, c, col)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv)
     vtx_data[vtx_write_ptr + 0][3] = col
 
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c[1], a[2])
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], uv)
     vtx_data[vtx_write_ptr + 1][3] = col
 
@@ -29395,7 +29395,7 @@ function MT.ImDrawList:PrimRect(a, c, col)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv)
     vtx_data[vtx_write_ptr + 2][3] = col
 
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a[1], c[2])
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], uv)
     vtx_data[vtx_write_ptr + 3][3] = col
 
@@ -29427,16 +29427,16 @@ function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv_a)
     vtx_data[vtx_write_ptr + 0][3] = col
 
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c[1], a[2])
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][2], uv_c[1], uv_a[2])
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][2], uv_c.x, uv_a.y)
     vtx_data[vtx_write_ptr + 1][3] = col
 
     ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], c)
     ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv_c)
     vtx_data[vtx_write_ptr + 2][3] = col
 
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a[1], c[2])
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][2], uv_a[1], uv_c[2])
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
+    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][2], uv_a.x, uv_c.y)
     vtx_data[vtx_write_ptr + 3][3] = col
 
     self._VtxWritePtr   = vtx_write_ptr + 4
@@ -29492,11 +29492,11 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             local i2 = (i1 == points_count) and 1 or i1 + 1
             local p1 = points[i1]
             local p2 = points[i2]
-            local dx = p2[1] - p1[1]
-            local dy = p2[2] - p1[2]
+            local dx = p2.x - p1.x
+            local dy = p2.y - p1.y
             dx, dy = IM_NORMALIZE2F_OVER_ZERO(dx, dy)
-            temp_normals[i1][1] = dy
-            temp_normals[i1][2] = -dx
+            temp_normals[i1].x = dy
+            temp_normals[i1].y = -dx
         end
         if not closed then
             ImVec2_Copy(temp_normals[points_count], temp_normals[points_count - 1])
@@ -29524,18 +29524,18 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
 
                 -- Average normals
-                local dm_x = (temp_normals[i1][1] + temp_normals[i2][1]) * 0.5
-                local dm_y = (temp_normals[i1][2] + temp_normals[i2][2]) * 0.5
+                local dm_x = (temp_normals[i1].x + temp_normals[i2].x) * 0.5
+                local dm_y = (temp_normals[i1].y + temp_normals[i2].y) * 0.5
                 dm_x, dm_y = IM_FIXNORMAL2F(dm_x, dm_y)
                 dm_x = dm_x * half_draw_size
                 dm_y = dm_y * half_draw_size
 
                 -- Add temporary vertices for the outer edges
                 local out_off = (i2 - 1) * 2
-                temp_points[temp_points_start + out_off + 0][1] = points[i2][1] + dm_x
-                temp_points[temp_points_start + out_off + 0][2] = points[i2][2] + dm_y
-                temp_points[temp_points_start + out_off + 1][1] = points[i2][1] - dm_x
-                temp_points[temp_points_start + out_off + 1][2] = points[i2][2] - dm_y
+                temp_points[temp_points_start + out_off + 0].x = points[i2].x + dm_x
+                temp_points[temp_points_start + out_off + 0].y = points[i2].y + dm_y
+                temp_points[temp_points_start + out_off + 1].x = points[i2].x - dm_x
+                temp_points[temp_points_start + out_off + 1].y = points[i2].y - dm_y
 
                 if use_texture then
                     -- Add indices for two triangles
@@ -29603,8 +29603,8 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
 
                 -- Average normals
-                local dm_x = (temp_normals[i1][1] + temp_normals[i2][1]) * 0.5
-                local dm_y = (temp_normals[i1][2] + temp_normals[i2][2]) * 0.5
+                local dm_x = (temp_normals[i1].x + temp_normals[i2].x) * 0.5
+                local dm_y = (temp_normals[i1].y + temp_normals[i2].y) * 0.5
                 dm_x, dm_y = IM_FIXNORMAL2F(dm_x, dm_y)
                 local dm_out_x = dm_x * (half_inner_thickness + AA_SIZE)
                 local dm_out_y = dm_y * (half_inner_thickness + AA_SIZE)
@@ -29613,14 +29613,14 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
                 -- Add temporary vertices
                 local out_off = (i2 - 1) * 4
-                temp_points[temp_points_start + out_off + 0][1] = points[i2][1] + dm_out_x
-                temp_points[temp_points_start + out_off + 0][2] = points[i2][2] + dm_out_y
-                temp_points[temp_points_start + out_off + 1][1] = points[i2][1] + dm_in_x
-                temp_points[temp_points_start + out_off + 1][2] = points[i2][2] + dm_in_y
-                temp_points[temp_points_start + out_off + 2][1] = points[i2][1] - dm_in_x
-                temp_points[temp_points_start + out_off + 2][2] = points[i2][2] - dm_in_y
-                temp_points[temp_points_start + out_off + 3][1] = points[i2][1] - dm_out_x
-                temp_points[temp_points_start + out_off + 3][2] = points[i2][2] - dm_out_y
+                temp_points[temp_points_start + out_off + 0].x = points[i2].x + dm_out_x
+                temp_points[temp_points_start + out_off + 0].y = points[i2].y + dm_out_y
+                temp_points[temp_points_start + out_off + 1].x = points[i2].x + dm_in_x
+                temp_points[temp_points_start + out_off + 1].y = points[i2].y + dm_in_y
+                temp_points[temp_points_start + out_off + 2].x = points[i2].x - dm_in_x
+                temp_points[temp_points_start + out_off + 2].y = points[i2].y - dm_in_y
+                temp_points[temp_points_start + out_off + 3].x = points[i2].x - dm_out_x
+                temp_points[temp_points_start + out_off + 3].y = points[i2].y - dm_out_y
 
                 -- Add indices
                 local idx_write_ptr = self._IdxWritePtr
@@ -29658,17 +29658,17 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             local p1 = points[i1]
             local p2 = points[i2]
 
-            local dx = p2[1] - p1[1]
-            local dy = p2[2] - p1[2]
+            local dx = p2.x - p1.x
+            local dy = p2.y - p1.y
             dx, dy = IM_NORMALIZE2F_OVER_ZERO(dx, dy)
             dx = dx * (thickness * 0.5)
             dy = dy * (thickness * 0.5)
 
             local vtx_write_ptr = self._VtxWritePtr
-            vtx_data[vtx_write_ptr + 0][1][1] = p1[1] + dy; vtx_data[vtx_write_ptr + 0][1][2] = p1[2] - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
-            vtx_data[vtx_write_ptr + 1][1][1] = p2[1] + dy; vtx_data[vtx_write_ptr + 1][1][2] = p2[2] - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
-            vtx_data[vtx_write_ptr + 2][1][1] = p2[1] - dy; vtx_data[vtx_write_ptr + 2][1][2] = p2[2] + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
-            vtx_data[vtx_write_ptr + 3][1][1] = p1[1] - dy; vtx_data[vtx_write_ptr + 3][1][2] = p1[2] + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col
+            vtx_data[vtx_write_ptr + 0][1].x = p1.x + dy; vtx_data[vtx_write_ptr + 0][1].y = p1.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
+            vtx_data[vtx_write_ptr + 1][1].x = p2.x + dy; vtx_data[vtx_write_ptr + 1][1].y = p2.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
+            vtx_data[vtx_write_ptr + 2][1].x = p2.x - dy; vtx_data[vtx_write_ptr + 2][1].y = p2.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
+            vtx_data[vtx_write_ptr + 3][1].x = p1.x - dy; vtx_data[vtx_write_ptr + 3][1].y = p1.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col
             self._VtxWritePtr = vtx_write_ptr + 4
 
             local idx_write_ptr = self._IdxWritePtr
@@ -30405,10 +30405,10 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                 local glyph_col = glyph.Colored and color_untinted or col
 
                 do
-                    local vtx0 = vtx_data[vtx_write + 0]; vtx0[1][1] = x1; vtx0[1][2] = y1; vtx0[3] = glyph_col; vtx0[2][1] = u1; vtx0[2][2] = v1;
-                    local vtx1 = vtx_data[vtx_write + 1]; vtx1[1][1] = x2; vtx1[1][2] = y1; vtx1[3] = glyph_col; vtx1[2][1] = u2; vtx1[2][2] = v1;
-                    local vtx2 = vtx_data[vtx_write + 2]; vtx2[1][1] = x2; vtx2[1][2] = y2; vtx2[3] = glyph_col; vtx2[2][1] = u2; vtx2[2][2] = v2;
-                    local vtx3 = vtx_data[vtx_write + 3]; vtx3[1][1] = x1; vtx3[1][2] = y2; vtx3[3] = glyph_col; vtx3[2][1] = u1; vtx3[2][2] = v2;
+                    local vtx0 = vtx_data[vtx_write + 0]; vtx0[1].x = x1; vtx0[1].y = y1; vtx0[3] = glyph_col; vtx0[2].x = u1; vtx0[2].y = v1;
+                    local vtx1 = vtx_data[vtx_write + 1]; vtx1[1].x = x2; vtx1[1].y = y1; vtx1[3] = glyph_col; vtx1[2].x = u2; vtx1[2].y = v1;
+                    local vtx2 = vtx_data[vtx_write + 2]; vtx2[1].x = x2; vtx2[1].y = y2; vtx2[3] = glyph_col; vtx2[2].x = u2; vtx2[2].y = v2;
+                    local vtx3 = vtx_data[vtx_write + 3]; vtx3[1].x = x1; vtx3[1].y = y2; vtx3[3] = glyph_col; vtx3[2].x = u1; vtx3[2].y = v2;
                     idx_data[idx_write + 0] = vtx_index; idx_data[idx_write + 1] = vtx_index + 1; idx_data[idx_write + 2] = vtx_index + 2;
                     idx_data[idx_write + 3] = vtx_index; idx_data[idx_write + 4] = vtx_index + 2; idx_data[idx_write + 5] = vtx_index + 3;
                     vtx_write = vtx_write + 4
@@ -31092,8 +31092,8 @@ ImGuiMouseCursor =
 --- @return ImTextureRect
 function ImTextureRect(x, y, w, h) return { x = x, y = y, w = w, h = h } end
 
--- This structure supports indexing on string keys `x`, `y` and number keys 1, 2.
--- But note that the former is likely to be more expensive.
+-- [Luau] Stored as named fields {x=, y=} so the common `.x`/`.y` access is a plain table read (no metamethod call).
+-- Numeric keys 1, 2 still work through the metatable, but are slower: prefer .x/.y in hot code.
 --- @class ImVec2
 --- @operator add(ImVec2): ImVec2
 --- @operator sub(ImVec2): ImVec2
@@ -31101,146 +31101,97 @@ function ImTextureRect(x, y, w, h) return { x = x, y = y, w = w, h = h } end
 --- @operator mul(ImVec2): ImVec2
 --- @operator div(number): ImVec2
 --- @operator div(ImVec2): ImVec2
---- @field [1] number
---- @field [2] number
 --- @field x number
 --- @field y number
 local IM_VEC2 = {}
+local VEC2_KEYS = { "x", "y" }
 
---- @param t ImVec2
---- @param k string
 IM_VEC2.__index = function(t, k)
-    if     k == "x" then return rawget(t, 1)
-    elseif k == "y" then return rawget(t, 2)
-    end
+    local n = VEC2_KEYS[k]
+    if n then return rawget(t, n) end
 end
 
---- @param t ImVec2
---- @param k string
---- @param v number
 IM_VEC2.__newindex = function(t, k, v)
-    if     k == "x" then rawset(t, 1, v)
-    elseif k == "y" then rawset(t, 2, v)
-    else IM_ASSERT(false)
-    end
+    local n = VEC2_KEYS[k]
+    IM_ASSERT(n ~= nil)
+    rawset(t, n, v)
 end
 
 --- @param x? number
 --- @param y? number
 --- @return ImVec2
 --- @nodiscard
-function ImVec2(x, y) return setmetatable({x or 0, y or 0}, IM_VEC2) end
+function ImVec2(x, y) return setmetatable({ x = x or 0, y = y or 0 }, IM_VEC2) end
 
-function IM_VEC2.__add(lhs, rhs) return ImVec2(lhs[1] + rhs[1], lhs[2] + rhs[2]) end
-function IM_VEC2.__sub(lhs, rhs) return ImVec2(lhs[1] - rhs[1], lhs[2] - rhs[2]) end
+function IM_VEC2.__add(lhs, rhs) return setmetatable({ x = lhs.x + rhs.x, y = lhs.y + rhs.y }, IM_VEC2) end
+function IM_VEC2.__sub(lhs, rhs) return setmetatable({ x = lhs.x - rhs.x, y = lhs.y - rhs.y }, IM_VEC2) end
 
---- @overload fun(lhs: ImVec2, rhs: number): ImVec2
---- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function IM_VEC2.__mul(lhs, rhs)
-    if     type(lhs) == "table" and type(rhs) == "number" then return ImVec2(lhs[1] * rhs, lhs[2] * rhs)
-    elseif type(lhs) == "table" and type(rhs) == "table"  then return ImVec2(lhs[1] * rhs[1], lhs[2] * rhs[2])
-    end
+    if type(rhs) == "number" then return setmetatable({ x = lhs.x * rhs, y = lhs.y * rhs }, IM_VEC2) end
+    return setmetatable({ x = lhs.x * rhs.x, y = lhs.y * rhs.y }, IM_VEC2)
 end
 
---- @overload fun(lhs: ImVec2, rhs: number): ImVec2
---- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function IM_VEC2.__div(lhs, rhs)
-    if     type(lhs) == "table" and type(rhs) == "number" then return ImVec2(lhs[1] / rhs, lhs[2] / rhs)
-    elseif type(lhs) == "table" and type(rhs) == "table"  then return ImVec2(lhs[1] / rhs[1], lhs[2] / rhs[2])
-    end
+    if type(rhs) == "number" then return setmetatable({ x = lhs.x / rhs, y = lhs.y / rhs }, IM_VEC2) end
+    return setmetatable({ x = lhs.x / rhs.x, y = lhs.y / rhs.y }, IM_VEC2)
 end
 
-function IM_VEC2.__eq(lhs, rhs) return lhs[1] == rhs[1] and lhs[2] == rhs[2] end
+function IM_VEC2.__eq(lhs, rhs) return lhs.x == rhs.x and lhs.y == rhs.y end
 
 function IM_VEC2:__tostring() return string.format("ImVec2(%g, %g)", self.x, self.y) end
 
 --- @param dest ImVec2
 --- @param src  ImVec2
-function ImVec2_Copy(dest, src) dest[1] = src[1]; dest[2] = src[2] end
+function ImVec2_Copy(dest, src) dest.x = src.x; dest.y = src.y end
 
---- @param dest  ImVec2
---- @param src_x number
---- @param src_y number
-function ImVec2_CopyV(dest, src_x, src_y) dest[1] = src_x; dest[2] = src_y end
+function ImVec2_CopyV(dest, src_x, src_y) dest.x = src_x; dest.y = src_y end
 
---- @param v     ImVec2
---- @param add_x number
---- @param add_y number
-function ImVec2_AddVA(v, add_x, add_y) return v[1] + add_x, v[2] + add_y end
+function ImVec2_AddVA(v, add_x, add_y) return v.x + add_x, v.y + add_y end
 
---- @param v     ImVec2
---- @param sub_x number
---- @param sub_y number
-function ImVec2_SubVA(v, sub_x, sub_y) return v[1] - sub_x, v[2] - sub_y end
+function ImVec2_SubVA(v, sub_x, sub_y) return v.x - sub_x, v.y - sub_y end
 
---- @param a      ImVec2
---- @param scalar number
-function ImVec2_MulVX(a, scalar)
-    return a[1] * scalar, a[2] * scalar
-end
+function ImVec2_MulVX(a, scalar) return a.x * scalar, a.y * scalar end
 
 --- An inlined version of `ImVec2_Copy` currently for use in certain ImVector<ImVec2> `push_back`
---- @param t ImVec2[]
---- @param k int
---- @param v ImVec2
-local function ImVec2_TCopy(t, k, v) local dest = t[k]; dest[1] = v[1]; dest[2] = v[2]; end
+local function ImVec2_TCopy(t, k, v) local dest = t[k]; dest.x = v.x; dest.y = v.y; end
 
--- This structure supports indexing on string keys `x`, `y`, `z`, `w` and number keys 1, 2, 3, 4.
--- But note that the former is likely to be more expensive.
+-- [Luau] Same layout as ImVec2: named fields x, y, z, w; numeric keys 1..4 go through the metatable.
 --- @class ImVec4
 --- @operator add(ImVec4): ImVec4
 --- @operator sub(ImVec4): ImVec4
 --- @operator mul(number): ImVec4
---- @field [1] number
---- @field [2] number
---- @field [3] number
---- @field [4] number
 --- @field x number
 --- @field y number
 --- @field z number
 --- @field w number
 local IM_VEC4 = {}
+local VEC4_KEYS = { "x", "y", "z", "w" }
 
---- @param t ImVec4
---- @param k string
 IM_VEC4.__index = function(t, k)
-    if     k == "x" then return rawget(t, 1)
-    elseif k == "y" then return rawget(t, 2)
-    elseif k == "z" then return rawget(t, 3)
-    elseif k == "w" then return rawget(t, 4)
-    end
+    local n = VEC4_KEYS[k]
+    if n then return rawget(t, n) end
 end
 
---- @param t ImVec4
---- @param k string
---- @param v number
 IM_VEC4.__newindex = function(t, k, v)
-    if     k == "x" then rawset(t, 1, v)
-    elseif k == "y" then rawset(t, 2, v)
-    elseif k == "z" then rawset(t, 3, v)
-    elseif k == "w" then rawset(t, 4, v)
-    else IM_ASSERT(false)
-    end
+    local n = VEC4_KEYS[k]
+    IM_ASSERT(n ~= nil)
+    rawset(t, n, v)
 end
 
---- @param x? number
---- @param y? number
---- @param z? number
---- @param w? number
 --- @return ImVec4
 --- @nodiscard
-function ImVec4(x, y, z, w) return setmetatable({x or 0, y or 0, z or 0, w or 0}, IM_VEC4) end
+function ImVec4(x, y, z, w) return setmetatable({ x = x or 0, y = y or 0, z = z or 0, w = w or 0 }, IM_VEC4) end
 
-function IM_VEC4.__add(lhs, rhs) return ImVec4(lhs[1] + rhs[1], lhs[2] + rhs[2], lhs[3] + rhs[3], lhs[4] + rhs[4]) end
-function IM_VEC4.__sub(lhs, rhs) return ImVec4(lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3], lhs[4] - rhs[4]) end
-function IM_VEC4.__mul(lhs, rhs) return ImVec4(lhs[1] * rhs, lhs[2] * rhs, lhs[3] * rhs, lhs[4] * rhs) end
-function IM_VEC4.__eq(lhs, rhs) return lhs[1] == rhs[1] and lhs[2] == rhs[2] and lhs[3] == rhs[3] and lhs[4] == rhs[4] end
+function IM_VEC4.__add(lhs, rhs) return ImVec4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w) end
+function IM_VEC4.__sub(lhs, rhs) return ImVec4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w) end
+function IM_VEC4.__mul(lhs, rhs) return ImVec4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs) end
+function IM_VEC4.__eq(lhs, rhs) return lhs.x == rhs.x and lhs.y == rhs.y and lhs.z == rhs.z and lhs.w == rhs.w end
 
 function IM_VEC4:__tostring() return string.format("ImVec4(%g, %g, %g, %g)", self.x, self.y, self.z, self.w) end
 
 --- @param dest ImVec4
 --- @param src  ImVec4
-function ImVec4_Copy(dest, src) dest[1] = src[1]; dest[2] = src[2]; dest[3] = src[3]; dest[4] = src[4] end
+function ImVec4_Copy(dest, src) dest.x = src.x; dest.y = src.y; dest.z = src.z; dest.w = src.w end
 
 --- A compact ImVector clone
 --- @class ImVector<T>
@@ -31255,8 +31206,10 @@ local IM_VECTOR = {}
 --- @param k string|int
 --- @return any
 IM_VECTOR.__index = function(t, k)
+    local m = IM_VECTOR[k] -- methods first (hot path)
+    if m ~= nil then return m end
     if k == "Data" then return nil end -- Data has already been discarded
-    return IM_VECTOR[k] or t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- if the mt access turns out nil, the k must be int index into Data
+    return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- if the mt access turns out nil, the k must be int index into Data
 end
 
 --- @param t ImVector
@@ -33455,9 +33408,9 @@ end
 -- Generic triangle: per-vertex colour + uv, top-left fill rule, clipped to [cx0, cx1) x [cy0, cy1)
 @native
 local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
-    local x0, y0 = va[1][1] - ox, va[1][2] - oy
-    local x1, y1 = vb[1][1] - ox, vb[1][2] - oy
-    local x2, y2 = vc[1][1] - ox, vc[1][2] - oy
+    local x0, y0 = va[1].x - ox, va[1].y - oy
+    local x1, y1 = vb[1].x - ox, vb[1].y - oy
+    local x2, y2 = vc[1].x - ox, vc[1].y - oy
     local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
     if area == 0 then return end
     if area < 0 then -- make the winding consistent so "inside" means all edge functions >= 0
@@ -33482,7 +33435,7 @@ local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
     local ra, ga, ba, aa = UnpackColor(va[3])
     local rb, gb, bb, ab = UnpackColor(vb[3])
     local rc, gc, bc, ac = UnpackColor(vc[3])
-    local ua, vva, ub, vvb, uc, vvc = va[2][1], va[2][2], vb[2][1], vb[2][2], vc[2][1], vc[2][2]
+    local ua, vva, ub, vvb, uc, vvc = va[2].x, va[2].y, vb[2].x, vb[2].y, vc[2].x, vc[2].y
 
     local textured = t and not (ua == ub and ua == uc and vva == vvb and vva == vvc)
     if t and not textured then -- constant uv (e.g. the atlas white pixel): fold the texel into the vertex colours
@@ -33533,12 +33486,12 @@ end
 @native
 local function TryDrawRect(va, vb, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
     local pa, pb, pc, pd = va[1], vb[1], vc[1], vd[1]
-    if not (pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2]) then return false end
+    if not (pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y) then return false end
     local col = va[3]
     if vb[3] ~= col or vc[3] ~= col or vd[3] ~= col then return false end
     local ta, tb, tc, td = va[2], vb[2], vc[2], vd[2]
-    if not (tb[1] == tc[1] and tb[2] == ta[2] and td[1] == ta[1] and td[2] == tc[2]) then return false end
-    DrawRect(pa[1] - ox, pa[2] - oy, pc[1] - ox, pc[2] - oy, ta[1], ta[2], tc[1], tc[2], col, t, cx0, cy0, cx1, cy1)
+    if not (tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y) then return false end
+    DrawRect(pa.x - ox, pa.y - oy, pc.x - ox, pc.y - oy, ta.x, ta.y, tc.x, tc.y, col, t, cx0, cy0, cx1, cy1)
     return true
 end
 
@@ -33557,8 +33510,8 @@ local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
 @native
 local function HashVertex(h1, h2, v)
     local p, u, c = v[1], v[2], v[3]
-    local x, y = p[1], p[2]
-    local uv = u[1] * 8192 + u[2]
+    local x, y = p.x, p.y
+    local uv = u.x * 8192 + u.y
     h1 = (h1 * 48271 + x * 4096 + y) % P1
     h1 = (h1 * 48271 + uv * 4096) % P1
     h1 = (h1 * 48271 + c) % P1
@@ -33670,22 +33623,22 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                             local d = vtx[vo + idx[i + 5]]
                             local pd = d[1]
                             -- axis aligned quad (TL, TR, BR, BL) with one colour and a matching uv rect
-                            if pa[2] == pb[2] and pb[1] == pc[1] and pc[2] == pd[2] and pd[1] == pa[1] and pa[1] < pb[1] and pa[2] < pd[2] then
+                            if pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y then
                                 local col = va[3]
                                 local ta, tb, tc, td = va[2], vb[2], vc[2], d[2]
                                 if vb[3] == col and vc[3] == col and d[3] == col
-                                    and tb[1] == tc[1] and tb[2] == ta[2] and td[1] == ta[1] and td[2] == tc[2] then
+                                    and tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y then
                                     vd = d
-                                    bx0, by0 = ceil(pa[1] - ox - 0.5), ceil(pa[2] - oy - 0.5)
-                                    bx1, by1 = ceil(pc[1] - ox - 0.5), ceil(pc[2] - oy - 0.5)
+                                    bx0, by0 = ceil(pa.x - ox - 0.5), ceil(pa.y - oy - 0.5)
+                                    bx1, by1 = ceil(pc.x - ox - 0.5), ceil(pc.y - oy - 0.5)
                                 end
                             end
                         end
                         if vd then
                             i = i + 6
                         else
-                            bx0, by0 = floor(min(pa[1], pb[1], pc[1]) - ox), floor(min(pa[2], pb[2], pc[2]) - oy)
-                            bx1, by1 = ceil(max(pa[1], pb[1], pc[1]) - ox) + 1, ceil(max(pa[2], pb[2], pc[2]) - oy) + 1
+                            bx0, by0 = floor(min(pa.x, pb.x, pc.x) - ox), floor(min(pa.y, pb.y, pc.y) - oy)
+                            bx1, by1 = ceil(max(pa.x, pb.x, pc.x) - ox) + 1, ceil(max(pa.y, pb.y, pc.y) - oy) + 1
                             i = i + 3
                         end
                         if bx0 < cx0 then bx0 = cx0 end
@@ -33751,7 +33704,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
                         if vd then
                             local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
-                            DrawRect(pa[1] - tox, pa[2] - toy, pc[1] - tox, pc[2] - toy, ta[1], ta[2], tc[1], tc[2], va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                            DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
                         else
                             DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
                         end
@@ -40480,17 +40433,15 @@ end
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function ImMin(lhs, rhs)
-    if     type(lhs) == "number" and type(rhs) == "number" then return mathMin(lhs, rhs)
-    elseif type(lhs) == "table"  and type(rhs) == "table"  then return ImVec2(mathMin(lhs[1], rhs[1]), mathMin(lhs[2], rhs[2]))
-    end
+    if type(lhs) == "number" then return mathMin(lhs, rhs) end
+    return ImVec2(mathMin(lhs.x, rhs.x), mathMin(lhs.y, rhs.y))
 end
 
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function ImMax(lhs, rhs)
-    if     type(lhs) == "number" and type(rhs) == "number" then return mathMax(lhs, rhs)
-    elseif type(lhs) == "table"  and type(rhs) == "table"  then return ImVec2(mathMax(lhs[1], rhs[1]), mathMax(lhs[2], rhs[2]))
-    end
+    if type(lhs) == "number" then return mathMax(lhs, rhs) end
+    return ImVec2(mathMax(lhs.x, rhs.x), mathMax(lhs.y, rhs.y))
 end
 
 --- @param base     table
@@ -40502,7 +40453,7 @@ ImStd.ImQsort = function(base, count, cmp_func) if count > 0 then t_sort(base, c
 --- @overload fun(v: ImVec2, mn: ImVec2, mx: ImVec2): ImVec2
 function ImClamp(v, mn, mx)
     if     type(v) == "number" and type(mn) == "number" and type(mx) == "number" then return mathMin(mathMax(v, mn), mx)
-    elseif type(v) == "table"  and type(mn) == "table"  and type(mx) == "table"  then return ImVec2(mathMax(mn[1], mathMin(v[1], mx[1])), mathMax(mn[2], mathMin(v[2], mx[2])))
+    elseif type(v) == "table"  and type(mn) == "table"  and type(mx) == "table"  then return ImVec2(mathMax(mn.x, mathMin(v.x, mx.x)), mathMax(mn.y, mathMin(v.y, mx.y)))
     end
 end
 
@@ -40511,8 +40462,8 @@ end
 --- @overload fun(a: ImVec2, b: ImVec2, t: ImVec2): ImVec2
 function ImLerp(a, b, t)
     if     type(a) == "number" and type(b) == "number" and type(t) == "number" then return ((a) + ((b) - (a)) * (t))
-    elseif type(a) == "table"  and type(b) == "table"  and type(t) == "number" then return ImVec2(a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
-    elseif type(a) == "table"  and type(b) == "table"  and type(t) == "table"  then return ImVec2(a[1] + (b[1] - a[1]) * t[1], a[2] + (b[2] - a[2]) * t[2])
+    elseif type(a) == "table"  and type(b) == "table"  and type(t) == "number" then return ImVec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+    elseif type(a) == "table"  and type(b) == "table"  and type(t) == "table"  then return ImVec2(a.x + (b.x - a.x) * t.x, a.y + (b.y - a.y) * t.y)
     end
 end
 
@@ -40522,7 +40473,7 @@ local function _Trunc(val) if val >= 0 then return mathFloor(val) else return ma
 --- @overload fun(v: ImVec2): ImVec2
 function ImTrunc(v)
     if     type(v) == "number" then return _Trunc(v)
-    elseif type(v) == "table"  then return ImVec2(_Trunc(v[1]), _Trunc(v[2]))
+    elseif type(v) == "table"  then return ImVec2(_Trunc(v.x), _Trunc(v.y))
     end
 end
 
@@ -41012,150 +40963,138 @@ end
 --- @field Min ImVec2
 --- @field Max ImVec2
 local IM_RECT = {}
+setmetatable(IM_RECT, { __index = function(_, k) if k ~= "Min" and k ~= "Max" then error("ImRect: unknown key " .. tostring(k), 2) end end })
 
 --- @param t ImRect
 --- @param k string
-IM_RECT.__index = function(t, k)
-    local method = IM_RECT[k]
-    if method ~= nil  then return method end
-    if     k == "Min" then return rawget(t, 1)
-    elseif k == "Max" then return rawget(t, 2)
-    end
-end
+IM_RECT.__index = IM_RECT -- [Luau] plain table: fast method lookup. Use r.Min / r.Max (numeric r[1]/r[2] are not supported)
 
---- @param t ImRect
---- @param k string
---- @param v ImVec2
-IM_RECT.__newindex = function(t, k, v)
-    if     k == "Min" then ImVec2_Copy(rawget(t, 1), v)
-    elseif k == "Max" then ImVec2_Copy(rawget(t, 2), v)
-    else IM_ASSERT(false)
-    end
-end
+-- [Luau] Min/Max are named fields, so `r.Min = v` assigns the reference: use ImVec2_Copy(r.Min, v) to keep copy semantics
+IM_RECT.__newindex = function(t, k, v) IM_ASSERT(false, "ImRect: unknown field " .. tostring(k)) end
 
 --- @return ImRect
 --- @nodiscard
-function ImRect(a, b, c, d) if c and d then return setmetatable({ ImVec2(a, b), ImVec2(c, d) }, IM_RECT) end return setmetatable({ ImVec2(a and a.x or 0, a and a.y or 0), ImVec2(b and b.x or 0, b and b.y or 0) }, IM_RECT) end
+function ImRect(a, b, c, d) if c and d then return setmetatable({ Min = ImVec2(a, b), Max = ImVec2(c, d) }, IM_RECT) end return setmetatable({ Min = ImVec2(a and a.x or 0, a and a.y or 0), Max = ImVec2(b and b.x or 0, b and b.y or 0) }, IM_RECT) end
 
-function IM_RECT:__eq(other) return self[1] == other[1] and self[2] == other[2] end
+function IM_RECT:__eq(other) return self.Min == other.Min and self.Max == other.Max end
 function IM_RECT:__tostring() return string.format("ImRect(Min: %g,%g, Max: %g,%g)", self.Min.x, self.Min.y, self.Max.x, self.Max.y) end
 
 --- @param p ImRect|ImVec2
 function IM_RECT:Contains(p)
     if p.Min then
         --- @cast p ImRect
-        return p[1][1] >= self[1][1] and p[2][1] <= self[2][1] and p[1][2] >= self[1][2] and p[2][2] <= self[2][2]
+        return p.Min.x >= self.Min.x and p.Max.x <= self.Max.x and p.Min.y >= self.Min.y and p.Max.y <= self.Max.y
     else
         --- @cast p ImVec2
-        return p[1] >= self[1][1] and p[2] >= self[1][2] and p[1] < self[2][1] and p[2] < self[2][2]
+        return p.x >= self.Min.x and p.y >= self.Min.y and p.x < self.Max.x and p.y < self.Max.y
     end
 end
 
 --- @param p   ImVec2
 --- @param pad ImVec2
 function IM_RECT:ContainsWithPad(p, pad)
-    return p[1] >= self[1][1] - pad[1] and p[2] >= self[1][2] - pad[2] and p[1] < self[2][1] + pad[1] and p[2] < self[2][2] + pad[2]
+    return p.x >= self.Min.x - pad.x and p.y >= self.Min.y - pad.y and p.x < self.Max.x + pad.x and p.y < self.Max.y + pad.y
 end
 
 --- @param r ImRect
 function IM_RECT:Overlaps(r)
-    return self[1][1] <= r[2][1] and self[2][1] >= r[1][1] and self[1][2] <= r[2][2] and self[2][2] >= r[1][2]
+    return self.Min.x <= r.Max.x and self.Max.x >= r.Min.x and self.Min.y <= r.Max.y and self.Max.y >= r.Min.y
 end
 
 --- @nodiscard
-function IM_RECT:GetCenter() return ImVec2((self[1][1] + self[2][1]) * 0.5, (self[1][2] + self[2][2]) * 0.5) end
-function IM_RECT:GetWidth() return self[2][1] - self[1][1] end
-function IM_RECT:GetHeight() return self[2][2] - self[1][2] end
+function IM_RECT:GetCenter() return ImVec2((self.Min.x + self.Max.x) * 0.5, (self.Min.y + self.Max.y) * 0.5) end
+function IM_RECT:GetWidth() return self.Max.x - self.Min.x end
+function IM_RECT:GetHeight() return self.Max.y - self.Min.y end
 --- @nodiscard
-function IM_RECT:GetSize() return ImVec2(self[2][1] - self[1][1], self[2][2] - self[1][2]) end
+function IM_RECT:GetSize() return ImVec2(self.Max.x - self.Min.x, self.Max.y - self.Min.y) end
 
 --- @nodiscard
-function IM_RECT:GetTL() return ImVec2(self[1][1], self[1][2]) end
+function IM_RECT:GetTL() return ImVec2(self.Min.x, self.Min.y) end
 --- @nodiscard
-function IM_RECT:GetTR() return ImVec2(self[2][1], self[1][2]) end
+function IM_RECT:GetTR() return ImVec2(self.Max.x, self.Min.y) end
 --- @nodiscard
-function IM_RECT:GetBL() return ImVec2(self[1][1], self[2][2]) end
+function IM_RECT:GetBL() return ImVec2(self.Min.x, self.Max.y) end
 --- @nodiscard
-function IM_RECT:GetBR() return ImVec2(self[2][1], self[2][2]) end
+function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end
 
 --- @param r ImRect
 function IM_RECT:ClipWith(r)
-    ImVec2_Copy(self[1], ImMax(self[1], r[1])); ImVec2_Copy(self[2], ImMin(self[2], r[2]))
+    ImVec2_Copy(self.Min, ImMax(self.Min, r.Min)); ImVec2_Copy(self.Max, ImMin(self.Max, r.Max))
 end
 
 --- @param r ImRect
 function IM_RECT:ClipWithFull(r)
-    ImVec2_Copy(self[1], ImClamp(self[1], r[1], r[2])); ImVec2_Copy(self[2], ImClamp(self[2], r[1], r[2]))
+    ImVec2_Copy(self.Min, ImClamp(self.Min, r.Min, r.Max)); ImVec2_Copy(self.Max, ImClamp(self.Max, r.Min, r.Max))
 end
 
 --- @param p ImRect|ImVec2
 function IM_RECT:Add(p)
     if p.Min then
         --- @cast p ImRect
-        if (self[1][1] > p[1][1]) then self[1][1] = p[1][1] end
-        if (self[1][2] > p[1][2]) then self[1][2] = p[1][2] end
-        if (self[2][1] < p[2][1]) then self[2][1] = p[2][1] end
-        if (self[2][2] < p[2][2]) then self[2][2] = p[2][2] end
+        if (self.Min.x > p.Min.x) then self.Min.x = p.Min.x end
+        if (self.Min.y > p.Min.y) then self.Min.y = p.Min.y end
+        if (self.Max.x < p.Max.x) then self.Max.x = p.Max.x end
+        if (self.Max.y < p.Max.y) then self.Max.y = p.Max.y end
     else
         --- @cast p ImVec2
-        if p[1] < self[1][1] then self[1][1] = p[1] end
-        if p[2] < self[1][2] then self[1][2] = p[2] end
-        if p[1] > self[2][1] then self[2][1] = p[1] end
-        if p[2] > self[2][2] then self[2][2] = p[2] end
+        if p.x < self.Min.x then self.Min.x = p.x end
+        if p.y < self.Min.y then self.Min.y = p.y end
+        if p.x > self.Max.x then self.Max.x = p.x end
+        if p.y > self.Max.y then self.Max.y = p.y end
     end
 end
 
 --- @param amount float|ImVec2
 function IM_RECT:Expand(amount)
     if     type(amount) == "number" then
-        self[1][1] = self[1][1] - amount; self[1][2] = self[1][2] - amount
-        self[2][1] = self[2][1] + amount; self[2][2] = self[2][2] + amount
+        self.Min.x = self.Min.x - amount; self.Min.y = self.Min.y - amount
+        self.Max.x = self.Max.x + amount; self.Max.y = self.Max.y + amount
     elseif type(amount) == "table"  then
-        self[1][1] = self[1][1] - amount[1]; self[1][2] = self[1][2] - amount[2]
-        self[2][1] = self[2][1] + amount[1]; self[2][2] = self[2][2] + amount[2]
+        self.Min.x = self.Min.x - amount.x; self.Min.y = self.Min.y - amount.y
+        self.Max.x = self.Max.x + amount.x; self.Max.y = self.Max.y + amount.y
     end
 end
 
 --- @nodiscard
 function IM_RECT:ToVec4()
-    return ImVec4(self[1][1], self[1][2], self[2][1], self[2][2])
+    return ImVec4(self.Min.x, self.Min.y, self.Max.x, self.Max.y)
 end
 
 --- @param d ImVec2
 function IM_RECT:Translate(d)
-    self[1][1] = self[1][1] + d[1]; self[1][2] = self[1][2] + d[2]
-    self[2][1] = self[2][1] + d[1]; self[2][2] = self[2][2] + d[2]
+    self.Min.x = self.Min.x + d.x; self.Min.y = self.Min.y + d.y
+    self.Max.x = self.Max.x + d.x; self.Max.y = self.Max.y + d.y
 end
 
 --- @param dx float
 function IM_RECT:TranslateX(dx)
-    self[1][1] = self[1][1] + dx; self[2][1] = self[2][1] + dx
+    self.Min.x = self.Min.x + dx; self.Max.x = self.Max.x + dx
 end
 
 --- @param dy float
 function IM_RECT:TranslateY(dy)
-    self[1][2] = self[1][2] + dy; self[2][2] = self[2][2] + dy
+    self.Min.y = self.Min.y + dy; self.Max.y = self.Max.y + dy
 end
 
-function IM_RECT:IsInverted() return self[1][1] > self[2][1] or self[1][2] > self[2][2] end
+function IM_RECT:IsInverted() return self.Min.x > self.Max.x or self.Min.y > self.Max.y end
 
-function IM_RECT:GetArea() return (self[2][1] - self[1][1]) * (self[2][2] - self[1][2]) end
+function IM_RECT:GetArea() return (self.Max.x - self.Min.x) * (self.Max.y - self.Min.y) end
 
 --- @nodiscard
-function IM_RECT:AsVec4() return ImVec4(self[1][1], self[1][2], self[2][1], self[2][2]) end
+function IM_RECT:AsVec4() return ImVec4(self.Min.x, self.Min.y, self.Max.x, self.Max.y) end
 
 --- @param dest ImRect
 --- @param src  ImRect
 function ImRect_Copy(dest, src)
-    dest[1][1] = src[1][1]; dest[1][2] = src[1][2]
-    dest[2][1] = src[2][1]; dest[2][2] = src[2][2]
+    dest.Min.x = src.Min.x; dest.Min.y = src.Min.y
+    dest.Max.x = src.Max.x; dest.Max.y = src.Max.y
 end
 
 --- @param dest ImRect
 --- @param src  ImVec4
 function ImRect_CopyFromV4(dest, src)
-    dest[1][1] = src[1]; dest[1][2] = src[2]
-    dest[2][1] = src[3]; dest[2][2] = src[4]
+    dest.Min.x = src.x; dest.Min.y = src.y
+    dest.Max.x = src.z; dest.Max.y = src.w
 end
 
 --- @param _ARRAY ImU32[]

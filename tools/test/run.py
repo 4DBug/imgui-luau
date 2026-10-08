@@ -16,7 +16,7 @@ G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, 
 
 def build_run(args, flags):
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle.py"), TMP], check=True, stdout=subprocess.DEVNULL)
-    out = ["--!native", "--!optimize 2", flags, "local SOURCE_FNS = {}"]
+    out = ["--" if args.roblox else "--!native", "--!optimize 2", flags, "local SOURCE_FNS = {}"]
     def add(key, path):
         s = "\n".join(l for l in open(path).read().split("\n") if not l.startswith("--!"))
         out.append("SOURCE_FNS[%r] = function(%s)\n%s\nend" % (key, G, s))
@@ -31,7 +31,7 @@ def build_run(args, flags):
     return path
 
 def run(args, extra=""):
-    flags = "ARG_FRAMES=%d; ARG_BIG=%s; ARG_OPEN=%s; ARG_QUIET=%s; %s" % (args.frames, str(args.big).lower(), str(args.open).lower(), str(args.quiet).lower(), extra)
+    flags = "ARG_FRAMES=%d; ARG_BIG=%s; ARG_OPEN=%s; ARG_QUIET=%s; %s" % (args.frames, str(args.big).lower(), ("{%s}" % ",".join("[%r]=true" % x for x in args.open_only.split(",")) if args.open_only else str(args.open).lower()), str(args.quiet).lower(), extra)
     try:
         p = subprocess.run([LUAU, "-O2"] + (["--profile=2000"] if args.profile else ["--codegen"]) + [build_run(args, flags)], capture_output=True, text=True, timeout=args.timeout)
     except subprocess.TimeoutExpired as e:
@@ -58,6 +58,8 @@ def main():
     ap.add_argument("--frames", type=int, default=400)
     ap.add_argument("--main", default=os.path.join(ROOT, "main.client.luau"))
     ap.add_argument("--big", action="store_true", help="demo window forced to 900x1000")
+    ap.add_argument("--roblox", action="store_true", help="like Studio: only @native functions get native code (default: whole bundle native)")
+    ap.add_argument("--open-only", default="", help="comma list of CollapsingHeader/TreeNode labels to force open, e.g. Widgets,Basic")
     ap.add_argument("--profile", action="store_true", help="sampling profile (no codegen) -> profile.out; see tools/test/prof.py")
     ap.add_argument("--open", action="store_true", help="force all CollapsingHeader/TreeNode open")
     ap.add_argument("--timeout", type=int, default=120)
