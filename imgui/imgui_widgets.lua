@@ -2990,6 +2990,7 @@ end
 --- @param max       number
 --- @param format    string
 --- @param flags     ImGuiSliderFlags
+@native
 function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
     IM_ASSERT((flags == 1 or bit32.band(flags, ImGuiSliderFlags.InvalidMask_) == 0), "Invalid ImGuiSliderFlags flags! Has the legacy 'float power' argument been mistakenly cast to flags? Call function with ImGuiSliderFlags_Logarithmic flags instead.")
 
@@ -3058,6 +3059,22 @@ end
 --- @param max       number
 --- @param format    string
 --- @param flags     ImGuiSliderFlags
+-- [Luau] memo of string.format(format, value) for drag/slider value text (same values are redrawn every frame).
+-- ponytail: whole-memo reset at 4096 entries, LRU if values churn
+local fmt_memo, fmt_memo_n = {}, 0
+local DRAG_TEXT_ALIGN = ImVec2(0.5, 0.5)
+function FormatCached(format, v)
+    local m = fmt_memo[format]
+    if m == nil then m = {}; fmt_memo[format] = m end
+    local r = m[v]
+    if r == nil then
+        if fmt_memo_n >= 4096 then table.clear(fmt_memo); m = {}; fmt_memo[format] = m; fmt_memo_n = 0 end
+        r = ImFormatString(format, v); m[v] = r; fmt_memo_n += 1
+    end
+    return r
+end
+
+@native
 function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, flags)
     if v_speed == nil then v_speed = 1.0 end
     if flags == nil then flags = 0 end
@@ -3151,7 +3168,7 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
     -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
 
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, ImFormatString(format, data), nil, nil, ImVec2(0.5, 0.5))
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -3184,6 +3201,7 @@ end
 --- @param v_max?   int
 --- @param format?  string
 --- @param flags?   ImGuiSliderFlags
+@native
 function ImGui.DragInt(label, v, v_speed, v_min, v_max, format, flags)
     if v_speed == nil then v_speed = 1.0  end
     if v_min   == nil then v_min   = 0    end
@@ -3773,7 +3791,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     -- if g.LogEnabled then
     --     ImGui.LogSetNextTextDecoration("{", "}")
     -- end
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, ImFormatString(format, data), nil, nil, ImVec2(0.5, 0.5))
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -5845,6 +5863,7 @@ local fmt_table_float = {
 --- @param label string
 --- @param col   float[]
 --- @param flags ImGuiColorEditFlags
+@native
 function ImGui.ColorEdit4(label, col, flags)
     if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
@@ -5858,6 +5877,27 @@ function ImGui.ColorEdit4(label, col, flags)
     local label_display_end = ImGui.FindRenderedTextEnd(label)
     local w_full = ImGui.CalcItemWidth()
     g.NextItemData:ClearFlags()
+
+    -- [Luau] Fast path for a row that is entirely clipped (e.g. long lists such as Style Editor > Colors): nothing
+    -- inside would draw, be hovered or receive input, so only reproduce the layout (same group size, baseline and
+    -- last item rect as the full path). Not taken while anything could depend on the inner items: an active item
+    -- or popup, keyboard navigation, logging, or the ID debug hook.
+    if label_display_end == 1 and bit32.band(flags, bit32.bor(ImGuiColorEditFlags.NoInputs, ImGuiColorEditFlags.NoSmallPreview)) == 0
+        and g.ActiveId == 0 and g.OpenPopupStack.Size == 0 and not g.NavCursorVisible and not g.NavAnyRequest
+        and not g.LogEnabled and g.DebugHookIdInfoId == 0 then
+        local w_button = square_sz + style.ItemInnerSpacing.x
+        local w = ImMax(w_full - w_button, 1.0) + w_button
+        local p = window.DC.CursorPos
+        local cr = window.ClipRect
+        if p.y + square_sz < cr.Min.y or p.y > cr.Max.y or p.x + w < cr.Min.x or p.x > cr.Max.x then
+            ImGui.BeginGroup()
+            local bb = ImRect(p.x, p.y, p.x + w, p.y + square_sz)
+            ImGui.ItemSize(ImVec2(w, square_sz), style.FramePadding.y)
+            ImGui.ItemAdd(bb, 0)
+            ImGui.EndGroup()
+            return false
+        end
+    end
 
     ImGui.BeginGroup()
     ImGui.PushID(label)
@@ -6570,6 +6610,7 @@ end
 --- @param col       ImVec4
 --- @param flags?    ImGuiColorEditFlags
 --- @param size_arg? ImVec2
+@native
 function ImGui.ColorButton(desc_id, col, flags, size_arg)
     if flags    == nil then flags    = 0            end
     if size_arg == nil then size_arg = ImVec2(0, 0) end

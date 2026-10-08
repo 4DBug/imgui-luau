@@ -1993,6 +1993,7 @@ end
 -- Lock horizontal starting position + capture group bounding box into one "item" (so you can use IsItemHovered() or layout primitives such as SameLine() on whole group, etc.)
 -- Groups are currently a mishmash of functionalities which should perhaps be clarified and separated.
 -- FIXME-OPT: Could we safely early out on ->SkipItems?
+@native
 function ImGui.BeginGroup()
     local g = GImGui
     local window = g.CurrentWindow
@@ -2024,6 +2025,7 @@ function ImGui.BeginGroup()
     end
 end
 
+@native
 function ImGui.EndGroup()
     local g = GImGui
     local window = g.CurrentWindow
@@ -3898,6 +3900,7 @@ end
 --- @param button     ImGuiMouseButton
 --- @param flags      ImGuiInputFlags
 --- @param owner_id?  ImGuiID
+@native
 function ImGui.IsMouseClickedEx(button, flags, owner_id)
     if owner_id  == nil  then owner_id = ImGuiKeyOwner_Any end
 
@@ -5115,6 +5118,7 @@ end
 --- @param p_min    ImVec2
 --- @param p_max    ImVec2
 --- @param rounding float
+@native
 function ImGui.RenderFrameBorder(p_min, p_max, rounding)
     local g = GImGui
     local window = g.CurrentWindow
@@ -7975,6 +7979,7 @@ function ImGui.GetCurrentWindowRead()
 end
 
 --- @return ImGuiWindow
+@native
 function ImGui.GetCurrentWindow()
     local g = GImGui
     g.CurrentWindow.WriteAccessed = true
@@ -8696,6 +8701,7 @@ end
 --- @param g float
 --- @param b float
 --- @return float, float, float
+@native
 function ImGui.ColorConvertRGBtoHSV(r, g, b)
     local K = 0.0
     if g < b then
@@ -8718,6 +8724,7 @@ end
 --- @param s float
 --- @param v float
 --- @return float, float, float
+@native
 function ImGui.ColorConvertHSVtoRGB(h, s, v)
     if s == 0.0 then
         -- gray
@@ -9998,6 +10005,7 @@ end
 
 --- @param popup_flags ImGuiPopupFlags
 --- @param id          ImGuiID
+@native
 function ImGui.IsPopupOpenRequestForItem(popup_flags, id)
     local g = GImGui
     local mouse_button = ImGui.GetMouseButtonFromPopupFlags(popup_flags)
@@ -10012,6 +10020,7 @@ end
 
 --- @param str_id?      string
 --- @param popup_flags? ImGuiPopupFlags
+@native
 function ImGui.OpenPopupOnItemClick(str_id, popup_flags)
     if popup_flags == nil then popup_flags = 0 end
 
