@@ -7,7 +7,7 @@
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "ImGuiMain": { "$path": "main.client.luau" }
+        "ImGuiMain": { "$path": "examples/example_roblox/main.client.luau" }
       }
     }
   }

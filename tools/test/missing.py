@@ -7,9 +7,9 @@ import os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 port = set()
-for f in os.listdir(os.path.join(ROOT, "imgui")):
+for f in os.listdir(ROOT):
     if f.endswith(".lua"):
-        port.update(re.findall(r"function ImGui[.:](\w+)", open(os.path.join(ROOT, "imgui", f)).read()))
+        port.update(re.findall(r"function ImGui[.:](\w+)", open(os.path.join(ROOT, f)).read()))
 filt = sys.argv[1] if len(sys.argv) > 1 else None
 for f in sorted(os.listdir(os.path.join(HERE, "upstream"))):
     if not f.endswith(".cpp") or f == "imgui_demo.cpp": continue

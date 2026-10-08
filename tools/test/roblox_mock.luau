@@ -180,10 +180,10 @@ G.ImGui.TreeNode = function(...)
     if ARG_OPEN == true or (type(ARG_OPEN) == "table" and ARG_OPEN[(...)]) then G.ImGui.SetNextItemOpen(true, G.ImGuiCond.Always) end
     return realTN(...)
 end
-G.ImGui.ShowDemoWindow = function(...)
+if realDemo then G.ImGui.ShowDemoWindow = function(...)
     if ARG_BIG then G.ImGui.SetNextWindowSize(G.ImVec2(900, 1000), G.ImGuiCond.Always) end
     return realDemo(...)
-end
+end end
 local realRender = G.ImGui_ImplRoblox.RenderDrawData
 G.ImGui_ImplRoblox.RenderDrawData = function(dd)
     if FORCE then G.ImGui.GetIO().BackendPlatformUserData.ForceRedraw = true end
