@@ -33561,10 +33561,18 @@ local function DestroyTiles(bd)
     bd.Tiles = {}
 end
 
+-- MicroProfiler labels, enabled with ImGui_ImplRoblox.SetProfiling(true)
+local profilebegin, profileend = debug.profilebegin, debug.profileend
+local profiling = false
+local function PB(name) if profiling then profilebegin(name) end end
+local function PE() if profiling then profileend() end end
+
 @native
 function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local bd = ImGui_ImplRoblox_GetBackendData()
+    PB("ImGui RenderDrawData")
 
+    PB("ImGui textures")
     if draw_data.Textures ~= nil then
         for _, tex in draw_data.Textures:iter() do
             if tex.Status ~= ImTextureStatus.OK then
@@ -33573,9 +33581,17 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
             end
         end
     end
+    PE()
+
+    -- Render rate cap: textures are always updated (imgui expects it), tiles only at bd.RenderRate Hz
+    if bd.RenderRate > 0 then
+        local now = os.clock()
+        if now + 0.002 < bd.NextRender then PE(); return end
+        bd.NextRender = math.max(bd.NextRender + 1 / bd.RenderRate, now)
+    end
 
     local sw, sh = floor(draw_data.DisplaySize.x), floor(draw_data.DisplaySize.y)
-    if sw <= 0 or sh <= 0 then return end
+    if sw <= 0 or sh <= 0 then PE(); return end
     local cols, rows = ceil(sw / TILE), ceil(sh / TILE)
     if cols ~= bd.TileCols or rows ~= bd.TileRows then
         DestroyTiles(bd)
@@ -33592,6 +33608,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     end
 
     -- Pass 1: collect primitives, hash them into tiles
+    PB("ImGui tile hash")
     local n = 0
     for _, draw_list in draw_data.CmdLists:iter() do
         local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
@@ -33666,7 +33683,10 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         end
     end
 
+    PE()
+
     -- Pass 2: redraw + upload changed tiles
+    PB("ImGui raster+upload")
     local force = bd.ForceRedraw
     bd.ForceRedraw = false
     for ty = 0, rows - 1 do
@@ -33702,7 +33722,9 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                             DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
                         end
                     end
+                    PB("ImGui upload")
                     tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+                    PE()
                 end
                 if not tile.Visible then
                     tile.Visible = true
@@ -33715,6 +33737,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     -- drop references so old vertex tables can be collected
     for k = n + 1, bd.LastPrimCount do pr_a[k], pr_b[k], pr_c[k], pr_d[k], pr_t[k] = nil, nil, nil, nil, nil end
     bd.LastPrimCount = n
+    PE(); PE()
 end
 
 ---------------------------------------------------------
@@ -33738,7 +33761,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TilesActive = false, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
+        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, NextRender = 0, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -33811,6 +33834,7 @@ function ImGui_ImplRoblox_Shutdown()
 end
 
 function ImGui_ImplRoblox_NewFrame()
+    PB("ImGui NewFrame (backend)")
     local io = ImGui.GetIO()
     local bd = ImGui_ImplRoblox_GetBackendData()
 
@@ -33839,7 +33863,17 @@ function ImGui_ImplRoblox_NewFrame()
         bd.TilesActive = want
         for _, tile in pairs(bd.Tiles) do tile.Label.Active = want end
     end
+    PE()
 end
+
+--- Max tile redraws per second (default 60); 0 = every frame. imgui logic still runs every frame.
+function ImGui_ImplRoblox_SetRenderRate(hz)
+    ImGui_ImplRoblox_GetBackendData().RenderRate = hz or 0
+end
+
+--- Toggle MicroProfiler labels (debug.profilebegin) for the backend
+function ImGui_ImplRoblox_SetProfiling(enabled) profiling = enabled and true or false end
+local function ImGui_ImplRoblox_IsProfiling() return profiling end
 
 function ImGui_ImplRoblox_SetRenderScale(scale)
     local bd = ImGui_ImplRoblox_GetBackendData()
@@ -33857,6 +33891,9 @@ ImGui_ImplRoblox = {
     RenderDrawData = ImGui_ImplRoblox_RenderDrawData,
     AddFile        = ImGui_ImplRoblox_AddFile,
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
+    SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
+    SetProfiling   = ImGui_ImplRoblox_SetProfiling,
+    IsProfiling    = ImGui_ImplRoblox_IsProfiling,
 }
 
 return true -- [Roblox] ModuleScripts must return exactly one value
@@ -62244,6 +62281,8 @@ return {
     ImGui_ImplRoblox_Init = ImGui_ImplRoblox_Init,
     ImGui_ImplRoblox_NewFrame = ImGui_ImplRoblox_NewFrame,
     ImGui_ImplRoblox_RenderDrawData = ImGui_ImplRoblox_RenderDrawData,
+    ImGui_ImplRoblox_SetProfiling = ImGui_ImplRoblox_SetProfiling,
+    ImGui_ImplRoblox_SetRenderRate = ImGui_ImplRoblox_SetRenderRate,
     ImGui_ImplRoblox_SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     ImGui_ImplRoblox_Shutdown = ImGui_ImplRoblox_Shutdown,
     ImGui_ImplRoblox_UpdateTexture = ImGui_ImplRoblox_UpdateTexture,
