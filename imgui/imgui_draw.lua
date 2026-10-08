@@ -1414,7 +1414,7 @@ function ImFontAtlasBakedDiscard(atlas, font, baked)
     font.LastBaked = nil
 end
 
-local function ImFontAtlasFontDiscardBakes(atlas, font, unused_frames)
+function ImFontAtlasFontDiscardBakes(atlas, font, unused_frames)
     local builder = atlas.Builder
     if builder then
         for baked_n = 1, builder.BakedPool.Size do
@@ -1746,7 +1746,7 @@ function ImFontAtlasTextureGetSizeEstimate(atlas)
 end
 
 --- @param atlas ImFontAtlas
-local function ImFontAtlasBuildClear(atlas)
+function ImFontAtlasBuildClear(atlas)
     local new_tex_size = ImFontAtlasTextureGetSizeEstimate(atlas) -- ImVec2i
     ImFontAtlasBuildDestroy(atlas)
     ImFontAtlasTextureAdd(atlas, new_tex_size.x, new_tex_size.y)
@@ -2096,6 +2096,11 @@ function MT.ImFontBaked:FindGlyph(c)
 
     local glyph = ImFontBaked_BuildLoadGlyph(self, c, nil)
     return (glyph) and glyph or self.Glyphs.Data[self.FallbackGlyphIndex]
+end
+
+function MT.ImFontBaked:IsGlyphLoaded(c)
+    if c >= self.IndexLookup.Size then return false end
+    return self.IndexLookup.Data[c + 1] ~= IM_FONTGLYPH_INDEX_UNUSED
 end
 
 --- @param c ImWchar

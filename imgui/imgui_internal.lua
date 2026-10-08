@@ -439,10 +439,23 @@ IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE
 function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
-function IMGUI_DEBUG_LOG_ACTIVEID(_str, ...) local g  = GImGui if bitAnd(g.DebugLogFlags, ImGuiDebugLogFlags.EventActiveId) ~= 0 then print(string.format(_str, ...)) end end
-function IMGUI_DEBUG_LOG_POPUP(_str, ...)    local g  = GImGui if bitAnd(g.DebugLogFlags, ImGuiDebugLogFlags.EventPopup) ~= 0 then print(string.format(_str, ...)) end end
-function IMGUI_DEBUG_LOG_FONT(_str, ...)     local g2 = GImGui if g2 and bitAnd(g2.DebugLogFlags, ImGuiDebugLogFlags.EventFont) ~= 0 then print(string.format(_str, ...)) end end
-function IMGUI_DEBUG_LOG_VIEWPORT(_str, ...) local g  = GImGui if bitAnd(g.DebugLogFlags, ImGuiDebugLogFlags.EventViewport) ~= 0 then print(string.format(_str, ...)) end end
+local function DebugLogIf(flag, fmt, ...)
+    local g = GImGui
+    if g and bitAnd(g.DebugLogFlags, flag) ~= 0 then ImGui.DebugLog(fmt, ...) end
+end
+function IMGUI_DEBUG_LOG_ACTIVEID(...) DebugLogIf(ImGuiDebugLogFlags.EventActiveId, ...) end
+function IMGUI_DEBUG_LOG_POPUP(...) DebugLogIf(ImGuiDebugLogFlags.EventPopup, ...) end
+function IMGUI_DEBUG_LOG_FONT(...) DebugLogIf(ImGuiDebugLogFlags.EventFont, ...) end
+function IMGUI_DEBUG_LOG_VIEWPORT(...) DebugLogIf(ImGuiDebugLogFlags.EventViewport, ...) end
+function IMGUI_DEBUG_LOG_FOCUS(...) DebugLogIf(ImGuiDebugLogFlags.EventFocus, ...) end
+function IMGUI_DEBUG_LOG_NAV(...) DebugLogIf(ImGuiDebugLogFlags.EventNav, ...) end
+function IMGUI_DEBUG_LOG_IO(...) DebugLogIf(ImGuiDebugLogFlags.EventIO, ...) end
+function IMGUI_DEBUG_LOG_INPUTROUTING(...) DebugLogIf(ImGuiDebugLogFlags.EventInputRouting, ...) end
+function IMGUI_DEBUG_LOG_TABLE(...) DebugLogIf(ImGuiDebugLogFlags.EventTable, ...) end
+function IMGUI_DEBUG_LOG_DOCKING(...) DebugLogIf(ImGuiDebugLogFlags.EventDocking, ...) end
+function IMGUI_DEBUG_LOG_SELECTION(...) DebugLogIf(ImGuiDebugLogFlags.EventSelection, ...) end
+function IMGUI_DEBUG_LOG_CLIPPER(...) DebugLogIf(ImGuiDebugLogFlags.EventClipper, ...) end
+function IMGUI_DEBUG_LOG_ERROR(...) DebugLogIf(ImGuiDebugLogFlags.EventError, ...) end
 
 --- @alias ImGuiSelectionUserData any
 ImGuiSelectionUserData_Invalid = -1
@@ -2123,6 +2136,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         DebugFlashStyleColorIdx = nil,
 
         DebugMetricsConfig = ImGuiMetricsConfig(),
+        DebugHookIdInfoId = 0,
         DebugAllocInfo = ImGuiDebugAllocInfo(),
 
         --- Misc
