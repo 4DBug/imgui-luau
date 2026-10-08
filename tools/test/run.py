@@ -33,7 +33,7 @@ def build_run(args, flags):
 def run(args, extra=""):
     flags = "ARG_FRAMES=%d; ARG_BIG=%s; ARG_OPEN=%s; ARG_QUIET=%s; %s" % (args.frames, str(args.big).lower(), str(args.open).lower(), str(args.quiet).lower(), extra)
     try:
-        p = subprocess.run([LUAU, "-O2", "--codegen", build_run(args, flags)], capture_output=True, text=True, timeout=args.timeout)
+        p = subprocess.run([LUAU, "-O2"] + (["--profile=2000"] if args.profile else ["--codegen"]) + [build_run(args, flags)], capture_output=True, text=True, timeout=args.timeout)
     except subprocess.TimeoutExpired as e:
         return 124, "TIMEOUT (infinite loop?)\n" + remap((e.stdout or b"").decode(errors="replace"))
     return p.returncode, remap(p.stdout + p.stderr)
@@ -58,6 +58,7 @@ def main():
     ap.add_argument("--frames", type=int, default=400)
     ap.add_argument("--main", default=os.path.join(ROOT, "main.client.luau"))
     ap.add_argument("--big", action="store_true", help="demo window forced to 900x1000")
+    ap.add_argument("--profile", action="store_true", help="sampling profile (no codegen) -> profile.out; see tools/test/prof.py")
     ap.add_argument("--open", action="store_true", help="force all CollapsingHeader/TreeNode open")
     ap.add_argument("--timeout", type=int, default=120)
     ap.add_argument("--quiet", action="store_true", help="no random input (scripted tests drive io themselves)")
