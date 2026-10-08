@@ -18449,6 +18449,271 @@ function ShowExampleAppWindowTitles(p_open)
     return p_open
 end
 
+----------------------------------------------------------------
+-- [SECTION] Example App: Custom Rendering using ImDrawList API / ShowExampleAppCustomRendering()
+----------------------------------------------------------------
+
+local CRS = { sz = 42.0, base_rounding = 8.0, base_thickness = 3.0, animate_rounding = false, animate_thickness = false, ngon_segments = 6,
+    circle_override = false, circle_override_v = 12, curve_override = false, curve_override_v = 8,
+    colf_stroke = ImVec4(1.000, 0.384, 0.169, 1.000), colf_fill = ImVec4(0.416, 0.378, 0.420, 1.000),
+    points = {}, scrolling = ImVec2(0.0, 0.0), opt_enable_grid = true, opt_enable_context_menu = true, adding_line = false,
+    draw_bg = true, draw_fg = true }
+
+local function CustomRenderingPrimitives()
+    local s = CRS
+    ImGui.PushItemWidth(-ImGui.GetFontSize() * 15)
+    ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInput, true)
+    local draw_list = ImGui.GetWindowDrawList()
+
+    ImGui.Text("Gradients")
+    local gradient_size = ImVec2(ImGui.CalcItemWidth(), ImGui.GetFrameHeight())
+    ImGui.InvisibleButton("##gradient1", gradient_size)
+    local col_a, col_b = ImGui.GetColorU32(IM_COL32(0, 0, 0, 255), nil, true), ImGui.GetColorU32(IM_COL32(255, 255, 255, 255), nil, true)
+    draw_list:AddRectFilledMultiColor(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), col_a, col_b, col_b, col_a)
+    ImGui.InvisibleButton("##gradient2", gradient_size)
+    col_a, col_b = ImGui.GetColorU32(IM_COL32(0, 255, 0, 255), nil, true), ImGui.GetColorU32(IM_COL32(255, 0, 0, 255), nil, true)
+    draw_list:AddRectFilledMultiColor(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), col_a, col_b, col_b, col_a)
+
+    ImGui.Text("All primitives")
+    s.sz = ImGui.DragFloat("Size", s.sz, 0.2, 0.2, 100.0, "%.0f")
+    local t = ImGui.GetTime()
+    local rounding_wave = 1.0 - math.abs((t % 3.0) * (2.0 / 3.0) - 1.0)
+    local rounding = s.animate_rounding and (math.floor(rounding_wave * s.base_rounding * 10.0) / 10.0) or s.base_rounding
+    s.base_rounding = ImGui.DragFloat("Rounding", s.base_rounding, 0.02, 0.0, 32.0, "%.1f"); ImGui.SameLine()
+    _, s.animate_rounding = ImGui.Checkbox("Animate##rounding", s.animate_rounding); ImGui.SameLine()
+    ImGui.Text("%.2f", rounding)
+    local thickness_wave = 1.0 - math.abs((t % 5.0) * (2.0 / 5.0) - 1.0)
+    local thickness = s.animate_thickness and (thickness_wave * s.base_thickness) or s.base_thickness
+    s.base_thickness = ImGui.DragFloat("Thickness", s.base_thickness, 0.02, 0.0, 32.0, "%.02f"); ImGui.SameLine()
+    _, s.animate_thickness = ImGui.Checkbox("Animate##thickness", s.animate_thickness); ImGui.SameLine()
+    ImGui.Text("%.2f", thickness)
+    s.ngon_segments = ImGui.SliderInt("N-gon sides", s.ngon_segments, 3, 12)
+    local changed
+    _, s.circle_override = ImGui.Checkbox("##CircleSegmentOverride", s.circle_override)
+    ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
+    s.circle_override_v, changed = ImGui.SliderInt("Circle segments override", s.circle_override_v, 3, 30)
+    s.circle_override = s.circle_override or changed
+    _, s.curve_override = ImGui.Checkbox("##CurvesSegmentOverride", s.curve_override)
+    ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
+    s.curve_override_v, changed = ImGui.SliderInt("Curves segments override", s.curve_override_v, 3, 30)
+    s.curve_override = s.curve_override or changed
+    ImGui.ColorEdit4("Stroke Color", s.colf_stroke)
+    ImGui.ColorEdit4("Fill Color", s.colf_fill)
+    ImGui.SeparatorText("Per primitive flags (AddXXX functions)")
+    ImGui.TextDisabled("(stroke placement/AA flags: not ported, this port uses the 1.92 stroker)")
+    ImGui.Spacing()
+
+    local sz = s.sz
+    local start_pos = ImGui.GetCursorScreenPos()
+    local pi = 3.141592
+    local step = sz + 10.0
+    local corners_tl_br = bit32.bor(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersBottomRight)
+    local half_sz = sz * 0.5
+    local circle_segments = s.circle_override and s.circle_override_v or 0
+    local curve_segments = s.curve_override and s.curve_override_v or 0
+    local cp3 = { ImVec2(0.0, sz * 0.6), ImVec2(sz * 0.5, -sz * 0.4), ImVec2(sz, sz) }
+    local cp4 = { ImVec2(0.0, 0.0), ImVec2(sz * 1.3, sz * 0.3), ImVec2(sz - sz * 1.3, sz - sz * 0.3), ImVec2(sz, sz) }
+    local concave_shape = { { 0.0, 0.0 }, { 0.3, 0.0 }, { 0.3, 0.7 }, { 0.7, 0.7 }, { 0.7, 0.0 }, { 1.0, 0.0 }, { 1.0, 1.0 }, { 0.0, 1.0 } }
+    local zigzag_shape = { { 0.0, 0.0 }, { 0.9, 0.0 }, { 1.0, 0.1 }, { 1.0, 0.9 }, { 0.9, 1.0 }, { 0.3, 1.0 }, { 0.3, 0.4 }, { 0.9, 0.4 } }
+    local rotating_square = {}
+    for side = 0, 3 do
+        local a = t * 0.1 + side * pi * 0.5
+        rotating_square[side + 1] = ImVec2(math.cos(a) * half_sz, math.sin(a) * half_sz)
+    end
+    local function Shape(shape, x, y)
+        for _, p in ipairs(shape) do draw_list:PathLineTo(ImVec2(x + math.floor(sz * p[1]), y + math.floor(sz * p[2]))) end
+    end
+
+    local y = start_pos.y
+    for row = 0, 3 do
+        local x = start_pos.x
+        local draw_fill = (row == 2 or row == 3)
+        local draw_strokes = (row == 0 or row == 1 or row == 3)
+        if draw_fill then
+            local col = ImGui.ColorConvertFloat4ToU32(s.colf_fill)
+            draw_list:AddNgonFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments); x = x + step
+            draw_list:AddCircleFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments); x = x + step
+            draw_list:AddEllipseFilled(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments); x = x + step
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col); x = x + step
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding); x = x + step
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, corners_tl_br); x = x + step
+            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col); x = x + step
+            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col); x = x + step - math.floor(sz * 0.6)
+            Shape(concave_shape, x, y); draw_list:PathFillConcave(col); x = x + step
+            Shape(zigzag_shape, x, y); draw_list:PathFillConcave(col); x = x + step
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + thickness), col); x = x + step
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + thickness, y + sz), col); x = x + step - math.floor(half_sz)
+            if not (draw_fill and draw_strokes) then
+                local block_sz, off = 1, 0
+                while block_sz < 16 and off + block_sz <= sz do
+                    draw_list:AddRectFilled(ImVec2(x, y + off), ImVec2(x + block_sz, y + off + block_sz), col)
+                    off = off + block_sz + 1
+                    block_sz = block_sz + 1
+                end
+            end
+            x = x + step - math.floor(half_sz)
+            for n = 1, 4 do draw_list:PathLineTo(ImVec2(x + half_sz + rotating_square[n].x, y + half_sz + rotating_square[n].y)) end
+            draw_list:PathFillConvex(col); x = x + step
+            draw_list:PathArcTo(ImVec2(x + half_sz, y + half_sz), half_sz, pi * -0.5, pi * 1.1)
+            draw_list:PathFillConvex(col); x = x + step
+            draw_list:PathLineTo(ImVec2(x + cp3[1].x, y + cp3[1].y))
+            draw_list:PathBezierQuadraticCurveTo(ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), curve_segments)
+            draw_list:PathFillConvex(col); x = x + step
+            if not (draw_fill and draw_strokes) then
+                draw_list:AddRectFilledMultiColor(ImVec2(x, y), ImVec2(x + sz, y + sz), IM_COL32(0, 0, 0, 255), IM_COL32(255, 0, 0, 255), IM_COL32(255, 255, 0, 255), IM_COL32(0, 255, 0, 255))
+                x = x + step
+            end
+        end
+        if draw_fill and draw_strokes then x = start_pos.x end
+        if draw_strokes then
+            local col = ImGui.ColorConvertFloat4ToU32(s.colf_stroke)
+            local th = (row == 0) and 1.0 or thickness
+            draw_list:AddNgon(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments, th); x = x + step
+            draw_list:AddCircle(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments, th); x = x + step
+            draw_list:AddEllipse(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments, th); x = x + step
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, 0.0, th); x = x + step
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th); x = x + step
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th, corners_tl_br); x = x + step
+            draw_list:AddTriangle(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col, th); x = x + step
+            draw_list:AddTriangle(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col, th); x = x + step - math.floor(sz * 0.6)
+            Shape(concave_shape, x, y); draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+            Shape(zigzag_shape, x, y); draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+            local off = math.floor(sz * 0.4)
+            draw_list:AddLine(ImVec2(x, y), ImVec2(x + sz, y), col, th)
+            draw_list:AddLine(ImVec2(x, y + off), ImVec2(x + sz, y + off), col, th); x = x + step
+            draw_list:AddLine(ImVec2(x, y), ImVec2(x, y + sz), col, th)
+            draw_list:AddLine(ImVec2(x + off, y + sz), ImVec2(x + off, y), col, th); x = x + step - math.floor(half_sz)
+            if not (draw_fill and draw_strokes) then
+                draw_list:AddLine(ImVec2(x, y), ImVec2(x + half_sz, y + sz), col, th)
+                draw_list:AddLine(ImVec2(x, y + sz), ImVec2(x + half_sz, y), col, th)
+            end
+            x = x + step - math.floor(half_sz)
+            for n = 1, 4 do draw_list:PathLineTo(ImVec2(x + half_sz + rotating_square[n].x, y + half_sz + rotating_square[n].y)) end
+            draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+            draw_list:PathArcTo(ImVec2(x + half_sz, y + half_sz), half_sz, pi * -0.5, pi * 1.1)
+            draw_list:PathStroke(col, th); x = x + step
+            draw_list:AddBezierQuadratic(ImVec2(x + cp3[1].x, y + cp3[1].y), ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), col, th, curve_segments); x = x + step
+            if not (draw_fill and draw_strokes) then
+                draw_list:AddBezierCubic(ImVec2(x + cp4[1].x, y + cp4[1].y), ImVec2(x + cp4[2].x, y + cp4[2].y), ImVec2(x + cp4[3].x, y + cp4[3].y), ImVec2(x + cp4[4].x, y + cp4[4].y), col, th, curve_segments)
+                x = x + step
+            end
+        end
+        y = y + step
+    end
+    ImGui.Dummy(ImVec2(step * 15.5, step * 4.0))
+    ImGui.Text("ImDrawList Vector Rendering Reference:")
+    ImGui.TextLinkOpenURL("https://github.com/ocornut/imgui/wiki/Draw-List")
+    ImGui.PopItemFlag()
+    ImGui.PopItemWidth()
+end
+
+local function CustomRenderingCanvas()
+    local s = CRS
+    _, s.opt_enable_grid = ImGui.Checkbox("Enable grid", s.opt_enable_grid)
+    _, s.opt_enable_context_menu = ImGui.Checkbox("Enable context menu", s.opt_enable_context_menu)
+    ImGui.Text("Mouse Left: drag to add lines,\nMouse Right: drag to scroll, click for context menu.")
+    local canvas_p0 = ImGui.GetCursorScreenPos()
+    local canvas_sz = ImGui.GetContentRegionAvail()
+    if canvas_sz.x < 50.0 then canvas_sz.x = 50.0 end
+    if canvas_sz.y < 50.0 then canvas_sz.y = 50.0 end
+    local canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y)
+    local io = ImGui.GetIO()
+    local draw_list = ImGui.GetWindowDrawList()
+    draw_list:AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255))
+    draw_list:AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255))
+
+    ImGui.InvisibleButton("canvas", canvas_sz, bit32.bor(ImGuiButtonFlags.MouseButtonLeft, ImGuiButtonFlags.MouseButtonRight))
+    local is_hovered = ImGui.IsItemHovered()
+    local is_active = ImGui.IsItemActive()
+    local origin = ImVec2(canvas_p0.x + s.scrolling.x, canvas_p0.y + s.scrolling.y)
+    local mouse_pos_in_canvas = ImVec2(io.MousePos.x - origin.x, io.MousePos.y - origin.y)
+    local points = s.points
+    if is_hovered and not s.adding_line and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+        points[#points + 1] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
+        points[#points + 1] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
+        s.adding_line = true
+    end
+    if s.adding_line then
+        points[#points] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
+        if not ImGui.IsMouseDown(ImGuiMouseButton.Left) then s.adding_line = false end
+    end
+    local mouse_threshold_for_pan = s.opt_enable_context_menu and -1.0 or 0.0
+    if is_active and ImGui.IsMouseDragging(ImGuiMouseButton.Right, mouse_threshold_for_pan) then
+        s.scrolling.x = s.scrolling.x + io.MouseDelta.x
+        s.scrolling.y = s.scrolling.y + io.MouseDelta.y
+    end
+    local drag_delta = ImGui.GetMouseDragDelta(ImGuiMouseButton.Right)
+    if s.opt_enable_context_menu and drag_delta.x == 0.0 and drag_delta.y == 0.0 then
+        ImGui.OpenPopupOnItemClick("context", ImGuiPopupFlags.MouseButtonRight)
+    end
+    if ImGui.BeginPopup("context") then
+        if s.adding_line then points[#points] = nil; points[#points] = nil end
+        s.adding_line = false
+        if ImGui.MenuItem("Remove one", nil, false, #points > 0) then points[#points] = nil; points[#points] = nil end
+        if ImGui.MenuItem("Remove all", nil, false, #points > 0) then table.clear(points) end
+        ImGui.EndPopup()
+    end
+    draw_list:PushClipRect(canvas_p0, canvas_p1, true)
+    if s.opt_enable_grid then
+        local GRID_STEP = 64.0
+        local x = math.fmod(s.scrolling.x, GRID_STEP)
+        while x < canvas_sz.x do draw_list:AddLine(ImVec2(canvas_p0.x + x, canvas_p0.y), ImVec2(canvas_p0.x + x, canvas_p1.y), IM_COL32(200, 200, 200, 40)); x = x + GRID_STEP end
+        local y = math.fmod(s.scrolling.y, GRID_STEP)
+        while y < canvas_sz.y do draw_list:AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), IM_COL32(200, 200, 200, 40)); y = y + GRID_STEP end
+    end
+    for n = 1, #points - 1, 2 do
+        draw_list:AddLine(ImVec2(origin.x + points[n].x, origin.y + points[n].y), ImVec2(origin.x + points[n + 1].x, origin.y + points[n + 1].y), IM_COL32(255, 255, 0, 255), 2.0)
+    end
+    draw_list:PopClipRect()
+end
+
+function ShowExampleAppCustomRendering(p_open)
+    local visible
+    p_open, visible = ImGui.Begin("Example: Custom rendering", p_open)
+    if not visible then ImGui.End(); return p_open end
+    local s = CRS
+    if ImGui.BeginTabBar("##TabBar") then
+        if ImGui.BeginTabItem("Primitives") then CustomRenderingPrimitives(); ImGui.EndTabItem() end
+        if ImGui.BeginTabItem("Canvas") then CustomRenderingCanvas(); ImGui.EndTabItem() end
+        if ImGui.BeginTabItem("BG/FG draw lists") then
+            _, s.draw_bg = ImGui.Checkbox("Draw in Background draw list", s.draw_bg)
+            ImGui.SameLine(); HelpMarker("The Background draw list will be rendered below every Dear ImGui windows.")
+            _, s.draw_fg = ImGui.Checkbox("Draw in Foreground draw list", s.draw_fg)
+            ImGui.SameLine(); HelpMarker("The Foreground draw list will be rendered over every Dear ImGui windows.")
+            local window_pos, window_size = ImGui.GetWindowPos(), ImGui.GetWindowSize()
+            local window_center = ImVec2(window_pos.x + window_size.x * 0.5, window_pos.y + window_size.y * 0.5)
+            if s.draw_bg then ImGui.GetBackgroundDrawList():AddCircle(window_center, window_size.x * 0.6, IM_COL32(255, 0, 0, 200), 0, 10 + 4) end
+            if s.draw_fg then ImGui.GetForegroundDrawList():AddCircle(window_center, window_size.y * 0.6, IM_COL32(0, 255, 0, 200), 0, 10) end
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Draw Channels") then
+            local draw_list = ImGui.GetWindowDrawList()
+            ImGui.Text("Blue shape is drawn first: appears in back")
+            ImGui.Text("Red shape is drawn after: appears in front")
+            local p0 = ImGui.GetCursorScreenPos()
+            draw_list:AddRectFilled(ImVec2(p0.x, p0.y), ImVec2(p0.x + 50, p0.y + 50), IM_COL32(0, 0, 255, 255))
+            draw_list:AddRectFilled(ImVec2(p0.x + 25, p0.y + 25), ImVec2(p0.x + 75, p0.y + 75), IM_COL32(255, 0, 0, 255))
+            ImGui.Dummy(ImVec2(75, 75))
+            ImGui.Separator()
+            ImGui.Text("Blue shape is drawn first, into channel 1: appears in front")
+            ImGui.Text("Red shape is drawn after, into channel 0: appears in back")
+            local p1 = ImGui.GetCursorScreenPos()
+            draw_list:ChannelsSplit(2)
+            draw_list:ChannelsSetCurrent(1)
+            draw_list:AddRectFilled(ImVec2(p1.x, p1.y), ImVec2(p1.x + 50, p1.y + 50), IM_COL32(0, 0, 255, 255))
+            draw_list:ChannelsSetCurrent(0)
+            draw_list:AddRectFilled(ImVec2(p1.x + 25, p1.y + 25), ImVec2(p1.x + 75, p1.y + 75), IM_COL32(255, 0, 0, 255))
+            draw_list:ChannelsMerge()
+            ImGui.Dummy(ImVec2(75, 75))
+            ImGui.Text("After reordering, contents of channel 0 appears below channel 1.")
+            ImGui.EndTabItem()
+        end
+        ImGui.EndTabBar()
+    end
+    ImGui.End()
+    return p_open
+end
+
 return true
 end
 
@@ -28797,6 +29062,183 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
     if fill_R and fill_U then draw_list:AddRectFilled(ImVec2(inner.Max.x, outer.Min.y), ImVec2(outer.Max.x, inner.Min.y), col, rounding, D.RoundCornersTopRight) end
     if fill_L and fill_D then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Max.y), ImVec2(inner.Min.x, outer.Max.y), col, rounding, D.RoundCornersBottomLeft) end
     if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
+end
+
+----------------------------------------------------------------
+-- Extra primitives (Ngon, Ellipse, Bezier, concave fill)
+----------------------------------------------------------------
+-- [port] These follow the 1.92 stroker this port uses (no ImDrawFlags_StrokeXXX placement flags).
+
+function MT.ImDrawList:PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments)
+    if num_segments == nil or num_segments <= 0 then
+        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y))
+    end
+    local cos_rot, sin_rot = ImCos(rot), ImSin(rot)
+    for i = 0, num_segments do
+        local a = a_min + (i / num_segments) * (a_max - a_min)
+        local px, py = ImCos(a) * radius.x, ImSin(a) * radius.y
+        self._Path:push_back(ImVec2(px * cos_rot - py * sin_rot + center.x, px * sin_rot + py * cos_rot + center.y))
+    end
+end
+
+function ImBezierCubicCalc(p1, p2, p3, p4, t)
+    local u = 1.0 - t
+    local w1, w2, w3, w4 = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return ImVec2(w1 * p1.x + w2 * p2.x + w3 * p3.x + w4 * p4.x, w1 * p1.y + w2 * p2.y + w3 * p3.y + w4 * p4.y)
+end
+
+function ImBezierQuadraticCalc(p1, p2, p3, t)
+    local u = 1.0 - t
+    local w1, w2, w3 = u * u, 2 * u * t, t * t
+    return ImVec2(w1 * p1.x + w2 * p2.x + w3 * p3.x, w1 * p1.y + w2 * p2.y + w3 * p3.y)
+end
+
+local function PathBezierCubicCurveToCasteljau(path, x1, y1, x2, y2, x3, y3, x4, y4, tess_tol, level)
+    local dx, dy = x4 - x1, y4 - y1
+    local d2 = math.abs((x2 - x4) * dy - (y2 - y4) * dx)
+    local d3 = math.abs((x3 - x4) * dy - (y3 - y4) * dx)
+    if (d2 + d3) * (d2 + d3) < tess_tol * (dx * dx + dy * dy) then
+        path:push_back(ImVec2(x4, y4))
+    elseif level < 10 then
+        local x12, y12 = (x1 + x2) * 0.5, (y1 + y2) * 0.5
+        local x23, y23 = (x2 + x3) * 0.5, (y2 + y3) * 0.5
+        local x34, y34 = (x3 + x4) * 0.5, (y3 + y4) * 0.5
+        local x123, y123 = (x12 + x23) * 0.5, (y12 + y23) * 0.5
+        local x234, y234 = (x23 + x34) * 0.5, (y23 + y34) * 0.5
+        local x1234, y1234 = (x123 + x234) * 0.5, (y123 + y234) * 0.5
+        PathBezierCubicCurveToCasteljau(path, x1, y1, x12, y12, x123, y123, x1234, y1234, tess_tol, level + 1)
+        PathBezierCubicCurveToCasteljau(path, x1234, y1234, x234, y234, x34, y34, x4, y4, tess_tol, level + 1)
+    end
+end
+
+local function PathBezierQuadraticCurveToCasteljau(path, x1, y1, x2, y2, x3, y3, tess_tol, level)
+    local dx, dy = x3 - x1, y3 - y1
+    local det = (x2 - x3) * dy - (y2 - y3) * dx
+    if det * det * 4.0 < tess_tol * (dx * dx + dy * dy) then
+        path:push_back(ImVec2(x3, y3))
+    elseif level < 10 then
+        local x12, y12 = (x1 + x2) * 0.5, (y1 + y2) * 0.5
+        local x23, y23 = (x2 + x3) * 0.5, (y2 + y3) * 0.5
+        local x123, y123 = (x12 + x23) * 0.5, (y12 + y23) * 0.5
+        PathBezierQuadraticCurveToCasteljau(path, x1, y1, x12, y12, x123, y123, tess_tol, level + 1)
+        PathBezierQuadraticCurveToCasteljau(path, x123, y123, x23, y23, x3, y3, tess_tol, level + 1)
+    end
+end
+
+function MT.ImDrawList:PathBezierCubicCurveTo(p2, p3, p4, num_segments)
+    local p1 = self._Path:back()
+    if num_segments == nil or num_segments == 0 then
+        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, self._Data.CurveTessellationTol, 0)
+    else
+        local t_step = 1.0 / num_segments
+        for i_step = 1, num_segments do self._Path:push_back(ImBezierCubicCalc(p1, p2, p3, p4, t_step * i_step)) end
+    end
+end
+
+function MT.ImDrawList:PathBezierQuadraticCurveTo(p2, p3, num_segments)
+    local p1 = self._Path:back()
+    if num_segments == nil or num_segments == 0 then
+        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, self._Data.CurveTessellationTol, 0)
+    else
+        local t_step = 1.0 / num_segments
+        for i_step = 1, num_segments do self._Path:push_back(ImBezierQuadraticCalc(p1, p2, p3, t_step * i_step)) end
+    end
+end
+
+function MT.ImDrawList:AddNgon(center, radius, col, num_segments, thickness)
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius - 0.5, 0.0, a_max, num_segments - 1)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddNgonFilled(center, radius, col, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
+    self:PathFillConvex(col)
+end
+
+function MT.ImDrawList:AddEllipse(center, radius, col, rot, num_segments, thickness)
+    if rot == nil then rot = 0.0 end
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddEllipseFilled(center, radius, col, rot, num_segments)
+    if rot == nil then rot = 0.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
+    self:PathFillConvex(col)
+end
+
+function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    self:PathLineTo(p1)
+    self:PathBezierCubicCurveTo(p2, p3, p4, num_segments or 0)
+    self:PathStroke(col, thickness or 1.0)
+end
+
+function MT.ImDrawList:AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    self:PathLineTo(p1)
+    self:PathBezierQuadraticCurveTo(p2, p3, num_segments or 0)
+    self:PathStroke(col, thickness or 1.0)
+end
+
+-- ponytail: ear-clipping, no anti-aliased fringe (upstream's AA triangulator not ported). O(n^2) is fine for UI polygons.
+--- @param points ImVec2[] # 1-based
+function MT.ImDrawList:AddConcavePolyFilled(points, points_count, col)
+    if points_count < 3 or bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    local idx = {}
+    local area = 0.0
+    for i = 1, points_count do
+        idx[i] = i
+        local a, b = points[i], points[i % points_count + 1]
+        area = area + (a.x * b.y - b.x * a.y)
+    end
+    local sign = (area >= 0) and 1 or -1
+    local function cross(o, a, b) return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) end
+    local guard = 0
+    while #idx > 3 and guard < points_count * points_count do
+        guard = guard + 1
+        local n = #idx
+        local clipped = false
+        for i = 1, n do
+            local ia, ib, ic = idx[(i - 2) % n + 1], idx[i], idx[i % n + 1]
+            local a, b, c = points[ia], points[ib], points[ic]
+            if cross(a, b, c) * sign > 0 then
+                local inside = false
+                for j = 1, n do
+                    local p = idx[j]
+                    if p ~= ia and p ~= ib and p ~= ic then
+                        local q = points[p]
+                        if cross(a, b, q) * sign >= 0 and cross(b, c, q) * sign >= 0 and cross(c, a, q) * sign >= 0 then inside = true; break end
+                    end
+                end
+                if not inside then
+                    self:AddTriangleFilled(a, b, c, col)
+                    table.remove(idx, i)
+                    clipped = true
+                    break
+                end
+            end
+        end
+        if not clipped then break end
+    end
+    if #idx == 3 then self:AddTriangleFilled(points[idx[1]], points[idx[2]], points[idx[3]], col) end
+end
+
+function MT.ImDrawList:PathFillConcave(col)
+    self:AddConcavePolyFilled(self._Path.Data, self._Path.Size, col)
+    self._Path.Size = 0
 end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
@@ -54285,6 +54727,8 @@ return {
     ImAddClampOverflow = ImAddClampOverflow,
     ImAtan2 = ImAtan2,
     ImAtof = ImAtof,
+    ImBezierCubicCalc = ImBezierCubicCalc,
+    ImBezierQuadraticCalc = ImBezierQuadraticCalc,
     ImBitArray = ImBitArray,
     ImBitArraySetBit = ImBitArraySetBit,
     ImCeil = ImCeil,
@@ -54617,6 +55061,7 @@ return {
     ShowExampleAppAutoResize = ShowExampleAppAutoResize,
     ShowExampleAppConsole = ShowExampleAppConsole,
     ShowExampleAppConstrainedResize = ShowExampleAppConstrainedResize,
+    ShowExampleAppCustomRendering = ShowExampleAppCustomRendering,
     ShowExampleAppFullscreen = ShowExampleAppFullscreen,
     ShowExampleAppLayout = ShowExampleAppLayout,
     ShowExampleAppLog = ShowExampleAppLog,
