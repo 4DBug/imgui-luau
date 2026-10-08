@@ -222,16 +222,21 @@ end
 --- @param y? number
 --- @return ImVec2
 --- @nodiscard
+@native
 function ImVec2(x, y) return setmetatable({ x = x or 0, y = y or 0 }, IM_VEC2) end
 
+@native
 function IM_VEC2.__add(lhs, rhs) return setmetatable({ x = lhs.x + rhs.x, y = lhs.y + rhs.y }, IM_VEC2) end
+@native
 function IM_VEC2.__sub(lhs, rhs) return setmetatable({ x = lhs.x - rhs.x, y = lhs.y - rhs.y }, IM_VEC2) end
 
+@native
 function IM_VEC2.__mul(lhs, rhs)
     if type(rhs) == "number" then return setmetatable({ x = lhs.x * rhs, y = lhs.y * rhs }, IM_VEC2) end
     return setmetatable({ x = lhs.x * rhs.x, y = lhs.y * rhs.y }, IM_VEC2)
 end
 
+@native
 function IM_VEC2.__div(lhs, rhs)
     if type(rhs) == "number" then return setmetatable({ x = lhs.x / rhs, y = lhs.y / rhs }, IM_VEC2) end
     return setmetatable({ x = lhs.x / rhs.x, y = lhs.y / rhs.y }, IM_VEC2)
@@ -243,6 +248,7 @@ function IM_VEC2:__tostring() return string.format("ImVec2(%g, %g)", self.x, sel
 
 --- @param dest ImVec2
 --- @param src  ImVec2
+@native
 function ImVec2_Copy(dest, src) dest.x = src.x; dest.y = src.y end
 
 function ImVec2_CopyV(dest, src_x, src_y) dest.x = src_x; dest.y = src_y end
@@ -281,6 +287,7 @@ end
 
 --- @return ImVec4
 --- @nodiscard
+@native
 function ImVec4(x, y, z, w) return setmetatable({ x = x or 0, y = y or 0, z = z or 0, w = w or 0 }, IM_VEC4) end
 
 function IM_VEC4.__add(lhs, rhs) return ImVec4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w) end
@@ -292,6 +299,7 @@ function IM_VEC4:__tostring() return string.format("ImVec4(%g, %g, %g, %g)", sel
 
 --- @param dest ImVec4
 --- @param src  ImVec4
+@native
 function ImVec4_Copy(dest, src) dest.x = src.x; dest.y = src.y; dest.z = src.z; dest.w = src.w end
 
 --- A compact ImVector clone

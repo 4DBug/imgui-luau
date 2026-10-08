@@ -364,6 +364,7 @@ function ImHashStr(str, size, seed)
     return ImHashStrRaw(str, size, seed)
 end
 
+@native
 function ImHashStrRaw(str, size, seed)
 
     if str == "" or size == 0 then
@@ -1530,6 +1531,7 @@ local function GetWindowForTitleDisplay(window)
 end
 
 --- @param id ImGuiID
+@native
 function ImGui.KeepAliveID(id)
     local g = GImGui
 
@@ -1545,20 +1547,28 @@ end
 --- @param r_min  ImVec2
 --- @param r_max  ImVec2
 --- @param clip?  bool
+@native
 function ImGui.IsMouseHoveringRect(r_min, r_max, clip)
     if clip == nil then clip = true end
 
     local g = GImGui
-
-    local rect_clipped = ImRect(r_min, r_max)
+    -- [Luau] scalar version of: rect_clipped = ImRect(r_min, r_max); ClipWith(window.ClipRect); ContainsWithPad(); viewport Overlaps()
+    local x0, y0, x1, y1 = r_min.x, r_min.y, r_max.x, r_max.y
     if clip then
-        rect_clipped:ClipWith(g.CurrentWindow.ClipRect)
+        local cr = g.CurrentWindow.ClipRect
+        local cmin, cmax = cr.Min, cr.Max
+        x0 = math.max(x0, cmin.x); y0 = math.max(y0, cmin.y)
+        x1 = math.min(x1, cmax.x); y1 = math.min(y1, cmax.y)
     end
 
-    if not rect_clipped:ContainsWithPad(g.IO.MousePos, g.Style.TouchExtraPadding) then
+    local p, pad = g.IO.MousePos, g.Style.TouchExtraPadding
+    if not (p.x >= x0 - pad.x and p.y >= y0 - pad.y and p.x < x1 + pad.x and p.y < y1 + pad.y) then
         return false
     end
-    if (not g.MouseViewport:GetMainRect():Overlaps(rect_clipped)) then
+    local vp = g.MouseViewport
+    local vx0, vy0 = vp.Pos.x, vp.Pos.y
+    local vx1, vy1 = vx0 + vp.Size.x, vy0 + vp.Size.y
+    if not (vx0 <= x1 and vx1 >= x0 and vy0 <= y1 and vy1 >= y0) then
         return false
     end
 
@@ -1631,6 +1641,7 @@ end
 --- @param id           ImGuiID
 --- @param nav_bb_arg?  ImRect
 --- @param extra_flags? ImGuiItemFlags
+@native
 function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
     if extra_flags == nil then extra_flags = 0 end
 
@@ -1666,7 +1677,8 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
     g.NextItemData.HasFlags = ImGuiNextItemDataFlags.None
     g.NextItemData.ItemFlagsSet = ImGuiItemFlags.None
 
-    local is_rect_visible = bb:Overlaps(window.ClipRect)
+    local bmin, bmax, cr = bb.Min, bb.Max, window.ClipRect
+    local is_rect_visible = bmin.x <= cr.Max.x and bmax.x >= cr.Min.x and bmin.y <= cr.Max.y and bmax.y >= cr.Min.y
     if not is_rect_visible then
         if id == 0 or not (id == g.ActiveId or id == g.ActiveIdPreviousFrame or id == g.NavId or id == g.NavActivateId or g.ItemUnclipByLog) then
             return false
@@ -1690,16 +1702,18 @@ end
 
 --- @param size_or_bb       ImVec2|ImRect
 --- @param text_baseline_y? float
+@native
 function ImGui.ItemSize(size_or_bb, text_baseline_y)
     if text_baseline_y == nil then text_baseline_y = -1.0 end
 
-    local size
-    if size_or_bb.Min then
+    local size_x, size_y
+    local bb_min = size_or_bb.Min
+    if bb_min then
         --- @cast size_or_bb ImRect
-        size = size_or_bb:GetSize()
+        size_x = size_or_bb.Max.x - bb_min.x; size_y = size_or_bb.Max.y - bb_min.y
     else
         --- @cast size_or_bb ImVec2
-        size = size_or_bb
+        size_x = size_or_bb.x; size_y = size_or_bb.y
     end
 
     local g = GImGui
@@ -1708,45 +1722,50 @@ function ImGui.ItemSize(size_or_bb, text_baseline_y)
     if window.SkipItems then
         return
     end
+    local dc = window.DC
+    local mathMax = math.max
 
     local offset_to_match_baseline_y
     if text_baseline_y >= 0 then
-        offset_to_match_baseline_y = ImMax(0, window.DC.CurrLineTextBaseOffset - text_baseline_y)
+        offset_to_match_baseline_y = mathMax(0, dc.CurrLineTextBaseOffset - text_baseline_y)
     else
         offset_to_match_baseline_y = 0
     end
 
+    local cursor, prev_line, max_pos = dc.CursorPos, dc.CursorPosPrevLine, dc.CursorMaxPos
     local line_y1
-    if window.DC.IsSameLine then
-        line_y1 = window.DC.CursorPosPrevLine.y
+    if dc.IsSameLine then
+        line_y1 = prev_line.y
     else
-        line_y1 = window.DC.CursorPos.y
+        line_y1 = cursor.y
     end
 
-    local line_height = ImMax(window.DC.CurrLineSize.y, window.DC.CursorPos.y - line_y1 + size.y + offset_to_match_baseline_y)
+    local line_height = mathMax(dc.CurrLineSize.y, cursor.y - line_y1 + size_y + offset_to_match_baseline_y)
+    local spacing_y = g.Style.ItemSpacing.y
 
-    window.DC.CursorPosPrevLine.x = window.DC.CursorPos.x + size.x
-    window.DC.CursorPosPrevLine.y = line_y1
-    window.DC.CursorPos.x = IM_TRUNC(window.Pos.x + window.DC.Indent.x + window.DC.ColumnsOffset.x)
-    window.DC.CursorPos.y = IM_TRUNC(line_y1 + line_height + g.Style.ItemSpacing.y)
-    window.DC.CursorMaxPos.x = ImMax(window.DC.CursorMaxPos.x, window.DC.CursorPosPrevLine.x)
-    window.DC.CursorMaxPos.y = ImMax(window.DC.CursorMaxPos.y, window.DC.CursorPos.y - g.Style.ItemSpacing.y)
+    prev_line.x = cursor.x + size_x
+    prev_line.y = line_y1
+    cursor.x = math.floor(window.Pos.x + dc.Indent.x + dc.ColumnsOffset.x)
+    cursor.y = math.floor(line_y1 + line_height + spacing_y)
+    max_pos.x = mathMax(max_pos.x, prev_line.x)
+    max_pos.y = mathMax(max_pos.y, cursor.y - spacing_y)
 
-    window.DC.PrevLineSize.y = line_height
-    window.DC.CurrLineSize.y = 0
-    window.DC.PrevLineTextBaseOffset = ImMax(window.DC.CurrLineTextBaseOffset, text_baseline_y)
-    window.DC.CurrLineTextBaseOffset = 0
-    window.DC.IsSetPos = false
-    window.DC.IsSameLine = false
+    dc.PrevLineSize.y = line_height
+    dc.CurrLineSize.y = 0
+    dc.PrevLineTextBaseOffset = mathMax(dc.CurrLineTextBaseOffset, text_baseline_y)
+    dc.CurrLineTextBaseOffset = 0
+    dc.IsSetPos = false
+    dc.IsSameLine = false
 
     --- Horizontal layout mode
-    if (window.DC.LayoutType == ImGuiLayoutType.Horizontal) then
+    if (dc.LayoutType == ImGuiLayoutType.Horizontal) then
         ImGui.SameLine()
     end
 end
 
 --- @param offset_from_start_x float?
 --- @param spacing_w           float?
+@native
 function ImGui.SameLine(offset_from_start_x, spacing_w)
     if offset_from_start_x == nil then offset_from_start_x =  0.0 end
     if spacing_w           == nil then spacing_w           = -1.0 end
@@ -1859,6 +1878,7 @@ end
 
 --- @return ImVec2
 --- @nodiscard
+@native
 function ImGui.GetContentRegionAvail()
     local g = GImGui
     local window = g.CurrentWindow
@@ -2074,6 +2094,7 @@ function ImGui.EndGroup()
     end
 end
 
+@native
 function ImGui.CalcItemWidth()
     local g = GImGui
     local window = g.CurrentWindow
@@ -2564,6 +2585,7 @@ function ImGui.ClearActiveID()
 end
 
 --- @param str_id string|int
+@native
 function ImGui.PushID(str_id)
     local g = GImGui
     local window = g.CurrentWindow
@@ -2581,6 +2603,7 @@ function ImGui.PushOverrideID(id)
     window.IDStack:push_back(id)
 end
 
+@native
 function ImGui.PopID()
     local window = GImGui.CurrentWindow
     IM_ASSERT_USER_ERROR_RET(window.IDStack.Size > 1, "Calling PopID() too many times!")
@@ -2589,6 +2612,7 @@ end
 
 --- @param id string|int
 --- @return ImGuiID
+@native
 function MT.ImGuiWindow:GetID(id)
     local seed = self.IDStack:back()
 
@@ -2651,6 +2675,7 @@ function ImGui.GetIDWithSeed(a, b, c)
 end
 
 --- @param id ImGuiID
+@native
 function ImGui.SetHoveredID(id)
     local g = GImGui
     g.HoveredId = id
@@ -2752,6 +2777,7 @@ function ImGui.IsWindowContentHoverable(window, flags)
 end
 
 --- @param flags? ImGuiHoveredFlags
+@native
 function ImGui.IsItemHovered(flags)
     if flags == nil then flags = 0 end
 
@@ -2851,6 +2877,7 @@ end
 --- @param bb         ImRect
 --- @param id         ImGuiID
 --- @param item_flags ImGuiItemFlags
+@native
 function ImGui.ItemHoverable(bb, id, item_flags)
     local g = GImGui
     local window = g.CurrentWindow
@@ -4774,6 +4801,7 @@ end
 --- @param text     ImString
 --- @param text_end int?
 --- @return int # Exclusive upper bound
+@native
 function ImGui.FindRenderedTextEnd(text, text_end)
     local text_display_end = 1
     local text_len = #text
@@ -4792,6 +4820,7 @@ end
 --- @param text_begin           int?
 --- @param text_end             int?
 --- @param hide_text_after_hash bool?  # true by default
+@native
 function ImGui.RenderText(pos, text, text_begin, text_end, hide_text_after_hash)
     if text_begin           == nil then text_begin = 1 end
     if hide_text_after_hash == nil then hide_text_after_hash = true end
@@ -4844,6 +4873,7 @@ end
 --- @param text_size_if_known? ImVec2
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
+@native
 function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin, text_display_end, text_size_if_known, align, clip_rect)
     if not align then align = ImVec2(0, 0) end
 
@@ -4899,6 +4929,7 @@ end
 --- @param id        ImGuiID
 --- @param flags?    ImGuiNavRenderCursorFlags
 --- @param rounding? float
+@native
 function ImGui.RenderNavCursor(bb, id, flags, rounding)
     if flags    == nil then flags    = ImGuiNavRenderCursorFlags.None end
     if rounding == nil then rounding = -1.0 end
@@ -5064,6 +5095,7 @@ end
 --- @param fill_col  ImU32
 --- @param borders?  bool
 --- @param rounding? float
+@native
 function ImGui.RenderFrame(p_min, p_max, fill_col, borders, rounding)
     if borders  == nil then borders  = true end
     if rounding == nil then rounding = 0.0 end
@@ -7948,6 +7980,7 @@ end
 --- @param clip_rect_min                     ImVec2
 --- @param clip_rect_max                     ImVec2
 --- @param intersect_with_current_clip_rect? bool
+@native
 function ImGui.PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
     local window = ImGui.GetCurrentWindow()
     window.DrawList:PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
@@ -8508,6 +8541,7 @@ end
 --- @param hide_text_after_double_hash? bool
 --- @param wrap_width?                  float
 --- @return ImVec2
+@native
 function ImGui.CalcTextSize(text, text_end, hide_text_after_double_hash, wrap_width)
     return ImGui.CalcTextSizeEx(text, 1, text_end, hide_text_after_double_hash, wrap_width)
 end
@@ -8518,6 +8552,7 @@ end
 --- @param hide_text_after_double_hash? bool
 --- @param wrap_width?                  float
 --- @return ImVec2
+@native
 function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
     if hide_text_after_double_hash == nil then hide_text_after_double_hash = false end
     if wrap_width                  == nil then wrap_width                  = -1.0  end
@@ -8646,13 +8681,11 @@ end
 
 --- @param in_col ImVec4
 --- @return ImU32
+local function F32ToU8Sat(v) if v < 0.0 then v = 0.0 elseif v > 1.0 then v = 1.0 end return math.floor(v * 255.0 + 0.5) end
+
+@native
 function ImGui.ColorConvertFloat4ToU32(in_col)
-    local out_col = 0
-    out_col = bit32.bor(out_col, bit32.lshift(IM_F32_TO_INT8_SAT(in_col.x), IM_COL32_R_SHIFT))
-    out_col = bit32.bor(out_col, bit32.lshift(IM_F32_TO_INT8_SAT(in_col.y), IM_COL32_G_SHIFT))
-    out_col = bit32.bor(out_col, bit32.lshift(IM_F32_TO_INT8_SAT(in_col.z), IM_COL32_B_SHIFT))
-    out_col = bit32.bor(out_col, bit32.lshift(IM_F32_TO_INT8_SAT(in_col.w), IM_COL32_A_SHIFT))
-    return out_col
+    return bit32.bor(F32ToU8Sat(in_col.x), bit32.lshift(F32ToU8Sat(in_col.y), 8), bit32.lshift(F32ToU8Sat(in_col.z), 16), bit32.lshift(F32ToU8Sat(in_col.w), 24))
 end
 
 --- @param r float
@@ -8735,6 +8768,7 @@ local c = ImVec4()
 --- @param alpha_mul?  float
 --- @param col_is_u32? bool                  # must be truthy if `col` is `ImU32`
 --- @return ImU32
+@native
 function ImGui.GetColorU32(col, alpha_mul, col_is_u32)
     if alpha_mul == nil then alpha_mul = 1.0 end
 
@@ -8742,14 +8776,14 @@ function ImGui.GetColorU32(col, alpha_mul, col_is_u32)
 
     if not col_is_u32 then
         --- @cast col ImVec4|ImGuiCol
+        local w
         if type(col) == "number" then
-            ImVec4_Copy(c, style.Colors[col])
-            c.w = c.w * style.Alpha * alpha_mul
+            col = style.Colors[col]
+            w = col.w * style.Alpha * alpha_mul
         else --- @cast col ImVec4
-            ImVec4_Copy(c, col)
-            c.w = c.w * style.Alpha
+            w = col.w * style.Alpha
         end
-        return ImGui.ColorConvertFloat4ToU32(c)
+        return bit32.bor(F32ToU8Sat(col.x), bit32.lshift(F32ToU8Sat(col.y), 8), bit32.lshift(F32ToU8Sat(col.z), 16), bit32.lshift(F32ToU8Sat(w), 24))
     else
         --- @cast col ImU32
         alpha_mul = alpha_mul * style.Alpha

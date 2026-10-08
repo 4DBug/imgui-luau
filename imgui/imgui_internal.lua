@@ -140,6 +140,7 @@ end
 
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
+@native
 function ImMin(lhs, rhs)
     if type(lhs) == "number" then return mathMin(lhs, rhs) end
     return ImVec2(mathMin(lhs.x, rhs.x), mathMin(lhs.y, rhs.y))
@@ -147,6 +148,7 @@ end
 
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
+@native
 function ImMax(lhs, rhs)
     if type(lhs) == "number" then return mathMax(lhs, rhs) end
     return ImVec2(mathMax(lhs.x, rhs.x), mathMax(lhs.y, rhs.y))
@@ -159,6 +161,7 @@ ImStd.ImQsort = function(base, count, cmp_func) if count > 0 then t_sort(base, c
 
 --- @overload fun(v: number, mn: number, mx: number): number
 --- @overload fun(v: ImVec2, mn: ImVec2, mx: ImVec2): ImVec2
+@native
 function ImClamp(v, mn, mx)
     if     type(v) == "number" and type(mn) == "number" and type(mx) == "number" then return mathMin(mathMax(v, mn), mx)
     elseif type(v) == "table"  and type(mn) == "table"  and type(mx) == "table"  then return ImVec2(mathMax(mn.x, mathMin(v.x, mx.x)), mathMax(mn.y, mathMin(v.y, mx.y)))
@@ -168,6 +171,7 @@ end
 --- @overload fun(a: number, b: number, t: number): number
 --- @overload fun(a: ImVec2, b: ImVec2, t: number): ImVec2
 --- @overload fun(a: ImVec2, b: ImVec2, t: ImVec2): ImVec2
+@native
 function ImLerp(a, b, t)
     if     type(a) == "number" and type(b) == "number" and type(t) == "number" then return ((a) + ((b) - (a)) * (t))
     elseif type(a) == "table"  and type(b) == "table"  and type(t) == "number" then return ImVec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
@@ -682,12 +686,14 @@ IM_RECT.__newindex = function(t, k, v) IM_ASSERT(false, "ImRect: unknown field "
 
 --- @return ImRect
 --- @nodiscard
+@native
 function ImRect(a, b, c, d) if c and d then return setmetatable({ Min = ImVec2(a, b), Max = ImVec2(c, d) }, IM_RECT) end return setmetatable({ Min = ImVec2(a and a.x or 0, a and a.y or 0), Max = ImVec2(b and b.x or 0, b and b.y or 0) }, IM_RECT) end
 
 function IM_RECT:__eq(other) return self.Min == other.Min and self.Max == other.Max end
 function IM_RECT:__tostring() return string.format("ImRect(Min: %g,%g, Max: %g,%g)", self.Min.x, self.Min.y, self.Max.x, self.Max.y) end
 
 --- @param p ImRect|ImVec2
+@native
 function IM_RECT:Contains(p)
     if p.Min then
         --- @cast p ImRect
@@ -705,6 +711,7 @@ function IM_RECT:ContainsWithPad(p, pad)
 end
 
 --- @param r ImRect
+@native
 function IM_RECT:Overlaps(r)
     return self.Min.x <= r.Max.x and self.Max.x >= r.Min.x and self.Min.y <= r.Max.y and self.Max.y >= r.Min.y
 end
@@ -714,6 +721,7 @@ function IM_RECT:GetCenter() return ImVec2((self.Min.x + self.Max.x) * 0.5, (sel
 function IM_RECT:GetWidth() return self.Max.x - self.Min.x end
 function IM_RECT:GetHeight() return self.Max.y - self.Min.y end
 --- @nodiscard
+@native
 function IM_RECT:GetSize() return ImVec2(self.Max.x - self.Min.x, self.Max.y - self.Min.y) end
 
 --- @nodiscard
@@ -726,16 +734,19 @@ function IM_RECT:GetBL() return ImVec2(self.Min.x, self.Max.y) end
 function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end
 
 --- @param r ImRect
+@native
 function IM_RECT:ClipWith(r)
     ImVec2_Copy(self.Min, ImMax(self.Min, r.Min)); ImVec2_Copy(self.Max, ImMin(self.Max, r.Max))
 end
 
 --- @param r ImRect
+@native
 function IM_RECT:ClipWithFull(r)
     ImVec2_Copy(self.Min, ImClamp(self.Min, r.Min, r.Max)); ImVec2_Copy(self.Max, ImClamp(self.Max, r.Min, r.Max))
 end
 
 --- @param p ImRect|ImVec2
+@native
 function IM_RECT:Add(p)
     if p.Min then
         --- @cast p ImRect
@@ -753,6 +764,7 @@ function IM_RECT:Add(p)
 end
 
 --- @param amount float|ImVec2
+@native
 function IM_RECT:Expand(amount)
     if     type(amount) == "number" then
         self.Min.x = self.Min.x - amount; self.Min.y = self.Min.y - amount
@@ -769,6 +781,7 @@ function IM_RECT:ToVec4()
 end
 
 --- @param d ImVec2
+@native
 function IM_RECT:Translate(d)
     self.Min.x = self.Min.x + d.x; self.Min.y = self.Min.y + d.y
     self.Max.x = self.Max.x + d.x; self.Max.y = self.Max.y + d.y
@@ -793,6 +806,7 @@ function IM_RECT:AsVec4() return ImVec4(self.Min.x, self.Min.y, self.Max.x, self
 
 --- @param dest ImRect
 --- @param src  ImRect
+@native
 function ImRect_Copy(dest, src)
     dest.Min.x = src.Min.x; dest.Min.y = src.Min.y
     dest.Max.x = src.Max.x; dest.Max.y = src.Max.y
@@ -857,6 +871,7 @@ end
 function MT.ImDrawList:PathClear() self._Path:clear() end
 
 --- @param pos ImVec2
+@native
 function MT.ImDrawList:PathLineTo(pos) self._Path:push_back(pos) end
 
 function MT.ImDrawList:PathLineToMergeDuplicate(pos)
@@ -866,6 +881,7 @@ function MT.ImDrawList:PathLineToMergeDuplicate(pos)
     end
 end
 
+@native
 function MT.ImDrawList:PathFillConvex(col)
     self:AddConvexPolyFilled(self._Path.Data, self._Path.Size, col)
     self._Path.Size = 0

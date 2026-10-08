@@ -34,6 +34,7 @@ local IM_U32_MAX = UINT_MAX
 --- @param text      string
 --- @param text_end? int
 --- @param flags?    ImGuiTextFlags
+@native
 function ImGui.TextEx(text, text_end, flags)
     if not flags then flags = 0 end
 
@@ -144,6 +145,7 @@ end
 
 --- @param fmt string
 --- @param ... any
+@native
 function ImGui.TextV(fmt, ...)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -156,6 +158,7 @@ end
 
 --- @param fmt string
 --- @param ... any
+@native
 function ImGui.Text(fmt, ...)
     if select('#', ...) > 0 then
         ImGui.TextV(fmt, ...)
@@ -330,6 +333,7 @@ end
 --- @param bb     ImRect
 --- @param id     ImGuiID
 --- @param flags? ImGuiButtonFlags
+@native
 function ImGui.ButtonBehavior(bb, id, flags)
     if flags == nil then flags = 0 end
 
@@ -572,6 +576,7 @@ end
 --- @param size_arg? ImVec2
 --- @param flags?    ImGuiButtonFlags
 --- @return bool
+@native
 function ImGui.ButtonEx(label, size_arg, flags)
     if size_arg == nil then size_arg = ImVec2(0, 0) end
     if flags    == nil then flags    = 0            end
@@ -1108,6 +1113,7 @@ end
 --- @param v     bool
 --- @return bool is_pressed
 --- @return bool is_checked # The updated `v` passed in
+@native
 function ImGui.Checkbox(label, v)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -6846,6 +6852,7 @@ end
 
 -- Overloads: TreeNode(label) / TreeNode(str_id, fmt, ...)
 --- @param label string
+@native
 function ImGui.TreeNode(label, fmt, ...)
     if fmt ~= nil then
         return ImGui.TreeNodeEx(label, 0, fmt, ...)
@@ -6967,6 +6974,7 @@ end
 --- @param flags      ImGuiTreeNodeFlags
 --- @param label      string
 --- @param label_end? int
+@native
 function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -7380,6 +7388,7 @@ end
 -- Overloads: CollapsingHeader(label, flags?) -> is_open
 --            CollapsingHeader(label, p_visible: bool, flags?) -> is_open, p_visible
 --- @param label  string
+@native
 function ImGui.CollapsingHeader(label, a, b)
     local p_visible, flags
     if type(a) == "boolean" then p_visible, flags = a, b else flags = a end
@@ -7434,6 +7443,7 @@ end
 --- @param size_arg? any
 --- @return bool is_pressed
 --- @return bool is_selected # Updated `selected`
+@native
 function ImGui.Selectable(label, selected, flags, size_arg)
     if selected == nil then selected = false        end
     if flags    == nil then flags    = 0            end
