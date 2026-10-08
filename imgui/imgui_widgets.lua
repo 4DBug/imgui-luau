@@ -301,6 +301,28 @@ function ImGui.BulletText(fmt, ...)
     ImGui.RenderText(bb.Min + ImVec2(g.FontSize + style.FramePadding.x * 2, 0.0), text, 1, text_end, false)
 end
 
+-- va_list variants: identical to the varargs versions in Lua
+ImGui.TextColoredV = ImGui.TextColored
+ImGui.TextDisabledV = ImGui.TextDisabled
+ImGui.TextWrappedV = ImGui.TextWrapped
+ImGui.TextAlignedV = ImGui.TextAligned
+ImGui.LabelTextV = ImGui.LabelText
+ImGui.BulletTextV = ImGui.BulletText
+
+-- Value(prefix, b) / Value(prefix, int) / Value(prefix, float, float_format)
+-- Lua can't tell int from float: integers without float_format print as %d, otherwise %.3f
+function ImGui.Value(prefix, v, float_format)
+    if type(v) == "boolean" then
+        ImGui.Text("%s: %s", prefix, v and "true" or "false")
+    elseif float_format then
+        ImGui.Text("%s: " .. float_format, prefix, v)
+    elseif math.floor(v) == v then
+        ImGui.Text("%s: %d", prefix, v)
+    else
+        ImGui.Text("%s: %.3f", prefix, v)
+    end
+end
+
 ----------------------------------------------------------------
 -- [SECTION] MAIN: BUTTONS, SCROLLBARS, ...
 ----------------------------------------------------------------
@@ -1198,6 +1220,7 @@ function ImGui.CheckboxFlags(label, flags, flags_value)
 
     return pressed, flags
 end
+ImGui.CheckboxFlagsT = ImGui.CheckboxFlags
 
 --- @param label  string
 --- @param active bool
@@ -2625,6 +2648,26 @@ function ImGui.InputFloat3(label, v, format, flags)
     return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 3, nil, nil, format, flags)
 end
 
+function ImGui.InputFloat2(label, v, format, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 2, nil, nil, format or "%.3f", flags)
+end
+
+function ImGui.InputFloat4(label, v, format, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 4, nil, nil, format or "%.3f", flags)
+end
+
+function ImGui.InputInt2(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 2, nil, nil, "%d", flags)
+end
+
+function ImGui.InputInt3(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 3, nil, nil, "%d", flags)
+end
+
+function ImGui.InputInt4(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 4, nil, nil, "%d", flags)
+end
+
 --- @param label      string
 --- @param v          int
 --- @param step?      int
@@ -3039,6 +3082,112 @@ function ImGui.DragInt(label, v, v_speed, v_min, v_max, format, flags)
     if flags   == nil then flags   = 0    end
 
     return ImGui.DragScalar(label, ImGuiDataType.S32, v, v_speed, v_min, v_max, format, flags)
+end
+
+-- `v` is mutated in place (1-based), returns value_changed
+function ImGui.DragScalarN(label, data_type, v, components, v_speed, v_min, v_max, format, flags)
+    if v_speed == nil then v_speed = 1.0 end
+    if flags == nil then flags = 0 end
+
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return false
+    end
+
+    local g = GImGui
+    local value_changed = false
+    ImGui.BeginGroup()
+    ImGui.PushID(label)
+    ImGui.PushMultiItemsWidths(components, ImGui.CalcItemWidth())
+    for i = 1, components do
+        ImGui.PushID(i - 1)
+        if i > 1 then
+            ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+        end
+        if bit32.band(flags, ImGuiSliderFlags.ColorMarkers) ~= 0 then
+            ImGui.SetNextItemColorMarker(GDefaultRgbaColorMarkers[i])
+        end
+        local changed
+        v[i], changed = ImGui.DragScalar("", data_type, v[i], v_speed, v_min, v_max, format, flags)
+        value_changed = value_changed or changed
+        ImGui.PopID()
+        ImGui.PopItemWidth()
+    end
+    ImGui.PopID()
+
+    local label_end = ImGui.FindRenderedTextEnd(label)
+    if label_end > 1 then
+        ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+        ImGui.TextEx(label, label_end)
+    end
+
+    ImGui.EndGroup()
+    return value_changed
+end
+
+local function DragFloatN(n)
+    return function(label, v, v_speed, v_min, v_max, format, flags)
+        return ImGui.DragScalarN(label, ImGuiDataType.Float, v, n, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", flags or 0)
+    end
+end
+local function DragIntN(n)
+    return function(label, v, v_speed, v_min, v_max, format, flags)
+        return ImGui.DragScalarN(label, ImGuiDataType.S32, v, n, v_speed or 1.0, v_min or 0, v_max or 0, format or "%d", flags or 0)
+    end
+end
+ImGui.DragFloat2 = DragFloatN(2)
+ImGui.DragFloat3 = DragFloatN(3)
+ImGui.DragFloat4 = DragFloatN(4)
+ImGui.DragInt2 = DragIntN(2)
+ImGui.DragInt3 = DragIntN(3)
+ImGui.DragInt4 = DragIntN(4)
+
+-- NB: You likely want to specify the ImGuiSliderFlags_AlwaysClamp when using this.
+--- @return float v_current_min
+--- @return float v_current_max
+--- @return bool  value_changed
+local function DragRange2(data_type, label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return v_current_min, v_current_max, false
+    end
+
+    local g = GImGui
+    local lo = (data_type == ImGuiDataType.Float) and -FLT_MAX or INT_MIN
+    local hi = (data_type == ImGuiDataType.Float) and FLT_MAX or INT_MAX
+    ImGui.PushID(label)
+    ImGui.BeginGroup()
+    ImGui.PushMultiItemsWidths(2, ImGui.CalcItemWidth())
+
+    local min_min = (v_min >= v_max) and lo or v_min
+    local min_max = (v_min >= v_max) and v_current_max or ImMin(v_max, v_current_max)
+    local min_flags = bit32.bor(flags, (min_min == min_max) and ImGuiSliderFlags.ReadOnly or 0)
+    local value_changed, changed
+    v_current_min, value_changed = ImGui.DragScalar("##min", data_type, v_current_min, v_speed, min_min, min_max, format, min_flags)
+    ImGui.PopItemWidth()
+    ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+
+    local max_min = (v_min >= v_max) and v_current_min or ImMax(v_min, v_current_min)
+    local max_max = (v_min >= v_max) and hi or v_max
+    local max_flags = bit32.bor(flags, (max_min == max_max) and ImGuiSliderFlags.ReadOnly or 0)
+    v_current_max, changed = ImGui.DragScalar("##max", data_type, v_current_max, v_speed, max_min, max_max, format_max or format, max_flags)
+    value_changed = value_changed or changed
+    ImGui.PopItemWidth()
+    ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+
+    ImGui.TextEx(label, ImGui.FindRenderedTextEnd(label))
+    ImGui.EndGroup()
+    ImGui.PopID()
+
+    return v_current_min, v_current_max, value_changed
+end
+
+function ImGui.DragFloatRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    return DragRange2(ImGuiDataType.Float, label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", format_max, flags or 0)
+end
+
+function ImGui.DragIntRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    return DragRange2(ImGuiDataType.S32, label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0, v_max or 0, format or "%d", format_max, flags or 0)
 end
 
 ----------------------------------------------------------------
@@ -3651,6 +3800,18 @@ function ImGui.SliderInt(label, v, v_min, v_max, format, flags)
     return ImGui.SliderScalar(label, ImGuiDataType.S32, v, v_min, v_max, format, flags)
 end
 
+function ImGui.SliderInt2(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 2, v_min, v_max, format or "%d", flags)
+end
+
+function ImGui.SliderInt3(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 3, v_min, v_max, format or "%d", flags)
+end
+
+function ImGui.SliderInt4(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 4, v_min, v_max, format or "%d", flags)
+end
+
 --- @param label     string
 --- @param size      ImVec2
 --- @param data_type ImGuiDataType
@@ -3762,6 +3923,11 @@ function ImGui.InputText(label, buf, buf_size, flags, callback, user_data)
 
     IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0)
     return ImGui.InputTextEx(label, nil, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
+end
+
+--- @param size? ImVec2
+function ImGui.InputTextMultiline(label, buf, buf_size, size, flags, callback, user_data)
+    return ImGui.InputTextEx(label, nil, buf, buf_size, size or ImVec2(0, 0), bit32.bor(flags or 0, ImGuiInputTextFlags.Multiline), callback, user_data)
 end
 
 ImStb = {}
@@ -5809,6 +5975,27 @@ function ImGui.ColorEdit3(label, col, flags)
     if flags == nil then flags = 0 end
 
     return ImGui.ColorEdit4(label, col, bit32.bor(flags, ImGuiColorEditFlags.NoAlpha))
+end
+
+-- `col` mutated in place, returns value_changed
+function ImGui.ColorPicker3(label, col, flags)
+    local col4 = { col[1], col[2], col[3], 1.0 }
+    if not ImGui.ColorPicker4(label, col4, bit32.bor(flags or 0, ImGuiColorEditFlags.NoAlpha)) then
+        return false
+    end
+    col[1] = col4[1]; col[2] = col4[2]; col[3] = col4[3]
+    return true
+end
+
+function ImGui.SetColorEditOptions(flags)
+    local g = GImGui
+    local def = ImGuiColorEditFlags.DefaultOptions_
+    for _, mask in ipairs({ ImGuiColorEditFlags.DisplayMask_, ImGuiColorEditFlags.DataTypeMask_, ImGuiColorEditFlags.PickerMask_, ImGuiColorEditFlags.InputMask_ }) do
+        if bit32.band(flags, mask) == 0 then
+            flags = bit32.bor(flags, bit32.band(def, mask))
+        end
+    end
+    g.IO.ConfigColorEditFlags = flags
 end
 
 -- Helper for ColorPicker4()

@@ -33,6 +33,44 @@ function ImGui._ByteArrayToString(buf, buf_begin, buf_end)
     return table.concat(str)
 end
 
+
+--- ImPool<T>: pool of objects keyed by ID. Public indices are 0-based like upstream (Buf is stored 1-based).
+--- `ctor` creates a new element. Removed slots are recycled via FreeIdx (-1 = none; free slots chain through `_NextFree`).
+local IM_POOL = {}
+IM_POOL.__index = IM_POOL
+function ImPool(ctor) return setmetatable({ Buf = {}, Map = {}, FreeIdx = 0, AliveCount = 0, BufSize = 0, _Ctor = ctor }, IM_POOL) end
+function IM_POOL:GetByKey(key) local i = self.Map[key]; return i and self.Buf[i + 1] or nil end
+function IM_POOL:GetByIndex(n) return self.Buf[n + 1] end
+function IM_POOL:GetIndex(p) return p._PoolIdx end
+function IM_POOL:Contains(p) return p ~= nil and self.Buf[(p._PoolIdx or -1) + 1] == p end
+function IM_POOL:GetMapSize() return self.BufSize end
+function IM_POOL:Clear() self.Buf = {}; self.Map = {}; self.FreeIdx = 0; self.AliveCount = 0; self.BufSize = 0 end
+function IM_POOL:Add()
+    local idx
+    if self._Free and #self._Free > 0 then idx = table.remove(self._Free) else idx = self.BufSize; self.BufSize = self.BufSize + 1 end
+    local p = self._Ctor and self._Ctor() or {}
+    p._PoolIdx = idx
+    self.Buf[idx + 1] = p
+    self.AliveCount = self.AliveCount + 1
+    return p
+end
+function IM_POOL:GetOrAddByKey(key)
+    local i = self.Map[key]
+    if i then return self.Buf[i + 1] end
+    local p = self:Add(); self.Map[key] = p._PoolIdx; return p
+end
+function IM_POOL:Remove(key, p)
+    if type(key) == "table" then p = key; key = nil end
+    if key == nil then for k, i in pairs(self.Map) do if i == p._PoolIdx then key = k break end end end
+    if key ~= nil then self.Map[key] = nil end
+    self.Buf[p._PoolIdx + 1] = false
+    self._Free = self._Free or {}
+    table.insert(self._Free, p._PoolIdx)
+    self.AliveCount = self.AliveCount - 1
+end
+function IM_POOL:Reserve(n) end
+-- NOTE: removed slots hold `false`; iterate with `for i = 0, pool:GetMapSize() - 1 do local t = pool:GetByIndex(i) if t then ... end end`
+
 --- @type ImGuiContext?
 local GImGui
 
@@ -1162,6 +1200,15 @@ function ImGuiNextWindowData()
         ScrollVal            = ImVec2(),
         WindowFlags          = nil,
         ChildFlags           = nil,
+        WindowFlagsSet       = 0,
+        WindowFlagsClear     = 0,
+        ChildFlagsSet        = 0,
+        ChildFlagsClear      = 0,
+        ViewportId           = 0,
+        DockId               = 0,
+        DockCond             = 0,
+        PosUndock            = false,
+        WindowClass          = nil,
         CollapsedVal         = nil,
         SizeConstraintRect   = nil,
         SizeCallback         = nil,
@@ -1293,6 +1340,7 @@ function ImGuiStyle()
         PopupBorderSize = 1.0,
 
         DockingSeparatorSize = 2.0,
+        DockingNodeHasCloseButton = true,
         MouseCursorScale = 1.0,
 
         ItemSpacing = ImVec2(8, 4),
@@ -1655,6 +1703,91 @@ end
 --- @field DebugAllocInfo                     ImGuiDebugAllocInfo
 --- @field TempBuffer                         ImVector<char>
 
+----------------------------------------------------------------
+-- [SECTION] Tab bar, Tab item support (public flags from imgui.h + private extensions)
+----------------------------------------------------------------
+
+--- @enum ImGuiTabBarFlags
+ImGuiTabBarFlags = {
+    None                         = 0,
+    Reorderable                  = bitLShift(1, 0),
+    AutoSelectNewTabs            = bitLShift(1, 1),
+    TabListPopupButton           = bitLShift(1, 2),
+    NoCloseWithMiddleMouseButton = bitLShift(1, 3),
+    NoTabListScrollingButtons    = bitLShift(1, 4),
+    NoTooltip                    = bitLShift(1, 5),
+    DrawSelectedOverline         = bitLShift(1, 6),
+    FittingPolicyMixed           = bitLShift(1, 7),
+    FittingPolicyShrink          = bitLShift(1, 8),
+    FittingPolicyScroll          = bitLShift(1, 9),
+    -- Private
+    DockNode                     = bitLShift(1, 20),
+    IsFocused                    = bitLShift(1, 21),
+    SaveSettings                 = bitLShift(1, 22),
+}
+ImGuiTabBarFlags.FittingPolicyMask_       = bitOr(ImGuiTabBarFlags.FittingPolicyMixed, ImGuiTabBarFlags.FittingPolicyShrink, ImGuiTabBarFlags.FittingPolicyScroll)
+ImGuiTabBarFlags.FittingPolicyDefault_    = ImGuiTabBarFlags.FittingPolicyMixed
+ImGuiTabBarFlags.FittingPolicyResizeDown  = ImGuiTabBarFlags.FittingPolicyShrink
+
+--- @enum ImGuiTabItemFlags
+ImGuiTabItemFlags = {
+    None                         = 0,
+    UnsavedDocument              = bitLShift(1, 0),
+    SetSelected                  = bitLShift(1, 1),
+    NoCloseWithMiddleMouseButton = bitLShift(1, 2),
+    NoPushId                     = bitLShift(1, 3),
+    NoTooltip                    = bitLShift(1, 4),
+    NoReorder                    = bitLShift(1, 5),
+    Leading                      = bitLShift(1, 6),
+    Trailing                     = bitLShift(1, 7),
+    NoAssumedClosure             = bitLShift(1, 8),
+    -- Private
+    NoCloseButton                = bitLShift(1, 20),
+    Button                       = bitLShift(1, 21),
+    Invisible                    = bitLShift(1, 22),
+    Unsorted                     = bitLShift(1, 23),
+}
+ImGuiTabItemFlags.SectionMask_ = bitOr(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)
+
+-- Storage for one active tab item. In this port the label is stored in `Name` (C++ uses NameOffset into TabBar.TabsNames)
+--- @class ImGuiTabItem
+--- @return ImGuiTabItem
+function ImGuiTabItem()
+    return {
+        ID = 0, Flags = 0, Window = nil,
+        LastFrameVisible = -1, LastFrameSelected = -1,
+        Offset = 0.0, Width = 0.0, ContentWidth = 0.0, RequestedWidth = -1.0,
+        NameOffset = -1, Name = nil,
+        BeginOrder = -1,        -- 0-based
+        IndexDuringLayout = -1, -- 0-based
+        WantClose = false,
+    }
+end
+
+-- Storage for a tab bar. Tabs: ImVector of ImGuiTabItem tables (references; "pointers" stay valid across reorders)
+--- @class ImGuiTabBar
+--- @return ImGuiTabBar
+function ImGuiTabBar()
+    return {
+        Window = nil, Tabs = ImVector(), Flags = 0, ID = 0,
+        SelectedTabId = 0, NextSelectedTabId = 0, NextScrollToTabId = 0, VisibleTabId = 0,
+        CurrFrameVisible = -1, PrevFrameVisible = -1,
+        BarRect = ImRect(), BarRectPrevWidth = 0.0,
+        CurrTabsContentsHeight = 0.0, PrevTabsContentsHeight = 0.0,
+        WidthAllTabs = 0.0, WidthAllTabsIdeal = 0.0,
+        ScrollingAnim = 0.0, ScrollingTarget = 0.0, ScrollingTargetDistToVisibility = 0.0, ScrollingSpeed = 0.0,
+        ScrollingRectMinX = 0.0, ScrollingRectMaxX = 0.0, SeparatorMinX = 0.0, SeparatorMaxX = 0.0,
+        ReorderRequestTabId = 0, ReorderRequestOffset = 0, BeginCount = 0,
+        WantLayout = false, VisibleTabWasSubmitted = false, TabsAddedNew = false, ScrollButtonEnabled = false,
+        TabsActiveCount = 0,
+        LastTabItemIdx = -1, -- 0-based
+        ItemSpacingY = 0.0, FramePadding = ImVec2(), BackupCursorPos = ImVec2(),
+    }
+end
+
+--- @class ImGuiShrinkWidthItem
+function ImGuiShrinkWidthItem() return { Index = 0, Width = 0.0, InitialWidth = 0.0 } end
+
 --- @param shared_font_atlas? ImFontAtlas
 --- @return ImGuiContext
 --- @nodiscard
@@ -1881,6 +2014,15 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         ComboPreviewData = ImGuiComboPreviewData(),
 
+        CurrentTabBar = nil,
+        TabBars = ImPool(ImGuiTabBar),   -- ImPool<ImGuiTabBar>
+        -- Docking
+        DockContext = ImGuiDockContext(),
+        DockNodeWindowMenuHandler = nil,
+        DebugHoveredDockNode = nil,
+        CurrentTabBarStack = ImVector(), -- holds ImGuiTabBar references directly (no ImGuiPtrOrIndex needed in Lua)
+        ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
+
         WindowResizeBorderExpectedRect = ImRect(),
         WindowResizeRelativeMode = false,
 
@@ -1914,15 +2056,60 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         UserTextures = ImVector(),
 
         -- Settings
+        SettingsLoaded = false,
+        SettingsDirtyTimer = 0.0,
+        SettingsIniData = "",          -- In memory .ini settings (string)
+        SettingsHandlers = ImVector(), -- List of .ini settings handlers
         SettingsWindows = ImVector(),
+        SettingsTables = ImVector(),
+
+        -- Hooks
+        Hooks = ImVector(),
+        HookIdNext = 0,
 
         -- Drag and Drop
         DragDropActive = false,
         DragDropWithinSource = false,
         DragDropWithinTarget = false,
         DragDropSourceFlags = 0,
+        DragDropSourceFrameCount = -1,
+        DragDropMouseButton = -1,
+        DragDropPayload = ImGuiPayload(),
+        DragDropTargetRect = ImRect(),
+        DragDropTargetClipRect = ImRect(),
+        DragDropTargetId = 0,
+        DragDropTargetFullViewport = 0,
+        DragDropAcceptFlagsCurr = 0, DragDropAcceptFlagsPrev = 0,
+        DragDropAcceptIdCurrRectSurface = 0.0,
+        DragDropAcceptFrameCount = -1,
+        DragDropHoldJustPressedId = 0,
 
         DragDropAcceptIdPrev = 0, DragDropAcceptIdCurr = 0,
+
+        -- Clipper
+        ClipperTempDataStacked = 0,
+        ClipperTempData = ImVector(),
+
+        -- Logging
+        LogEnabled = false,
+        LogLineFirstItem = false,
+        LogFlags = 0,
+        LogWindow = nil,
+        LogFile = nil,
+        LogBuffer = ImGuiTextBuffer(),
+        LogNextPrefix = nil, LogNextSuffix = nil,
+        LogLinePosY = FLT_MAX,
+        LogDepthRef = 0,
+        LogDepthToExpand = 2, LogDepthToExpandDefault = 2,
+
+        -- Error handling
+        ErrorCallback = nil, ErrorCallbackUserData = nil,
+        ErrorTooltipLockedPos = ImVec2(),
+        ErrorFirst = true,
+        ErrorCountCurrentFrame = 0,
+        StackSizesInNewFrame = nil,
+        ContextName = "",
+        DebugBreakInWindow = 0,
 
         LocalizationTable = {},
 
@@ -1942,6 +2129,16 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         WantCaptureKeyboardNextFrame = -1,
         WantTextInputNextFrame = -1,
         TempBuffer = ImVector(),
+
+        -- Tables (imgui_tables.lua)
+        CurrentTable = nil,
+        DebugBreakInTable = 0,
+        TablesTempDataStacked = 0,
+        TablesTempData = ImVector(),
+        Tables = ImPool(),                 -- ImPool<ImGuiTable>, 0-based indices (imgui_tables.lua)
+        TablesLastTimeActive = ImVector(), -- [table_idx + 1] = float
+        DrawChannelsTempMergeBuffer = ImVector(),
+        SettingsTables = ImVector(),       -- ImChunkStream<ImGuiTableSettings>: plain vector, SettingsOffset = 1-based index
     }
 
     for i = 0, 59 do this.FramerateSecPerFrame[i] = 0 end
@@ -1989,6 +2186,12 @@ function ImGuiWindowSettings()
         WantApply    = false,
         WantDelete   = false,
         Name         = "",
+        ViewportId   = 0,
+        ViewportPos  = ImVec2(0, 0),
+        DockId       = 0,
+        DockOrder    = -1,
+        ClassId      = 0,
+        LastUsedDate = 0,
     }, IMGUI_WINDOW_SETTINGS)
 end
 
@@ -2049,6 +2252,8 @@ end
 --- @nodiscard
 local function ImGuiWindowTempData()
     return {
+        DockTabItemStatusFlags = 0,
+        DockTabItemRect = ImRect(),
         CursorPos         = ImVec2(),
         CursorPosPrevLine = ImVec2(),
         CursorStartPos    = ImVec2(),
@@ -2082,6 +2287,8 @@ local function ImGuiWindowTempData()
         TreeRecordsClippedNodesY2Mask = nil,
 
         ChildWindows = ImVector(),
+        CurrentTableIdx = -1,  -- 0-based index into g.Tables, -1 if none
+        CurrentColumns = nil,  -- ImGuiOldColumns (legacy Columns API)
         StateStorage = nil,
 
         LayoutType = nil
@@ -2274,6 +2481,7 @@ function ImGuiWindow(ctx, name)
         LastTimeActive = -1.0,
 
         StateStorage = {},
+        ColumnsStorage = ImVector(), -- ImVector<ImGuiOldColumns>
 
         WriteAccessed = false,
 
@@ -2297,6 +2505,21 @@ function ImGuiWindow(ctx, name)
     this.ID = ImHashStr(name)
     this.IDStack:push_back(this.ID)
     this.MoveId = this:GetID("#MOVE")
+    this.TabId = this:GetID("#TAB")
+    -- Docking
+    this.ChildId = this.ChildId or 0
+    this.SetWindowDockAllowFlags = 0
+    this.ParentWindowForFocusRoute = nil
+    this.DockIsActive = false
+    this.DockNodeIsVisible = false
+    this.DockTabIsVisible = false
+    this.DockTabWantClose = false
+    this.DockOrder = -1
+    this.DockStyle = { Colors = {} }
+    for i = 0, 8 do this.DockStyle.Colors[i] = 0 end
+    this.DockNode = nil
+    this.DockNodeAsHost = nil
+    this.DockId = 0
 
     return this
 end
