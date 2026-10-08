@@ -17,7 +17,7 @@ local counter = 0
 ImGui.CreateContext()
 
 local io = ImGui.GetIO()
-io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard)
+io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard, ImGuiConfigFlags.DockingEnable)
 
 local style = ImGui.GetStyle()
 style:ScaleAllSizes(main_scale)
@@ -28,6 +28,9 @@ ImGui_ImplRoblox.Init()
 RunService.Stepped:Connect(function()
     ImGui_ImplRoblox.NewFrame()
     ImGui.NewFrame()
+
+    -- Dockspace covering the whole screen; the centre stays transparent so the game shows through
+    ImGui.DockSpaceOverViewport(0, nil, G.ImGuiDockNodeFlags.PassthruCentralNode)
 
     if show_demo_window then
         ImGui.ShowDemoWindow()

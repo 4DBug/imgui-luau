@@ -218,7 +218,7 @@ function ImGui.EndTabBar()
     end
 
     g.CurrentTabBarStack:pop_back()
-    g.CurrentTabBar = (g.CurrentTabBarStack.Size == 0) and nil or g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size]
+    if g.CurrentTabBarStack.Size == 0 then g.CurrentTabBar = nil else g.CurrentTabBar = g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size] end
 end
 
 function ImGui.TabBarLayout(tab_bar)

@@ -3492,7 +3492,8 @@ function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
 
     -- If current command is used with different settings we need to add a new command
-    local curr_cmd = (draw_list.CmdBuffer.Size == 0) and nil or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    local curr_cmd = nil
+    if draw_list.CmdBuffer.Size > 0 then curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] end
     if curr_cmd == nil then
         draw_list:AddDrawCmd()
     elseif curr_cmd.ElemCount == 0 then
@@ -4968,5 +4969,24 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
     end
 end
 
+
+
+function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
+    local fill_L = inner.Min.x > outer.Min.x
+    local fill_R = inner.Max.x < outer.Max.x
+    local fill_U = inner.Min.y > outer.Min.y
+    local fill_D = inner.Max.y < outer.Max.y
+    local D = ImDrawFlags
+    local bor = bit32.bor
+    local function f(c, v) return c and 0 or v end
+    if fill_L then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Min.y), ImVec2(inner.Min.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopLeft), f(fill_D, D.RoundCornersBottomLeft))) end
+    if fill_R then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Min.y), ImVec2(outer.Max.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopRight), f(fill_D, D.RoundCornersBottomRight))) end
+    if fill_U then draw_list:AddRectFilled(ImVec2(inner.Min.x, outer.Min.y), ImVec2(inner.Max.x, inner.Min.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersTopLeft), f(fill_R, D.RoundCornersTopRight))) end
+    if fill_D then draw_list:AddRectFilled(ImVec2(inner.Min.x, inner.Max.y), ImVec2(inner.Max.x, outer.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersBottomLeft), f(fill_R, D.RoundCornersBottomRight))) end
+    if fill_L and fill_U then draw_list:AddRectFilled(ImVec2(outer.Min.x, outer.Min.y), ImVec2(inner.Min.x, inner.Min.y), col, rounding, D.RoundCornersTopLeft) end
+    if fill_R and fill_U then draw_list:AddRectFilled(ImVec2(inner.Max.x, outer.Min.y), ImVec2(outer.Max.x, inner.Min.y), col, rounding, D.RoundCornersTopRight) end
+    if fill_L and fill_D then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Max.y), ImVec2(inner.Min.x, outer.Max.y), col, rounding, D.RoundCornersBottomLeft) end
+    if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
+end
 
 return true -- [Roblox] ModuleScripts must return exactly one value

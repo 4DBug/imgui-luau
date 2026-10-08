@@ -998,8 +998,8 @@ local function ApplyWindowSettings(window, settings)
             window.AutoFitFramesX = 0; window.AutoFitFramesY = 0
         end
         window.Collapsed = settings.Collapsed
-        -- window.DockId = settings.DockId
-        -- window.DockOrder = settings.DockOrder
+        window.DockId = settings.DockId or 0
+        window.DockOrder = settings.DockOrder or -1
         SetWindowConditionAllowFlags(window, ImGuiCond.FirstUseEver, false)
     end
 
@@ -1030,7 +1030,7 @@ local function InitOrLoadWindowSettings(window, settings)
     window.SetWindowPosAllowFlags = bit32.bor(ImGuiCond.Always, ImGuiCond.Once, ImGuiCond.FirstUseEver, ImGuiCond.Appearing)
     window.SetWindowSizeAllowFlags = window.SetWindowPosAllowFlags
     window.SetWindowCollapsedAllowFlags = window.SetWindowPosAllowFlags
-    -- window.SetWindowDockAllowFlags = window.SetWindowPosAllowFlags
+    window.SetWindowDockAllowFlags = window.SetWindowPosAllowFlags
     ApplyWindowSettings(window, settings)
     if settings ~= nil then
         -- TODO: settings.LastUsedDate = g.SessionDate
@@ -5105,7 +5105,7 @@ local function RenderWindowOuterBorders(window)
         RenderWindowOuterSingleBorder(window, border_n, border_col_resizing, ImMax(2.0, window.WindowBorderSize))
     end
 
-    if g.Style.FrameBorderSize > 0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0) then
+    if g.Style.FrameBorderSize > 0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0) and not window.DockIsActive then
         local y = window.Pos.y + window.TitleBarHeight - 1
         window.DrawList:AddLineH(window.Pos.x + border_size * 0.5, window.Pos.x + window.Size.x - border_size * 0.5, y, border_col, g.Style.FrameBorderSize)
     end
@@ -5150,11 +5150,19 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
 
             if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
                 local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)
-                local bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersBottom
-                local bg_draw_list = window.DrawList
+                local bg_rounding_flags
+                if window.DockIsActive then
+                    bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
+                else
+                    bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersBottom
+                end
+                local bg_draw_list = window.DockIsActive and window.DockNode.HostWindow.DrawList or window.DrawList
+                if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(0) end
                 bg_draw_list:AddRectFilled(bg_rect.Min, bg_rect.Max, bg_col, window_rounding, bg_rounding_flags)
+                if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(1) end
             end
         end
+        if window.DockIsActive then window.DockNode.IsBgDrawnThisFrame = true end
 
         -- Title bar
         if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and not window.DockIsActive then
@@ -5170,6 +5178,25 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             if style.FrameBorderSize > 0.0 and menu_bar_rect.Max.y < window.Pos.y + window.Size.y then
                 window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size * 0.5, menu_bar_rect.Max.x - window_border_size * 0.5, menu_bar_rect.Max.y, ImGui.GetColorU32(ImGuiCol.Border), style.FrameBorderSize)
             end
+        end
+
+        -- Docking: Unhide tab bar (small triangle in the corner), drag from small triangle to quickly undock
+        local node = window.DockNode
+        if window.DockIsActive and node:IsHiddenTabBar() and not node:IsNoTabBar() then
+            local unhide_sz_draw = ImTrunc(g.FontSize * 0.70)
+            local unhide_sz_hit = ImTrunc(g.FontSize * 0.55)
+            local p = node.Pos
+            local r = ImRect(p, p + ImVec2(unhide_sz_hit, unhide_sz_hit))
+            local unhide_id = window:GetID("#UNHIDE")
+            ImGui.KeepAliveID(unhide_id)
+            local pressed, hovered, held = ImGui.ButtonBehavior(r, unhide_id, ImGuiButtonFlags.FlattenChildren)
+            if pressed then
+                node.WantHiddenTabBarToggle = true
+            elseif held and ImGui.IsMouseDragging(0) then
+                ImGui.StartMouseMovingWindowOrNode(window, node, true)
+            end
+            local col = ImGui.GetColorU32(((held and hovered) or (node.IsFocused and not hovered)) and ImGuiCol.ButtonActive or (hovered and ImGuiCol.ButtonHovered or ImGuiCol.Button))
+            window.DrawList:AddTriangleFilled(p, p + ImVec2(unhide_sz_draw, 0.0), p + ImVec2(0.0, unhide_sz_draw), col)
         end
 
         if window.ScrollbarX then
@@ -5200,13 +5227,14 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             end
         end
 
-        if handle_borders_and_resize_grips then
+        if handle_borders_and_resize_grips and not window.DockNodeAsHost then
             RenderWindowOuterBorders(window)
         end
     end
 
     window.DC.NavLayerCurrent = ImGuiNavLayer.Main
 end
+ImGui.RenderWindowOuterBorders = RenderWindowOuterBorders
 
 --- @param window         ImGuiWindow
 --- @param title_bar_rect ImRect
@@ -6056,6 +6084,11 @@ end
 --- @param popup_flags ImGuiPopupFlags
 function ImGui.IsPopupOpen(id, popup_flags)
     local g = GImGui
+    if popup_flags == nil then popup_flags = 0 end
+    if type(id) == "string" then
+        -- str_id overload: with AnyPopupId the id must be 0, otherwise it is hashed with the current window's ID stack
+        id = (bit32.band(popup_flags, ImGuiPopupFlags.AnyPopupId) ~= 0) and 0 or g.CurrentWindow:GetID(id)
+    end
 
     if bit32.band(popup_flags, ImGuiPopupFlags.AnyPopupId) ~= 0 then
         -- Return true if any popup is open at the current BeginPopup() level of the popup stack
@@ -7974,7 +8007,9 @@ local function AddWindowToDrawData(window, layer)
     local g = GImGui
     local viewport = window.Viewport
     g.IO.MetricsRenderWindows = g.IO.MetricsRenderWindows + 1
-    -- TODO: splitter
+    if window.DrawList._Splitter._Count > 1 then
+        window.DrawList:ChannelsMerge() -- Merge if user forgot to merge back. Also required for DockNodeHost windows.
+    end
     ImGui.AddDrawListToDrawDataEx(viewport.DrawDataP, viewport.DrawDataBuilder.Layers[layer], window.DrawList)
     for _, child in window.DC.ChildWindows:iter() do
         if (ImGui.IsWindowActiveAndVisible(child)) then -- Clipped children may have been marked not active
