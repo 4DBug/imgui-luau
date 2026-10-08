@@ -33379,6 +33379,19 @@ function ImGui_ImplRoblox_UpdateTexture(tex)
     end
 end
 
+--- User texture from RGBA8 pixels (e.g. EditableImage:ReadPixelsBuffer()). Returns an ImTextureRef for
+--- ImGui.Image / draw_list:AddImage. Ids are never reused, so cached tiles can't show a stale image.
+function ImGui_ImplRoblox_CreateTexture(pixels, w, h)
+    local bd = ImGui_ImplRoblox_GetBackendData()
+    bd.TextureCount = bd.TextureCount + 1
+    bd.Textures[bd.TextureCount] = { Buffer = pixels, Width = w, Height = h }
+    return ImTextureRef(bd.TextureCount)
+end
+
+function ImGui_ImplRoblox_DestroyTexture(tex_ref)
+    ImGui_ImplRoblox_GetBackendData().Textures[tex_ref._TexID] = nil
+end
+
 ---------------------------------------------------------
 -- RENDERING (software rasterizer into tile buffers)
 ---------------------------------------------------------
@@ -34383,6 +34396,8 @@ ImGui_ImplRoblox = {
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
     SetOverlay     = ImGui_ImplRoblox_SetOverlay,
+    CreateTexture  = ImGui_ImplRoblox_CreateTexture,
+    DestroyTexture = ImGui_ImplRoblox_DestroyTexture,
     GetRenderScale = function() return ImGui_ImplRoblox_GetBackendData().Scale end,
     SetBusyRenderRate = ImGui_ImplRoblox_SetBusyRenderRate,
     SetProfiling   = ImGui_ImplRoblox_SetProfiling,
@@ -62836,6 +62851,8 @@ return {
     ImGuiWindowSettings = ImGuiWindowSettings,
     ImGuiWindowStackData = ImGuiWindowStackData,
     ImGui_ImplRoblox = ImGui_ImplRoblox,
+    ImGui_ImplRoblox_CreateTexture = ImGui_ImplRoblox_CreateTexture,
+    ImGui_ImplRoblox_DestroyTexture = ImGui_ImplRoblox_DestroyTexture,
     ImGui_ImplRoblox_GetBackendData = ImGui_ImplRoblox_GetBackendData,
     ImGui_ImplRoblox_Init = ImGui_ImplRoblox_Init,
     ImGui_ImplRoblox_NewFrame = ImGui_ImplRoblox_NewFrame,
