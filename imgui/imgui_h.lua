@@ -111,6 +111,8 @@ ImGuiDataType =
     String = 9, -- string (provided for user convenience, not supported by scalar widgets)
     COUNT  = 10
 }
+ImGuiDataType.Pointer = 11 -- [internal]
+ImGuiDataType.ID      = 12 -- [internal]
 
 ImTextureID_Invalid = -1
 

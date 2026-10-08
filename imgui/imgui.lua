@@ -2555,7 +2555,9 @@ end
 function ImGui.PushOverrideID(id)
     local g = GImGui
     local window = g.CurrentWindow
-    -- TODO: DebugHookIdInfo()
+    if g.DebugHookIdInfoId == id and id ~= 0 then
+        ImGui.DebugHookIdInfo(id, ImGuiDataType.ID, nil)
+    end
     window.IDStack:push_back(id)
 end
 
@@ -2570,11 +2572,17 @@ end
 function MT.ImGuiWindow:GetID(id)
     local seed = self.IDStack:back()
 
+    local h
     if type(id) == "string" then
-        return ImHashStr(id, nil, seed)
+        h = ImHashStr(id, nil, seed)
     else --- @cast id int
-        return ImHashData(id, -1, seed)
+        h = ImHashData(id, -1, seed)
     end
+    local g = GImGui
+    if g.DebugHookIdInfoId == h and h ~= 0 then
+        ImGui.DebugHookIdInfo(h, (type(id) == "string") and ImGuiDataType.String or ImGuiDataType.S32, id)
+    end
+    return h
 end
 
 -- This is only used in rare/specific situations to manufacture an ID out of nowhere
@@ -2610,10 +2618,16 @@ end
 
 -- Overloads: GetIDWithSeed(str, str_end, seed) / GetIDWithSeed(n, seed)
 function ImGui.GetIDWithSeed(a, b, c)
+    local id
     if type(a) == "number" then
-        return ImHashData(a, -1, b)
+        id = ImHashData(a, -1, b)
+    else
+        id = ImHashStr(a, b and (b - 1) or nil, c)
     end
-    return ImHashStr(a, b and (b - 1) or nil, c)
+    if GImGui.DebugHookIdInfoId == id and id ~= 0 then
+        ImGui.DebugHookIdInfo(id, (type(a) == "number") and ImGuiDataType.S32 or ImGuiDataType.String, (b and type(a) == "string") and string.sub(a, 1, b - 1) or a)
+    end
+    return id
 end
 
 --- @param id ImGuiID
@@ -8292,6 +8306,9 @@ function ImGui.NewFrame()
     g.CurrentItemFlags = g.ItemFlagsStack:back()
     g.GroupStack:resize(0)
 
+    -- [DEBUG] ID Stack Tool query
+    ImGui.UpdateDebugToolItemPathQuery()
+
     -- Docking
     ImGui.DockContextNewFrameUpdateDocking(g)
 
@@ -13637,8 +13654,16 @@ function ImGui.DebugLog(fmt, ...)
     g.DebugLogBuf = g.DebugLogBuf or ImGuiTextBuffer()
     local str = string.format("[%05d] ", g.FrameCount) .. ((select("#", ...) > 0) and string.format(fmt, ...) or fmt)
     g.DebugLogBuf:append(str)
+    -- Line index (upstream: g.DebugLogIndex). Lines are complete strings without '\n'.
+    local lines = g.DebugLogLines
+    if lines == nil then lines = { "" }; g.DebugLogLines = lines end
+    for part, nl in string.gmatch(str, "([^\n]*)(\n?)") do
+        lines[#lines] = lines[#lines] .. part
+        if nl ~= "" then lines[#lines + 1] = "" end
+        if part == "" and nl == "" then break end
+    end
     if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.OutputToTTY) ~= 0 then
-        print(str)
+        print((string.gsub(str, "\n$", "")))
     end
 end
 
