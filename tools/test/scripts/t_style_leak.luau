@@ -20,7 +20,7 @@ local frame = 0
 RunService.Stepped:Connect(function()
     frame += 1
     G.ImGui_ImplRoblox.NewFrame()
-    local w0 = ImGui.FindWindowByName("ImGui Sincerely Demo")
+    local w0 = ImGui.FindWindowByName("Dear ImGui Demo")
     if w0 and frame > 2 then
         local io = ImGui.GetIO()
         -- sweep the mouse over the window so hover-only paths (tooltips etc.) run
@@ -32,7 +32,7 @@ RunService.Stepped:Connect(function()
     ImGui.ShowDemoWindow(true)
     ImGui.Begin("Hello, world!"); ImGui.Checkbox("Demo Window", true); ImGui.SliderFloat("float", 0, 0, 1); ImGui.Button("Button"); ImGui.End()
     ImGui.EndFrame()
-    local w = ImGui.FindWindowByName("ImGui Sincerely Demo")
+    local w = ImGui.FindWindowByName("Dear ImGui Demo")
 
     ImGui.Render()
     G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())

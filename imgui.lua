@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Core Code)
 
 --- Flags:
@@ -90,7 +90,7 @@ IM_INCLUDE"imgui_tables.lua"
 
 
 do --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Drag and drop: 1:1 port of imgui.cpp [SECTION] DRAG AND DROP (docking branch)
 -- Payload `Data` is any Lua value (no copy is made). `data_size` is optional and only kept for API parity.
 
@@ -380,7 +380,7 @@ function ImGui.PayloadIsDataType(payload, t) return ImGuiPayload_IsDataType(payl
 end --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
 
 do --[[ [SECTION] imgui_docking (was imgui_docking.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Docking: 1:1 port of imgui.cpp [SECTION] DOCKING (docking branch, 1.93 WIP)
 --
 -- Port notes:
@@ -4290,7 +4290,7 @@ local function ImGuiLocEntry(key, text)
 end
 
 local GLocalizationEntriesEnUS = {
-    ImGuiLocEntry(ImGuiLocKey.VersionStr,                    "ImGui Sincerely WIP"),
+    ImGuiLocEntry(ImGuiLocKey.VersionStr,                    "Dear ImGui WIP"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeOne,                  "Size column to fit###SizeOne"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeAllFit,               "Size all columns to fit###SizeAll"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeAllDefault,           "Size all columns to default###SizeAll"),
@@ -17500,7 +17500,7 @@ function ImGui.ShowDebugLogWindow(p_open)
         ImGui.SetNextWindowSize(ImVec2(0.0, ImGui.GetFontSize() * 12.0), ImGuiCond.FirstUseEver)
     end
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Debug Log", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui Debug Log", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open
@@ -17660,7 +17660,7 @@ function ImGui.ShowIDStackToolWindow(p_open)
         ImGui.SetNextWindowSize(ImVec2(0.0, ImGui.GetFontSize() * 8.0), ImGuiCond.FirstUseEver)
     end
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely ID Stack Tool", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui ID Stack Tool", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open
@@ -18135,7 +18135,7 @@ function ImGui.ShowMetricsWindow(p_open)
     if cfg.ShowIDStackTool then cfg.ShowIDStackTool = ImGui.ShowIDStackToolWindow(cfg.ShowIDStackTool) end
 
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Metrics/Debugger", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui Metrics/Debugger", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open

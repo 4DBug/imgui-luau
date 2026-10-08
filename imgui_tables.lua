@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Tables and Columns Code)
 -- 1:1 port of imgui_tables.cpp (docking branch, 1.93 WIP)
 --

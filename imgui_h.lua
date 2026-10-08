@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Definitions)
 
 --- @meta
