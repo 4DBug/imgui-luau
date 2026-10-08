@@ -623,7 +623,7 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
     if not node_open then return end
     if window and not window.WasActive then ImGui.TextDisabled("Warning: owning Window is inactive. This DrawList is not being rendered!") end
 
-    local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
+    local vtx, idx = draw_list.VtxBuffer.Buf, draw_list.IdxBuffer.Data
     for cmd_n = 1, cmd_count do
         local pcmd = draw_list.CmdBuffer.Data[cmd_n]
         if pcmd.UserCallback then
@@ -639,9 +639,9 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
                 for i = base, base + pcmd.ElemCount - 1, 3 do
                     local tri = {}
                     for n = 0, 2 do
-                        local v = vtx[idx[i + n + 1] + pcmd.VtxOffset + 1]
-                        if v == nil then return end
-                        tri[n + 1] = ImVec2(v.pos.x, v.pos.y)
+                        local vi = idx[i + n + 1] + pcmd.VtxOffset
+                        if vi > draw_list.VtxBuffer.Size then return end
+                        tri[n + 1] = ImVec2(ImDrawVtx_Pos(vtx, vi))
                         vtxs_rect:Add(tri[n + 1])
                     end
                     if show_mesh then fg_draw_list:AddPolyline(tri, 3, IM_COL32(255, 255, 0, 255), 1.0, ImDrawFlags.Closed) end
