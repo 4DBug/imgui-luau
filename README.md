@@ -78,12 +78,24 @@ Every snippet in this README is run by [`tools/test/scripts/t_readme.luau`](tool
 
 ### How it works
 
-Dear ImGui builds a list of textured triangles (`ImDrawData`) every frame. The Roblox backend turns it into pixels:
+Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
 
-- Every window gets its own **layer** (a Frame) made of 128×128 **EditableImage tiles**. Moving a window only moves its Frame: nothing is redrawn.
-- Scrolled window content sits in a `ClipsDescendants` frame positioned at the scroll offset, so scrolling moves already drawn pixels and only rows entering view are drawn.
-- Tiles are hashed; only tiles whose content changed are rasterized (in Luau, with `@native`) and uploaded, and only their dirty region. A static UI costs almost nothing to render.
-- While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the mouse wheel don't reach the game (camera zoom etc.).
+**Why software rasterization?** The alternatives don't fit Dear ImGui:
+- *One GUI Instance per widget/shape* (what most Roblox UI libraries do) means re-creating, re-parenting or diffing thousands of Instances every frame, can't express anti-aliased curves, per-vertex gradients or font-atlas glyphs, and would no longer be Dear ImGui's renderer output.
+- *Rasterizing the draw data* keeps the output identical to Dear ImGui's: the same fonts, anti-aliasing, rounding and gradients, and every widget (including custom `ImDrawList` drawing) works without backend support.
+
+The cost is CPU time in Luau, so the backend is built around **not drawing**:
+
+1. **Layers per window.** Every draw list (one per top-level window, popup, tooltip) gets its own `Frame` with `ZIndex` following Dear ImGui's draw order. Its content is rasterized relative to the window, so **moving a window only changes the Frame's `Position`**; no pixel is redrawn or uploaded.
+2. **Tiles.** Each layer is covered by 128×128 EditableImage tiles (`ImageLabel`s). Every primitive is hashed (positions relative to the layer, UVs, colours, texture, clip) into the tiles it touches. **Only tiles whose hash changed are re-rasterized and uploaded**, and only the dirty region of those (`WritePixelsBuffer` with a sub-rectangle). A static UI uploads nothing.
+3. **Scrolling reuses pixels.** Window content is a separate layer inside a `ClipsDescendants` frame sized to the window's visible area, positioned at the scroll offset. Scrolling moves it like dragging moves a window; only rows entering view are drawn. Decorations (title bar, borders, scrollbar) stay in their own layers.
+4. **Skipping unchanged windows.** Vertices are stored in a flat Luau `buffer` (36 bytes each) instead of tables. Before any per-tile work, a window's raw vertex/index bytes are compared with last frame's; if identical, its layers are just restacked.
+5. **Fast rasterizer.** `@native` functions; axis-aligned quads (most rects and every glyph) take a span-fill path, flat rows are copied instead of re-blended, gradient rects (color pickers) are filled per row, and only real triangles (anti-aliased edges, curves) use the generic edge-function rasterizer.
+6. **Render rate.** Tiles update at most `SetRenderRate(hz)` times per second (default 60), optionally lower while scrolling/resizing (`SetBusyRenderRate`). Your UI code and Dear ImGui's logic still run every frame, so input is never dropped.
+
+**Input.** Mouse and keys come from `UserInputService`. While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the wheel don't reach the game (camera zoom). Games can't read the clipboard, so while a text field is active a hidden `TextBox` holds focus: the OS delivers typing (any layout), paste and copy/cut through it, and its text mirrors Dear ImGui's current selection. Fonts are TTFs rasterized by the ported stb_truetype into the font atlas, which becomes a backend texture like any image (`CreateTexture` works for your own pixels too).
+
+**Instances inside windows.** The backend can place your own Instances (e.g. a `ViewportFrame`) inside a window's layer, so they stack, clip and move with it; see the `ImGui.Embed` widget in [examples/example_roblox/main.client.luau](examples/example_roblox/main.client.luau).
 
 ### Demo
 
@@ -233,6 +245,15 @@ See [docs/PORTING.md](docs/PORTING.md) for the porting rules.
 Multi-select / box-select, typing-select, the Assets Browser example, the Item Picker and a few smaller items. The full list is in [docs/TODO.txt](docs/TODO.txt).
 
 ### FAQ
+
+**Why does this exist? How is it different from [Iris](https://devforum.roblox.com/t/iris-immediate-mode-ui-library-based-on-dear-imgui/2302802)?** Iris is an immediate-mode UI library *inspired by* Dear ImGui: it keeps a similar API but builds its widgets from regular Roblox GUI Instances. This project is a **near line-by-line port of Dear ImGui itself** (docking branch), with Roblox as a rendering backend. In practice:
+
+- *Behaviour and features are Dear ImGui's.* Docking, tables (sorting, resizing, reordering, freezing), multi-font atlases, the full Style Editor, Metrics/Debugger, ID Stack tool, drag & drop, popups/modals, keyboard navigation, `ImDrawList` custom drawing, `ListClipper`: the same code paths as upstream, not re-implementations.
+- *Upstream knowledge transfers.* The wiki, FAQ, GitHub issues, `imgui_demo.cpp` and any C++ snippet map almost 1:1 to Luau, and so does the visual result (fonts, rounding, anti-aliasing).
+- *More control.* Everything Dear ImGui exposes is available: internal APIs (`ItemAdd`, `ButtonBehavior`, `BeginGroup`…) to write your own widgets, full style variables and colours, the draw list, docking builder, settings serialization.
+- *Portable.* The same library also runs on LÖVE, and UI code written against it can run on both.
+
+**What's worse than Iris?** Performance, mainly. Iris lets the Roblox engine render native Instances on the GPU; this port rasterizes on the CPU in Luau and uploads pixels. The backend avoids most work (static UI and window moves cost almost nothing, scrolling only draws new rows), but large redraws (resizing a big window, heavy animated content) cost frame time Iris doesn't pay, and every frame runs Dear ImGui's full logic in Luau. Other trade-offs: EditableImage memory, text/visuals don't use Roblox's own UI features (rich text, localization, UI scaling rules), and input/clipboard need workarounds (`Active` tiles, the hidden TextBox). If you want cheap, Roblox-native widgets, Iris is a good choice; if you want Dear ImGui, this is it.
 
 **Does it work on mobile / console?** Rendering does. The backend currently handles mouse and keyboard input only; touch and gamepad are not wired up yet.
 
