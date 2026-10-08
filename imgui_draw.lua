@@ -2743,7 +2743,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     if cache_key then
         baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
-        baked._TextSizeCacheN += 1
+        baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 
     return text_size, out_remaining

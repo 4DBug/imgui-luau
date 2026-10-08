@@ -18,6 +18,12 @@ there, but keep this port's existing data structures and conventions. Read the s
 - Luau has a limit of 200 locals per function and 255 upvalues; split huge functions (like demo sections) into
   several local/global functions.
 
+## Portability (LÖVE build)
+- Library code must stay valid **Lua 5.1/LuaJIT syntax** apart from `@native` lines (stripped for LÖVE): no `+=`, `//`,
+  `continue`, type annotations, `if`-expressions or string interpolation. Luau library calls are fine only if
+  `compat/luajit.lua` shims them (`bit32`, `buffer`, `table.clear/find/move/unpack`, `utf8`).
+- Check with `tools/test/love/run.sh` (LuaJIT draw checksums must equal the Luau ones).
+
 ## Conventions (follow what the port already does)
 - `ImVector`: 1-based `.Data`, `.Size`, methods `push_back/pop_back/resize/back/iter/erase/...` (imgui_h.lua).
   Indices that C++ stores as 0-based *values* (e.g. column index, tab order) stay 0-based unless the surrounding

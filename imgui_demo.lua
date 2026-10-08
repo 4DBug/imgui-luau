@@ -246,7 +246,7 @@ function ExampleTree_CreateDemoTree()
     uid = uid + 1
     local node_L0 = ExampleTree_CreateNode("<ROOT>", uid, nil)
     for idx_L0 = 0, ROOT_ITEMS_COUNT - 1 do
-        local name_buf = string.format("%s %d", category_names[idx_L0 // (ROOT_ITEMS_COUNT // category_count) + 1], idx_L0 % (ROOT_ITEMS_COUNT // category_count))
+        local name_buf = string.format("%s %d", category_names[math.floor(idx_L0 / math.floor(ROOT_ITEMS_COUNT / category_count)) + 1], idx_L0 % math.floor(ROOT_ITEMS_COUNT / category_count))
         uid = uid + 1
         local node_L1 = ExampleTree_CreateNode(name_buf, uid, node_L0)
         local number_of_childs = #node_L1.Name

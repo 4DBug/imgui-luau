@@ -167,6 +167,19 @@ io.Fonts:AddFontDefault()
 io.Fonts:AddFontFromFileTTF("fonts/Roboto-Medium.ttf", 16.0)
 ```
 
+### Other backends: LÖVE
+
+The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua):
+
+```
+python3 tools/bundle.py --target love      # -> build/imgui_love.lua (LÖVE backend + compat/luajit.lua shims)
+love examples/example_love
+```
+
+Roblox stays the primary target: the Roblox build is untouched by this (no shims, `@native` kept); the LÖVE build strips `@native` and adds small `bit32`/`buffer`/`utf8`/`table` shims ([compat/luajit.lua](compat/luajit.lua)). `tools/test/love/run.sh` checks that LuaJIT produces exactly the same draw data as Luau.
+
+[examples/example_shared/app.lua](examples/example_shared/app.lua) is one UI that runs unchanged on both: `roblox.client.luau` (Rojo: `examples/example_shared/default.project.json`) and `main.lua` (`love examples/example_shared`) are the only platform code. Write shared UI code in plain Lua 5.1 syntax (no `+=`, `//`, `continue`).
+
 ### Differences from C++ Dear ImGui
 
 The API is the same function-for-function; these are the Luau-specific conventions:
