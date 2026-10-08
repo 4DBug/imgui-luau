@@ -3768,7 +3768,7 @@ function ImHashStr(str, size, seed)
             if hash_memo_n >= HASH_MEMO_MAX then hash_memo = { [seed] = m }; table.clear(m); hash_memo_n = 0 end
             h = ImHashStrRaw(str, #str, seed)
             m[str] = h
-            hash_memo_n += 1
+            hash_memo_n = hash_memo_n + 1
         end
         return h
     end

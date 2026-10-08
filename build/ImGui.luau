@@ -3779,7 +3779,7 @@ function ImHashStr(str, size, seed)
             if hash_memo_n >= HASH_MEMO_MAX then hash_memo = { [seed] = m }; table.clear(m); hash_memo_n = 0 end
             h = ImHashStrRaw(str, #str, seed)
             m[str] = h
-            hash_memo_n += 1
+            hash_memo_n = hash_memo_n + 1
         end
         return h
     end
@@ -18717,7 +18717,7 @@ function ExampleTree_CreateDemoTree()
     uid = uid + 1
     local node_L0 = ExampleTree_CreateNode("<ROOT>", uid, nil)
     for idx_L0 = 0, ROOT_ITEMS_COUNT - 1 do
-        local name_buf = string.format("%s %d", category_names[idx_L0 // (ROOT_ITEMS_COUNT // category_count) + 1], idx_L0 % (ROOT_ITEMS_COUNT // category_count))
+        local name_buf = string.format("%s %d", category_names[math.floor(idx_L0 / math.floor(ROOT_ITEMS_COUNT / category_count)) + 1], idx_L0 % math.floor(ROOT_ITEMS_COUNT / category_count))
         uid = uid + 1
         local node_L1 = ExampleTree_CreateNode(name_buf, uid, node_L0)
         local number_of_childs = #node_L1.Name
@@ -28499,7 +28499,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     if cache_key then
         baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
-        baked._TextSizeCacheN += 1
+        baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 
     return text_size, out_remaining
@@ -51515,7 +51515,7 @@ function FormatCached(format, v)
     local r = m[v]
     if r == nil then
         if fmt_memo_n >= 4096 then table.clear(fmt_memo); m = {}; fmt_memo[format] = m; fmt_memo_n = 0 end
-        r = ImFormatString(format, v); m[v] = r; fmt_memo_n += 1
+        r = ImFormatString(format, v); m[v] = r; fmt_memo_n = fmt_memo_n + 1
     end
     return r
 end
@@ -52510,7 +52510,7 @@ function ImGui.NewTextBuffer(str, size)
 end
 function ImGui.TextBufferToString(buf)
     local n = 0
-    while buf[n + 1] ~= nil and buf[n + 1] ~= 0 do n += 1 end
+    while buf[n + 1] ~= nil and buf[n + 1] ~= 0 do n = n + 1 end
     return n == 0 and "" or ImGui._ByteArrayToString(buf, 1, n + 1)
 end
 
