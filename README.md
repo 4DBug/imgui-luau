@@ -233,6 +233,8 @@ Multi-select / box-select, typing-select, the Assets Browser example, the Item P
 
 Dear ImGui is developed by [Omar Cornut](https://www.miracleworld.net) and [every direct or indirect contributor](https://github.com/ocornut/imgui/graphs/contributors). This repository is an unofficial port and is not affiliated with the Dear ImGui project.
 
+This port started from [GrayWolf64/imgui-lua](https://github.com/GrayWolf64/imgui-lua), a Lua port of Dear ImGui, and was extended from there to the docking branch and Roblox.
+
 Embeds [stb_truetype, stb_textedit, stb_rectpack](https://github.com/nothings/stb) by Sean Barrett (public domain / MIT), ported to Luau.
 
 Fonts: ProggyClean, ProggyTiny, ProggyForever by Tristan Grimmer; Cousine, DroidSans, Karla, Roboto under their respective licenses (Apache 2.0 / SIL OFL), as distributed in upstream's `misc/fonts/`.
