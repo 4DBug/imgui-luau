@@ -455,6 +455,30 @@ end
 --- @nodiscard
 function ImDrawVert() return { ImVec2(), ImVec2(), nil } end
 
+-- [Luau] ImDrawList.VtxBuffer storage: one buffer, VTX_STRIDE bytes per vertex. Vertex i (1-based) is at
+-- byte (i - 1) * VTX_STRIDE: f64 pos.x, f64 pos.y, f64 uv.x, f64 uv.y, u32 col. (f64 keeps results identical to tables.)
+-- Same Size/Capacity/resize/reserve/shrink/clear interface as ImVector; elements are read with ImDrawVtx_* below.
+VTX_STRIDE = 36
+local IM_VTXBUF = {}
+IM_VTXBUF.__index = IM_VTXBUF
+function ImDrawVtxBuffer() return setmetatable({ Size = 0, Capacity = 0, Buf = buffer.create(0) }, IM_VTXBUF) end
+function IM_VTXBUF:reserve(n)
+    if n <= self.Capacity then return end
+    local nb = buffer.create(n * VTX_STRIDE)
+    buffer.copy(nb, 0, self.Buf, 0, self.Size * VTX_STRIDE)
+    self.Buf = nb
+    self.Capacity = n
+end
+function IM_VTXBUF:resize(n)
+    if n > self.Capacity then self:reserve(math.max(n, math.floor(self.Capacity * 1.5), 64)) end
+    self.Size = n
+end
+function IM_VTXBUF:shrink(n) self.Size = n end
+function IM_VTXBUF:clear() self.Size = 0; self.Capacity = 0; self.Buf = buffer.create(0) end
+
+function ImDrawVtx_Pos(b, i) local o = (i - 1) * VTX_STRIDE; return buffer.readf64(b, o), buffer.readf64(b, o + 8) end
+function ImDrawVtx_Col(b, i) return buffer.readu32(b, (i - 1) * VTX_STRIDE + 32) end
+
 --- @class ImDrawCmdHeader
 --- @field ClipRect  ImVec4
 --- @field TexRef    ImTextureRef
@@ -490,7 +514,7 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field Flags             ImDrawListFlags
 --- @field _VtxCurrentIdx    unsigned_int         # 1-based, generally == (VtxBuffer.Size + 1)
 --- @field _Data             ImDrawListSharedData # Pointes to shared draw data
---- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing index in VtxBuffer.Data
+--- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing vertex in VtxBuffer (see ImDrawVtxBuffer)
 --- @field _IdxWritePtr      unsigned_int         # 1-based, points to the current writing index in IdxBuffer.Data
 --- @field _Path             ImVector<ImVec2>     # current path building
 --- @field _CmdHeader        ImDrawCmdHeader      # template of active commands. Fields should match those of CmdBuffer:back()
@@ -507,10 +531,10 @@ MT.ImDrawList.__index = MT.ImDrawList
 --- @param uv  ImVec2
 --- @param col ImU32
 function MT.ImDrawList:PrimWriteVtx(pos, uv, col)
-    local vtx = self.VtxBuffer.Data[self._VtxWritePtr]
-    ImVec2_Copy(vtx[1], pos)
-    ImVec2_Copy(vtx[2], uv)
-    vtx[3] = col
+    local b, o = self.VtxBuffer.Buf, (self._VtxWritePtr - 1) * VTX_STRIDE
+    buffer.writef64(b, o, pos.x); buffer.writef64(b, o + 8, pos.y)
+    buffer.writef64(b, o + 16, uv.x); buffer.writef64(b, o + 24, uv.y)
+    buffer.writeu32(b, o + 32, col)
     self._VtxWritePtr = self._VtxWritePtr + 1
     self._VtxCurrentIdx = self._VtxCurrentIdx + 1
 end
@@ -537,7 +561,7 @@ function ImDrawList(data)
     local this = setmetatable({
         CmdBuffer = ImVector(),
         IdxBuffer = ImVector(),
-        VtxBuffer = ImVector(ImDrawVert),
+        VtxBuffer = ImDrawVtxBuffer(),
         Flags     = 0,
 
         _VtxCurrentIdx = 1,

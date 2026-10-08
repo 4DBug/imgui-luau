@@ -51,7 +51,7 @@ RunService.Stepped:Connect(function()
         local want = ImGui.GetColorU32(G.ImGuiCol.WindowBg)
         local found = false
         for _, l in ImGui.GetDrawData().CmdLists:iter() do
-            for i = 1, l.VtxBuffer.Size do if l.VtxBuffer.Data[i][3] == want then found = true break end end
+            for i = 1, l.VtxBuffer.Size do if G.ImDrawVtx_Col(l.VtxBuffer.Buf, i) == want then found = true break end end
         end
         assert(found, "docked windows must draw a WindowBg background")
         print("MOVE OK")

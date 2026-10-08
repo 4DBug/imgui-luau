@@ -19688,7 +19688,7 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
     if not node_open then return end
     if window and not window.WasActive then ImGui.TextDisabled("Warning: owning Window is inactive. This DrawList is not being rendered!") end
 
-    local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
+    local vtx, idx = draw_list.VtxBuffer.Buf, draw_list.IdxBuffer.Data
     for cmd_n = 1, cmd_count do
         local pcmd = draw_list.CmdBuffer.Data[cmd_n]
         if pcmd.UserCallback then
@@ -19704,9 +19704,9 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
                 for i = base, base + pcmd.ElemCount - 1, 3 do
                     local tri = {}
                     for n = 0, 2 do
-                        local v = vtx[idx[i + n + 1] + pcmd.VtxOffset + 1]
-                        if v == nil then return end
-                        tri[n + 1] = ImVec2(v.pos.x, v.pos.y)
+                        local vi = idx[i + n + 1] + pcmd.VtxOffset
+                        if vi > draw_list.VtxBuffer.Size then return end
+                        tri[n + 1] = ImVec2(ImDrawVtx_Pos(vtx, vi))
                         vtxs_rect:Add(tri[n + 1])
                     end
                     if show_mesh then fg_draw_list:AddPolyline(tri, 3, IM_COL32(255, 255, 0, 255), 1.0, ImDrawFlags.Closed) end
@@ -25741,6 +25741,14 @@ FONT_ATLAS_DEFAULT_TEX_DATA_H = 27
 
 local IM_DRAWLIST_TEX_LINES_WIDTH_MAX = 32
 
+local writef64, writeu32, readf64, readu32 = buffer.writef64, buffer.writeu32, buffer.readf64, buffer.readu32
+-- Write vertex i (1-based) of a VtxBuffer.Buf
+local function WV(b, i, x, y, u, v, col)
+    local o = (i - 1) * 36
+    writef64(b, o, x); writef64(b, o + 8, y); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
+end
+local function WVP(b, i, p, uv, col) WV(b, i, p.x, p.y, uv.x, uv.y, col) end
+
 local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF
 local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE
 
@@ -26056,28 +26064,28 @@ function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx,
     local col_delta_b = bit32.band(bit32.rshift(col1, IM_COL32_B_SHIFT), 0xFF) - col0_b
 
     for vert_idx = vert_start_idx, vert_end_idx - 1 do
-        local vert = draw_list.VtxBuffer.Data[vert_idx]
-
-        local d = ImDot(vert[1] - gradient_p0, gradient_extent)
+        local vb = draw_list.VtxBuffer.Buf
+        local o = (vert_idx - 1) * 36
+        local d = (readf64(vb, o) - gradient_p0.x) * gradient_extent.x + (readf64(vb, o + 8) - gradient_p0.y) * gradient_extent.y
         local t = ImClamp(d * gradient_inv_length2, 0.0, 1.0)
 
         local r = math.floor(col0_r + col_delta_r * t)
         local g = math.floor(col0_g + col_delta_g * t)
         local b = math.floor(col0_b + col_delta_b * t)
 
-        vert[3] = bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(vert[3], IM_COL32_A_MASK))
+        writeu32(vb, o + 32, bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(readu32(vb, o + 32), IM_COL32_A_MASK)))
     end
 end
 
 -- Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
 function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, pivot_in, cos_a, sin_a, pivot_out)
-    local data = draw_list.VtxBuffer.Data
+    local data = draw_list.VtxBuffer.Buf
     local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
     for i = vert_start_idx, vert_end_idx - 1 do
-        local pos = data[i][1]
-        local x, y = pos.x - pix, pos.y - piy
-        pos.x = x * cos_a - y * sin_a + pox
-        pos.y = x * sin_a + y * cos_a + poy
+        local o = (i - 1) * 36
+        local x, y = readf64(data, o) - pix, readf64(data, o + 8) - piy
+        writef64(data, o, x * cos_a - y * sin_a + pox)
+        writef64(data, o + 8, x * sin_a + y * cos_a + poy)
     end
 end
 
@@ -26099,18 +26107,20 @@ function ImGui.ShadeVertsLinearUV(draw_list, vert_start_idx, vert_end_idx, a, b,
     )
 
     local vertex
-    local verts = draw_list.VtxBuffer.Data
+    local verts = draw_list.VtxBuffer.Buf
     if clamp then
         local min = ImMin(uv_a, uv_b)
         local max = ImMax(uv_a, uv_b)
         for vert_idx = vert_start_idx, vert_end_idx - 1 do
-            vertex = verts[vert_idx]
-            ImVec2_Copy(vertex[2], ImClamp(uv_a + ImMul(vertex[1] - a, scale), min, max))
+            local o = (vert_idx - 1) * 36
+            local uv = ImClamp(uv_a + ImMul(ImVec2(readf64(verts, o), readf64(verts, o + 8)) - a, scale), min, max)
+            writef64(verts, o + 16, uv.x); writef64(verts, o + 24, uv.y)
         end
     else
         for vert_idx = vert_start_idx, vert_end_idx - 1 do
-            vertex = verts[vert_idx]
-            ImVec2_Copy(vertex[2], uv_a + ImMul(vertex[1] - a, scale))
+            local o = (vert_idx - 1) * 36
+            local uv = uv_a + ImMul(ImVec2(readf64(verts, o), readf64(verts, o + 8)) - a, scale)
+            writef64(verts, o + 16, uv.x); writef64(verts, o + 24, uv.y)
         end
     end
 end
@@ -29323,7 +29333,7 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             i0 = i1
         end
 
-        local vtx_data = self.VtxBuffer.Data
+        local vtx_data = self.VtxBuffer.Buf
         i0 = points_count
         for i1 = 1, points_count do
             local n0 = temp_normals[i0]
@@ -29335,8 +29345,8 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             dm_y = dm_y * AA_SIZE * 0.5
 
             local vtx_write_ptr = self._VtxWritePtr
-            vtx_data[vtx_write_ptr + 0][1].x = points[i1].x - dm_x; vtx_data[vtx_write_ptr + 0][1].y = points[i1].y - dm_y; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv); vtx_data[vtx_write_ptr + 0][3] = col
-            vtx_data[vtx_write_ptr + 1][1].x = points[i1].x + dm_x; vtx_data[vtx_write_ptr + 1][1].y = points[i1].y + dm_y; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], uv); vtx_data[vtx_write_ptr + 1][3] = col_trans
+            WV(vtx_data, vtx_write_ptr + 0, points[i1].x - dm_x, points[i1].y - dm_y, uv.x, uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 1, points[i1].x + dm_x, points[i1].y + dm_y, uv.x, uv.y, col_trans)
             self._VtxWritePtr = vtx_write_ptr + 2
 
             local idx_write_ptr = self._IdxWritePtr
@@ -29352,10 +29362,10 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         local vtx_count = points_count
         self:PrimReserve(idx_count, vtx_count)
 
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i = 1, vtx_count do
             local vtx_write_ptr = self._VtxWritePtr
-            ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], points[i]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv); vtx_data[vtx_write_ptr + 0][3] = col
+            WVP(vtx_data, vtx_write_ptr + 0, points[i], uv, col)
             self._VtxWritePtr = vtx_write_ptr + 1
         end
         for i = 3, points_count do
@@ -29434,7 +29444,7 @@ function MT.ImDrawList:PrimRect(a, c, col)
     local uv = self._Data.TexUvWhitePixel
 
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -29446,21 +29456,11 @@ function MT.ImDrawList:PrimRect(a, c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], a)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv)
-    vtx_data[vtx_write_ptr + 0][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], uv)
-    vtx_data[vtx_write_ptr + 1][3] = col
-
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], c)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv)
-    vtx_data[vtx_write_ptr + 2][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], uv)
-    vtx_data[vtx_write_ptr + 3][3] = col
+    local ax, ay, cx, cy, u, v = a.x, a.y, c.x, c.y, uv.x, uv.y
+    WV(vtx_data, vtx_write_ptr + 0, ax, ay, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 1, cx, ay, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 2, cx, cy, u, v, col)
+    WV(vtx_data, vtx_write_ptr + 3, ax, cy, u, v, col)
 
     self._VtxWritePtr = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
@@ -29474,7 +29474,7 @@ end
 --- @param col  any
 function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -29486,21 +29486,10 @@ function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], a)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], uv_a)
-    vtx_data[vtx_write_ptr + 0][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][1], c.x, a.y)
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 1][2], uv_c.x, uv_a.y)
-    vtx_data[vtx_write_ptr + 1][3] = col
-
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], c)
-    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], uv_c)
-    vtx_data[vtx_write_ptr + 2][3] = col
-
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][1], a.x, c.y)
-    ImVec2_CopyV(vtx_data[vtx_write_ptr + 3][2], uv_a.x, uv_c.y)
-    vtx_data[vtx_write_ptr + 3][3] = col
+    WV(vtx_data, vtx_write_ptr + 0, a.x, a.y, uv_a.x, uv_a.y, col)
+    WV(vtx_data, vtx_write_ptr + 1, c.x, a.y, uv_c.x, uv_a.y, col)
+    WV(vtx_data, vtx_write_ptr + 2, c.x, c.y, uv_c.x, uv_c.y, col)
+    WV(vtx_data, vtx_write_ptr + 3, a.x, c.y, uv_a.x, uv_c.y, col)
 
     self._VtxWritePtr   = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
@@ -29582,7 +29571,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
@@ -29628,17 +29617,17 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 local tex_uv1 = ImVec2(tex_uvs.z, tex_uvs.w)
                 for i = 0, points_count - 1 do
                     local vtx_write_ptr = self._VtxWritePtr
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], temp_points[temp_points_start + i * 2 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], tex_uv0); vtx_data[vtx_write_ptr + 0][3] = col
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 2 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], tex_uv1); vtx_data[vtx_write_ptr + 1][3] = col
+                    WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 2 + 0], tex_uv0, col)
+                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 1], tex_uv1, col)
                     self._VtxWritePtr = vtx_write_ptr + 2
                 end
             else
                 -- If we're not using a texture, we need the center vertex as well
                 for i = 0, points_count - 1 do
                     local vtx_write_ptr = self._VtxWritePtr
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], points[i + 1]);                              ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 2 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col_trans
-                    ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], temp_points[temp_points_start + i * 2 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col_trans
+                    WVP(vtx_data, vtx_write_ptr + 0, points[i + 1], opaque_uv, col)
+                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 0], opaque_uv, col_trans)
+                    WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 2 + 1], opaque_uv, col_trans)
                     self._VtxWritePtr = vtx_write_ptr + 3
                 end
             end
@@ -29661,7 +29650,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
@@ -29702,10 +29691,10 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Add vertices
             for i = 0, points_count - 1 do
                 local vtx_write_ptr = self._VtxWritePtr
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 0][1], temp_points[temp_points_start + i * 4 + 0]); ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col_trans
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 1][1], temp_points[temp_points_start + i * 4 + 1]); ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 2][1], temp_points[temp_points_start + i * 4 + 2]); ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
-                ImVec2_Copy(vtx_data[vtx_write_ptr + 3][1], temp_points[temp_points_start + i * 4 + 3]); ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col_trans
+                WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 4 + 0], opaque_uv, col_trans)
+                WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 4 + 1], opaque_uv, col)
+                WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 4 + 2], opaque_uv, col)
+                WVP(vtx_data, vtx_write_ptr + 3, temp_points[temp_points_start + i * 4 + 3], opaque_uv, col_trans)
                 self._VtxWritePtr = vtx_write_ptr + 4
             end
         end
@@ -29716,7 +29705,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
         local vtx_count = count * 4
         self:PrimReserve(idx_count, vtx_count)
 
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Data
+        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i1 = 1, count do
             local i2 = (i1 == points_count) and 1 or i1 + 1
             local p1 = points[i1]
@@ -29729,10 +29718,10 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             dy = dy * (thickness * 0.5)
 
             local vtx_write_ptr = self._VtxWritePtr
-            vtx_data[vtx_write_ptr + 0][1].x = p1.x + dy; vtx_data[vtx_write_ptr + 0][1].y = p1.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 0][2], opaque_uv); vtx_data[vtx_write_ptr + 0][3] = col
-            vtx_data[vtx_write_ptr + 1][1].x = p2.x + dy; vtx_data[vtx_write_ptr + 1][1].y = p2.y - dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 1][2], opaque_uv); vtx_data[vtx_write_ptr + 1][3] = col
-            vtx_data[vtx_write_ptr + 2][1].x = p2.x - dy; vtx_data[vtx_write_ptr + 2][1].y = p2.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 2][2], opaque_uv); vtx_data[vtx_write_ptr + 2][3] = col
-            vtx_data[vtx_write_ptr + 3][1].x = p1.x - dy; vtx_data[vtx_write_ptr + 3][1].y = p1.y + dx; ImVec2_Copy(vtx_data[vtx_write_ptr + 3][2], opaque_uv); vtx_data[vtx_write_ptr + 3][3] = col
+            WV(vtx_data, vtx_write_ptr + 0, p1.x + dy, p1.y - dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 1, p2.x + dy, p2.y - dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 2, p2.x - dy, p2.y + dx, opaque_uv.x, opaque_uv.y, col)
+            WV(vtx_data, vtx_write_ptr + 3, p1.x - dy, p1.y + dx, opaque_uv.x, opaque_uv.y, col)
             self._VtxWritePtr = vtx_write_ptr + 4
 
             local idx_write_ptr = self._IdxWritePtr
@@ -30382,7 +30371,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     local cmd_count = draw_list.CmdBuffer.Size
     local cpu_fine_clip = bit32.band(flags, ImDrawTextFlags.CpuFineClip) ~= 0
 
-    local idx_data = draw_list.IdxBuffer.Data; local vtx_data = draw_list.VtxBuffer.Data
+    local idx_data = draw_list.IdxBuffer.Data; local vtx_data = draw_list.VtxBuffer.Buf
 
     local color_untinted = bit32.bor(col, bit32.bnot(IM_COL32_A_MASK))
 
@@ -30485,10 +30474,11 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                 local glyph_col = glyph.Colored and color_untinted or col
 
                 do
-                    local vtx0 = vtx_data[vtx_write + 0]; vtx0[1].x = x1; vtx0[1].y = y1; vtx0[3] = glyph_col; vtx0[2].x = u1; vtx0[2].y = v1;
-                    local vtx1 = vtx_data[vtx_write + 1]; vtx1[1].x = x2; vtx1[1].y = y1; vtx1[3] = glyph_col; vtx1[2].x = u2; vtx1[2].y = v1;
-                    local vtx2 = vtx_data[vtx_write + 2]; vtx2[1].x = x2; vtx2[1].y = y2; vtx2[3] = glyph_col; vtx2[2].x = u2; vtx2[2].y = v2;
-                    local vtx3 = vtx_data[vtx_write + 3]; vtx3[1].x = x1; vtx3[1].y = y2; vtx3[3] = glyph_col; vtx3[2].x = u1; vtx3[2].y = v2;
+                    local o = (vtx_write - 1) * 36
+                    writef64(vtx_data, o, x1); writef64(vtx_data, o + 8, y1); writef64(vtx_data, o + 16, u1); writef64(vtx_data, o + 24, v1); writeu32(vtx_data, o + 32, glyph_col)
+                    writef64(vtx_data, o + 36, x2); writef64(vtx_data, o + 44, y1); writef64(vtx_data, o + 52, u2); writef64(vtx_data, o + 60, v1); writeu32(vtx_data, o + 68, glyph_col)
+                    writef64(vtx_data, o + 72, x2); writef64(vtx_data, o + 80, y2); writef64(vtx_data, o + 88, u2); writef64(vtx_data, o + 96, v2); writeu32(vtx_data, o + 104, glyph_col)
+                    writef64(vtx_data, o + 108, x1); writef64(vtx_data, o + 116, y2); writef64(vtx_data, o + 124, u1); writef64(vtx_data, o + 132, v2); writeu32(vtx_data, o + 140, glyph_col)
                     idx_data[idx_write + 0] = vtx_index; idx_data[idx_write + 1] = vtx_index + 1; idx_data[idx_write + 2] = vtx_index + 2;
                     idx_data[idx_write + 3] = vtx_index; idx_data[idx_write + 4] = vtx_index + 2; idx_data[idx_write + 5] = vtx_index + 3;
                     vtx_write = vtx_write + 4
@@ -31438,6 +31428,30 @@ end
 --- @nodiscard
 function ImDrawVert() return { ImVec2(), ImVec2(), nil } end
 
+-- [Luau] ImDrawList.VtxBuffer storage: one buffer, VTX_STRIDE bytes per vertex. Vertex i (1-based) is at
+-- byte (i - 1) * VTX_STRIDE: f64 pos.x, f64 pos.y, f64 uv.x, f64 uv.y, u32 col. (f64 keeps results identical to tables.)
+-- Same Size/Capacity/resize/reserve/shrink/clear interface as ImVector; elements are read with ImDrawVtx_* below.
+VTX_STRIDE = 36
+local IM_VTXBUF = {}
+IM_VTXBUF.__index = IM_VTXBUF
+function ImDrawVtxBuffer() return setmetatable({ Size = 0, Capacity = 0, Buf = buffer.create(0) }, IM_VTXBUF) end
+function IM_VTXBUF:reserve(n)
+    if n <= self.Capacity then return end
+    local nb = buffer.create(n * VTX_STRIDE)
+    buffer.copy(nb, 0, self.Buf, 0, self.Size * VTX_STRIDE)
+    self.Buf = nb
+    self.Capacity = n
+end
+function IM_VTXBUF:resize(n)
+    if n > self.Capacity then self:reserve(math.max(n, math.floor(self.Capacity * 1.5), 64)) end
+    self.Size = n
+end
+function IM_VTXBUF:shrink(n) self.Size = n end
+function IM_VTXBUF:clear() self.Size = 0; self.Capacity = 0; self.Buf = buffer.create(0) end
+
+function ImDrawVtx_Pos(b, i) local o = (i - 1) * VTX_STRIDE; return buffer.readf64(b, o), buffer.readf64(b, o + 8) end
+function ImDrawVtx_Col(b, i) return buffer.readu32(b, (i - 1) * VTX_STRIDE + 32) end
+
 --- @class ImDrawCmdHeader
 --- @field ClipRect  ImVec4
 --- @field TexRef    ImTextureRef
@@ -31473,7 +31487,7 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field Flags             ImDrawListFlags
 --- @field _VtxCurrentIdx    unsigned_int         # 1-based, generally == (VtxBuffer.Size + 1)
 --- @field _Data             ImDrawListSharedData # Pointes to shared draw data
---- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing index in VtxBuffer.Data
+--- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing vertex in VtxBuffer (see ImDrawVtxBuffer)
 --- @field _IdxWritePtr      unsigned_int         # 1-based, points to the current writing index in IdxBuffer.Data
 --- @field _Path             ImVector<ImVec2>     # current path building
 --- @field _CmdHeader        ImDrawCmdHeader      # template of active commands. Fields should match those of CmdBuffer:back()
@@ -31490,10 +31504,10 @@ MT.ImDrawList.__index = MT.ImDrawList
 --- @param uv  ImVec2
 --- @param col ImU32
 function MT.ImDrawList:PrimWriteVtx(pos, uv, col)
-    local vtx = self.VtxBuffer.Data[self._VtxWritePtr]
-    ImVec2_Copy(vtx[1], pos)
-    ImVec2_Copy(vtx[2], uv)
-    vtx[3] = col
+    local b, o = self.VtxBuffer.Buf, (self._VtxWritePtr - 1) * VTX_STRIDE
+    buffer.writef64(b, o, pos.x); buffer.writef64(b, o + 8, pos.y)
+    buffer.writef64(b, o + 16, uv.x); buffer.writef64(b, o + 24, uv.y)
+    buffer.writeu32(b, o + 32, col)
     self._VtxWritePtr = self._VtxWritePtr + 1
     self._VtxCurrentIdx = self._VtxCurrentIdx + 1
 end
@@ -31520,7 +31534,7 @@ function ImDrawList(data)
     local this = setmetatable({
         CmdBuffer = ImVector(),
         IdxBuffer = ImVector(),
-        VtxBuffer = ImVector(ImDrawVert),
+        VtxBuffer = ImDrawVtxBuffer(),
         Flags     = 0,
 
         _VtxCurrentIdx = 1,
@@ -33168,6 +33182,7 @@ local AssetService     = game:GetService("AssetService")
 
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
 local readu8, readu32, writeu32, readstring = buffer.readu8, buffer.readu32, buffer.writeu32, buffer.readstring
+local readf64 = buffer.readf64
 local band, rshift = bit32.band, bit32.rshift
 
 local ImGui_ImplRoblox_GetBackendData
@@ -33499,10 +33514,10 @@ end
 
 -- Generic triangle: per-vertex colour + uv, top-left fill rule, clipped to [cx0, cx1) x [cy0, cy1)
 @native
-local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
-    local x0, y0 = va[1].x - ox, va[1].y - oy
-    local x1, y1 = vb[1].x - ox, vb[1].y - oy
-    local x2, y2 = vc[1].x - ox, vc[1].y - oy
+local function DrawTriangle(vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
+    local x0, y0 = readf64(vbuf, va) - ox, readf64(vbuf, va + 8) - oy
+    local x1, y1 = readf64(vbuf, vb) - ox, readf64(vbuf, vb + 8) - oy
+    local x2, y2 = readf64(vbuf, vc) - ox, readf64(vbuf, vc + 8) - oy
     local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
     if area == 0 then return end
     if area < 0 then -- make the winding consistent so "inside" means all edge functions >= 0
@@ -33524,10 +33539,10 @@ local function DrawTriangle(va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
     local tl2 = A2 > 0 or (A2 == 0 and B2 > 0)
 
     local inv = 1 / area
-    local ra, ga, ba, aa = UnpackColor(va[3])
-    local rb, gb, bb, ab = UnpackColor(vb[3])
-    local rc, gc, bc, ac = UnpackColor(vc[3])
-    local ua, vva, ub, vvb, uc, vvc = va[2].x, va[2].y, vb[2].x, vb[2].y, vc[2].x, vc[2].y
+    local ra, ga, ba, aa = UnpackColor(readu32(vbuf, va + 32))
+    local rb, gb, bb, ab = UnpackColor(readu32(vbuf, vb + 32))
+    local rc, gc, bc, ac = UnpackColor(readu32(vbuf, vc + 32))
+    local ua, vva, ub, vvb, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vb + 16), readf64(vbuf, vb + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
 
     local textured = t and not (ua == ub and ua == uc and vva == vvb and vva == vvc)
     if t and not textured then -- constant uv (e.g. the atlas white pixel): fold the texel into the vertex colours
@@ -33590,14 +33605,15 @@ local pr_a, pr_b, pr_c, pr_d, pr_t, pr_g = {}, {}, {}, {}, {}, {} -- vertices (p
 local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
 local pr_bx0, pr_by0, pr_bx1, pr_by1 = {}, {}, {}, {}  -- clipped bounds (screen pixels)
 local pr_tex = {}                                      -- texture id
+local pr_vb = {}                                       -- vertex buffer (draw list VtxBuffer.Buf)
 local pr_k = {}                                        -- layer kind (1..3)
 local plist1, plist2, plist3 = {}, {}, {}              -- primitive indices per layer kind
 
 @native
-local function HashVertex(h1, h2, v, ox, oy)
-    local p, u, c = v[1], v[2], v[3]
-    local x, y = p.x - ox, p.y - oy
-    local uv = u.x * 8192 + u.y
+local function HashVertex(h1, h2, vbuf, v, ox, oy)
+    local x, y = readf64(vbuf, v) - ox, readf64(vbuf, v + 8) - oy
+    local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+    local c = readu32(vbuf, v + 32)
     h1 = (h1 * 48271 + x * 4096 + y) % P1
     h1 = (h1 * 48271 + uv * 4096) % P1
     h1 = (h1 * 48271 + c) % P1
@@ -33728,6 +33744,33 @@ local function DestroyTiles(bd)
     bd.Layers = {}
 end
 
+-- Exact signature of everything in a draw list that affects its layers (nil = can't skip: user callbacks)
+local sig_buf = buffer.create(4096)
+@native
+local function DrawListSignature(draw_list, ox, oy)
+    local idx, ni = draw_list.IdxBuffer.Data, draw_list.IdxBuffer.Size
+    local ncmd = draw_list.CmdBuffer.Size
+    local need = ni * 4 + ncmd * 64 + 64
+    if buffer.len(sig_buf) < need then sig_buf = buffer.create(need * 2) end
+    local b, o = sig_buf, 0
+    for i = 1, ni do writeu32(b, o, idx[i]); o += 4 end
+    for _, pcmd in draw_list.CmdBuffer:iter() do
+        if pcmd.UserCallback ~= nil then return nil end
+        local c = pcmd.ClipRect
+        buffer.writef64(b, o, c.x); buffer.writef64(b, o + 8, c.y); buffer.writef64(b, o + 16, c.z); buffer.writef64(b, o + 24, c.w)
+        writeu32(b, o + 32, pcmd.ElemCount); writeu32(b, o + 36, pcmd.IdxOffset); writeu32(b, o + 40, pcmd.VtxOffset)
+        buffer.writef64(b, o + 44, pcmd:GetTexID())
+        o += 52
+    end
+    buffer.writef64(b, o, ox); buffer.writef64(b, o + 8, oy)
+    buffer.writef64(b, o + 16, draw_list._ContentClipX0 or -1); buffer.writef64(b, o + 24, draw_list._ContentClipY0 or -1)
+    buffer.writef64(b, o + 32, draw_list._ContentClipX1 or -1); buffer.writef64(b, o + 40, draw_list._ContentClipY1 or -1)
+    buffer.writef64(b, o + 48, draw_list._ContentClipX0 and draw_list._ScrollOriginX or -1)
+    buffer.writef64(b, o + 56, draw_list._ContentClipX0 and draw_list._ScrollOriginY or -1)
+    o += 64
+    return readstring(draw_list.VtxBuffer.Buf, 0, draw_list.VtxBuffer.Size * VTX_STRIDE) .. readstring(b, 0, o)
+end
+
 -- MicroProfiler labels, enabled with ImGui_ImplRoblox.SetProfiling(true)
 local profilebegin, profileend = debug.profilebegin, debug.profileend
 local profiling = false
@@ -33751,11 +33794,12 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
         local h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
         local h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
         local vax, vay = lx0 + ox, ly0 + oy
-        h1, h2 = HashVertex(h1, h2, pr_a[p], vax, vay)
-        h1, h2 = HashVertex(h1, h2, pr_b[p], vax, vay)
-        h1, h2 = HashVertex(h1, h2, pr_c[p], vax, vay)
+        local vbuf = pr_vb[p]
+        h1, h2 = HashVertex(h1, h2, vbuf, pr_a[p], vax, vay)
+        h1, h2 = HashVertex(h1, h2, vbuf, pr_b[p], vax, vay)
+        h1, h2 = HashVertex(h1, h2, vbuf, pr_c[p], vax, vay)
         local vd = pr_d[p]
-        if vd then h1, h2 = HashVertex(h1, h2, vd, vax, vay) end
+        if vd then h1, h2 = HashVertex(h1, h2, vbuf, vd, vax, vay) end
         for ty = floor((pr_by0[p] - ly0) / TILE), floor((pr_by1[p] - 1 - ly0) / TILE) do
             for tx = floor((pr_bx0[p] - lx0) / TILE), floor((pr_bx1[p] - 1 - lx0) / TILE) do
                 local key = ty * KEY_W + tx
@@ -33844,19 +33888,17 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
                 local p = list[k]
                 local cx0, cy0 = max(pr_cx0[p], x0) - x0, max(pr_cy0[p], y0) - y0
                 local cx1, cy1 = min(pr_cx1[p], x1) - x0, min(pr_cy1[p], y1) - y0
-                local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
+                local va, vc, vd, vbuf = pr_a[p], pr_c[p], pr_d[p], pr_vb[p]
                 if vd then
-                    local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
+                    local ax, ay, cx, cy = readf64(vbuf, va) - tox, readf64(vbuf, va + 8) - toy, readf64(vbuf, vc) - tox, readf64(vbuf, vc + 8) - toy
                     local gk = pr_g[p]
-                    if gk == 1 then
-                        DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 1, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
-                    elseif gk == 2 then
-                        DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 2, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
+                    if gk then
+                        DrawRectGradient(ax, ay, cx, cy, readu32(vbuf, va + 32), readu32(vbuf, vc + 32), gk, pr_t[p], readf64(vbuf, va + 16), readf64(vbuf, va + 24), cx0, cy0, cx1, cy1)
                     else
-                        DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                        DrawRect(ax, ay, cx, cy, readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24), readu32(vbuf, va + 32), pr_t[p], cx0, cy0, cx1, cy1)
                     end
                 else
-                    DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
+                    DrawTriangle(vbuf, va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
                 end
             end
             PB("ImGui upload")
@@ -33926,10 +33968,28 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local n = 0
     local z = 0
     for _, draw_list in draw_data.CmdLists:iter() do
+        -- Unchanged draw list (same vertex bytes, indices, commands, origin and scroll): its layers are already
+        -- correct, only restack them. Static windows then cost one byte compare instead of collect + hash.
+        PB("ImGui unchanged check")
+        local sig = DrawListSignature(draw_list, ox, oy)
+        local set = bd.Layers[draw_list]
+        if sig and set and not force and set.Sig == sig then
+            for kind = 1, 3 do
+                local layer = set[kind]
+                if layer and layer.Visible then
+                    z += 1
+                    if layer.Z ~= z then layer.Z = z; layer.Root.ZIndex = z end
+                end
+            end
+            set.LastUsed = frame_no
+            PE()
+            continue
+        end
+        PE()
         -- Pass 1: collect this list's primitives and their bounds
         PB("ImGui collect")
         local first = n + 1
-        local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
+        local vbuf, idx = draw_list.VtxBuffer.Buf, draw_list.IdxBuffer.Data
         local ccx0, ccy0, ccx1, ccy1 = draw_list._ContentClipX0, draw_list._ContentClipY0, draw_list._ContentClipX1, draw_list._ContentClipY1
         local content_x0, content_y0, content_x1, content_y1
         if ccx0 then
@@ -33961,36 +34021,42 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                     local i, last = pcmd.IdxOffset + 1, pcmd.IdxOffset + pcmd.ElemCount
                     while i <= last do
                         local ia, ic = idx[i], idx[i + 2]
-                        local va, vb, vc = vtx[vo + ia], vtx[vo + idx[i + 1]], vtx[vo + ic]
+                        -- byte offsets of the vertices (index is 1-based)
+                        local va, vb, vc = (vo + ia - 1) * VTX_STRIDE, (vo + idx[i + 1] - 1) * VTX_STRIDE, (vo + ic - 1) * VTX_STRIDE
                         local vd = false
                         local gk = false
-                        local pa, pb, pc = va[1], vb[1], vc[1]
+                        local pax, pay = readf64(vbuf, va), readf64(vbuf, va + 8)
+                        local pbx, pby = readf64(vbuf, vb), readf64(vbuf, vb + 8)
+                        local pcx, pcy = readf64(vbuf, vc), readf64(vbuf, vc + 8)
                         local bx0, by0, bx1, by1
                         if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic then
-                            local d = vtx[vo + idx[i + 5]]
-                            local pd = d[1]
+                            local d = (vo + idx[i + 5] - 1) * VTX_STRIDE
+                            local pdx, pdy = readf64(vbuf, d), readf64(vbuf, d + 8)
                             -- axis aligned quad (TL, TR, BR, BL)
-                            if pa.y == pb.y and pb.x == pc.x and pc.y == pd.y and pd.x == pa.x and pa.x < pb.x and pa.y < pd.y then
-                                local col = va[3]
-                                local ta, tb, tc, td = va[2], vb[2], vc[2], d[2]
-                                if vb[3] == col and vc[3] == col and d[3] == col then
-                                    if tb.x == tc.x and tb.y == ta.y and td.x == ta.x and td.y == tc.y then vd = d end
-                                elseif ta.x == tb.x and ta.x == tc.x and ta.x == td.x and ta.y == tb.y and ta.y == tc.y and ta.y == td.y then
+                            if pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
+                                local col, colb, colc, cold = readu32(vbuf, va + 32), readu32(vbuf, vb + 32), readu32(vbuf, vc + 32), readu32(vbuf, d + 32)
+                                local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
+                                local tbx, tby = readf64(vbuf, vb + 16), readf64(vbuf, vb + 24)
+                                local tcx, tcy = readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+                                local tdx, tdy = readf64(vbuf, d + 16), readf64(vbuf, d + 24)
+                                if colb == col and colc == col and cold == col then
+                                    if tbx == tcx and tby == tay and tdx == tax and tdy == tcy then vd = d end
+                                elseif tax == tbx and tax == tcx and tax == tdx and tay == tby and tay == tcy and tay == tdy then
                                     -- constant uv, linear gradient: vertical (top/bottom pairs equal) or horizontal (left/right pairs equal)
-                                    if vb[3] == col and d[3] == vc[3] then vd = d; gk = 1
-                                    elseif d[3] == col and vb[3] == vc[3] then vd = d; gk = 2 end
+                                    if colb == col and cold == colc then vd = d; gk = 1
+                                    elseif cold == col and colb == colc then vd = d; gk = 2 end
                                 end
                                 if vd then
-                                    bx0, by0 = ceil(pa.x - ox - 0.5), ceil(pa.y - oy - 0.5)
-                                    bx1, by1 = ceil(pc.x - ox - 0.5), ceil(pc.y - oy - 0.5)
+                                    bx0, by0 = ceil(pax - ox - 0.5), ceil(pay - oy - 0.5)
+                                    bx1, by1 = ceil(pcx - ox - 0.5), ceil(pcy - oy - 0.5)
                                 end
                             end
                         end
                         if vd then
                             i = i + 6
                         else
-                            bx0, by0 = floor(min(pa.x, pb.x, pc.x) - ox), floor(min(pa.y, pb.y, pc.y) - oy)
-                            bx1, by1 = ceil(max(pa.x, pb.x, pc.x) - ox) + 1, ceil(max(pa.y, pb.y, pc.y) - oy) + 1
+                            bx0, by0 = floor(min(pax, pbx, pcx) - ox), floor(min(pay, pby, pcy) - oy)
+                            bx1, by1 = ceil(max(pax, pbx, pcx) - ox) + 1, ceil(max(pay, pby, pcy) - oy) + 1
                             i = i + 3
                         end
                         if bx0 < cx0 then bx0 = cx0 end
@@ -33999,7 +34065,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         if by1 > cy1 then by1 = cy1 end
                         if bx0 < bx1 and by0 < by1 then
                             n = n + 1
-                            pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n], pr_g[n], pr_tex[n] = va, vb, vc, vd, t, gk, tex_id
+                            pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n], pr_g[n], pr_tex[n], pr_vb[n] = va, vb, vc, vd, t, gk, tex_id, vbuf
                             pr_cx0[n], pr_cy0[n], pr_cx1[n], pr_cy1[n] = cx0, cy0, cx1, cy1
                             pr_bx0[n], pr_by0[n], pr_bx1[n], pr_by1[n] = bx0, by0, bx1, by1
                             pr_k[n] = kind
@@ -34011,7 +34077,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         PE()
 
         -- Split into layer kinds and place each one
-        local set = bd.Layers[draw_list]
+        set = bd.Layers[draw_list]
         local nk1, nk2, nk3 = 0, 0, 0
         local o1x, o1y, o3x, o3y = math.huge, math.huge, math.huge, math.huge
         for p = first, n do
@@ -34042,12 +34108,13 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
             DrawLayer(bd, GetLayer(bd, draw_list, 3), plist3, nk3, o3x, o3y, ox, oy, force, z)
         elseif set and set[3] then HideLayer(set[3]) end
         set = bd.Layers[draw_list]
-        if set then set.LastUsed = frame_no end
+        if set then set.LastUsed = frame_no; set.Sig = sig end
     end
 
     -- Hide layers not drawn this frame; free long unused ones (closed windows, old tooltips)
     for draw_list, set in pairs(bd.Layers) do
         if set.LastUsed ~= frame_no then
+            set.Sig = nil -- hidden now: must go through the full path when shown again
             for kind = 1, 3 do if set[kind] then HideLayer(set[kind]) end end
             if frame_no - set.LastUsed > LAYER_KEEP_FRAMES then
                 DestroyLayerSet(set)
@@ -34057,7 +34124,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     end
 
     -- drop references so old vertex tables can be collected
-    for k = n + 1, bd.LastPrimCount do pr_a[k], pr_b[k], pr_c[k], pr_d[k], pr_t[k] = nil, nil, nil, nil, nil end
+    for k = n + 1, bd.LastPrimCount do pr_t[k], pr_vb[k] = nil, nil end
     bd.LastPrimCount = n
     PE()
 end
@@ -62398,6 +62465,9 @@ return {
     ImDrawListSplitter = ImDrawListSplitter,
     ImDrawTextFlags = ImDrawTextFlags,
     ImDrawVert = ImDrawVert,
+    ImDrawVtxBuffer = ImDrawVtxBuffer,
+    ImDrawVtx_Col = ImDrawVtx_Col,
+    ImDrawVtx_Pos = ImDrawVtx_Pos,
     ImFabs = ImFabs,
     ImFloor = ImFloor,
     ImFmod = ImFmod,
@@ -62728,6 +62798,7 @@ return {
     ShowExampleMenuFile = ShowExampleMenuFile,
     TILE_SIZE = TILE_SIZE,
     UINT_MAX = UINT_MAX,
+    VTX_STRIDE = VTX_STRIDE,
     stb_text_locate_coord = stb_text_locate_coord,
     stb_text_makeundo_delete = stb_text_makeundo_delete,
     stb_text_makeundo_insert = stb_text_makeundo_insert,
