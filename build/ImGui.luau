@@ -7161,6 +7161,10 @@ function ImGui.Begin(name, open, flags)
 
     if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.SkipRefresh then
         ImGui.PushClipRect(window.InnerClipRect.Min, window.InnerClipRect.Max, true)
+        -- [Roblox backend] content clip + scroll origin: lets the backend move scrolled content instead of redrawing it
+        local dl, cr = window.DrawList, window.DrawList._CmdHeader.ClipRect
+        dl._ContentClipX0, dl._ContentClipY0, dl._ContentClipX1, dl._ContentClipY1 = cr.x, cr.y, cr.z, cr.w
+        dl._ScrollOriginX, dl._ScrollOriginY = window.Pos.x - window.Scroll.x, window.Pos.y - window.Scroll.y
     end
 
     window.WriteAccessed = false
@@ -28889,6 +28893,7 @@ end
 
 -- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
+    self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
     if self._Splitter._Count > 1 then
         self._Splitter:Merge(self)
     end
@@ -33573,7 +33578,7 @@ end
 -- relative to the layer's origin (top-left of its content). Primitives are hashed into tiles in layer-relative
 -- coordinates, so moving a window only moves its Frame: no tile changes, nothing re-rasterized or uploaded.
 -- Only tiles whose hash changed are redrawn; the hash covers everything that affects a tile's pixels.
-local TILE = 256
+local TILE = 128
 TILE_SIZE = Vector2.new(TILE, TILE)
 local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile (collision odds ~2^-62)
 local KEY_W = 64 -- tile key = ty * KEY_W + tx (layers up to 16384 px wide)
@@ -33585,6 +33590,8 @@ local pr_a, pr_b, pr_c, pr_d, pr_t, pr_g = {}, {}, {}, {}, {}, {} -- vertices (p
 local pr_cx0, pr_cy0, pr_cx1, pr_cy1 = {}, {}, {}, {}  -- clip (screen pixels)
 local pr_bx0, pr_by0, pr_bx1, pr_by1 = {}, {}, {}, {}  -- clipped bounds (screen pixels)
 local pr_tex = {}                                      -- texture id
+local pr_k = {}                                        -- layer kind (1..3)
+local plist1, plist2, plist3 = {}, {}, {}              -- primitive indices per layer kind
 
 @native
 local function HashVertex(h1, h2, v, ox, oy)
@@ -33647,20 +33654,41 @@ local function DrawRectGradient(x0, y0, x1, y1, ca, cb, kind, t, u, v, cx0, cy0,
     end
 end
 
-local function GetLayer(bd, draw_list)
-    local layer = bd.Layers[draw_list]
-    if layer then return layer end
+-- Layer kinds per draw list: 1 = drawn before the window content (background, title bar, borders, scrollbar),
+-- 2 = window content (positioned at the scroll origin inside a ClipsDescendants frame, so scrolling just moves it),
+-- 3 = anything not clipped to the content drawn after content started (menu bar, overlays). Stacked 1 < 2 < 3.
+local function NewFrame(parent, clips)
     local frame = Instance.new("Frame")
     frame.Name = "Layer"
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
     frame.Size = UDim2.fromOffset(0, 0)
+    frame.ClipsDescendants = clips
     frame.Visible = false
-    frame.Parent = bd.Gui
-    layer = { Frame = frame, Tiles = {}, TH1 = {}, TH2 = {}, TN = {}, TL = {}, Touched = {}, NTouched = 0,
-              Visible = false, X = false, Y = false, Z = -1, LastUsed = 0 }
-    bd.Layers[draw_list] = layer
+    frame.Parent = parent
+    return frame
+end
+
+local function GetLayer(bd, draw_list, kind)
+    local set = bd.Layers[draw_list]
+    if not set then set = { LastUsed = 0 }; bd.Layers[draw_list] = set end
+    local layer = set[kind]
+    if layer then return layer end
+    local root, frame
+    if kind == 2 then
+        root = NewFrame(bd.Gui, true)
+        frame = NewFrame(root, false); frame.Visible = true
+    else
+        frame = NewFrame(bd.Gui, false); root = frame
+    end
+    layer = { Root = root, Frame = frame, Tiles = {}, TH1 = {}, TH2 = {}, TN = {}, TL = {}, TX = {}, TY = {}, Touched = {}, NTouched = 0,
+              Visible = false, X = false, Y = false, Z = -1, CX0 = false, CY0 = false, CX1 = false, CY1 = false }
+    set[kind] = layer
     return layer
+end
+
+local function HideLayer(layer)
+    if layer.Visible then layer.Visible = false; layer.Root.Visible = false end
 end
 
 local function GetTile(bd, layer, key, tx, ty)
@@ -33685,13 +33713,18 @@ local function GetTile(bd, layer, key, tx, ty)
     return tile
 end
 
-local function DestroyLayer(layer)
-    for _, tile in pairs(layer.Tiles) do tile.Image:Destroy() end
-    layer.Frame:Destroy()
+local function DestroyLayerSet(set)
+    for kind = 1, 3 do
+        local layer = set[kind]
+        if layer then
+            for _, tile in pairs(layer.Tiles) do tile.Image:Destroy() end
+            layer.Root:Destroy()
+        end
+    end
 end
 
 local function DestroyTiles(bd)
-    for _, layer in pairs(bd.Layers) do DestroyLayer(layer) end
+    for _, set in pairs(bd.Layers) do DestroyLayerSet(set) end
     bd.Layers = {}
 end
 
@@ -33700,6 +33733,150 @@ local profilebegin, profileend = debug.profilebegin, debug.profileend
 local profiling = false
 local function PB(name) if profiling then profilebegin(name) end end
 local function PE() if profiling then profileend() end end
+
+@native
+local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_x0, clip_y0, clip_x1, clip_y1)
+    local scale = bd.Scale
+    -- Pass 2: hash primitives into layer-relative tiles
+    PB("ImGui tile hash")
+    local th1, th2, tn, tl, touched = layer.TH1, layer.TH2, layer.TN, layer.TL, layer.Touched
+    for k = 1, layer.NTouched do tn[touched[k]] = 0 end
+    local nt = 0
+    for pi = 1, np do
+        local p = plist[pi]
+        local tex_id = pr_tex[p]
+        -- The clip rect only affects pixels inside the primitive's bounds, so hash the clipped bounds (relative)
+        -- instead of the clip itself: a window clipped by the (fixed) viewport rect stays hash-stable when moved.
+        local cx0, cy0, cx1, cy1 = pr_bx0[p] - lx0, pr_by0[p] - ly0, pr_bx1[p] - lx0, pr_by1[p] - ly0
+        local h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
+        local h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+        local vax, vay = lx0 + ox, ly0 + oy
+        h1, h2 = HashVertex(h1, h2, pr_a[p], vax, vay)
+        h1, h2 = HashVertex(h1, h2, pr_b[p], vax, vay)
+        h1, h2 = HashVertex(h1, h2, pr_c[p], vax, vay)
+        local vd = pr_d[p]
+        if vd then h1, h2 = HashVertex(h1, h2, vd, vax, vay) end
+        for ty = floor((pr_by0[p] - ly0) / TILE), floor((pr_by1[p] - 1 - ly0) / TILE) do
+            for tx = floor((pr_bx0[p] - lx0) / TILE), floor((pr_bx1[p] - 1 - lx0) / TILE) do
+                local key = ty * KEY_W + tx
+                local k = tn[key]
+                if not k or k == 0 then
+                    k = 0
+                    th1[key], th2[key] = 0, 0
+                    if not tl[key] then tl[key] = {} end
+                    nt = nt + 1
+                    touched[nt] = key
+                    layer.TX[key], layer.TY[key] = tx, ty
+                end
+                k = k + 1
+                tn[key] = k
+                tl[key][k] = p
+                th1[key] = (th1[key] * 48271 + h1) % P1
+                th2[key] = (th2[key] * 16807 + h2 + k) % P2
+            end
+        end
+    end
+    layer.NTouched = nt
+    PE()
+
+    -- Place the layer (this is all a window move costs)
+    local root = layer.Root
+    if root ~= layer.Frame then
+        -- content: clip frame at the content clip rect, tiles frame at the scroll origin relative to it
+        if layer.CX0 ~= clip_x0 or layer.CY0 ~= clip_y0 or layer.CX1 ~= clip_x1 or layer.CY1 ~= clip_y1 then
+            layer.CX0, layer.CY0, layer.CX1, layer.CY1 = clip_x0, clip_y0, clip_x1, clip_y1
+            root.Position = UDim2.fromOffset(clip_x0 / scale, clip_y0 / scale)
+            root.Size = UDim2.fromOffset((clip_x1 - clip_x0) / scale, (clip_y1 - clip_y0) / scale)
+            layer.X = false
+        end
+        if layer.X ~= lx0 or layer.Y ~= ly0 then
+            layer.X, layer.Y = lx0, ly0
+            layer.Frame.Position = UDim2.fromOffset((lx0 - clip_x0) / scale, (ly0 - clip_y0) / scale)
+        end
+    elseif layer.X ~= lx0 or layer.Y ~= ly0 then
+        layer.X, layer.Y = lx0, ly0
+        root.Position = UDim2.fromOffset(lx0 / scale, ly0 / scale)
+    end
+    if layer.Z ~= z then layer.Z = z; root.ZIndex = z end
+    if not layer.Visible then layer.Visible = true; root.Visible = true end
+
+    -- Pass 3: redraw + upload changed tiles, hide unused ones
+    PB("ImGui raster+upload")
+    for key, tile in pairs(layer.Tiles) do
+        if not tn[key] or tn[key] == 0 then
+            if tile.Visible then tile.Visible = false; tile.Label.Visible = false; tile.H1 = -1 end
+        end
+    end
+    for kk = 1, nt do
+        local key = touched[kk]
+        local count = tn[key]
+        local tx, ty = layer.TX[key], layer.TY[key]
+        local tile = GetTile(bd, layer, key, tx, ty)
+        if force or tile.H1 ~= th1[key] or tile.H2 ~= th2[key] then
+            tile.H1, tile.H2 = th1[key], th2[key]
+            local x0, y0 = lx0 + tx * TILE, ly0 + ty * TILE
+            local x1, y1 = x0 + TILE, y0 + TILE
+            buf, buf_w = tile.Buffer, TILE
+            local list = tl[key]
+            -- Dirty region = old content bounds + new content bounds. Outside it the tile is already
+            -- transparent, so only this region is cleared and uploaded (edge tiles are often mostly empty).
+            local nx0, ny0, nx1, ny1 = TILE, TILE, 0, 0
+            for k = 1, count do
+                local p = list[k]
+                local a, b = pr_bx0[p] - x0, pr_by0[p] - y0
+                local c, d = pr_bx1[p] - x0, pr_by1[p] - y0
+                if a < nx0 then nx0 = a end
+                if b < ny0 then ny0 = b end
+                if c > nx1 then nx1 = c end
+                if d > ny1 then ny1 = d end
+            end
+            nx0, ny0, nx1, ny1 = max(nx0, 0), max(ny0, 0), min(nx1, TILE), min(ny1, TILE)
+            local rx0, ry0, rx1, ry1 = min(nx0, tile.BX0), min(ny0, tile.BY0), max(nx1, tile.BX1), max(ny1, tile.BY1)
+            tile.BX0, tile.BY0, tile.BX1, tile.BY1 = nx0, ny0, nx1, ny1
+            local rw = rx1 - rx0
+            if rw == TILE then
+                buffer.fill(buf, ry0 * TILE * 4, 0, (ry1 - ry0) * TILE * 4)
+            else
+                for y = ry0, ry1 - 1 do buffer.fill(buf, (y * TILE + rx0) * 4, 0, rw * 4) end
+            end
+            local tox, toy = ox + x0, oy + y0
+            for k = 1, count do
+                local p = list[k]
+                local cx0, cy0 = max(pr_cx0[p], x0) - x0, max(pr_cy0[p], y0) - y0
+                local cx1, cy1 = min(pr_cx1[p], x1) - x0, min(pr_cy1[p], y1) - y0
+                local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
+                if vd then
+                    local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
+                    local gk = pr_g[p]
+                    if gk == 1 then
+                        DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 1, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
+                    elseif gk == 2 then
+                        DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 2, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
+                    else
+                        DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
+                    end
+                else
+                    DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
+                end
+            end
+            PB("ImGui upload")
+            if rw == TILE and ry0 == 0 and ry1 == TILE then
+                tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+            elseif rw > 0 and ry1 > ry0 then
+                local rh = ry1 - ry0
+                local sub = buffer.create(rw * rh * 4)
+                for y = 0, rh - 1 do buffer.copy(sub, y * rw * 4, buf, ((ry0 + y) * TILE + rx0) * 4, rw * 4) end
+                tile.Image:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), sub)
+            end
+            PE()
+        end
+        if not tile.Visible then
+            tile.Visible = true
+            tile.Label.Visible = true
+        end
+    end
+    PE()
+end
 
 @native
 function ImGui_ImplRoblox_RenderDrawData(draw_data)
@@ -33745,7 +33922,6 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local frame_no = bd.FrameNo
     local force = bd.ForceRedraw
     bd.ForceRedraw = false
-    local scale = bd.Scale
 
     local n = 0
     local z = 0
@@ -33753,8 +33929,14 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         -- Pass 1: collect this list's primitives and their bounds
         PB("ImGui collect")
         local first = n + 1
-        local lx0, ly0 = math.huge, math.huge
         local vtx, idx = draw_list.VtxBuffer.Data, draw_list.IdxBuffer.Data
+        local ccx0, ccy0, ccx1, ccy1 = draw_list._ContentClipX0, draw_list._ContentClipY0, draw_list._ContentClipX1, draw_list._ContentClipY1
+        local content_x0, content_y0, content_x1, content_y1
+        if ccx0 then
+            content_x0, content_y0 = max(floor(ccx0 - ox), lim_x0), max(floor(ccy0 - oy), lim_y0)
+            content_x1, content_y1 = min(floor(ccx1 - ox), lim_x1), min(floor(ccy1 - oy), lim_y1)
+        end
+        local seen_content = false
         for _, pcmd in draw_list.CmdBuffer:iter() do
             if pcmd.UserCallback ~= nil then
                 pcmd.UserCallback(draw_list, pcmd)
@@ -33762,6 +33944,16 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                 local clip = pcmd.ClipRect
                 local cx0, cy0 = max(floor(clip.x - ox), lim_x0), max(floor(clip.y - oy), lim_y0)
                 local cx1, cy1 = min(floor(clip.z - ox), lim_x1), min(floor(clip.w - oy), lim_y1)
+                local kind = 1
+                if ccx0 and clip.x >= ccx0 and clip.y >= ccy0 and clip.z <= ccx1 and clip.w <= ccy1 then
+                    kind = 2; seen_content = true
+                    if clip.x == ccx0 and clip.y == ccy0 and clip.z == ccx1 and clip.w == ccy1 then
+                        -- clipped by the layer's clip frame instead: partly visible rows stay hash-stable while scrolling
+                        cx0, cy0, cx1, cy1 = lim_x0, lim_y0, lim_x1, lim_y1
+                    end
+                elseif seen_content then
+                    kind = 3
+                end
                 if cx1 > cx0 and cy1 > cy0 then
                     local tex_id = pcmd:GetTexID()
                     local t = bd.Textures[tex_id]
@@ -33810,8 +34002,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                             pr_a[n], pr_b[n], pr_c[n], pr_d[n], pr_t[n], pr_g[n], pr_tex[n] = va, vb, vc, vd, t, gk, tex_id
                             pr_cx0[n], pr_cy0[n], pr_cx1[n], pr_cy1[n] = cx0, cy0, cx1, cy1
                             pr_bx0[n], pr_by0[n], pr_bx1[n], pr_by1[n] = bx0, by0, bx1, by1
-                            if bx0 < lx0 then lx0 = bx0 end
-                            if by0 < ly0 then ly0 = by0 end
+                            pr_k[n] = kind
                         end
                     end
                 end
@@ -33819,147 +34010,47 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         end
         PE()
 
-        local layer = GetLayer(bd, draw_list)
-        layer.LastUsed = frame_no
-        if n < first then
-            if layer.Visible then layer.Visible = false; layer.Frame.Visible = false end
-        else
-            -- Pass 2: hash primitives into layer-relative tiles
-            PB("ImGui tile hash")
-            local th1, th2, tn, tl, touched = layer.TH1, layer.TH2, layer.TN, layer.TL, layer.Touched
-            for k = 1, layer.NTouched do tn[touched[k]] = 0 end
-            local nt = 0
-            for p = first, n do
-                local tex_id = pr_tex[p]
-                -- The clip rect only affects pixels inside the primitive's bounds, so hash the clipped bounds (relative)
-                -- instead of the clip itself: a window clipped by the (fixed) viewport rect stays hash-stable when moved.
-                local cx0, cy0, cx1, cy1 = pr_bx0[p] - lx0, pr_by0[p] - ly0, pr_bx1[p] - lx0, pr_by1[p] - ly0
-                local h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
-                local h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
-                local vax, vay = lx0 + ox, ly0 + oy
-                h1, h2 = HashVertex(h1, h2, pr_a[p], vax, vay)
-                h1, h2 = HashVertex(h1, h2, pr_b[p], vax, vay)
-                h1, h2 = HashVertex(h1, h2, pr_c[p], vax, vay)
-                local vd = pr_d[p]
-                if vd then h1, h2 = HashVertex(h1, h2, vd, vax, vay) end
-                for ty = floor((pr_by0[p] - ly0) / TILE), floor((pr_by1[p] - 1 - ly0) / TILE) do
-                    for tx = floor((pr_bx0[p] - lx0) / TILE), floor((pr_bx1[p] - 1 - lx0) / TILE) do
-                        local key = ty * KEY_W + tx
-                        local k = tn[key]
-                        if not k or k == 0 then
-                            k = 0
-                            th1[key], th2[key] = 0, 0
-                            if not tl[key] then tl[key] = {} end
-                            nt = nt + 1
-                            touched[nt] = key
-                        end
-                        k = k + 1
-                        tn[key] = k
-                        tl[key][k] = p
-                        th1[key] = (th1[key] * 48271 + h1) % P1
-                        th2[key] = (th2[key] * 16807 + h2 + k) % P2
-                    end
-                end
+        -- Split into layer kinds and place each one
+        local set = bd.Layers[draw_list]
+        local nk1, nk2, nk3 = 0, 0, 0
+        local o1x, o1y, o3x, o3y = math.huge, math.huge, math.huge, math.huge
+        for p = first, n do
+            local k = pr_k[p]
+            if k == 1 then
+                nk1 += 1; plist1[nk1] = p
+                if pr_bx0[p] < o1x then o1x = pr_bx0[p] end
+                if pr_by0[p] < o1y then o1y = pr_by0[p] end
+            elseif k == 2 then
+                nk2 += 1; plist2[nk2] = p
+            else
+                nk3 += 1; plist3[nk3] = p
+                if pr_bx0[p] < o3x then o3x = pr_bx0[p] end
+                if pr_by0[p] < o3y then o3y = pr_by0[p] end
             end
-            layer.NTouched = nt
-            PE()
-
-            -- Place the layer (this is all a window move costs)
-            local frame = layer.Frame
-            if layer.X ~= lx0 or layer.Y ~= ly0 then
-                layer.X, layer.Y = lx0, ly0
-                frame.Position = UDim2.fromOffset(lx0 / scale, ly0 / scale)
-            end
-            z = z + 1
-            if layer.Z ~= z then layer.Z = z; frame.ZIndex = z end
-            if not layer.Visible then layer.Visible = true; frame.Visible = true end
-
-            -- Pass 3: redraw + upload changed tiles, hide unused ones
-            PB("ImGui raster+upload")
-            for key, tile in pairs(layer.Tiles) do
-                if not tn[key] or tn[key] == 0 then
-                    if tile.Visible then tile.Visible = false; tile.Label.Visible = false; tile.H1 = -1 end
-                end
-            end
-            for kk = 1, nt do
-                local key = touched[kk]
-                local count = tn[key]
-                local tx, ty = key % KEY_W, floor(key / KEY_W)
-                if tx < 0 then tx = tx + KEY_W; ty = ty - 1 end
-                local tile = GetTile(bd, layer, key, tx, ty)
-                if force or tile.H1 ~= th1[key] or tile.H2 ~= th2[key] then
-                    tile.H1, tile.H2 = th1[key], th2[key]
-                    local x0, y0 = lx0 + tx * TILE, ly0 + ty * TILE
-                    local x1, y1 = x0 + TILE, y0 + TILE
-                    buf, buf_w = tile.Buffer, TILE
-                    local list = tl[key]
-                    -- Dirty region = old content bounds + new content bounds. Outside it the tile is already
-                    -- transparent, so only this region is cleared and uploaded (edge tiles are often mostly empty).
-                    local nx0, ny0, nx1, ny1 = TILE, TILE, 0, 0
-                    for k = 1, count do
-                        local p = list[k]
-                        local a, b = pr_bx0[p] - x0, pr_by0[p] - y0
-                        local c, d = pr_bx1[p] - x0, pr_by1[p] - y0
-                        if a < nx0 then nx0 = a end
-                        if b < ny0 then ny0 = b end
-                        if c > nx1 then nx1 = c end
-                        if d > ny1 then ny1 = d end
-                    end
-                    nx0, ny0, nx1, ny1 = max(nx0, 0), max(ny0, 0), min(nx1, TILE), min(ny1, TILE)
-                    local rx0, ry0, rx1, ry1 = min(nx0, tile.BX0), min(ny0, tile.BY0), max(nx1, tile.BX1), max(ny1, tile.BY1)
-                    tile.BX0, tile.BY0, tile.BX1, tile.BY1 = nx0, ny0, nx1, ny1
-                    local rw = rx1 - rx0
-                    if rw == TILE then
-                        buffer.fill(buf, ry0 * TILE * 4, 0, (ry1 - ry0) * TILE * 4)
-                    else
-                        for y = ry0, ry1 - 1 do buffer.fill(buf, (y * TILE + rx0) * 4, 0, rw * 4) end
-                    end
-                    local tox, toy = ox + x0, oy + y0
-                    for k = 1, count do
-                        local p = list[k]
-                        local cx0, cy0 = max(pr_cx0[p], x0) - x0, max(pr_cy0[p], y0) - y0
-                        local cx1, cy1 = min(pr_cx1[p], x1) - x0, min(pr_cy1[p], y1) - y0
-                        local va, vc, vd = pr_a[p], pr_c[p], pr_d[p]
-                        if vd then
-                            local pa, pc, ta, tc = va[1], vc[1], va[2], vc[2]
-                            local gk = pr_g[p]
-                            if gk == 1 then
-                                DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 1, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
-                            elseif gk == 2 then
-                                DrawRectGradient(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, va[3], vc[3], 2, pr_t[p], ta.x, ta.y, cx0, cy0, cx1, cy1)
-                            else
-                                DrawRect(pa.x - tox, pa.y - toy, pc.x - tox, pc.y - toy, ta.x, ta.y, tc.x, tc.y, va[3], pr_t[p], cx0, cy0, cx1, cy1)
-                            end
-                        else
-                            DrawTriangle(va, pr_b[p], vc, pr_t[p], cx0, cy0, cx1, cy1, tox, toy)
-                        end
-                    end
-                    PB("ImGui upload")
-                    if rw == TILE and ry0 == 0 and ry1 == TILE then
-                        tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
-                    elseif rw > 0 and ry1 > ry0 then
-                        local rh = ry1 - ry0
-                        local sub = buffer.create(rw * rh * 4)
-                        for y = 0, rh - 1 do buffer.copy(sub, y * rw * 4, buf, ((ry0 + y) * TILE + rx0) * 4, rw * 4) end
-                        tile.Image:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), sub)
-                    end
-                    PE()
-                end
-                if not tile.Visible then
-                    tile.Visible = true
-                    tile.Label.Visible = true
-                end
-            end
-            PE()
         end
+        if nk1 > 0 then
+            z += 1
+            DrawLayer(bd, GetLayer(bd, draw_list, 1), plist1, nk1, o1x, o1y, ox, oy, force, z)
+        elseif set and set[1] then HideLayer(set[1]) end
+        if nk2 > 0 then
+            z += 1
+            DrawLayer(bd, GetLayer(bd, draw_list, 2), plist2, nk2, floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy), ox, oy, force, z,
+                content_x0, content_y0, content_x1, content_y1)
+        elseif set and set[2] then HideLayer(set[2]) end
+        if nk3 > 0 then
+            z += 1
+            DrawLayer(bd, GetLayer(bd, draw_list, 3), plist3, nk3, o3x, o3y, ox, oy, force, z)
+        elseif set and set[3] then HideLayer(set[3]) end
+        set = bd.Layers[draw_list]
+        if set then set.LastUsed = frame_no end
     end
 
     -- Hide layers not drawn this frame; free long unused ones (closed windows, old tooltips)
-    for draw_list, layer in pairs(bd.Layers) do
-        if layer.LastUsed ~= frame_no then
-            if layer.Visible then layer.Visible = false; layer.Frame.Visible = false end
-            if frame_no - layer.LastUsed > LAYER_KEEP_FRAMES then
-                DestroyLayer(layer)
+    for draw_list, set in pairs(bd.Layers) do
+        if set.LastUsed ~= frame_no then
+            for kind = 1, 3 do if set[kind] then HideLayer(set[kind]) end end
+            if frame_no - set.LastUsed > LAYER_KEEP_FRAMES then
+                DestroyLayerSet(set)
                 bd.Layers[draw_list] = nil
             end
         end
@@ -34093,7 +34184,7 @@ function ImGui_ImplRoblox_NewFrame()
     local want = io.WantCaptureMouse
     if want ~= bd.TilesActive then
         bd.TilesActive = want
-        for _, layer in pairs(bd.Layers) do for _, tile in pairs(layer.Tiles) do tile.Label.Active = want end end
+        for _, set in pairs(bd.Layers) do for kind = 1, 3 do local layer = set[kind]; if layer then for _, tile in pairs(layer.Tiles) do tile.Label.Active = want end end end end
     end
     PE()
 end

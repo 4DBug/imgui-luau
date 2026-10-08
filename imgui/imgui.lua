@@ -7150,6 +7150,10 @@ function ImGui.Begin(name, open, flags)
 
     if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.SkipRefresh then
         ImGui.PushClipRect(window.InnerClipRect.Min, window.InnerClipRect.Max, true)
+        -- [Roblox backend] content clip + scroll origin: lets the backend move scrolled content instead of redrawing it
+        local dl, cr = window.DrawList, window.DrawList._CmdHeader.ClipRect
+        dl._ContentClipX0, dl._ContentClipY0, dl._ContentClipX1, dl._ContentClipY1 = cr.x, cr.y, cr.z, cr.w
+        dl._ScrollOriginX, dl._ScrollOriginY = window.Pos.x - window.Scroll.x, window.Pos.y - window.Scroll.y
     end
 
     window.WriteAccessed = false
