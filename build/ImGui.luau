@@ -18714,6 +18714,308 @@ function ShowExampleAppCustomRendering(p_open)
     return p_open
 end
 
+----------------------------------------------------------------
+-- [SECTION] Example App: Docking, DockSpace / ShowExampleAppDockSpace()
+----------------------------------------------------------------
+
+local DSA = { IsFullscreen = true, KeepWindowPadding = false, DockSpaceFlags = 0, opt_demo_mode = 0, opt_demo_mode_changed = false }
+
+local function ShowExampleAppDockSpaceAdvanced(args, p_open)
+    local dockspace_flags = args.DockSpaceFlags
+    local W = ImGuiWindowFlags
+    local window_flags = W.NoDocking
+    if args.IsFullscreen then
+        local viewport = ImGui.GetMainViewport()
+        ImGui.SetNextWindowPos(viewport.WorkPos)
+        ImGui.SetNextWindowSize(viewport.WorkSize)
+        ImGui.SetNextWindowViewport(viewport.ID)
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0.0)
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0)
+        window_flags = bit32.bor(window_flags, W.NoTitleBar, W.NoCollapse, W.NoResize, W.NoMove, W.NoBringToFrontOnFocus, W.NoNavFocus, W.NoBackground)
+    else
+        dockspace_flags = bit32.band(dockspace_flags, bit32.bnot(ImGuiDockNodeFlags.PassthruCentralNode))
+    end
+    if not args.KeepWindowPadding then ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0.0, 0.0)) end
+    p_open = ImGui.Begin("Window with a DockSpace", p_open, window_flags)
+    if not args.KeepWindowPadding then ImGui.PopStyleVar() end
+    if args.IsFullscreen then ImGui.PopStyleVar(2) end
+    local dockspace_id = ImGui.GetID("MyDockSpace")
+    ImGui.DockSpace(dockspace_id, ImVec2(0.0, 0.0), dockspace_flags)
+    ImGui.End()
+    return p_open
+end
+
+function ShowExampleAppDockSpace(p_open)
+    local args = DSA
+    if args.opt_demo_mode == 0 then
+        ImGui.DockSpaceOverViewport(0, nil, args.DockSpaceFlags)
+    else
+        p_open = ShowExampleAppDockSpaceAdvanced(args, p_open)
+    end
+    if args.opt_demo_mode_changed then ImGui.SetNextWindowFocus() end
+    p_open = ImGui.Begin("Examples: Dockspace", p_open, ImGuiWindowFlags.MenuBar)
+    local c1, c2
+    c1, args.opt_demo_mode = ImGui.RadioButton("Basic demo mode", args.opt_demo_mode, 0)
+    c2, args.opt_demo_mode = ImGui.RadioButton("Advanced demo mode", args.opt_demo_mode, 1)
+    args.opt_demo_mode_changed = c1 or c2
+    ImGui.SeparatorText("Options")
+    local D = ImGuiDockNodeFlags
+    if bit32.band(ImGui.GetIO().ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then
+        ShowDockingDisabledMessage()
+    elseif args.opt_demo_mode == 0 then
+        args.DockSpaceFlags = bit32.band(args.DockSpaceFlags, D.PassthruCentralNode)
+        _, args.DockSpaceFlags = ImGui.CheckboxFlags("Flag: PassthruCentralNode", args.DockSpaceFlags, D.PassthruCentralNode)
+    else
+        _, args.IsFullscreen = ImGui.Checkbox("Fullscreen", args.IsFullscreen)
+        _, args.KeepWindowPadding = ImGui.Checkbox("Keep Window Padding", args.KeepWindowPadding)
+        ImGui.SameLine()
+        HelpMarker("This is mostly exposed to facilitate understanding that a DockSpace() is _inside_ a window.")
+        ImGui.BeginDisabled(args.IsFullscreen == false)
+        _, args.DockSpaceFlags = ImGui.CheckboxFlags("Flag: PassthruCentralNode", args.DockSpaceFlags, D.PassthruCentralNode)
+        ImGui.EndDisabled()
+        for _, n in ipairs({ "NoDockingOverCentralNode", "NoDockingSplit", "NoUndocking", "NoResize", "AutoHideTabBar" }) do
+            if D[n] then _, args.DockSpaceFlags = ImGui.CheckboxFlags("Flag: " .. n, args.DockSpaceFlags, D[n]) end
+        end
+    end
+    if ImGui.BeginMenuBar() then
+        if ImGui.BeginMenu("Help") then
+            ImGui.TextUnformatted("This demonstrates the use of ImGui::DockSpace() which allows you to manually\ncreate a docking node _within_ another window.\nThe \"Basic\" version uses the ImGui::DockSpaceOverViewport() helper. Most applications can probably use this.")
+            ImGui.Separator()
+            ImGui.TextUnformatted("When docking is enabled, you can ALWAYS dock MOST window into another! Try it now!\n- Drag from window title bar or their tab to dock/undock.\n- Drag from window menu button (upper-left button) to undock an entire node (all windows).\n- Hold SHIFT to disable docking (if io.ConfigDockingWithShift == false, default)\n- Hold SHIFT to enable docking (if io.ConfigDockingWithShift == true)")
+            ImGui.Separator()
+            ImGui.TextUnformatted("More details:"); ImGui.Bullet(); ImGui.SameLine(); ImGui.TextLinkOpenURL("Docking Wiki page", "https://github.com/ocornut/imgui/wiki/Docking")
+            ImGui.BulletText("Read comments in ShowExampleAppDockSpace()")
+            ImGui.EndMenu()
+        end
+        ImGui.EndMenuBar()
+    end
+    ImGui.End()
+    return p_open
+end
+
+----------------------------------------------------------------
+-- [SECTION] Example App: Documents Handling / ShowExampleAppDocuments()
+----------------------------------------------------------------
+
+local function MyDocument(uid, name, open, color)
+    if open == nil then open = true end
+    local d = { UID = uid, NameBuf = Buf(name, 32), Open = open, OpenPrev = open, Dirty = false, Color = color or ImVec4(1.0, 1.0, 1.0, 1.0) }
+    function d:Name() return BufStr(self.NameBuf) end
+    function d:DoOpen() self.Open = true end
+    function d:DoForceClose() self.Open = false; self.Dirty = false end
+    function d:DoSave() self.Dirty = false end
+    return d
+end
+
+local Docs = nil
+local function DocsInit()
+    local app = { Documents = {
+        MyDocument(0, "Lettuce", true, ImVec4(0.4, 0.8, 0.4, 1.0)),
+        MyDocument(1, "Eggplant", true, ImVec4(0.8, 0.5, 1.0, 1.0)),
+        MyDocument(2, "Carrot", true, ImVec4(1.0, 0.8, 0.5, 1.0)),
+        MyDocument(3, "Tomato", false, ImVec4(1.0, 0.3, 0.4, 1.0)),
+        MyDocument(4, "A Rather Long Title", false, ImVec4(0.4, 0.8, 0.8, 1.0)),
+        MyDocument(5, "Some Document", false, ImVec4(0.8, 0.8, 1.0, 1.0)),
+    }, CloseQueue = {}, RenamingDoc = nil, RenamingStarted = false,
+    opt_target = 1, opt_reorderable = true, opt_fitting_flags = ImGuiTabBarFlags.FittingPolicyDefault_ }
+    function app:QueueClose(doc)
+        for _, d in ipairs(self.CloseQueue) do if d == doc then return end end
+        self.CloseQueue[#self.CloseQueue + 1] = doc
+    end
+    function app:GetTabName(doc) return string.format("%s###doc%d", doc:Name(), doc.UID) end
+    function app:DisplayDocContents(doc)
+        ImGui.PushID("doc" .. doc.UID)
+        ImGui.Text("Document \"%s\"", doc:Name())
+        ImGui.PushStyleColor(ImGuiCol.Text, doc.Color)
+        ImGui.TextWrapped("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
+        ImGui.PopStyleColor()
+        ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.R), ImGuiInputFlags.Tooltip)
+        if ImGui.Button("Rename..") then self.RenamingDoc = doc; self.RenamingStarted = true end
+        ImGui.SameLine()
+        ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.M), ImGuiInputFlags.Tooltip)
+        if ImGui.Button("Modify") then doc.Dirty = true end
+        ImGui.SameLine()
+        ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.S), ImGuiInputFlags.Tooltip)
+        if ImGui.Button("Save") then doc:DoSave() end
+        ImGui.SameLine()
+        ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.W), ImGuiInputFlags.Tooltip)
+        if ImGui.Button("Close") then self:QueueClose(doc) end
+        ImGui.ColorEdit3("color", doc.Color)
+        ImGui.PopID()
+    end
+    function app:DisplayDocContextMenu(doc)
+        if not ImGui.BeginPopupContextItem() then return end
+        if ImGui.MenuItem("Save " .. doc:Name(), "Ctrl+S", false, doc.Open) then doc:DoSave() end
+        if ImGui.MenuItem("Rename...", "Ctrl+R", false, doc.Open) then self.RenamingDoc = doc end
+        if ImGui.MenuItem("Close", "Ctrl+W", false, doc.Open) then self:QueueClose(doc) end
+        ImGui.EndPopup()
+    end
+    function app:NotifyOfDocumentsClosedElsewhere()
+        for _, doc in ipairs(self.Documents) do
+            if not doc.Open and doc.OpenPrev then ImGui.SetTabItemClosed(doc:Name()) end
+            doc.OpenPrev = doc.Open
+        end
+    end
+    return app
+end
+
+function ShowExampleAppDocuments(p_open)
+    Docs = Docs or DocsInit()
+    local app = Docs
+    local Target_Tab, Target_DockSpaceAndWindow = 1, 2
+    local window_contents_visible
+    p_open, window_contents_visible = ImGui.Begin("Example: Documents", p_open, ImGuiWindowFlags.MenuBar)
+    if not window_contents_visible and app.opt_target ~= Target_DockSpaceAndWindow then
+        ImGui.End()
+        return p_open
+    end
+
+    if ImGui.BeginMenuBar() then
+        if ImGui.BeginMenu("File") then
+            local open_count = 0
+            for _, doc in ipairs(app.Documents) do if doc.Open then open_count = open_count + 1 end end
+            if ImGui.BeginMenu("Open", open_count < #app.Documents) then
+                for _, doc in ipairs(app.Documents) do
+                    if not doc.Open and ImGui.MenuItem(doc:Name()) then doc:DoOpen() end
+                end
+                ImGui.EndMenu()
+            end
+            if ImGui.MenuItem("Close All Documents", nil, false, open_count > 0) then
+                for _, doc in ipairs(app.Documents) do app:QueueClose(doc) end
+            end
+            if ImGui.MenuItem("Exit") and p_open ~= nil then p_open = false end
+            ImGui.EndMenu()
+        end
+        ImGui.EndMenuBar()
+    end
+
+    for doc_n, doc in ipairs(app.Documents) do
+        if doc_n > 1 then ImGui.SameLine() end
+        ImGui.PushID("doc" .. doc.UID)
+        local pressed
+        pressed, doc.Open = ImGui.Checkbox(doc:Name(), doc.Open)
+        if pressed and not doc.Open then doc:DoForceClose() end
+        ImGui.PopID()
+    end
+    ImGui.PushItemWidth(ImGui.GetFontSize() * 12)
+    app.opt_target = ImGui.Combo("Output", app.opt_target, "None\0TabBar+Tabs\0DockSpace+Window\0")
+    ImGui.PopItemWidth()
+    local redock_all = false
+    if app.opt_target == Target_Tab then ImGui.SameLine(); _, app.opt_reorderable = ImGui.Checkbox("Reorderable Tabs", app.opt_reorderable) end
+    if app.opt_target == Target_DockSpaceAndWindow then ImGui.SameLine(); redock_all = ImGui.Button("Redock all") end
+    ImGui.Separator()
+
+    if app.opt_target == Target_Tab then
+        local tab_bar_flags = bit32.bor(app.opt_fitting_flags, app.opt_reorderable and ImGuiTabBarFlags.Reorderable or 0, ImGuiTabBarFlags.DrawSelectedOverline)
+        if ImGui.BeginTabBar("##tabs", tab_bar_flags) then
+            if app.opt_reorderable then app:NotifyOfDocumentsClosedElsewhere() end
+            for _, doc in ipairs(app.Documents) do
+                if doc.Open then
+                    local tab_flags = doc.Dirty and ImGuiTabItemFlags.UnsavedDocument or 0
+                    local visible
+                    visible, doc.Open = ImGui.BeginTabItem(app:GetTabName(doc), doc.Open, tab_flags)
+                    if not doc.Open and doc.Dirty then
+                        doc.Open = true
+                        app:QueueClose(doc)
+                    end
+                    app:DisplayDocContextMenu(doc)
+                    if visible then
+                        app:DisplayDocContents(doc)
+                        ImGui.EndTabItem()
+                    end
+                end
+            end
+            ImGui.EndTabBar()
+        end
+    elseif app.opt_target == Target_DockSpaceAndWindow then
+        if bit32.band(ImGui.GetIO().ConfigFlags, ImGuiConfigFlags.DockingEnable) ~= 0 then
+            app:NotifyOfDocumentsClosedElsewhere()
+            local dockspace_id = ImGui.GetID("MyDockSpace")
+            ImGui.DockSpace(dockspace_id)
+            for _, doc in ipairs(app.Documents) do
+                if doc.Open then
+                    ImGui.SetNextWindowDockID(dockspace_id, redock_all and ImGuiCond.Always or ImGuiCond.FirstUseEver)
+                    local window_flags = doc.Dirty and ImGuiWindowFlags.UnsavedDocument or 0
+                    local visible
+                    doc.Open, visible = ImGui.Begin(doc:Name(), doc.Open, window_flags)
+                    if not doc.Open and doc.Dirty then
+                        doc.Open = true
+                        app:QueueClose(doc)
+                    end
+                    app:DisplayDocContextMenu(doc)
+                    if visible then app:DisplayDocContents(doc) end
+                    ImGui.End()
+                end
+            end
+        else
+            ShowDockingDisabledMessage()
+        end
+    end
+
+    if not window_contents_visible then
+        ImGui.End()
+        return p_open
+    end
+
+    if app.RenamingDoc ~= nil then
+        if app.RenamingStarted then ImGui.OpenPopup("Rename") end
+        if ImGui.BeginPopup("Rename") then
+            ImGui.SetNextItemWidth(ImGui.GetFontSize() * 30)
+            if ImGui.InputText("###Name", app.RenamingDoc.NameBuf, 32, ImGuiInputTextFlags.EnterReturnsTrue) then
+                ImGui.CloseCurrentPopup()
+                app.RenamingDoc = nil
+            end
+            if app.RenamingStarted then ImGui.SetKeyboardFocusHere(-1) end
+            ImGui.EndPopup()
+        else
+            app.RenamingDoc = nil
+        end
+        app.RenamingStarted = false
+    end
+
+    if #app.CloseQueue > 0 then
+        local close_queue_unsaved_documents = 0
+        for _, doc in ipairs(app.CloseQueue) do if doc.Dirty then close_queue_unsaved_documents = close_queue_unsaved_documents + 1 end end
+        if close_queue_unsaved_documents == 0 then
+            for _, doc in ipairs(app.CloseQueue) do doc:DoForceClose() end
+            app.CloseQueue = {}
+        else
+            if not ImGui.IsPopupOpen("Save?") then ImGui.OpenPopup("Save?") end
+            if ImGui.BeginPopupModal("Save?", nil, ImGuiWindowFlags.AlwaysAutoResize) then
+                ImGui.Text("Save change to the following items?")
+                local item_height = ImGui.GetTextLineHeightWithSpacing()
+                if ImGui.BeginChild(ImGui.GetID("frame"), ImVec2(-FLT_MIN, 6.25 * item_height), ImGuiChildFlags.FrameStyle) then
+                    for _, doc in ipairs(app.CloseQueue) do if doc.Dirty then ImGui.Text("%s", doc:Name()) end end
+                end
+                ImGui.EndChild()
+                local button_size = ImVec2(ImGui.GetFontSize() * 7.0, 0.0)
+                if ImGui.Button("Yes", button_size) then
+                    for _, doc in ipairs(app.CloseQueue) do
+                        if doc.Dirty then doc:DoSave() end
+                        doc:DoForceClose()
+                    end
+                    app.CloseQueue = {}
+                    ImGui.CloseCurrentPopup()
+                end
+                ImGui.SameLine()
+                if ImGui.Button("No", button_size) then
+                    for _, doc in ipairs(app.CloseQueue) do doc:DoForceClose() end
+                    app.CloseQueue = {}
+                    ImGui.CloseCurrentPopup()
+                end
+                ImGui.SameLine()
+                if ImGui.Button("Cancel", button_size) then
+                    app.CloseQueue = {}
+                    ImGui.CloseCurrentPopup()
+                end
+                ImGui.EndPopup()
+            end
+        end
+    end
+    ImGui.End()
+    return p_open
+end
+
 return true
 end
 
@@ -55062,6 +55364,8 @@ return {
     ShowExampleAppConsole = ShowExampleAppConsole,
     ShowExampleAppConstrainedResize = ShowExampleAppConstrainedResize,
     ShowExampleAppCustomRendering = ShowExampleAppCustomRendering,
+    ShowExampleAppDockSpace = ShowExampleAppDockSpace,
+    ShowExampleAppDocuments = ShowExampleAppDocuments,
     ShowExampleAppFullscreen = ShowExampleAppFullscreen,
     ShowExampleAppLayout = ShowExampleAppLayout,
     ShowExampleAppLog = ShowExampleAppLog,
