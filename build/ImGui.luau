@@ -8310,6 +8310,11 @@ function ImGui.NewFrame()
     ImGui.SetNextWindowSize(ImVec2(400, 400), ImGuiCond.FirstUseEver)
     ImGui.Begin("Debug##Default")
     IM_ASSERT(g.CurrentWindow.IsFallbackWindow == true)
+
+    -- Store stack sizes
+    g.ErrorCountCurrentFrame = 0
+    g.StackSizesInNewFrame = g.StackSizesInNewFrame or ImGuiErrorRecoveryState()
+    ImGui.ErrorRecoveryStoreState(g.StackSizesInNewFrame)
 end
 
 function ImGui.EndFrame()
@@ -8320,6 +8325,12 @@ function ImGui.EndFrame()
         return
     end
     IM_ASSERT_USER_ERROR(g.WithinFrameScope, "Forgot to call ImGui::NewFrame()?")
+
+    -- [EXPERIMENTAL] Recover from errors
+    if g.IO.ConfigErrorRecovery and g.StackSizesInNewFrame then
+        ImGui.ErrorRecoveryTryToRecoverState(g.StackSizesInNewFrame)
+    end
+    ImGui.ErrorCheckEndFrameFinalizeErrorTooltip()
 
     -- Notify Platform when our Input Method Editor cursor has moved
     local ime_data = g.PlatformImeData
@@ -8340,7 +8351,7 @@ function ImGui.EndFrame()
     ImGui.End()
 
     -- Update navigation: Ctrl+Tab, wrap-around requests
-    if ImGui.NavEndFrame then ImGui.NavEndFrame() end
+    ImGui.NavEndFrame()
 
     -- Update docking
     ImGui.DockContextEndFrame(g)
@@ -12930,32 +12941,732 @@ function ImGui.BeginTooltipHidden()
     return ret
 end
 
--- Baseline fallbacks (the real ports, if defined earlier in this file, win)
-if not ImGuiErrorRecoveryState then
-    function ImGuiErrorRecoveryState()
-        return { SizeOfWindowStack = 0, SizeOfIDStack = 0, SizeOfTreeStack = 0, SizeOfColorStack = 0, SizeOfStyleVarStack = 0,
-                 SizeOfFontStack = 0, SizeOfFocusScopeStack = 0, SizeOfGroupStack = 0, SizeOfItemFlagsStack = 0,
-                 SizeOfBeginPopupStack = 0, SizeOfDisabledStack = 0 }
+-- [SECTION] NAV END FRAME
+
+local NAV_WINDOWING_LIST_APPEAR_DELAY = 0.15
+
+local function GetFallbackWindowNameForWindowingList(window)
+    if bit32.band(window.Flags, ImGuiWindowFlags.Popup) ~= 0 then
+        return "(Popup)"
+    end
+    if bit32.band(window.Flags, ImGuiWindowFlags.MenuBar) ~= 0 and window.Name == "##MainMenuBar" then
+        return "(Main menu bar)"
+    end
+    if window.DockNodeAsHost then
+        return "(Dock node)"
+    end
+    return "(Untitled)"
+end
+
+function ImGui.NavUpdateWindowingOverlay()
+    local g = GImGui
+    IM_ASSERT(g.NavWindowingTarget ~= nil)
+
+    if g.NavWindowingTimer < NAV_WINDOWING_LIST_APPEAR_DELAY then
+        return
+    end
+
+    local viewport = ImGui.GetMainViewport()
+    ImGui.SetNextWindowSizeConstraints(ImVec2(viewport.Size.x * 0.20, viewport.Size.y * 0.20), ImVec2(FLT_MAX, FLT_MAX))
+    ImGui.SetNextWindowPos(viewport:GetCenter(), ImGuiCond.Always, ImVec2(0.5, 0.5))
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, g.Style.WindowPadding * 2.0)
+    ImGui.Begin("##NavWindowingOverlay", nil, bit32.bor(ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoFocusOnAppearing, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoInputs, ImGuiWindowFlags.AlwaysAutoResize, ImGuiWindowFlags.NoSavedSettings))
+    g.NavWindowingListWindow = g.CurrentWindow
+    for n = g.WindowsFocusOrder.Size, 1, -1 do
+        local window = g.WindowsFocusOrder.Data[n]
+        IM_ASSERT(window ~= nil)
+        if ImGui.IsWindowNavFocusable(window) then
+            local label = window.Name
+            if ImGui.FindRenderedTextEnd(label) == 1 then
+                label = GetFallbackWindowNameForWindowingList(window)
+            end
+            ImGui.Selectable(label, g.NavWindowingTarget == window)
+        end
+    end
+    ImGui.End()
+    ImGui.PopStyleVar()
+end
+
+local function NavUpdateCreateWrappingRequest()
+    local g = GImGui
+    local window = g.NavWindow
+
+    local do_forward = false
+    local src = window.NavRectRel[g.NavLayer]
+    local bb_rel = ImRect(src.Min.x, src.Min.y, src.Max.x, src.Max.y)
+    local clip_dir = g.NavMoveDir
+
+    local move_flags = g.NavMoveFlags
+    local wrap_size = (g.NavLayer == ImGuiNavLayer.Menu) and window.Size or (window.ContentSize + window.WindowPadding)
+
+    if g.NavMoveDir == ImGuiDir.Left and bit32.band(move_flags, bit32.bor(ImGuiNavMoveFlags.WrapX, ImGuiNavMoveFlags.LoopX)) ~= 0 then
+        bb_rel.Min.x = wrap_size.x; bb_rel.Max.x = wrap_size.x
+        if bit32.band(move_flags, ImGuiNavMoveFlags.WrapX) ~= 0 then
+            bb_rel:TranslateY(-bb_rel:GetHeight())
+            clip_dir = ImGuiDir.Up
+        end
+        do_forward = true
+    end
+    if g.NavMoveDir == ImGuiDir.Right and bit32.band(move_flags, bit32.bor(ImGuiNavMoveFlags.WrapX, ImGuiNavMoveFlags.LoopX)) ~= 0 then
+        bb_rel.Min.x = -window.WindowPadding.x; bb_rel.Max.x = -window.WindowPadding.x
+        if bit32.band(move_flags, ImGuiNavMoveFlags.WrapX) ~= 0 then
+            bb_rel:TranslateY(bb_rel:GetHeight())
+            clip_dir = ImGuiDir.Down
+        end
+        do_forward = true
+    end
+    if g.NavMoveDir == ImGuiDir.Up and bit32.band(move_flags, bit32.bor(ImGuiNavMoveFlags.WrapY, ImGuiNavMoveFlags.LoopY)) ~= 0 then
+        bb_rel.Min.y = wrap_size.y; bb_rel.Max.y = wrap_size.y
+        if bit32.band(move_flags, ImGuiNavMoveFlags.WrapY) ~= 0 then
+            bb_rel:TranslateX(-bb_rel:GetWidth())
+            clip_dir = ImGuiDir.Left
+        end
+        do_forward = true
+    end
+    if g.NavMoveDir == ImGuiDir.Down and bit32.band(move_flags, bit32.bor(ImGuiNavMoveFlags.WrapY, ImGuiNavMoveFlags.LoopY)) ~= 0 then
+        bb_rel.Min.y = -window.WindowPadding.y; bb_rel.Max.y = -window.WindowPadding.y
+        if bit32.band(move_flags, ImGuiNavMoveFlags.WrapY) ~= 0 then
+            bb_rel:TranslateX(bb_rel:GetWidth())
+            clip_dir = ImGuiDir.Right
+        end
+        do_forward = true
+    end
+    if not do_forward then
+        return
+    end
+    window.NavRectRel[g.NavLayer] = bb_rel
+    ImGui.NavClearPreferredPosForAxis(ImGuiAxis.X)
+    ImGui.NavClearPreferredPosForAxis(ImGuiAxis.Y)
+    ImGui.NavMoveRequestForward(g.NavMoveDir, clip_dir, move_flags, g.NavMoveScrollFlags)
+end
+
+function ImGui.NavEndFrame()
+    local g = GImGui
+
+    if g.NavWindowingTarget ~= nil then
+        ImGui.NavUpdateWindowingOverlay()
+    end
+
+    if g.NavWindow and ImGui.NavMoveRequestButNoResultYet() and bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.WrapMask_) ~= 0 and bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.Forwarded) == 0 then
+        NavUpdateCreateWrappingRequest()
     end
 end
-if not ImGui.ErrorRecoveryStoreState then
-    function ImGui.ErrorRecoveryStoreState(state_out)
-        local g = GImGui
-        state_out.SizeOfWindowStack = g.CurrentWindowStack.Size
-        state_out.SizeOfIDStack = g.CurrentWindow.IDStack.Size
-        state_out.SizeOfTreeStack = g.CurrentWindow.DC.TreeDepth
-        state_out.SizeOfColorStack = g.ColorStack.Size
-        state_out.SizeOfStyleVarStack = g.StyleVarStack.Size
-        state_out.SizeOfFontStack = g.FontStack.Size
-        state_out.SizeOfFocusScopeStack = g.FocusScopeStack.Size
-        state_out.SizeOfGroupStack = g.GroupStack.Size
-        state_out.SizeOfItemFlagsStack = g.ItemFlagsStack.Size
-        state_out.SizeOfBeginPopupStack = g.BeginPopupStack.Size
-        state_out.SizeOfDisabledStack = g.DisabledStackSize or 0
+
+-- [SECTION] ImGuiTextFilter
+
+--- @class ImGuiTextFilter
+MT.ImGuiTextFilter = {}
+MT.ImGuiTextFilter.__index = MT.ImGuiTextFilter
+
+--- @param default_filter? string
+function ImGuiTextFilter(default_filter)
+    local this = setmetatable({ InputBuf = {}, _CountExclude = 0, _Items = ImVector() }, MT.ImGuiTextFilter)
+    for i = 1, 256 do this.InputBuf[i] = 0 end
+    if default_filter and default_filter ~= "" then
+        for i = 1, ImMin(#default_filter, 255) do this.InputBuf[i] = string.byte(default_filter, i) end
+        this:Build()
+    end
+    return this
+end
+
+function MT.ImGuiTextFilter:Draw(label, width)
+    if label == nil then label = "Filter (inc,-exc)" end
+    if width ~= nil and width ~= 0.0 then ImGui.SetNextItemWidth(width) end
+    return self:DrawWithHint(label, "incl -excl")
+end
+
+function MT.ImGuiTextFilter:DrawWithHint(label, hint)
+    if label == nil then label = "Filter" end
+    if hint == nil then hint = "incl -excl" end
+    local value_changed = ImGui.InputTextWithHint(label, hint, self.InputBuf, 256)
+    if value_changed then
+        self:Build()
+    end
+    return value_changed
+end
+
+function MT.ImGuiTextFilter:Clear() self.InputBuf[1] = 0; self:Build() end
+function MT.ImGuiTextFilter:IsActive() return self._Items.Size ~= 0 end
+
+-- Items are { Text = string (lowercased), CountInclude = int }
+function MT.ImGuiTextFilter:Build()
+    local items = self._Items
+    items:resize(0)
+    self._CountExclude = 0
+
+    local n = 0
+    while self.InputBuf[n + 1] ~= nil and self.InputBuf[n + 1] ~= 0 do n = n + 1 end
+    local buf = ImGui._ByteArrayToString(self.InputBuf, 1, n + 1)
+    local buf_e = n + 1 -- exclusive, 1-based
+    local word_b = 1
+    local seq_start_idx = -1 -- 1-based index into items, -1 = none
+    while word_b < buf_e do
+        while word_b < buf_e and ImCharIsBlankA(string.byte(buf, word_b)) do
+            word_b = word_b + 1
+        end
+        local is_excl = word_b < buf_e and string.byte(buf, word_b) == 45 -- '-'
+        if is_excl then word_b = word_b + 1 end
+        local is_quote = word_b < buf_e and string.byte(buf, word_b) == 34 -- '"'
+        local word_e
+        if is_quote then
+            word_b = word_b + 1
+            word_e = string.find(buf, '"', word_b, true) or buf_e
+            if word_e > buf_e then word_e = buf_e end
+        else
+            word_e = word_b
+            while word_e < buf_e do
+                local c = string.byte(buf, word_e)
+                if c == 32 or c == 44 then break end
+                word_e = word_e + 1
+            end
+        end
+
+        if word_e - word_b > 0 then
+            local item = { Text = string.lower(string.sub(buf, word_b, word_e - 1)), CountInclude = 0 }
+            if is_excl then
+                items:insert(self._CountExclude + 1, item)
+                self._CountExclude = self._CountExclude + 1
+                if seq_start_idx ~= -1 then seq_start_idx = seq_start_idx + 1 end
+            else
+                if seq_start_idx == -1 then seq_start_idx = items.Size + 1 end
+                items:push_back(item)
+                items.Data[seq_start_idx].CountInclude = items.Data[seq_start_idx].CountInclude + 1
+            end
+        end
+
+        if word_e < buf_e and string.byte(buf, word_e) == 44 then -- ','
+            seq_start_idx = -1
+        end
+        word_b = word_e + 1
     end
 end
-if not ImGui.ErrorRecoveryTryToRecoverWindowState then
-    function ImGui.ErrorRecoveryTryToRecoverWindowState(state_in) end -- TODO(core agent)
+
+--- @param text      string?
+--- @param text_end? int     # exclusive, 1-based
+function MT.ImGuiTextFilter:PassFilter(text, text_end)
+    local items = self._Items
+    if items.Size == 0 then return true end
+    if text == nil then text = "" end
+    if text_end ~= nil then text = string.sub(text, 1, text_end - 1) end
+    text = string.lower(text)
+
+    local seq = 1
+    local seq_excl_end = self._CountExclude + 1
+    while seq < seq_excl_end do
+        if string.find(text, items.Data[seq].Text, 1, true) then return false end
+        seq = seq + 1
+    end
+
+    local seq_end = items.Size + 1
+    if seq == seq_end then return true end
+    while seq < seq_end do
+        local seq_incl_end = seq + items.Data[seq].CountInclude
+        while seq < seq_incl_end do
+            if not string.find(text, items.Data[seq].Text, 1, true) then break end
+            seq = seq + 1
+        end
+        if seq == seq_incl_end then return true end
+        seq = seq_incl_end
+    end
+    return false
+end
+
+-- [SECTION] ImGuiListClipper
+
+ImGuiListClipperFlags = ImGuiListClipperFlags or { None = 0, NoSetTableRowCounters = bit32.lshift(1, 0) }
+
+local function GetSkipItemForListClipping()
+    local g = GImGui
+    if g.CurrentTable then return g.CurrentTable.HostSkipItems end
+    return g.CurrentWindow.SkipItems
+end
+
+local function ClipperRangeFromIndices(min, max) return { Min = min, Max = max, PosToIndexConvert = false, PosToIndexOffsetMin = 0, PosToIndexOffsetMax = 0 } end
+local function ClipperRangeFromPositions(y1, y2, off_min, off_max) return { Min = y1, Max = y2, PosToIndexConvert = true, PosToIndexOffsetMin = off_min, PosToIndexOffsetMax = off_max } end
+
+-- `offset` is a 0-based count of leading ranges to leave alone
+local function ImGuiListClipper_SortAndFuseRanges(ranges, offset)
+    if offset == nil then offset = 0 end
+    if ranges.Size - offset <= 1 then return end
+    local d = ranges.Data
+    for sort_end = ranges.Size - offset - 1, 1, -1 do
+        for i = offset + 1, sort_end + offset do
+            if d[i].Min > d[i + 1].Min then d[i], d[i + 1] = d[i + 1], d[i] end
+        end
+    end
+    local i = 2 + offset
+    while i <= ranges.Size do
+        IM_ASSERT(not d[i].PosToIndexConvert and not d[i - 1].PosToIndexConvert)
+        if d[i - 1].Max < d[i].Min then
+            i = i + 1
+        else
+            d[i - 1].Min = ImMin(d[i - 1].Min, d[i].Min)
+            d[i - 1].Max = ImMax(d[i - 1].Max, d[i].Max)
+            ranges:erase(i)
+        end
+    end
+end
+
+local function ImGuiListClipper_SeekCursorAndSetupPrevLine(clipper, pos_y, line_height)
+    local g = GImGui
+    local window = g.CurrentWindow
+    local off_y = pos_y - window.DC.CursorPos.y
+    window.DC.CursorPos.y = pos_y
+    window.DC.CursorMaxPos.y = ImMax(window.DC.CursorMaxPos.y, pos_y - g.Style.ItemSpacing.y)
+    window.DC.CursorPosPrevLine.y = window.DC.CursorPos.y - line_height
+    window.DC.PrevLineSize.y = (line_height - g.Style.ItemSpacing.y)
+    local columns = window.DC.CurrentColumns
+    if columns then
+        columns.LineMinY = window.DC.CursorPos.y
+    end
+    local tbl = g.CurrentTable
+    if tbl then
+        if tbl.IsInsideRow then
+            ImGui.TableEndRow(tbl)
+        end
+        local row_increase = math.floor((off_y / line_height) + 0.5)
+        if row_increase > 0 and bit32.band(clipper.Flags, ImGuiListClipperFlags.NoSetTableRowCounters) == 0 then
+            tbl.CurrentRow = tbl.CurrentRow + row_increase
+            tbl.RowBgColorCounter = tbl.RowBgColorCounter + row_increase
+        end
+        tbl.RowPosY2 = window.DC.CursorPos.y
+    end
+end
+
+--- @class ImGuiListClipper
+MT.ImGuiListClipper = {}
+MT.ImGuiListClipper.__index = MT.ImGuiListClipper
+
+function ImGuiListClipper()
+    return setmetatable({ DisplayStart = 0, DisplayEnd = 0, UserIndex = 0, ItemsCount = 0, ItemsHeight = 0.0, Flags = 0,
+        StartPosY = 0.0, StartSeekOffsetY = 0.0, Ctx = nil, TempData = nil }, MT.ImGuiListClipper)
+end
+
+--- @param items_count   int
+--- @param items_height? float
+function MT.ImGuiListClipper:Begin(items_count, items_height)
+    if items_height == nil then items_height = -1.0 end
+    self.Ctx = ImGui.GetCurrentContext()
+    local g = self.Ctx
+    local window = g.CurrentWindow
+
+    local tbl = g.CurrentTable
+    if tbl and tbl.IsInsideRow then
+        ImGui.TableEndRow(tbl)
+    end
+
+    self.StartPosY = window.DC.CursorPos.y
+    self.ItemsHeight = items_height
+    self.ItemsCount = items_count
+    self.DisplayStart = -1
+    self.DisplayEnd = 0
+
+    g.ClipperTempDataStacked = g.ClipperTempDataStacked + 1
+    while g.ClipperTempDataStacked > g.ClipperTempData.Size do
+        g.ClipperTempData:push_back({ ListClipper = nil, LossynessOffset = 0.0, StepNo = 0, ItemsFrozen = 0, Ranges = ImVector() })
+    end
+    local data = g.ClipperTempData.Data[g.ClipperTempDataStacked]
+    data.ListClipper = self; data.StepNo = 0; data.ItemsFrozen = 0; data.Ranges:resize(0)
+    data.LossynessOffset = window.DC.CursorStartPosLossyness.y
+    self.TempData = data
+    self.StartSeekOffsetY = data.LossynessOffset
+end
+
+function MT.ImGuiListClipper:End()
+    local data = self.TempData
+    if data then
+        local g = self.Ctx
+        if self.ItemsCount >= 0 and self.ItemsCount < INT_MAX and self.DisplayStart >= 0 then
+            self:SeekCursorForItem(self.ItemsCount)
+        end
+        IM_ASSERT(data.ListClipper == self)
+        data.StepNo = data.Ranges.Size
+        g.ClipperTempDataStacked = g.ClipperTempDataStacked - 1
+        if g.ClipperTempDataStacked > 0 then
+            data = g.ClipperTempData.Data[g.ClipperTempDataStacked]
+            data.ListClipper.TempData = data
+        end
+        self.TempData = nil
+    end
+    self.DisplayStart = self.ItemsCount
+    self.DisplayEnd = self.ItemsCount
+    self.ItemsCount = -1
+end
+
+function MT.ImGuiListClipper:IncludeItemByIndex(item_index) self:IncludeItemsByIndex(item_index, item_index + 1) end
+
+function MT.ImGuiListClipper:IncludeItemsByIndex(item_begin, item_end)
+    local data = self.TempData
+    IM_ASSERT(self.DisplayStart < 0)
+    IM_ASSERT(item_begin <= item_end)
+    if item_begin < item_end then
+        data.Ranges:push_back(ClipperRangeFromIndices(item_begin, item_end))
+    end
+end
+
+function MT.ImGuiListClipper:SeekCursorForItem(item_n)
+    local pos_y = self.StartPosY + self.StartSeekOffsetY + item_n * self.ItemsHeight
+    ImGuiListClipper_SeekCursorAndSetupPrevLine(self, pos_y, self.ItemsHeight)
+end
+
+local function ImGuiListClipper_StepInternal(clipper)
+    local g = clipper.Ctx
+    local window = g.CurrentWindow
+    local data = clipper.TempData
+    IM_ASSERT(data ~= nil, "Called ImGuiListClipper::Step() too many times, or before ImGuiListClipper::Begin() ?")
+
+    local tbl = g.CurrentTable
+    if tbl and tbl.IsInsideRow then
+        ImGui.TableEndRow(tbl)
+    end
+
+    if clipper.ItemsCount == 0 or GetSkipItemForListClipping() then
+        return false
+    end
+
+    if data.StepNo == 0 and tbl ~= nil and not tbl.IsUnfrozenRows then
+        clipper.DisplayStart = data.ItemsFrozen
+        clipper.DisplayEnd = ImMin(data.ItemsFrozen + 1, clipper.ItemsCount)
+        if clipper.DisplayStart < clipper.DisplayEnd then
+            data.ItemsFrozen = data.ItemsFrozen + 1
+        end
+        return true
+    end
+
+    local calc_clipping = false
+    if data.StepNo == 0 then
+        clipper.StartPosY = window.DC.CursorPos.y
+        if clipper.ItemsHeight <= 0.0 then
+            data.Ranges:push_front(ClipperRangeFromIndices(data.ItemsFrozen, data.ItemsFrozen + 1))
+            clipper.DisplayStart = ImMax(data.Ranges.Data[1].Min, data.ItemsFrozen)
+            clipper.DisplayEnd = ImMin(data.Ranges.Data[1].Max, clipper.ItemsCount)
+            data.StepNo = 1
+            return true
+        end
+        calc_clipping = true
+    end
+
+    if clipper.ItemsHeight <= 0.0 then
+        IM_ASSERT(data.StepNo == 1)
+        -- (no float precision mitigation needed: Luau numbers are doubles)
+        clipper.ItemsHeight = (window.DC.CursorPos.y - clipper.StartPosY) / (clipper.DisplayEnd - clipper.DisplayStart)
+        if clipper.ItemsHeight == 0.0 and clipper.ItemsCount == INT_MAX then
+            return false
+        end
+        if clipper.ItemsHeight <= 0.0 then
+            IM_ASSERT_USER_ERROR(clipper.ItemsHeight > 0.0, "ImGuiListClipper: Failed to calculate item height! First item hasn't been submitted by user code, or has not moved the cursor vertically!")
+            return false
+        end
+        calc_clipping = true
+    end
+
+    local already_submitted = clipper.DisplayEnd
+    if calc_clipping then
+        clipper.StartSeekOffsetY = data.LossynessOffset - data.ItemsFrozen * clipper.ItemsHeight
+
+        if g.LogEnabled then
+            data.Ranges:push_back(ClipperRangeFromIndices(0, clipper.ItemsCount))
+        else
+            local is_nav_request = (g.NavMoveScoringItems and g.NavWindow and g.NavWindow.RootWindowForNav == window.RootWindowForNav) and true or false
+            local nav_off_min = (is_nav_request and g.NavMoveClipDir == ImGuiDir.Up) and -1 or 0
+            local nav_off_max = (is_nav_request and g.NavMoveClipDir == ImGuiDir.Down) and 1 or 0
+            if is_nav_request then
+                data.Ranges:push_back(ClipperRangeFromPositions(g.NavScoringRect.Min.y, g.NavScoringRect.Max.y, nav_off_min, nav_off_max))
+                if not g.NavScoringNoClipRect:IsInverted() then
+                    data.Ranges:push_back(ClipperRangeFromPositions(g.NavScoringNoClipRect.Min.y, g.NavScoringNoClipRect.Max.y, nav_off_min, nav_off_max))
+                end
+            end
+            if is_nav_request and bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.IsTabbing) ~= 0 and g.NavTabbingDir == -1 then
+                data.Ranges:push_back(ClipperRangeFromIndices(clipper.ItemsCount - 1, clipper.ItemsCount))
+            end
+
+            local nav_rect_abs = ImGui.WindowRectRelToAbs(window, window.NavRectRel[0])
+            if g.NavId ~= 0 and window.NavLastIds[0] == g.NavId then
+                data.Ranges:push_back(ClipperRangeFromPositions(nav_rect_abs.Min.y, nav_rect_abs.Max.y, 0, 0))
+            end
+
+            local min_y = window.ClipRect.Min.y
+            local max_y = window.ClipRect.Max.y
+
+            local bs = g.BoxSelectState
+            if bs and bs.IsActive and bs.Window == window then
+                local pad_y = g.Style.ItemSpacing.y
+                min_y = min_y - pad_y
+                max_y = max_y + pad_y
+                if bs.UnclipMode then
+                    data.Ranges:push_back(ClipperRangeFromPositions(bs.UnclipRect.Min.y - pad_y, bs.UnclipRect.Max.y + pad_y, 0, 0))
+                end
+            end
+
+            data.Ranges:push_back(ClipperRangeFromPositions(min_y, max_y, nav_off_min, nav_off_max))
+        end
+
+        for _, range in data.Ranges:iter() do
+            if range.PosToIndexConvert then
+                local m1 = ImTrunc((range.Min - window.DC.CursorPos.y - data.LossynessOffset) / clipper.ItemsHeight)
+                local m2 = ImTrunc(((range.Max - window.DC.CursorPos.y - data.LossynessOffset) / clipper.ItemsHeight) + 0.999999)
+                range.Min = ImClamp(already_submitted + m1 + range.PosToIndexOffsetMin, already_submitted, clipper.ItemsCount - 1)
+                range.Max = ImClamp(already_submitted + m2 + range.PosToIndexOffsetMax, range.Min + 1, clipper.ItemsCount)
+                range.PosToIndexConvert = false
+            end
+        end
+        ImGuiListClipper_SortAndFuseRanges(data.Ranges, data.StepNo)
+    end
+
+    while data.StepNo < data.Ranges.Size do
+        local r = data.Ranges.Data[data.StepNo + 1]
+        clipper.DisplayStart = ImMax(r.Min, already_submitted)
+        clipper.DisplayEnd = ImMin(r.Max, clipper.ItemsCount)
+        data.StepNo = data.StepNo + 1
+        if clipper.DisplayStart < clipper.DisplayEnd then
+            if clipper.DisplayStart > already_submitted then
+                clipper:SeekCursorForItem(clipper.DisplayStart)
+            end
+            return true
+        end
+    end
+
+    if clipper.ItemsCount < INT_MAX then
+        clipper:SeekCursorForItem(clipper.ItemsCount)
+    end
+    return false
+end
+
+function MT.ImGuiListClipper:Step()
+    local ret = ImGuiListClipper_StepInternal(self)
+    if ret and (self.DisplayStart >= self.DisplayEnd) then
+        ret = false
+    end
+    if not ret then
+        self:End()
+    end
+    return ret
+end
+
+function ImGui.CalcClipRectVisibleItemsY(clip_rect, pos, items_height)
+    local out_visible_start = ImMax(ImTrunc((clip_rect.Min.y - pos.y) / items_height), 0)
+    local out_visible_end = ImMax(ImTrunc(ImCeil((clip_rect.Max.y - pos.y) / items_height)), out_visible_start)
+    return out_visible_start, out_visible_end
+end
+
+-- [SECTION] ERROR CHECKING, STATE RECOVERY
+
+function ImGuiErrorRecoveryState()
+    return { SizeOfWindowStack = 0, SizeOfIDStack = 0, SizeOfTreeStack = 0, SizeOfColorStack = 0, SizeOfStyleVarStack = 0,
+             SizeOfFontStack = 0, SizeOfFocusScopeStack = 0, SizeOfGroupStack = 0, SizeOfItemFlagsStack = 0,
+             SizeOfBeginPopupStack = 0, SizeOfDisabledStack = 0 }
+end
+
+function ImGui.ErrorRecoveryStoreState(state_out)
+    local g = GImGui
+    state_out.SizeOfWindowStack = g.CurrentWindowStack.Size
+    state_out.SizeOfIDStack = g.CurrentWindow.IDStack.Size
+    state_out.SizeOfTreeStack = g.CurrentWindow.DC.TreeDepth -- NOT g.TreeNodeStack.Size which is a partial stack!
+    state_out.SizeOfColorStack = g.ColorStack.Size
+    state_out.SizeOfStyleVarStack = g.StyleVarStack.Size
+    state_out.SizeOfFontStack = g.FontStack.Size
+    state_out.SizeOfFocusScopeStack = g.FocusScopeStack.Size
+    state_out.SizeOfGroupStack = g.GroupStack.Size
+    state_out.SizeOfItemFlagsStack = g.ItemFlagsStack.Size
+    state_out.SizeOfBeginPopupStack = g.BeginPopupStack.Size
+    state_out.SizeOfDisabledStack = g.DisabledStackSize
+end
+
+function ImGui.ErrorRecoveryTryToRecoverState(state_in)
+    local g = GImGui
+    while g.CurrentWindowStack.Size > state_in.SizeOfWindowStack do
+        local window = g.CurrentWindow
+        if bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+            if g.CurrentTable ~= nil and g.CurrentTable.InnerWindow == g.CurrentWindow then
+                IM_ASSERT_USER_ERROR(false, "Missing EndTable()")
+                ImGui.EndTable()
+            else
+                IM_ASSERT_USER_ERROR(false, "Missing EndChild()")
+                ImGui.EndChild()
+            end
+        else
+            IM_ASSERT_USER_ERROR(false, "Missing End()")
+            ImGui.End()
+        end
+    end
+    if g.CurrentWindowStack.Size == state_in.SizeOfWindowStack then
+        ImGui.ErrorRecoveryTryToRecoverWindowState(state_in)
+    end
+end
+
+function ImGui.ErrorRecoveryTryToRecoverWindowState(state_in)
+    local g = GImGui
+
+    while g.CurrentTable ~= nil and g.CurrentTable.InnerWindow == g.CurrentWindow do
+        IM_ASSERT_USER_ERROR(false, "Missing EndTable()")
+        ImGui.EndTable()
+    end
+
+    local window = g.CurrentWindow
+
+    -- FIXME: Can't recover from inside BeginTabItem/EndTabItem yet.
+    while g.CurrentTabBar ~= nil and g.CurrentTabBar.Window == window do
+        IM_ASSERT_USER_ERROR(false, "Missing EndTabBar()")
+        ImGui.EndTabBar()
+    end
+    while g.CurrentMultiSelect ~= nil and g.CurrentMultiSelect.Storage.Window == window and ImGui.EndMultiSelect do
+        IM_ASSERT_USER_ERROR(false, "Missing EndMultiSelect()")
+        ImGui.EndMultiSelect()
+    end
+    if window.DC.MenuBarAppending then
+        IM_ASSERT_USER_ERROR(false, "Missing EndMenuBar()")
+        ImGui.EndMenuBar()
+    end
+    while window.DC.TreeDepth > state_in.SizeOfTreeStack do
+        IM_ASSERT_USER_ERROR(false, "Missing TreePop()")
+        ImGui.TreePop()
+    end
+    while g.GroupStack.Size > state_in.SizeOfGroupStack do
+        IM_ASSERT_USER_ERROR(false, "Missing EndGroup()")
+        ImGui.EndGroup()
+    end
+    IM_ASSERT(g.GroupStack.Size == state_in.SizeOfGroupStack)
+    while window.IDStack.Size > state_in.SizeOfIDStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopID()")
+        ImGui.PopID()
+    end
+    while g.DisabledStackSize > state_in.SizeOfDisabledStack do
+        IM_ASSERT_USER_ERROR(false, "Missing EndDisabled()")
+        if bit32.band(g.CurrentItemFlags, ImGuiItemFlags.Disabled) ~= 0 then
+            ImGui.EndDisabled()
+        else
+            ImGui.EndDisabledOverrideReenable()
+            g.CurrentWindowStack:back().DisabledOverrideReenable = false
+        end
+    end
+    IM_ASSERT(g.DisabledStackSize == state_in.SizeOfDisabledStack)
+    while g.ColorStack.Size > state_in.SizeOfColorStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopStyleColor()")
+        ImGui.PopStyleColor()
+    end
+    while g.ItemFlagsStack.Size > state_in.SizeOfItemFlagsStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopItemFlag()")
+        ImGui.PopItemFlag()
+    end
+    while g.StyleVarStack.Size > state_in.SizeOfStyleVarStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopStyleVar()")
+        ImGui.PopStyleVar()
+    end
+    while g.FontStack.Size > state_in.SizeOfFontStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopFont()")
+        ImGui.PopFont()
+    end
+    while g.FocusScopeStack.Size > state_in.SizeOfFocusScopeStack do
+        IM_ASSERT_USER_ERROR(false, "Missing PopFocusScope()")
+        ImGui.PopFocusScope()
+    end
+end
+
+-- Lines are stored in g.DebugLogBuf (one chunk per call)
+function ImGui.DebugLog(fmt, ...)
+    local g = GImGui
+    g.DebugLogBuf = g.DebugLogBuf or ImGuiTextBuffer()
+    local str = string.format("[%05d] ", g.FrameCount) .. ((select("#", ...) > 0) and string.format(fmt, ...) or fmt)
+    g.DebugLogBuf:append(str)
+    if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.OutputToTTY) ~= 0 then
+        print(str)
+    end
+end
+
+--- @return bool should_assert
+function ImGui.ErrorLog(msg)
+    local g = GImGui
+    if g == nil then return true end
+    local window = g.CurrentWindow
+
+    if g.IO.ConfigErrorRecoveryEnableDebugLog then
+        if g.ErrorFirst then
+            ImGui.DebugLog(string.format("[imgui-error] (current settings: Assert=%d, Log=%d, Tooltip=%d)\n",
+                g.IO.ConfigErrorRecoveryEnableAssert and 1 or 0, g.IO.ConfigErrorRecoveryEnableDebugLog and 1 or 0, g.IO.ConfigErrorRecoveryEnableTooltip and 1 or 0))
+        end
+        ImGui.DebugLog(string.format("[imgui-error] In window '%s': %s\n", window and window.Name or "NULL", tostring(msg)))
+    end
+    g.ErrorFirst = false
+
+    if g.IO.ConfigErrorRecoveryEnableTooltip then
+        if g.WithinFrameScope and ImGui.BeginErrorTooltip() then
+            if g.ErrorCountCurrentFrame < 20 then
+                ImGui.Text("In window '%s': %s", window and window.Name or "NULL", tostring(msg))
+                if window and (not window.IsFallbackWindow or window.WasActive) then
+                    ImGui.GetForegroundDrawList(window.Viewport):AddRect(window.Pos, window.Pos + window.Size, IM_COL32(255, 0, 0, 255))
+                end
+            end
+            if g.ErrorCountCurrentFrame == 20 then
+                ImGui.Text("(and more errors)")
+            end
+            ImGui.EndErrorTooltip()
+        end
+        g.ErrorCountCurrentFrame = g.ErrorCountCurrentFrame + 1
+    end
+
+    if g.ErrorCallback ~= nil then
+        g.ErrorCallback(g, g.ErrorCallbackUserData, msg)
+    end
+
+    return g.IO.ConfigErrorRecoveryEnableAssert
+end
+
+function ImGui.ErrorCheckEndFrameFinalizeErrorTooltip()
+    local g = GImGui
+    if g.DebugDrawIdConflictsId ~= 0 and g.IO.KeyCtrl == false then
+        g.DebugDrawIdConflictsCount = g.HoveredIdPreviousFrameItemCount
+    end
+    if g.DebugDrawIdConflictsId ~= 0 and not g.DebugItemPickerActive and ImGui.BeginErrorTooltip() then
+        ImGui.Text("Programmer error: %d visible items with conflicting ID!", g.DebugDrawIdConflictsCount)
+        ImGui.BulletText("Code should use PushID()/PopID() in loops, or append \"##xx\" to same-label identifiers!")
+        ImGui.BulletText("Empty label e.g. Button(\"\") == same ID as parent widget/node. Use Button(\"##xx\") instead!")
+        ImGui.BulletText("Set io.ConfigDebugHighlightIdConflicts=false to disable this warning in non-programmers builds.")
+        ImGui.Separator()
+        ImGui.Text("(Hold Ctrl to: ")
+        ImGui.SameLine(0.0, 0.0)
+        ImGui.TextLinkOpenURL("read FAQ \"About ID Stack System\"", "https://github.com/ocornut/imgui/blob/master/docs/FAQ.md#qa-usage")
+        ImGui.SameLine(0.0, 0.0)
+        ImGui.Text(")")
+        ImGui.EndErrorTooltip()
+    end
+
+    if g.ErrorCountCurrentFrame > 0 and ImGui.BeginErrorTooltip() then
+        ImGui.Separator()
+        ImGui.Text("(Hold Ctrl to: ")
+        ImGui.SameLine(0.0, 0.0)
+        if ImGui.SmallButton("Enable Asserts") then
+            g.IO.ConfigErrorRecoveryEnableAssert = true
+        end
+        ImGui.SameLine(0, 0)
+        ImGui.Text(")")
+        ImGui.EndErrorTooltip()
+    end
+end
+
+function ImGui.BeginErrorTooltip()
+    local g = GImGui
+    local window = ImGui.FindWindowByName("##Tooltip_Error")
+    local use_locked_pos = g.IO.KeyCtrl and window ~= nil and window.WasActive
+    local c = g.Style.Colors[ImGuiCol.PopupBg]
+    ImGui.PushStyleColor(ImGuiCol.PopupBg, ImVec4(ImLerp(c.x, 1.0, 0.15), ImLerp(c.y, 0.0, 0.15), ImLerp(c.z, 0.0, 0.15), ImLerp(c.w, 1.0, 0.15)))
+    if use_locked_pos then
+        ImGui.SetNextWindowPos(g.ErrorTooltipLockedPos)
+    end
+    local _, is_visible = ImGui.Begin("##Tooltip_Error", nil, bit32.bor(ImGuiWindowFlags.Tooltip, ImGuiWindowFlags.NoDecoration, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.AlwaysAutoResize))
+    ImGui.PopStyleColor()
+    if is_visible and g.CurrentWindow.BeginCount == 1 then
+        ImGui.SeparatorText("MESSAGE FROM DEAR IMGUI")
+        ImGui.BringWindowToDisplayFront(g.CurrentWindow)
+        ImGui.BringWindowToFocusFront(g.CurrentWindow)
+        g.ErrorTooltipLockedPos = ImGui.GetWindowPos()
+    elseif not is_visible then
+        ImGui.End()
+    end
+    return is_visible
+end
+
+function ImGui.EndErrorTooltip()
+    ImGui.End()
 end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
@@ -29292,7 +30003,8 @@ IMGUI_WINDOW_HARD_MIN_SIZE = 4.0
 IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48
 IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE
 
-function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
+-- Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
+function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
 function IMGUI_DEBUG_LOG_ACTIVEID(_str, ...) local g  = GImGui if bitAnd(g.DebugLogFlags, ImGuiDebugLogFlags.EventActiveId) ~= 0 then print(string.format(_str, ...)) end end
@@ -29629,6 +30341,11 @@ end
 function IM_RECT:Translate(d)
     self[1][1] = self[1][1] + d[1]; self[1][2] = self[1][2] + d[2]
     self[2][1] = self[2][1] + d[1]; self[2][2] = self[2][2] + d[2]
+end
+
+--- @param dx float
+function IM_RECT:TranslateX(dx)
+    self[1][1] = self[1][1] + dx; self[2][1] = self[2][1] + dx
 end
 
 --- @param dy float
@@ -35184,6 +35901,107 @@ function ImGui.EndComboPreview()
     preview_data.PreviewRect = ImRect()
 end
 
+-- Getter for the old Combo() API: Lua array of strings (1-based), `idx` is 0-based
+local function Items_ArrayGetter(data, idx)
+    return data[idx + 1]
+end
+
+-- Getter for the old Combo() API: "item1\0item2\0item3\0"
+local function Items_SingleStringGetter(data, idx)
+    local items_count = 0
+    local p = 1
+    while p <= #data and string.byte(data, p) ~= 0 do
+        local e = string.find(data, "\0", p, true) or (#data + 1)
+        if idx == items_count then
+            return string.sub(data, p, e - 1)
+        end
+        p = e + 1
+        items_count = items_count + 1
+    end
+    return nil
+end
+
+local function Items_SingleStringCount(data)
+    local items_count = 0
+    local p = 1
+    while p <= #data and string.byte(data, p) ~= 0 do
+        p = (string.find(data, "\0", p, true) or #data) + 1
+        items_count = items_count + 1
+    end
+    return items_count
+end
+
+-- Normalizes the 3 upstream overloads to (getter, user_data, items_count, height)
+-- - (items: string[], items_count?, height?)
+-- - (items_separated_by_zeros: string, height?)
+-- - (getter: fun(user_data, idx): string?, user_data, items_count, height?)
+local function Items_ResolveArgs(a, b, c, d)
+    if type(a) == "function" then
+        return a, b, c, d
+    elseif type(a) == "string" then
+        return Items_SingleStringGetter, a, Items_SingleStringCount(a), b
+    else
+        return Items_ArrayGetter, a, b or #a, c
+    end
+end
+
+-- Old API, prefer using BeginCombo() nowadays if you can.
+--- @param label        string
+--- @param current_item int     # 0-based
+--- @return int  current_item
+--- @return bool value_changed
+function ImGui.Combo(label, current_item, a, b, c, d)
+    local g = GImGui
+    local getter, user_data, items_count, popup_max_height_in_items = Items_ResolveArgs(a, b, c, d)
+    if popup_max_height_in_items == nil then popup_max_height_in_items = -1 end
+
+    local preview_value = nil
+    if bit32.band(bit32.bor(g.NextItemData.ItemFlagsSet, g.CurrentItemFlags), ImGuiItemFlags.MixedValue) ~= 0 then
+        preview_value = ""
+    elseif current_item >= 0 and current_item < items_count then
+        preview_value = getter(user_data, current_item)
+    end
+
+    if popup_max_height_in_items ~= -1 and bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSizeConstraint) == 0 then
+        ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, CalcMaxPopupHeightFromItemCount(popup_max_height_in_items)))
+    end
+
+    if not ImGui.BeginCombo(label, preview_value, ImGuiComboFlags.None) then
+        return current_item, false
+    end
+
+    local value_changed = false
+    local clipper = ImGuiListClipper()
+    clipper:Begin(items_count)
+    clipper:IncludeItemByIndex(current_item)
+    while clipper:Step() do
+        for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+            local item_text = getter(user_data, i)
+            if item_text == nil then
+                item_text = "*Unknown item*"
+            end
+
+            ImGui.PushID(i)
+            local item_selected = (i == current_item)
+            if ImGui.Selectable(item_text, item_selected) and current_item ~= i then
+                value_changed = true
+                current_item = i
+            end
+            if item_selected then
+                ImGui.SetItemDefaultFocus()
+            end
+            ImGui.PopID()
+        end
+    end
+
+    ImGui.EndCombo()
+    if value_changed then
+        ImGui.MarkItemEdited(g.LastItemData.ID)
+    end
+
+    return current_item, value_changed
+end
+
 ----------------------------------------------------------------
 -- [SECTION] DATA TYPE & DATA FORMATTING [Internal]
 ----------------------------------------------------------------
@@ -39926,14 +40744,49 @@ end
 -- [SECTION] TREES
 ----------------------------------------------------------------
 
+-- Overloads: TreeNode(label) / TreeNode(str_id, fmt, ...)
 --- @param label string
-function ImGui.TreeNode(label)
+function ImGui.TreeNode(label, fmt, ...)
+    if fmt ~= nil then
+        return ImGui.TreeNodeEx(label, 0, fmt, ...)
+    end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return false
     end
     local id = window:GetID(label)
     return ImGui.TreeNodeBehavior(id, ImGuiTreeNodeFlags.None, label, nil)
+end
+
+function ImGui.TreeNodeV(str_id, fmt, ...)
+    return ImGui.TreeNodeExV(str_id, 0, fmt, ...)
+end
+
+-- Overloads: TreeNodeEx(label, flags) / TreeNodeEx(str_id, flags, fmt, ...)
+--- @param label  string
+--- @param flags? ImGuiTreeNodeFlags
+function ImGui.TreeNodeEx(label, flags, fmt, ...)
+    if flags == nil then flags = 0 end
+    if fmt ~= nil then
+        return ImGui.TreeNodeExV(label, flags, fmt, ...)
+    end
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return false
+    end
+    local id = window:GetID(label)
+    return ImGui.TreeNodeBehavior(id, flags, label, nil)
+end
+
+--- @param str_id string|ImGuiID
+function ImGui.TreeNodeExV(str_id, flags, fmt, ...)
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return false
+    end
+    local id = window:GetID(str_id)
+    local label = (select("#", ...) > 0) and string.format(fmt, ...) or fmt
+    return ImGui.TreeNodeBehavior(id, flags, label, #label + 1)
 end
 
 --- @param storage_id ImGuiID
@@ -39973,7 +40826,7 @@ function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
                 is_open = g.NextItemData.OpenVal
                 ImGui.TreeNodeSetOpen(storage_id, is_open)
             else
-                is_open = stored_value ~= 0
+                is_open = stored_value and true or false
             end
         end
     else
@@ -40004,9 +40857,9 @@ local function TreeNodeStoreStackData(flags, x1)
     tree_node_data.DrawLinesX1 = draw_lines and (x1 + g.FontSize * 0.5 + g.Style.FramePadding.x) or FLT_MAX
     tree_node_data.DrawLinesTableColumn = (draw_lines and g.CurrentTable) and g.CurrentTable.CurrentColumn or -1
     tree_node_data.DrawLinesToNodesY2 = -FLT_MAX
-    window.DC.TreeHasStackDataDepthMask = window.DC.TreeHasStackDataDepthMask or bit32.lshift(1, window.DC.TreeDepth)
+    window.DC.TreeHasStackDataDepthMask = bit32.bor(window.DC.TreeHasStackDataDepthMask, bit32.lshift(1, window.DC.TreeDepth))
     if bit32.band(flags, ImGuiTreeNodeFlags.DrawLinesToNodes) ~= 0 then
-        window.DC.TreeRecordsClippedNodesY2Mask = window.DC.TreeRecordsClippedNodesY2Mask or bit32.lshift(1, window.DC.TreeDepth)
+        window.DC.TreeRecordsClippedNodesY2Mask = bit32.bor(window.DC.TreeRecordsClippedNodesY2Mask, bit32.lshift(1, window.DC.TreeDepth))
     end
 end
 
@@ -40106,7 +40959,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             end
         end
         if is_open and store_tree_node_stack_data then
-            ImGui.TreeNodeStoreStackData(flags, text_pos.x - text_offset_x)
+            TreeNodeStoreStackData(flags, text_pos.x - text_offset_x)
         end
         if is_open and bit32.band(flags, ImGuiTreeNodeFlags.NoTreePushOnOpen) == 0 then
             ImGui.TreePushOverrideID(id)
@@ -40316,6 +41169,44 @@ function ImGui.TreeNodeDrawLineToChildNode(target_pos)
     end
 end
 
+--- @param data ImGuiTreeNodeStackData
+function ImGui.TreeNodeDrawLineToTreePop(data)
+    local g = GImGui
+    local window = g.CurrentWindow
+    local y1 = ImMax(data.NavRect.Max.y, window.ClipRect.Min.y)
+    local y2 = data.DrawLinesToNodesY2
+    if bit32.band(data.TreeFlags, ImGuiTreeNodeFlags.DrawLinesFull) ~= 0 then
+        local y2_full = window.DC.CursorPos.y
+        if g.CurrentTable then
+            y2_full = ImMax(g.CurrentTable.RowPosY2, y2_full)
+        end
+        y2_full = ImTrunc(y2_full - g.Style.ItemSpacing.y - g.FontSize * 0.5)
+        if y2 + (g.Style.ItemSpacing.y + g.Style.TreeLinesRounding) < y2_full then
+            y2 = y2_full
+        end
+    end
+    y2 = ImMin(y2, window.ClipRect.Max.y)
+    if y2 <= y1 then
+        return
+    end
+    local x = ImTrunc(data.DrawLinesX1 - g.Style.TreeLinesSize * 0.5) + g.Style.TreeLinesSize * 0.5
+    if data.DrawLinesTableColumn ~= -1 then
+        ImGui.TablePushColumnChannel(data.DrawLinesTableColumn)
+    end
+    window.DrawList:AddLine(ImVec2(x, y1), ImVec2(x, y2), ImGui.GetColorU32(ImGuiCol.TreeLines), g.Style.TreeLinesSize)
+    if data.DrawLinesTableColumn ~= -1 then
+        ImGui.TablePopColumnChannel()
+    end
+end
+
+--- @param str_id string|ImGuiID
+function ImGui.TreePush(str_id)
+    local window = ImGui.GetCurrentWindow()
+    ImGui.Indent()
+    window.DC.TreeDepth = window.DC.TreeDepth + 1
+    ImGui.PushID(str_id)
+end
+
 --- @param id ImGuiID
 function ImGui.TreePushOverrideID(id)
     local g = GImGui
@@ -40367,7 +41258,23 @@ function ImGui.SetNextItemOpen(is_open, cond)
     end
     g.NextItemData.HasFlags = bit32.bor(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasOpen)
     g.NextItemData.OpenVal = is_open
-    g.NextItemData.OpenCond = (ImU8)((cond ~= 0) and cond or ImGuiCond.Always)
+    g.NextItemData.OpenCond = (cond ~= 0) and cond or ImGuiCond.Always
+end
+
+-- Horizontal distance preceding label when using TreeNode() or Bullet()
+function ImGui.GetTreeNodeToLabelSpacing()
+    local g = GImGui
+    return g.FontSize + (g.Style.FramePadding.x * 2.0)
+end
+
+--- @param storage_id ImGuiID
+function ImGui.SetNextItemStorageID(storage_id)
+    local g = GImGui
+    if g.CurrentWindow.SkipItems then
+        return
+    end
+    g.NextItemData.HasFlags = bit32.bor(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasStorageID)
+    g.NextItemData.StorageId = storage_id
 end
 
 --- @param label  string
@@ -40607,6 +41514,110 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     -- Users of BeginMultiSelect()/EndMultiSelect() scope: you may call ImGui::IsItemToggledSelection() to retrieve
     -- selection toggle, only useful if you need that state updated (e.g. for rendering purpose) before reaching EndMultiSelect().
     return pressed, selected
+end
+
+----------------------------------------------------------------
+-- [SECTION] LISTBOX
+----------------------------------------------------------------
+
+--- @param label     string
+--- @param size_arg? ImVec2
+function ImGui.BeginListBox(label, size_arg)
+    if size_arg == nil then size_arg = ImVec2(0, 0) end
+    local g = GImGui
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return false
+    end
+
+    local style = g.Style
+    local id = ImGui.GetID(label)
+    local label_end = ImGui.FindRenderedTextEnd(label)
+    local label_size = ImGui.CalcTextSize(label, label_end, false)
+
+    local size = ImTrunc(ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), ImGui.GetTextLineHeightWithSpacing() * 7.25 + style.FramePadding.y * 2.0))
+    local frame_size = ImVec2(size.x, ImMax(size.y, label_size.y))
+    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
+    local bb = ImRect(frame_bb.Min, frame_bb.Max + ImVec2((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0, 0.0))
+    g.NextItemData:ClearFlags()
+
+    if not ImGui.IsRectVisible(bb.Min, bb.Max) then
+        ImGui.ItemSize(bb:GetSize(), style.FramePadding.y)
+        ImGui.ItemAdd(bb, 0, frame_bb)
+        g.NextWindowData:ClearFlags()
+        return false
+    end
+
+    ImGui.BeginGroup()
+    if label_size.x > 0.0 then
+        local label_pos = ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y)
+        ImGui.RenderText(label_pos, label, 1, label_end, false)
+        ImVec2_Copy(window.DC.CursorMaxPos, ImMax(window.DC.CursorMaxPos, label_pos + label_size))
+        ImGui.AlignTextToFramePadding()
+    end
+
+    ImGui.BeginChild(id, frame_bb:GetSize(), ImGuiChildFlags.FrameStyle)
+    return true
+end
+
+function ImGui.EndListBox()
+    local g = GImGui
+    local window = g.CurrentWindow
+    IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0, "Mismatched BeginListBox/EndListBox calls. Did you test the return value of BeginListBox?")
+
+    ImGui.EndChild()
+    ImGui.EndGroup()
+end
+
+-- Overloads: (label, current_item, items[], items_count?, height_in_items?) or (label, current_item, getter, user_data, items_count, height_in_items?)
+--- @param current_item int # 0-based
+--- @return int  current_item
+--- @return bool value_changed
+function ImGui.ListBox(label, current_item, a, b, c, d)
+    local g = GImGui
+    local getter, user_data, items_count, height_in_items = Items_ResolveArgs(a, b, c, d)
+    if height_in_items == nil then height_in_items = -1 end
+
+    if height_in_items < 0 then
+        height_in_items = ImMin(items_count, 7)
+    end
+    local height_in_items_f = height_in_items + 0.25
+    local size = ImVec2(0.0, ImTrunc(ImGui.GetTextLineHeightWithSpacing() * height_in_items_f + g.Style.FramePadding.y * 2.0))
+
+    if not ImGui.BeginListBox(label, size) then
+        return current_item, false
+    end
+
+    local value_changed = false
+    local clipper = ImGuiListClipper()
+    clipper:Begin(items_count, ImGui.GetTextLineHeightWithSpacing())
+    clipper:IncludeItemByIndex(current_item)
+    while clipper:Step() do
+        for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+            local item_text = getter(user_data, i)
+            if item_text == nil then
+                item_text = "*Unknown item*"
+            end
+
+            ImGui.PushID(i)
+            local item_selected = (i == current_item)
+            if ImGui.Selectable(item_text, item_selected) then
+                current_item = i
+                value_changed = true
+            end
+            if item_selected then
+                ImGui.SetItemDefaultFocus()
+            end
+            ImGui.PopID()
+        end
+    end
+    ImGui.EndListBox()
+
+    if value_changed then
+        ImGui.MarkItemEdited(g.LastItemData.ID)
+    end
+
+    return current_item, value_changed
 end
 
 ----------------------------------------------------------------
@@ -40950,6 +41961,81 @@ function ImGui.EndMenuBar()
     window.DC.NavLayerCurrent = ImGuiNavLayer.Main
     window.DC.MenuBarAppending = false
     ImVec2_Copy(window.DC.CursorMaxPos, restore_cursor_max_pos)
+end
+
+-- Important: calling order matters!
+--- @param name        string
+--- @param viewport_p? ImGuiViewport
+--- @param dir         ImGuiDir
+--- @param axis_size   float
+--- @param window_flags ImGuiWindowFlags
+function ImGui.BeginViewportSideBar(name, viewport_p, dir, axis_size, window_flags)
+    IM_ASSERT(dir ~= ImGuiDir.None)
+
+    local bar_window = ImGui.FindWindowByName(name)
+    local viewport = viewport_p or ImGui.GetMainViewport()
+    if bar_window == nil or bar_window.BeginCount == 0 then
+        local avail_rect = viewport:GetBuildWorkRect()
+        local axis = (dir == ImGuiDir.Up or dir == ImGuiDir.Down) and ImGuiAxis.Y or ImGuiAxis.X
+        local pos = ImVec2(avail_rect.Min.x, avail_rect.Min.y)
+        if dir == ImGuiDir.Right or dir == ImGuiDir.Down then
+            pos[axis] = avail_rect.Max[axis] - axis_size
+        end
+        local size = avail_rect:GetSize()
+        size[axis] = axis_size
+        ImGui.SetNextWindowPos(pos)
+        ImGui.SetNextWindowSize(size)
+
+        if dir == ImGuiDir.Up or dir == ImGuiDir.Left then
+            viewport.BuildWorkInsetMin[axis] = viewport.BuildWorkInsetMin[axis] + axis_size
+        elseif dir == ImGuiDir.Down or dir == ImGuiDir.Right then
+            viewport.BuildWorkInsetMax[axis] = viewport.BuildWorkInsetMax[axis] + axis_size
+        end
+    end
+
+    window_flags = bit32.bor(window_flags or 0, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoDocking)
+    ImGui.SetNextWindowViewport(viewport.ID)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, ImVec2(0, 0))
+    local _, is_open = ImGui.Begin(name, nil, window_flags)
+    ImGui.PopStyleVar(2)
+
+    return is_open
+end
+
+function ImGui.BeginMainMenuBar()
+    local g = GImGui
+    local viewport = ImGui.GetMainViewport()
+
+    ImGui.SetCurrentViewport(nil, viewport)
+
+    g.NextWindowData.MenuBarOffsetMinVal = ImVec2(g.Style.DisplaySafeAreaPadding.x, ImMax(g.Style.DisplaySafeAreaPadding.y - g.Style.FramePadding.y, 0.0))
+    local window_flags = bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.MenuBar)
+    local height = ImGui.GetFrameHeight()
+    local is_open = ImGui.BeginViewportSideBar("##MainMenuBar", viewport, ImGuiDir.Up, height, window_flags)
+    g.NextWindowData.MenuBarOffsetMinVal = ImVec2(0.0, 0.0)
+    if not is_open then
+        ImGui.End()
+        return false
+    end
+
+    g.CurrentWindow.Flags = bit32.band(g.CurrentWindow.Flags, bit32.bnot(ImGuiWindowFlags.NoSavedSettings))
+    ImGui.BeginMenuBar()
+    return is_open
+end
+
+function ImGui.EndMainMenuBar()
+    local g = GImGui
+    IM_ASSERT_USER_ERROR_RET(g.CurrentWindow.DC.MenuBarAppending, "Calling EndMainMenuBar() not from a menu-bar!")
+
+    ImGui.EndMenuBar()
+    g.CurrentWindow.Flags = bit32.bor(g.CurrentWindow.Flags, ImGuiWindowFlags.NoSavedSettings)
+
+    if g.CurrentWindow == g.NavWindow and g.NavLayer == ImGuiNavLayer.Main and not g.NavAnyRequest and g.ActiveId == 0 then
+        ImGui.FocusTopMostWindowUnderOne(g.NavWindow, nil, nil, bit32.bor(ImGuiFocusRequestFlags.UnlessBelowModal, ImGuiFocusRequestFlags.RestoreFocusedChild))
+    end
+
+    ImGui.End()
 end
 
 local function IsRootOfOpenMenuSet()
@@ -45904,6 +46990,7 @@ return {
     ImGuiDockNodeFlags = ImGuiDockNodeFlags,
     ImGuiDockNodeState = ImGuiDockNodeState,
     ImGuiDragDropFlags = ImGuiDragDropFlags,
+    ImGuiErrorRecoveryState = ImGuiErrorRecoveryState,
     ImGuiFocusRequestFlags = ImGuiFocusRequestFlags,
     ImGuiFocusScopeData = ImGuiFocusScopeData,
     ImGuiFocusedFlags = ImGuiFocusedFlags,
@@ -45942,6 +47029,8 @@ return {
     ImGuiLastItemData = ImGuiLastItemData,
     ImGuiLastItemData_Copy = ImGuiLastItemData_Copy,
     ImGuiLayoutType = ImGuiLayoutType,
+    ImGuiListClipper = ImGuiListClipper,
+    ImGuiListClipperFlags = ImGuiListClipperFlags,
     ImGuiLocKey = ImGuiLocKey,
     ImGuiLogFlags = ImGuiLogFlags,
     ImGuiMod_Alt = ImGuiMod_Alt,
@@ -45996,6 +47085,7 @@ return {
     ImGuiTableFlags = ImGuiTableFlags,
     ImGuiTableRowFlags = ImGuiTableRowFlags,
     ImGuiTextBuffer = ImGuiTextBuffer,
+    ImGuiTextFilter = ImGuiTextFilter,
     ImGuiTextFlags = ImGuiTextFlags,
     ImGuiTooltipFlags = ImGuiTooltipFlags,
     ImGuiTreeNodeFlags = ImGuiTreeNodeFlags,
