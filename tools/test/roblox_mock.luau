@@ -195,7 +195,7 @@ for i = 0, 255 do hex[i] = string.format("%02x", i) end
 
 local total = 0
 for frame = 1, NFRAMES do
-    local r = rnd(100)
+    local r = ARG_QUIET and 100 or rnd(100)
     if r < 40 then
         mouse = v2(math.clamp(mouse.X + rnd(81) - 40, 0, SCREEN_W - 1), math.clamp(mouse.Y + rnd(81) - 40, 0, SCREEN_H - 1))
     elseif r < 55 then
@@ -221,25 +221,5 @@ for frame = 1, NFRAMES do
     if frame > 10 then total = total + dt end
 
     if frame == 10 then render_time = 0; _G_UPLOADS = 0 end
-    if DUMP_FRAMES[frame] and ARG_DUMP then
-        local W, H = SCREEN_W, SCREEN_H
-        local screen = buffer.create(W * H * 4)
-        local gui = PlayerGui:FindFirstChild("ImGui")
-        for _, label in ipairs(gui:GetChildren()) do
-            if label.Visible then
-                local img, px, py = label.ImageContent.Object, label.Position.X, label.Position.Y
-                local tw, th = img.Size.X, img.Size.Y
-                for y = 0, th - 1 do
-                    if py + y < H then
-                        local n = math.min(tw, W - px)
-                        buffer.copy(screen, ((py + y) * W + px) * 4, img.Pixels, y * tw * 4, n * 4)
-                    end
-                end
-            end
-        end
-        local parts = {}
-        for i = 0, W * H * 4 - 1 do parts[#parts + 1] = hex[buffer.readu8(screen, i)] end
-        print(string.format("IMG %d %d %d %s", frame, W, H, table.concat(parts)))
-    end
 end
 print(string.format("avg frame total %.2f ms, of which render %.2f ms, uploads/frame %.2f", total / (NFRAMES - 10) * 1000, render_time / (NFRAMES - 10) * 1000, _G_UPLOADS / (NFRAMES - 10)))

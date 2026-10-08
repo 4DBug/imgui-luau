@@ -1010,8 +1010,8 @@ local function ApplyWindowSettings(window, settings)
             window.AutoFitFramesX = 0; window.AutoFitFramesY = 0
         end
         window.Collapsed = settings.Collapsed
-        -- window.DockId = settings.DockId
-        -- window.DockOrder = settings.DockOrder
+        window.DockId = settings.DockId or 0
+        window.DockOrder = settings.DockOrder or -1
         SetWindowConditionAllowFlags(window, ImGuiCond.FirstUseEver, false)
     end
 
@@ -1042,7 +1042,7 @@ local function InitOrLoadWindowSettings(window, settings)
     window.SetWindowPosAllowFlags = bit32.bor(ImGuiCond.Always, ImGuiCond.Once, ImGuiCond.FirstUseEver, ImGuiCond.Appearing)
     window.SetWindowSizeAllowFlags = window.SetWindowPosAllowFlags
     window.SetWindowCollapsedAllowFlags = window.SetWindowPosAllowFlags
-    -- window.SetWindowDockAllowFlags = window.SetWindowPosAllowFlags
+    window.SetWindowDockAllowFlags = window.SetWindowPosAllowFlags
     ApplyWindowSettings(window, settings)
     if settings ~= nil then
         -- TODO: settings.LastUsedDate = g.SessionDate
@@ -5117,7 +5117,7 @@ local function RenderWindowOuterBorders(window)
         RenderWindowOuterSingleBorder(window, border_n, border_col_resizing, ImMax(2.0, window.WindowBorderSize))
     end
 
-    if g.Style.FrameBorderSize > 0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0) then
+    if g.Style.FrameBorderSize > 0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0) and not window.DockIsActive then
         local y = window.Pos.y + window.TitleBarHeight - 1
         window.DrawList:AddLineH(window.Pos.x + border_size * 0.5, window.Pos.x + window.Size.x - border_size * 0.5, y, border_col, g.Style.FrameBorderSize)
     end
@@ -5162,11 +5162,19 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
 
             if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
                 local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)
-                local bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersBottom
-                local bg_draw_list = window.DrawList
+                local bg_rounding_flags
+                if window.DockIsActive then
+                    bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
+                else
+                    bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersBottom
+                end
+                local bg_draw_list = window.DockIsActive and window.DockNode.HostWindow.DrawList or window.DrawList
+                if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(0) end
                 bg_draw_list:AddRectFilled(bg_rect.Min, bg_rect.Max, bg_col, window_rounding, bg_rounding_flags)
+                if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(1) end
             end
         end
+        if window.DockIsActive then window.DockNode.IsBgDrawnThisFrame = true end
 
         -- Title bar
         if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and not window.DockIsActive then
@@ -5182,6 +5190,25 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             if style.FrameBorderSize > 0.0 and menu_bar_rect.Max.y < window.Pos.y + window.Size.y then
                 window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size * 0.5, menu_bar_rect.Max.x - window_border_size * 0.5, menu_bar_rect.Max.y, ImGui.GetColorU32(ImGuiCol.Border), style.FrameBorderSize)
             end
+        end
+
+        -- Docking: Unhide tab bar (small triangle in the corner), drag from small triangle to quickly undock
+        local node = window.DockNode
+        if window.DockIsActive and node:IsHiddenTabBar() and not node:IsNoTabBar() then
+            local unhide_sz_draw = ImTrunc(g.FontSize * 0.70)
+            local unhide_sz_hit = ImTrunc(g.FontSize * 0.55)
+            local p = node.Pos
+            local r = ImRect(p, p + ImVec2(unhide_sz_hit, unhide_sz_hit))
+            local unhide_id = window:GetID("#UNHIDE")
+            ImGui.KeepAliveID(unhide_id)
+            local pressed, hovered, held = ImGui.ButtonBehavior(r, unhide_id, ImGuiButtonFlags.FlattenChildren)
+            if pressed then
+                node.WantHiddenTabBarToggle = true
+            elseif held and ImGui.IsMouseDragging(0) then
+                ImGui.StartMouseMovingWindowOrNode(window, node, true)
+            end
+            local col = ImGui.GetColorU32(((held and hovered) or (node.IsFocused and not hovered)) and ImGuiCol.ButtonActive or (hovered and ImGuiCol.ButtonHovered or ImGuiCol.Button))
+            window.DrawList:AddTriangleFilled(p, p + ImVec2(unhide_sz_draw, 0.0), p + ImVec2(0.0, unhide_sz_draw), col)
         end
 
         if window.ScrollbarX then
@@ -5212,13 +5239,14 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             end
         end
 
-        if handle_borders_and_resize_grips then
+        if handle_borders_and_resize_grips and not window.DockNodeAsHost then
             RenderWindowOuterBorders(window)
         end
     end
 
     window.DC.NavLayerCurrent = ImGuiNavLayer.Main
 end
+ImGui.RenderWindowOuterBorders = RenderWindowOuterBorders
 
 --- @param window         ImGuiWindow
 --- @param title_bar_rect ImRect
@@ -6068,6 +6096,11 @@ end
 --- @param popup_flags ImGuiPopupFlags
 function ImGui.IsPopupOpen(id, popup_flags)
     local g = GImGui
+    if popup_flags == nil then popup_flags = 0 end
+    if type(id) == "string" then
+        -- str_id overload: with AnyPopupId the id must be 0, otherwise it is hashed with the current window's ID stack
+        id = (bit32.band(popup_flags, ImGuiPopupFlags.AnyPopupId) ~= 0) and 0 or g.CurrentWindow:GetID(id)
+    end
 
     if bit32.band(popup_flags, ImGuiPopupFlags.AnyPopupId) ~= 0 then
         -- Return true if any popup is open at the current BeginPopup() level of the popup stack
@@ -7986,7 +8019,9 @@ local function AddWindowToDrawData(window, layer)
     local g = GImGui
     local viewport = window.Viewport
     g.IO.MetricsRenderWindows = g.IO.MetricsRenderWindows + 1
-    -- TODO: splitter
+    if window.DrawList._Splitter._Count > 1 then
+        window.DrawList:ChannelsMerge() -- Merge if user forgot to merge back. Also required for DockNodeHost windows.
+    end
     ImGui.AddDrawListToDrawDataEx(viewport.DrawDataP, viewport.DrawDataBuilder.Layers[layer], window.DrawList)
     for _, child in window.DC.ChildWindows:iter() do
         if (ImGui.IsWindowActiveAndVisible(child)) then -- Clipped children may have been marked not active
@@ -17305,6 +17340,7 @@ local function FixLargeWindowsWhenUndocking(size, ref_viewport)
 end
 
 function ImGui.DockContextProcessUndockWindow(ctx, window, clear_persistent_docking_ref)
+    if clear_persistent_docking_ref == nil then clear_persistent_docking_ref = true end -- C++ default argument
     if window.DockNode then
         ImGui.DockNodeRemoveWindow(window.DockNode, window, clear_persistent_docking_ref and 0 or window.DockId)
     else
@@ -18291,7 +18327,7 @@ function ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, dir,
     local g = ImGui.GetCurrentContext()
     local dock_spacing = g.Style.ItemInnerSpacing.x
     local axis = (dir == ImGuiDir.Left or dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
-    local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+    local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
     pos_new[o] = pos_old[o]
     size_new[o] = size_old[o]
 
@@ -18435,7 +18471,7 @@ function ImGui.DockNodePreviewDockSetup(host_window, host_node, payload_window, 
         local size_new, size_old = ImVec2(0, 0), ImVec2(data.FutureNode.Size.x, data.FutureNode.Size.y)
         ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, split_dir, payload_window.Size)
 
-        local split_ratio = ImSaturate(size_new[split_axis + 1] / data.FutureNode.Size[split_axis + 1])
+        local split_ratio = ImSaturate(size_new[split_axis] / data.FutureNode.Size[split_axis])
         data.FutureNode.Pos = pos_new
         data.FutureNode.Size = size_new
         data.SplitRatio = (split_dir == ImGuiDir.Right or split_dir == ImGuiDir.Down) and (1.0 - split_ratio) or split_ratio
@@ -18523,7 +18559,7 @@ function ImGui.DockNodePreviewDockRender(host_window, host_node, root_payload, d
                 local cc = draw_r_in:GetCenter()
                 local center = ImVec2(math.floor(cc.x), math.floor(cc.y))
                 dl:AddRectFilled(draw_r.Min, draw_r.Max, overlay_col, overlay_rounding)
-                dl:AddRect(draw_r_in.Min, draw_r_in.Max, overlay_col_lines, overlay_rounding, 0, thickness)
+                dl:AddRect(draw_r_in.Min, draw_r_in.Max, overlay_col_lines, overlay_rounding, thickness)
                 if dir == ImGuiDir.Left or dir == ImGuiDir.Right then
                     dl:AddLineV(center.x, draw_r_in.Min.y, draw_r_in.Max.y, overlay_col_lines, thickness)
                 end
@@ -18562,7 +18598,7 @@ function ImGui.DockNodeTreeSplit(ctx, parent_node, split_axis, split_inheritor_c
     parent_node.AuthorityForPos = ImGuiDataAuthority.DockNode
     parent_node.AuthorityForSize = ImGuiDataAuthority.DockNode
 
-    local a = split_axis + 1
+    local a = split_axis
     local size_avail = parent_node.Size[a] - g.Style.DockingSeparatorSize
     size_avail = ImMax(size_avail, g.Style.WindowMinSize[a] * 2.0)
     IM_ASSERT(size_avail > 0.0)
@@ -18648,7 +18684,7 @@ function ImGui.DockNodeTreeUpdatePosSize(node, pos, size, only_write_to_single_n
 
     if child_0_is_or_will_be_visible and child_1_is_or_will_be_visible then
         local spacing = g.Style.DockingSeparatorSize
-        local a = node.SplitAxis + 1
+        local a = node.SplitAxis
         local size_avail = ImMax(size[a] - spacing, 0.0)
 
         local size_min_each = ImTrunc(ImMin(size_avail, g.Style.WindowMinSize[a] * 2.0) * 0.5)
@@ -18717,7 +18753,7 @@ function ImGui.DockNodeTreeUpdateSplitter(node)
     if child_0.IsVisible and child_1.IsVisible then
         local axis = node.SplitAxis
         IM_ASSERT(axis ~= ImGuiAxis.None)
-        local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+        local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
         local bb = ImRect(ImVec2(child_0.Pos.x, child_0.Pos.y), ImVec2(child_1.Pos.x, child_1.Pos.y))
         bb.Min[a] = bb.Min[a] + child_0.Size[a]
         bb.Max[o] = bb.Max[o] + child_1.Size[o]
@@ -19808,7 +19844,7 @@ function ImGui.SplitterBehavior(bb, id, axis, size1, size2, min_size1, min_size2
     local bb_render = ImRect(bb.Min, bb.Max)
     if held then
         local d = g.IO.MousePos - g.ActiveIdClickOffset - bb_interact.Min
-        local mouse_delta = d[axis + 1]
+        local mouse_delta = d[axis]
 
         local size_1_maximum_delta = ImMax(0.0, size1 - min_size1)
         local size_2_maximum_delta = ImMax(0.0, size2 - min_size2)
@@ -20104,7 +20140,7 @@ end
 function ImGui.RenderDragDropTargetRectEx(draw_list, bb, rounding)
     local g = ImGui.GetCurrentContext()
     draw_list:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTargetBg), rounding, 0)
-    draw_list:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTarget), rounding, 0, g.Style.DragDropTargetBorderSize)
+    draw_list:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTarget), rounding, g.Style.DragDropTargetBorderSize)
 end
 
 --- @return ImGuiPayload?
@@ -23622,7 +23658,8 @@ function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
 
     -- If current command is used with different settings we need to add a new command
-    local curr_cmd = (draw_list.CmdBuffer.Size == 0) and nil or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    local curr_cmd = nil
+    if draw_list.CmdBuffer.Size > 0 then curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] end
     if curr_cmd == nil then
         draw_list:AddDrawCmd()
     elseif curr_cmd.ElemCount == 0 then
@@ -25098,6 +25135,25 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
     end
 end
 
+
+
+function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
+    local fill_L = inner.Min.x > outer.Min.x
+    local fill_R = inner.Max.x < outer.Max.x
+    local fill_U = inner.Min.y > outer.Min.y
+    local fill_D = inner.Max.y < outer.Max.y
+    local D = ImDrawFlags
+    local bor = bit32.bor
+    local function f(c, v) return c and 0 or v end
+    if fill_L then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Min.y), ImVec2(inner.Min.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopLeft), f(fill_D, D.RoundCornersBottomLeft))) end
+    if fill_R then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Min.y), ImVec2(outer.Max.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopRight), f(fill_D, D.RoundCornersBottomRight))) end
+    if fill_U then draw_list:AddRectFilled(ImVec2(inner.Min.x, outer.Min.y), ImVec2(inner.Max.x, inner.Min.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersTopLeft), f(fill_R, D.RoundCornersTopRight))) end
+    if fill_D then draw_list:AddRectFilled(ImVec2(inner.Min.x, inner.Max.y), ImVec2(inner.Max.x, outer.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersBottomLeft), f(fill_R, D.RoundCornersBottomRight))) end
+    if fill_L and fill_U then draw_list:AddRectFilled(ImVec2(outer.Min.x, outer.Min.y), ImVec2(inner.Min.x, inner.Min.y), col, rounding, D.RoundCornersTopLeft) end
+    if fill_R and fill_U then draw_list:AddRectFilled(ImVec2(inner.Max.x, outer.Min.y), ImVec2(outer.Max.x, inner.Min.y), col, rounding, D.RoundCornersTopRight) end
+    if fill_L and fill_D then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Max.y), ImVec2(inner.Min.x, outer.Max.y), col, rounding, D.RoundCornersBottomLeft) end
+    if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
+end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
 end
@@ -32207,7 +32263,7 @@ function ImGui.EndTabBar()
     end
 
     g.CurrentTabBarStack:pop_back()
-    g.CurrentTabBar = (g.CurrentTabBarStack.Size == 0) and nil or g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size]
+    if g.CurrentTabBarStack.Size == 0 then g.CurrentTabBar = nil else g.CurrentTabBar = g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size] end
 end
 
 function ImGui.TabBarLayout(tab_bar)

@@ -45,10 +45,14 @@ there, but keep this port's existing data structures and conventions. Read the s
 - `python3 tools/test/run.py` — runs main.client.luau 400 frames with scripted random input (mouse, clicks,
   keys, typing). Errors print with `imgui/<file>.lua:<line>` mapped stack traces.
 - `--open` forces every CollapsingHeader/TreeNode open (exercises the whole demo). `--big` makes the demo
-  window 900x1000. `--png out.png` writes a screenshot (Read the PNG to look at it). `--check` asserts the
   incremental renderer is pixel identical to a full redraw. `--main file.luau` runs your own test LocalScript
   (copy main.client.luau as a template: `local G = require(ReplicatedStorage:WaitForChild("ImGui"))`, all
   library globals are fields of `G`).
 - `python3 tools/test/missing.py [tables|widgets|imgui.cpp]` lists upstream functions not yet ported.
 - Several people edit the repo concurrently. Keep every file syntactically valid after each edit. If a run fails
   because of an error in a file you don't own, wait a minute and retry instead of editing it.
+
+- **ImGuiAxis is 1-based in this port** (`None=0, X=1, Y=2`; upstream `None=-1, X=0, Y=1`). Use `v[axis]` to index an ImVec2 and `3 - axis` for the other axis. `ImGuiDir` keeps upstream values (`None=-1, Left=0, Right=1, Up=2, Down=3`).
+- Never write `cond and nil or x` in Lua: it always evaluates `x`. Use an `if`.
+- Port signature quirk: `AddRect(min, max, col, rounding, thickness, flags)` (thickness BEFORE flags; upstream has flags first). Check the port's signature before porting any draw call that takes both.\n
+- C++ default arguments (e.g. `bool x = true`) must be reproduced with `if x == nil then x = true end`; a missing Lua argument is nil/falsy.
