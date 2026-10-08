@@ -52294,6 +52294,20 @@ function ImGui.InputText(label, buf, buf_size, flags, callback, user_data)
     return ImGui.InputTextEx(label, nil, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
 end
 
+-- [Luau] InputText edits a byte table in place (C++ char buf[N]). Helpers to make/read one:
+--   local buf = ImGui.NewTextBuffer("Hello", 256); ImGui.InputText("label", buf, 256); print(ImGui.TextBufferToString(buf))
+function ImGui.NewTextBuffer(str, size)
+    local t = {}
+    for i = 1, #str do t[i] = string.byte(str, i) end
+    for i = #str + 1, math.max(size or 0, #str + 1) do t[i] = 0 end
+    return t
+end
+function ImGui.TextBufferToString(buf)
+    local n = 0
+    while buf[n + 1] ~= nil and buf[n + 1] ~= 0 do n += 1 end
+    return n == 0 and "" or ImGui._ByteArrayToString(buf, 1, n + 1)
+end
+
 --- @param size? ImVec2
 function ImGui.InputTextMultiline(label, buf, buf_size, size, flags, callback, user_data)
     return ImGui.InputTextEx(label, nil, buf, buf_size, size or ImVec2(0, 0), bit32.bor(flags or 0, ImGuiInputTextFlags.Multiline), callback, user_data)
