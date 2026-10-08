@@ -3158,6 +3158,7 @@ end
 
 -- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
+    self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
     if self._Splitter._Count > 1 then
         self._Splitter:Merge(self)
     end

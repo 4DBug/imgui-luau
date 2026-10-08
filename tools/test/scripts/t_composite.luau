@@ -13,21 +13,26 @@ local frame = 0
 
 local function composite(gui)
     local screen = buffer.create(W * H * 3)
-    local function walk(inst, ox, oy)
+    local function walk(inst, ox, oy, kx0, ky0, kx1, ky1)
         local kids = inst:GetChildren()
         table.sort(kids, function(a, b) return (a.ZIndex or 1) < (b.ZIndex or 1) end) -- table.sort isn't stable, but siblings with equal ZIndex never overlap here
         for _, c in ipairs(kids) do
             if c.Visible ~= false then
                 local x, y = ox + (c.Position and c.Position.X or 0), oy + (c.Position and c.Position.Y or 0)
+                local cx0, cy0, cx1, cy1 = kx0, ky0, kx1, ky1
+                if c.ClipsDescendants then
+                    cx0, cy0 = math.max(cx0, x), math.max(cy0, y)
+                    cx1, cy1 = math.min(cx1, x + c.Size.X), math.min(cy1, y + c.Size.Y)
+                end
                 if c.ClassName == "ImageLabel" then
                     local img = c.ImageContent.Object
                     local px, sz = img.Pixels, img.Size.X
                     for ty = 0, sz - 1 do
                         local sy = y + ty
-                        if sy >= 0 and sy < H then
+                        if sy >= ky0 and sy < ky1 then
                             for tx = 0, sz - 1 do
                                 local sx = x + tx
-                                if sx >= 0 and sx < W then
+                                if sx >= kx0 and sx < kx1 then
                                     local o = (ty * sz + tx) * 4
                                     local a = buffer.readu8(px, o + 3)
                                     if a > 0 then
@@ -43,11 +48,11 @@ local function composite(gui)
                         end
                     end
                 end
-                walk(c, x, y)
+                walk(c, x, y, cx0, cy0, cx1, cy1)
             end
         end
     end
-    walk(gui, 0, 0)
+    walk(gui, 0, 0, 0, 0, W, H)
     return screen
 end
 
