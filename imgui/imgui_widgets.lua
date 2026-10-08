@@ -2704,6 +2704,7 @@ end
 --- @param format?    string
 --- @param flags?     ImGuiInputTextFlags
 function ImGui.InputScalarN(label, data_type, data, components, step, step_fast, format, flags)
+    if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return false
@@ -3052,6 +3053,8 @@ end
 --- @param format    string
 --- @param flags     ImGuiSliderFlags
 function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, flags)
+    if v_speed == nil then v_speed = 1.0 end
+    if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return data, false
@@ -3922,6 +3925,7 @@ end
 --- @param format?   string
 --- @param flags?    ImGuiSliderFlags
 function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, flags)
+    if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return data, false
@@ -4776,7 +4780,20 @@ end
 --- @param flags              ImGuiInputTextFlags
 --- @param callback?          ImGuiInputTextCallback
 --- @param callback_user_data any
+local HintBufCache = setmetatable({}, { __mode = "k" })
+local function HintToBuf(hint)
+    local t = HintBufCache[hint]
+    if t == nil then
+        t = {}
+        for i = 1, #hint do t[i] = string.byte(hint, i) end
+        t[#hint + 1] = 0
+        HintBufCache[hint] = t
+    end
+    return t
+end
+
 function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback, callback_user_data)
+    if type(hint) == "string" then hint = HintToBuf(hint) end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return false
@@ -5823,6 +5840,7 @@ local fmt_table_float = {
 --- @param col   float[]
 --- @param flags ImGuiColorEditFlags
 function ImGui.ColorEdit4(label, col, flags)
+    if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return false
@@ -6074,12 +6092,14 @@ end
 --- @param flags? ImGuiColorEditFlags
 function ImGui.ColorEdit3(label, col, flags)
     if flags == nil then flags = 0 end
+    if flags == nil then flags = 0 end
 
     return ImGui.ColorEdit4(label, col, bit32.bor(flags, ImGuiColorEditFlags.NoAlpha))
 end
 
 -- `col` mutated in place, returns value_changed
 function ImGui.ColorPicker3(label, col, flags)
+    if flags == nil then flags = 0 end
     local col4 = { col[1], col[2], col[3], 1.0 }
     if not ImGui.ColorPicker4(label, col4, bit32.bor(flags or 0, ImGuiColorEditFlags.NoAlpha)) then
         return false
@@ -6122,6 +6142,7 @@ local backup_initial_col = {0, 0, 0, 0}
 --- @param flags    ImGuiColorEditFlags
 --- @param ref_col? float[]
 function ImGui.ColorPicker4(label, col, flags, ref_col)
+    if flags == nil then flags = 0 end
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return false
@@ -7356,17 +7377,45 @@ function ImGui.SetNextItemStorageID(storage_id)
     g.NextItemData.StorageId = storage_id
 end
 
+-- Overloads: CollapsingHeader(label, flags?) -> is_open
+--            CollapsingHeader(label, p_visible: bool, flags?) -> is_open, p_visible
 --- @param label  string
---- @param flags? ImGuiTreeNodeFlags
-function ImGui.CollapsingHeader(label, flags)
+function ImGui.CollapsingHeader(label, a, b)
+    local p_visible, flags
+    if type(a) == "boolean" then p_visible, flags = a, b else flags = a end
     if flags == nil then flags = 0 end
 
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
-        return false
+        return false, p_visible
     end
+
+    if p_visible == false then
+        return false, p_visible
+    end
+
     local id = window:GetID(label)
-    return ImGui.TreeNodeBehavior(id, bit32.bor(flags, ImGuiTreeNodeFlags.CollapsingHeader), label)
+    flags = bit32.bor(flags, ImGuiTreeNodeFlags.CollapsingHeader)
+    if p_visible ~= nil then
+        flags = bit32.bor(flags, ImGuiTreeNodeFlags.AllowOverlap, ImGuiTreeNodeFlags.ClipLabelForTrailingButton)
+    end
+    local is_open = ImGui.TreeNodeBehavior(id, flags, label)
+    if p_visible ~= nil then
+        -- Create a small overlapping close button
+        local g = GImGui
+        local last_item_backup = ImGuiLastItemData()
+        ImGuiLastItemData_Copy(last_item_backup, g.LastItemData)
+        local button_size = g.FontSize
+        local button_x = ImMax(g.LastItemData.Rect.Min.x, g.LastItemData.Rect.Max.x - g.Style.FramePadding.x - button_size)
+        local button_y = g.LastItemData.Rect.Min.y + g.Style.FramePadding.y
+        local close_button_id = ImGui.GetIDWithSeed("#CLOSE", nil, id)
+        if ImGui.CloseButton(close_button_id, ImVec2(button_x, button_y)) then
+            p_visible = false
+        end
+        ImGuiLastItemData_Copy(g.LastItemData, last_item_backup)
+    end
+
+    return is_open, p_visible
 end
 
 ----------------------------------------------------------------
