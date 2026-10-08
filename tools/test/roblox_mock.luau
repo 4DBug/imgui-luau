@@ -160,7 +160,7 @@ ROBLOX = setmetatable({
     Color3 = { new = function(r, g, b) return { R = r or 0, G = g or 0, B = b or 0 } end },
     Content = { fromObject = function(o) return { Object = o } end },
     warn = function(...) print("WARN", ...) end,
-    os = { clock = function() return FAKE_TIME end, time = os.time },
+    os = { clock = function() return FAKE_TIME end, time = os.time, realclock = os.clock },
 }, { __index = realG })
 
 local mod = newInst("ModuleScript", "ImGui", ReplicatedStorage); rawset(mod, "_src", "ImGui.luau")
