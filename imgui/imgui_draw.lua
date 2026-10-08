@@ -4641,6 +4641,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
 
     local word_wrap_eol
     local stop = false
+    local text_is_str = type(text) == "string"
+    local lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
 
     while s < text_end do
         repeat
@@ -4662,7 +4664,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             end
         end
 
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end
         if c < 0x80 then
             s = s + 1
         else
@@ -4687,7 +4690,14 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             end
         end
 
-        local glyph = baked:FindGlyph(c)
+        local glyph
+        local gi = (c < lookup_n) and lookup[c + 1] or nil
+        if gi ~= nil and gi ~= IM_FONTGLYPH_INDEX_NOT_FOUND and gi ~= IM_FONTGLYPH_INDEX_UNUSED then
+            glyph = glyphs[gi]
+        else
+            glyph = baked:FindGlyph(c) -- may load the glyph and grow the tables
+            lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
+        end
 
         local char_width = glyph.AdvanceX * scale
         if glyph.Visible then

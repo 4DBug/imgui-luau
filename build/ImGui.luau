@@ -353,9 +353,29 @@ end
 --- @param size int?
 --- @param seed int?
 --- @return int
+-- [Luau] memo for whole-string hashes: labels are re-hashed with the same seed every frame.
+-- ponytail: whole-memo reset at HASH_MEMO_MAX entries, LRU if ID churn makes it thrash
+local hash_memo, hash_memo_n, HASH_MEMO_MAX = {}, 0, 16384
+local ImHashStrRaw
+
 function ImHashStr(str, size, seed)
-    if size == nil then size = #str end
-    if seed == nil then seed = 0    end
+    if seed == nil then seed = 0 end
+    if size == nil or size == #str then
+        local m = hash_memo[seed]
+        if m == nil then m = {}; hash_memo[seed] = m end
+        local h = m[str]
+        if h == nil then
+            if hash_memo_n >= HASH_MEMO_MAX then hash_memo = { [seed] = m }; table.clear(m); hash_memo_n = 0 end
+            h = ImHashStrRaw(str, #str, seed)
+            m[str] = h
+            hash_memo_n += 1
+        end
+        return h
+    end
+    return ImHashStrRaw(str, size, seed)
+end
+
+function ImHashStrRaw(str, size, seed)
 
     if str == "" or size == 0 then
         return seed -- need to match cpp code edge case behavior while using FNV ourselves
@@ -30318,6 +30338,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
 
     local word_wrap_eol
     local stop = false
+    local text_is_str = type(text) == "string"
+    local lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
 
     while s < text_end do
         repeat
@@ -30339,7 +30361,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             end
         end
 
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end
         if c < 0x80 then
             s = s + 1
         else
@@ -30364,7 +30387,14 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             end
         end
 
-        local glyph = baked:FindGlyph(c)
+        local glyph
+        local gi = (c < lookup_n) and lookup[c + 1] or nil
+        if gi ~= nil and gi ~= IM_FONTGLYPH_INDEX_NOT_FOUND and gi ~= IM_FONTGLYPH_INDEX_UNUSED then
+            glyph = glyphs[gi]
+        else
+            glyph = baked:FindGlyph(c) -- may load the glyph and grow the tables
+            lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
+        end
 
         local char_width = glyph.AdvanceX * scale
         if glyph.Visible then
@@ -62261,6 +62291,7 @@ return {
     ImGui_ImplRoblox_UpdateTexture = ImGui_ImplRoblox_UpdateTexture,
     ImHashData = ImHashData,
     ImHashStr = ImHashStr,
+    ImHashStrRaw = ImHashStrRaw,
     ImIsPowerOfTwo = ImIsPowerOfTwo,
     ImLengthSqr = ImLengthSqr,
     ImLerp = ImLerp,

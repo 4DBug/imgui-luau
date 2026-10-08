@@ -342,9 +342,29 @@ end
 --- @param size int?
 --- @param seed int?
 --- @return int
+-- [Luau] memo for whole-string hashes: labels are re-hashed with the same seed every frame.
+-- ponytail: whole-memo reset at HASH_MEMO_MAX entries, LRU if ID churn makes it thrash
+local hash_memo, hash_memo_n, HASH_MEMO_MAX = {}, 0, 16384
+local ImHashStrRaw
+
 function ImHashStr(str, size, seed)
-    if size == nil then size = #str end
-    if seed == nil then seed = 0    end
+    if seed == nil then seed = 0 end
+    if size == nil or size == #str then
+        local m = hash_memo[seed]
+        if m == nil then m = {}; hash_memo[seed] = m end
+        local h = m[str]
+        if h == nil then
+            if hash_memo_n >= HASH_MEMO_MAX then hash_memo = { [seed] = m }; table.clear(m); hash_memo_n = 0 end
+            h = ImHashStrRaw(str, #str, seed)
+            m[str] = h
+            hash_memo_n += 1
+        end
+        return h
+    end
+    return ImHashStrRaw(str, size, seed)
+end
+
+function ImHashStrRaw(str, size, seed)
 
     if str == "" or size == 0 then
         return seed -- need to match cpp code edge case behavior while using FNV ourselves
