@@ -33718,10 +33718,23 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     PE()
 
     -- Render rate cap: textures are always updated (imgui expects it), tiles only at bd.RenderRate Hz
-    if bd.RenderRate > 0 then
+    -- Optional lower cap while scrolling / resizing / moving a window (SetBusyRenderRate, off by default)
+    local rate = bd.RenderRate
+    if bd.BusyRenderRate > 0 then
+        local g = ImGui.GetCurrentContext()
+        local busy = g.WheelingWindow ~= nil or g.MovingWindow ~= nil -- (io.MouseWheel is already cleared by EndFrame)
+        if not busy and g.ActiveId ~= 0 then
+            local w = g.ActiveIdWindow
+            local cur = g.MouseCursor -- ResizeAll..ResizeNWSE while a resize grip/border is held
+            busy = (cur >= ImGuiMouseCursor.ResizeAll and cur <= ImGuiMouseCursor.ResizeNWSE)
+                or (w ~= nil and (g.ActiveId == ImGui.GetWindowScrollbarID(w, ImGuiAxis.X) or g.ActiveId == ImGui.GetWindowScrollbarID(w, ImGuiAxis.Y)))
+        end
+        if busy and (rate <= 0 or bd.BusyRenderRate < rate) then rate = bd.BusyRenderRate end
+    end
+    if rate > 0 then
         local now = os.clock()
         if now + 0.002 < bd.NextRender then PE(); return end
-        bd.NextRender = math.max(bd.NextRender + 1 / bd.RenderRate, now)
+        bd.NextRender = math.max(bd.NextRender + 1 / rate, now)
     end
 
     local sw, sh = floor(draw_data.DisplaySize.x), floor(draw_data.DisplaySize.y)
@@ -33980,7 +33993,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Layers = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
+        Layers = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, BusyRenderRate = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -34090,6 +34103,11 @@ function ImGui_ImplRoblox_SetRenderRate(hz)
     ImGui_ImplRoblox_GetBackendData().RenderRate = hz or 0
 end
 
+--- Optional: max tile redraws per second while scrolling, resizing or moving a window (0 = off, the default)
+function ImGui_ImplRoblox_SetBusyRenderRate(hz)
+    ImGui_ImplRoblox_GetBackendData().BusyRenderRate = hz or 0
+end
+
 --- Toggle MicroProfiler labels (debug.profilebegin) for the backend
 function ImGui_ImplRoblox_SetProfiling(enabled) profiling = enabled and true or false end
 local function ImGui_ImplRoblox_IsProfiling() return profiling end
@@ -34110,6 +34128,7 @@ ImGui_ImplRoblox = {
     AddFile        = ImGui_ImplRoblox_AddFile,
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
+    SetBusyRenderRate = ImGui_ImplRoblox_SetBusyRenderRate,
     SetProfiling   = ImGui_ImplRoblox_SetProfiling,
     IsProfiling    = ImGui_ImplRoblox_IsProfiling,
 }
@@ -62511,6 +62530,7 @@ return {
     ImGui_ImplRoblox_Init = ImGui_ImplRoblox_Init,
     ImGui_ImplRoblox_NewFrame = ImGui_ImplRoblox_NewFrame,
     ImGui_ImplRoblox_RenderDrawData = ImGui_ImplRoblox_RenderDrawData,
+    ImGui_ImplRoblox_SetBusyRenderRate = ImGui_ImplRoblox_SetBusyRenderRate,
     ImGui_ImplRoblox_SetProfiling = ImGui_ImplRoblox_SetProfiling,
     ImGui_ImplRoblox_SetRenderRate = ImGui_ImplRoblox_SetRenderRate,
     ImGui_ImplRoblox_SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
