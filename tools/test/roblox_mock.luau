@@ -60,6 +60,7 @@ local InstMethods = {}
 local InstMT = {}
 InstMT.__index = function(t, k)
     if k == "Parent" then return rawget(t, "_parent") end
+    local pv = rawget(t, "_props")[k]; if pv ~= nil then return pv end
     local m = InstMethods[k]; if m then return m end
     for _, c in ipairs(rawget(t, "_children")) do if c.Name == k then return c end end
     return nil
@@ -71,13 +72,18 @@ InstMT.__newindex = function(t, k, v)
         rawset(t, "_parent", v)
         if v then table.insert(rawget(v, "_children"), t) end
     else
-        rawset(t, k, v)
+        local props = rawget(t, "_props")
+        local old = props[k]
+        props[k] = v
+        local sigs = rawget(t, "_propsigs")
+        if sigs and sigs[k] and old ~= v then sigs[k]:Fire() end
     end
 end
 local function newInst(class, name, parent)
-    local o = setmetatable({ ClassName = class, Name = name or class, _children = {} }, InstMT)
+    local o = setmetatable({ _children = {}, _props = { ClassName = class, Name = name or class } }, InstMT)
     if class == "ScreenGui" or class == "Frame" or class == "ImageLabel" then o.AbsoluteSize = v2(SCREEN_W, SCREEN_H) end
     o.Visible = true
+    if class == "TextBox" then rawget(o, "_props").FocusLost = Signal() end
     if class == "BindableEvent" then local sig = Signal(); rawset(o, "Event", sig); rawset(o, "Fire", function(_, ...) sig:Fire(...) end) end
     if parent then o.Parent = parent end
     return o
@@ -95,6 +101,14 @@ function InstMethods:IsA(class)
     return self.ClassName == class
 end
 function InstMethods:Destroy() self.Parent = nil end
+local focused_box = nil
+function InstMethods:GetPropertyChangedSignal(prop)
+    local sigs = rawget(self, "_propsigs") or {}; rawset(self, "_propsigs", sigs)
+    sigs[prop] = sigs[prop] or Signal(); return sigs[prop]
+end
+function InstMethods:CaptureFocus() focused_box = self end
+function InstMethods:_loseFocus() if focused_box == self then focused_box = nil; local fl = rawget(self, "_props").FocusLost; if fl then fl:Fire(false) end end end
+function InstMethods:ReleaseFocus() self:_loseFocus() end
 
 -- Services
 local mouse = v2(0, 0)
@@ -103,6 +117,7 @@ local UIS = {
     InputBegan = Signal(), InputEnded = Signal(), InputChanged = Signal(), WindowFocused = Signal(), WindowFocusReleased = Signal(),
 }
 function UIS:GetMouseLocation() return mouse end
+function UIS:GetFocusedTextBox() return focused_box end
 function UIS:IsKeyDown(kc) return keys_down[kc] == true end
 
 local RunService = { Heartbeat = Signal(), Stepped = Signal(), PreAnimation = Signal(), RenderStepped = Signal() }
