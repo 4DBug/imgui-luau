@@ -30788,11 +30788,13 @@ local function GetTile(bd, index, tx, ty)
     label.Name = "Tile" .. index
     label.BackgroundTransparency = 1
     label.BorderSizePixel = 0
-    label.Size = UDim2.fromOffset(TILE, TILE)
-    label.Position = UDim2.fromOffset(tx * TILE, ty * TILE)
+    local scale = bd.Scale
+    label.Size = UDim2.fromOffset(TILE / scale, TILE / scale)
+    label.Position = UDim2.fromOffset(tx * TILE / scale, ty * TILE / scale)
     label.ResampleMode = Enum.ResamplerMode.Pixelated
     label.ImageContent = Content.fromObject(img)
     label.Visible = false
+    label.Active = bd.TilesActive
     label.Parent = bd.Gui
     tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false }
     bd.Tiles[index] = tile
@@ -30965,7 +30967,10 @@ end
 ---------------------------------------------------------
 
 --- @param parent Instance? # where the ScreenGui goes, defaults to the local player's PlayerGui
-function ImGui_ImplRoblox_Init(parent)
+--- @param render_scale number? # imgui pixels per Roblox UI point (defaults to 1). Roblox UI points are scaled by the
+---                             # OS display scale, so on a 150% display pass 1.5 to render at physical resolution
+---                             # (imgui then looks the same size as a desktop imgui app). Change later with SetRenderScale().
+function ImGui_ImplRoblox_Init(parent, render_scale)
     local io = ImGui.GetIO()
 
     local gui = Instance.new("ScreenGui")
@@ -30978,7 +30983,7 @@ function ImGui_ImplRoblox_Init(parent)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Tiles = {}, TileCols = 0, TileRows = 0, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
+        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TilesActive = false, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -31055,7 +31060,7 @@ function ImGui_ImplRoblox_NewFrame()
     local bd = ImGui_ImplRoblox_GetBackendData()
 
     local screen = bd.Gui.AbsoluteSize
-    local w, h = floor(screen.X), floor(screen.Y)
+    local w, h = floor(screen.X * bd.Scale), floor(screen.Y * bd.Scale)
     if w ~= bd.ScreenW or h ~= bd.ScreenH then
         bd.ScreenW, bd.ScreenH = w, h
         ImGui_ImplRoblox_UpdateMonitors(w, h)
@@ -31070,8 +31075,24 @@ function ImGui_ImplRoblox_NewFrame()
     if m.X ~= bd.MouseX or m.Y ~= bd.MouseY then
         bd.MouseX, bd.MouseY = m.X, m.Y
         io:AddMouseSourceEvent(ImGuiMouseSource.Mouse)
-        io:AddMousePosEvent(m.X, m.Y)
+        io:AddMousePosEvent(m.X * bd.Scale, m.Y * bd.Scale)
     end
+
+    -- While the mouse is over imgui, make the tiles Active so Roblox stops passing clicks/wheel to the game (camera zoom etc.)
+    local want = io.WantCaptureMouse
+    if want ~= bd.TilesActive then
+        bd.TilesActive = want
+        for _, tile in pairs(bd.Tiles) do tile.Label.Active = want end
+    end
+end
+
+function ImGui_ImplRoblox_SetRenderScale(scale)
+    local bd = ImGui_ImplRoblox_GetBackendData()
+    if scale == bd.Scale then return end
+    bd.Scale = scale
+    DestroyTiles(bd)
+    bd.TileCols, bd.TileRows = 0, 0
+    bd.ForceRedraw = true
 end
 
 ImGui_ImplRoblox = {
@@ -31080,6 +31101,7 @@ ImGui_ImplRoblox = {
     NewFrame       = ImGui_ImplRoblox_NewFrame,
     RenderDrawData = ImGui_ImplRoblox_RenderDrawData,
     AddFile        = ImGui_ImplRoblox_AddFile,
+    SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
 }
 
 return true -- [Roblox] ModuleScripts must return exactly one value
@@ -53813,6 +53835,7 @@ return {
     ImGui_ImplRoblox_Init = ImGui_ImplRoblox_Init,
     ImGui_ImplRoblox_NewFrame = ImGui_ImplRoblox_NewFrame,
     ImGui_ImplRoblox_RenderDrawData = ImGui_ImplRoblox_RenderDrawData,
+    ImGui_ImplRoblox_SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     ImGui_ImplRoblox_Shutdown = ImGui_ImplRoblox_Shutdown,
     ImGui_ImplRoblox_UpdateTexture = ImGui_ImplRoblox_UpdateTexture,
     ImHashData = ImHashData,

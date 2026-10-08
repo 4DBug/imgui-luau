@@ -8,6 +8,9 @@ local G = require(ReplicatedStorage:WaitForChild("ImGui"))
 local ImGui, ImVec4, ImGuiConfigFlags, ImGui_ImplRoblox = G.ImGui, G.ImVec4, G.ImGuiConfigFlags, G.ImGui_ImplRoblox
 
 local main_scale = 1.0
+-- Roblox UI points are multiplied by the OS display scale (e.g. 150%), which makes imgui look large.
+-- Set this to your display scale to render imgui at physical-pixel resolution (same size as a desktop imgui app).
+local render_scale = 1.0
 local clear_color = ImVec4(0.45, 0.55, 0.60, 1.00)
 local show_demo_window = true
 local show_another_window = false
@@ -23,7 +26,7 @@ local style = ImGui.GetStyle()
 style:ScaleAllSizes(main_scale)
 style.FontScaleDpi = main_scale
 
-ImGui_ImplRoblox.Init()
+ImGui_ImplRoblox.Init(nil, render_scale)
 
 RunService.Stepped:Connect(function()
     ImGui_ImplRoblox.NewFrame()
