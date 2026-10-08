@@ -2804,6 +2804,195 @@ local function Tables_Advanced()
     end
 end
 
+local DCS = { selected = -1, h_borders = true, v_borders = true, columns_count = 4, foo = 1.0, bar = 1.0 }
+
+local function DemoWindowColumns()
+    local open = ImGui.TreeNode("Legacy Columns API")
+    ImGui.SameLine()
+    DemoHelpMarker("Columns() is an old API! Prefer using the more flexible and powerful BeginTable() API!")
+    if not open then
+        return
+    end
+
+    -- Basic columns
+    if ImGui.TreeNode("Basic") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Basic")
+        ImGui.Text("Without border:")
+        ImGui.Columns(3, "mycolumns3", false) -- 3-ways, no border
+        ImGui.Separator()
+        for n = 0, 13 do
+            local label = string.format("Item %d", n)
+            if ImGui.Selectable(label) then end
+            ImGui.NextColumn()
+        end
+        ImGui.Columns(1)
+        ImGui.Separator()
+
+        ImGui.Text("With border:")
+        ImGui.Columns(4, "mycolumns") -- 4-ways, with border
+        ImGui.Separator()
+        ImGui.Text("ID"); ImGui.NextColumn()
+        ImGui.Text("Name"); ImGui.NextColumn()
+        ImGui.Text("Path"); ImGui.NextColumn()
+        ImGui.Text("Hovered"); ImGui.NextColumn()
+        ImGui.Separator()
+        local names = { "One", "Two", "Three" }
+        local paths = { "/path/one", "/path/two", "/path/three" }
+        for i = 0, 2 do
+            local label = string.format("%04d", i)
+            if ImGui.Selectable(label, DCS.selected == i, ImGuiSelectableFlags.SpanAllColumns) then
+                DCS.selected = i
+            end
+            local hovered = ImGui.IsItemHovered()
+            ImGui.NextColumn()
+            ImGui.Text(names[i + 1]); ImGui.NextColumn()
+            ImGui.Text(paths[i + 1]); ImGui.NextColumn()
+            ImGui.Text("%d", hovered and 1 or 0); ImGui.NextColumn()
+        end
+        ImGui.Columns(1)
+        ImGui.Separator()
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNode("Borders") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Borders")
+        -- NB: Future columns API should allow automatic horizontal borders.
+        local lines_count = 3
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        DCS.columns_count = ImGui.DragInt("##columns_count", DCS.columns_count, 0.1, 2, 10, "%d columns")
+        if DCS.columns_count < 2 then
+            DCS.columns_count = 2
+        end
+        ImGui.SameLine()
+        _, DCS.h_borders = ImGui.Checkbox("horizontal", DCS.h_borders)
+        ImGui.SameLine()
+        _, DCS.v_borders = ImGui.Checkbox("vertical", DCS.v_borders)
+        ImGui.Columns(DCS.columns_count, nil, DCS.v_borders)
+        for i = 0, DCS.columns_count * lines_count - 1 do
+            if DCS.h_borders and ImGui.GetColumnIndex() == 0 then
+                ImGui.Separator()
+            end
+            ImGui.PushID(i)
+            local c = string.char(string.byte("a") + i)
+            ImGui.Text("%s%s%s", c, c, c)
+            ImGui.Text("Width %.2f", ImGui.GetColumnWidth())
+            ImGui.Text("Avail %.2f", ImGui.GetContentRegionAvail().x)
+            ImGui.Text("Offset %.2f", ImGui.GetColumnOffset())
+            ImGui.Text("Long text that is likely to clip")
+            ImGui.Button("Button", ImVec2(-FLT_MIN, 0.0))
+            ImGui.PopID()
+            ImGui.NextColumn()
+        end
+        ImGui.Columns(1)
+        if DCS.h_borders then
+            ImGui.Separator()
+        end
+        ImGui.TreePop()
+    end
+
+    -- Create multiple items in a same cell before switching to next column
+    if ImGui.TreeNode("Mixed items") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Mixed items")
+        ImGui.Columns(3, "mixed")
+        ImGui.Separator()
+
+        ImGui.Text("Hello")
+        ImGui.Button("Banana")
+        ImGui.NextColumn()
+
+        ImGui.Text("ImGui")
+        ImGui.Button("Apple")
+        DCS.foo = ImGui.InputFloat("red", DCS.foo, 0.05, 0, "%.3f")
+        ImGui.Text("An extra line here.")
+        ImGui.NextColumn()
+
+        ImGui.Text("Sailor")
+        ImGui.Button("Corniflower")
+        DCS.bar = ImGui.InputFloat("blue", DCS.bar, 0.05, 0, "%.3f")
+        ImGui.NextColumn()
+
+        if ImGui.CollapsingHeader("Category A") then ImGui.Text("Blah blah blah") end ImGui.NextColumn()
+        if ImGui.CollapsingHeader("Category B") then ImGui.Text("Blah blah blah") end ImGui.NextColumn()
+        if ImGui.CollapsingHeader("Category C") then ImGui.Text("Blah blah blah") end ImGui.NextColumn()
+        ImGui.Columns(1)
+        ImGui.Separator()
+        ImGui.TreePop()
+    end
+
+    -- Word wrapping
+    if ImGui.TreeNode("Word-wrapping") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Word-wrapping")
+        ImGui.Columns(2, "word-wrapping")
+        ImGui.Separator()
+        ImGui.TextWrapped("The quick brown fox jumps over the lazy dog.")
+        ImGui.TextWrapped("Hello Left")
+        ImGui.NextColumn()
+        ImGui.TextWrapped("The quick brown fox jumps over the lazy dog.")
+        ImGui.TextWrapped("Hello Right")
+        ImGui.Columns(1)
+        ImGui.Separator()
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNode("Horizontal Scrolling") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Horizontal Scrolling")
+        ImGui.SetNextWindowContentSize(ImVec2(1500.0, 0.0))
+        local child_size = ImVec2(0, ImGui.GetFontSize() * 20.0)
+        ImGui.BeginChild("##ScrollingRegion", child_size, ImGuiChildFlags.None, ImGuiWindowFlags.HorizontalScrollbar)
+        ImGui.Columns(10)
+
+        -- Also demonstrate using clipper for large vertical lists
+        local ITEMS_COUNT = 2000
+        local clipper = ImGuiListClipper()
+        clipper:Begin(ITEMS_COUNT)
+        while clipper:Step() do
+            for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                for j = 0, 9 do
+                    ImGui.Text("Line %d Column %d...", i, j)
+                    ImGui.NextColumn()
+                end
+            end
+        end
+        ImGui.Columns(1)
+        ImGui.EndChild()
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNode("Tree") then
+        IMGUI_DEMO_MARKER("Columns (legacy API)/Tree")
+        ImGui.Columns(2, "tree", true)
+        for x = 0, 2 do
+            local open1 = ImGui.TreeNode(x, "Node%d", x)
+            ImGui.NextColumn()
+            ImGui.Text("Node contents")
+            ImGui.NextColumn()
+            if open1 then
+                for y = 0, 2 do
+                    local open2 = ImGui.TreeNode(y, "Node%d.%d", x, y)
+                    ImGui.NextColumn()
+                    ImGui.Text("Node contents")
+                    if open2 then
+                        ImGui.Text("Even more contents")
+                        if ImGui.TreeNode("Tree in column") then
+                            ImGui.Text("The quick brown fox jumps over the lazy dog")
+                            ImGui.TreePop()
+                        end
+                    end
+                    ImGui.NextColumn()
+                    if open2 then
+                        ImGui.TreePop()
+                    end
+                end
+                ImGui.TreePop()
+            end
+        end
+        ImGui.Columns(1)
+        ImGui.TreePop()
+    end
+
+    ImGui.TreePop()
+end
+
 local tables_sections = {
     { "Basic", Tables_Basic },
     { "Borders, background", Tables_BordersBackground },
@@ -2882,4 +3071,3 @@ function DemoWindowTables()
     end
 end
 
---@@COLUMNS@@

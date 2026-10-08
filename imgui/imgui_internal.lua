@@ -2273,6 +2273,7 @@ local function ImGuiWindowTempData()
 
         IsSameLine = false,
         IsSetPos = false,
+        NavLayersActiveMask = 0, NavLayersActiveMaskNext = 0,
 
         Indent                  = ImVec1(),
         ColumnsOffset           = ImVec1(),
