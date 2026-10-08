@@ -435,7 +435,8 @@ IMGUI_WINDOW_HARD_MIN_SIZE = 4.0
 IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48
 IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE
 
-function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
+-- Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
+function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
 function IMGUI_DEBUG_LOG_ACTIVEID(_str, ...) local g  = GImGui if bitAnd(g.DebugLogFlags, ImGuiDebugLogFlags.EventActiveId) ~= 0 then print(string.format(_str, ...)) end end
@@ -772,6 +773,11 @@ end
 function IM_RECT:Translate(d)
     self[1][1] = self[1][1] + d[1]; self[1][2] = self[1][2] + d[2]
     self[2][1] = self[2][1] + d[1]; self[2][2] = self[2][2] + d[2]
+end
+
+--- @param dx float
+function IM_RECT:TranslateX(dx)
+    self[1][1] = self[1][1] + dx; self[2][1] = self[2][1] + dx
 end
 
 --- @param dy float
