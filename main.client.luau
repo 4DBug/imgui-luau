@@ -75,6 +75,7 @@ end
 
 ImGui_ImplRoblox.Init(nil, render_scale)
 ImGui_ImplRoblox.SetRenderRate(60) -- tile redraws per second; imgui logic + your code still run every frame
+-- ImGui_ImplRoblox.SetBusyRenderRate(30) -- optional: lower redraw rate while scrolling/resizing/moving windows
 ImGui_ImplRoblox.SetProfiling(true) -- MicroProfiler (Ctrl+F6) labels; turn off when not profiling
 
 local function P(name) if ImGui_ImplRoblox.IsProfiling() then debug.profilebegin(name) end end
