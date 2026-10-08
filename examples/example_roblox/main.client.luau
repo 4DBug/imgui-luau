@@ -81,6 +81,89 @@ ImGui_ImplRoblox.SetProfiling(true) -- MicroProfiler (Ctrl+F6) labels; turn off 
 local function P(name) if ImGui_ImplRoblox.IsProfiling() then debug.profilebegin(name) end end
 local function PE() if ImGui_ImplRoblox.IsProfiling() then debug.profileend() end end
 
+--------------------------------------------------------------------------------------------------------------------
+-- Custom widget: ImGui.Embed(id, size, flags, init) -> Frame
+-- Reserves a widget-sized area in the current window and shows a real Frame there, so any Instances (UI, a
+-- ViewportFrame, ...) can live inside an imgui window. Immediate-mode friendly:
+--   * one Frame per id (per window, through the ID stack, like any widget); `init(frame)` runs only when it is created
+--   * call it every frame the Frame should be visible; when it isn't called (window closed/collapsed, tab or tree node
+--     closed, scrolled fully out of view) the Frame is hidden, never destroyed, so your Instances keep their state
+--   * size uses imgui sizing (ImVec2(-1, h) = fill width, 0 = default), style gives padding/rounding/background/border
+--   * returns the Frame: edit properties, add or remove children any time
+-- ImGui.DestroyEmbed(id) removes it for good (call while the same window is current, like the widget itself).
+--------------------------------------------------------------------------------------------------------------------
+local EmbedFlags = {
+    None         = 0,
+    NoClip       = 1,  -- don't clip to the window's content area (still moves/hides/stacks with the window)
+    NoBackground = 2,  -- no FrameBg behind the Frame
+    NoBorder     = 4,  -- no style border
+    NoPadding    = 8,  -- no FramePadding inside the Frame (UIPadding)
+    NoRounding   = 16, -- no FrameRounding corners (UICorner)
+}
+G.ImGuiEmbedFlags = EmbedFlags
+
+local embeds = {} -- [ImGuiID] = { Frame, Padding, Corner }
+
+function ImGui.Embed(id, size, flags, init)
+    flags = flags or EmbedFlags.None
+    local window = ImGui.GetCurrentWindow()
+    local gid = window:GetID(id)
+    local e = embeds[gid]
+    if not e then
+        local frame = Instance.new("Frame")
+        frame.Name = tostring(id)
+        frame.BackgroundTransparency = 1
+        frame.BorderSizePixel = 0
+        frame.Visible = false
+        e = { Frame = frame, Padding = Instance.new("UIPadding"), Corner = Instance.new("UICorner") }
+        e.Padding.Parent = frame
+        e.Corner.Parent = frame
+        embeds[gid] = e
+        if init then init(frame) end
+    end
+    if window.SkipItems then return e.Frame end
+
+    local style = ImGui.GetStyle()
+    local sz = ImGui.CalcItemSize(size or G.ImVec2(0, 0), ImGui.CalcItemWidth(), ImGui.GetFrameHeight() * 4)
+    local p = window.DC.CursorPos
+    local bb = G.ImRect(p.x, p.y, p.x + sz.x, p.y + sz.y)
+    ImGui.ItemSize(sz)
+    if not ImGui.ItemAdd(bb, gid) then return e.Frame end -- fully clipped: not submitted -> hidden this frame
+
+    local rounding = bit32.band(flags, EmbedFlags.NoRounding) == 0 and style.FrameRounding or 0
+    if bit32.band(flags, EmbedFlags.NoBackground) == 0 then
+        ImGui.RenderFrame(bb.Min, bb.Max, ImGui.GetColorU32(G.ImGuiCol.FrameBg), bit32.band(flags, EmbedFlags.NoBorder) == 0, rounding)
+    elseif bit32.band(flags, EmbedFlags.NoBorder) == 0 then
+        ImGui.RenderFrameBorder(bb.Min, bb.Max, rounding)
+    end
+
+    -- style -> Instances (only written when changed)
+    local scale = ImGui_ImplRoblox.GetRenderScale()
+    local px, py = 0, 0
+    if bit32.band(flags, EmbedFlags.NoPadding) == 0 then px, py = style.FramePadding.x / scale, style.FramePadding.y / scale end
+    if e.PX ~= px or e.PY ~= py then
+        e.PX, e.PY = px, py
+        e.Padding.PaddingLeft, e.Padding.PaddingRight = UDim.new(0, px), UDim.new(0, px)
+        e.Padding.PaddingTop, e.Padding.PaddingBottom = UDim.new(0, py), UDim.new(0, py)
+    end
+    if e.R ~= rounding then e.R = rounding; e.Corner.CornerRadius = UDim.new(0, rounding / scale) end
+
+    ImGui_ImplRoblox.SetOverlay(e.Frame, bb.Min.x, bb.Min.y, sz.x, sz.y, bit32.band(flags, EmbedFlags.NoClip) == 0)
+    return e.Frame
+end
+
+function ImGui.DestroyEmbed(id)
+    local gid = ImGui.GetCurrentWindow():GetID(id)
+    local e = embeds[gid]
+    if e then e.Frame:Destroy(); embeds[gid] = nil end
+end
+
+-- Example: a ViewportFrame with a spinning part, edited live from imgui widgets
+local spin_speed = 1.0
+local part_color = ImVec4(0.80, 0.65, 0.97, 1.0)
+local spin_angle = 0.0
+local show_viewport_window = true
+
 RunService.Stepped:Connect(function()
     P("ImGui frame")
     ImGui_ImplRoblox.NewFrame()
@@ -128,6 +211,34 @@ RunService.Stepped:Connect(function()
     end
 
     PE()
+    if show_viewport_window then
+        show_viewport_window = ImGui.Begin("Viewport", show_viewport_window)
+        spin_speed = ImGui.SliderFloat("speed", spin_speed, 0.0, 5.0)
+        ImGui.ColorEdit3("color", part_color)
+        local frame = ImGui.Embed("viewport", G.ImVec2(-1, 220), G.ImGuiEmbedFlags.None, function(f)
+            -- runs once
+            local vpf = Instance.new("ViewportFrame")
+            vpf.Size = UDim2.fromScale(1, 1)
+            vpf.BackgroundTransparency = 1
+            vpf.Parent = f
+            local cam = Instance.new("Camera")
+            cam.CFrame = CFrame.lookAt(Vector3.new(0, 2, 6), Vector3.new(0, 0, 0))
+            cam.Parent = vpf
+            vpf.CurrentCamera = cam
+            local part = Instance.new("Part")
+            part.Name = "Spinner"
+            part.Size = Vector3.new(2, 2, 2)
+            part.Parent = vpf
+        end)
+        -- every frame: edit what was created once
+        spin_angle += spin_speed * io.DeltaTime
+        local part = frame.ViewportFrame.Spinner
+        part.CFrame = CFrame.Angles(0.4, spin_angle, 0)
+        part.Color = Color3.new(part_color.x, part_color.y, part_color.z)
+        ImGui.Text("Frames created: 1 (same Frame every frame)")
+        ImGui.End()
+    end
+
     P("ImGui.Render"); ImGui.EndFrame(); ImGui.Render(); PE()
     ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     PE()
