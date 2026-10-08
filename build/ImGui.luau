@@ -100,6 +100,12 @@ IM_INCLUDE"imgui_widgets.lua"
 
 IM_INCLUDE"imgui_tables.lua"
 
+IM_INCLUDE"imgui_tabs.lua"
+
+IM_INCLUDE"imgui_dragdrop.lua"
+
+IM_INCLUDE"imgui_docking.lua"
+
 local IMGUI_DEBUG_NAV_SCORING = false
 local IMGUI_DEBUG_NAV_RECTS = false
 
@@ -885,6 +891,9 @@ function ImGui.Initialize()
     local g = GImGui
     IM_ASSERT(not g.Initialized and not g.SettingsLoaded)
 
+    ImGui.WindowSettingsAddSettingsHandler()
+    if ImGui.TableSettingsAddSettingsHandler then ImGui.TableSettingsAddSettingsHandler() end
+    ImGui.DockContextInitialize(g)
     ImGui.LocalizeRegisterEntries(GLocalizationEntriesEnUS, #GLocalizationEntriesEnUS)
 
     local viewport = ImGuiViewportP()
@@ -1072,6 +1081,434 @@ local function CreateNewWindow(name, flags)
     end
 
     return window
+end
+
+
+---------------------------------------------------------------------------------------
+-- [SECTION] SETTINGS (in-memory .ini; Roblox has no disk)
+---------------------------------------------------------------------------------------
+
+function ImGui.UpdateSettings()
+    local g = GImGui
+    if not g.SettingsLoaded then
+        if g.IO.IniFilename then ImGui.LoadIniSettingsFromDisk(g.IO.IniFilename) end
+        g.SettingsLoaded = true
+    end
+    if g.SettingsDirtyTimer > 0.0 then
+        g.SettingsDirtyTimer = g.SettingsDirtyTimer - g.IO.DeltaTime
+        if g.SettingsDirtyTimer <= 0.0 then
+            -- No disk: always let the user know they can call SaveIniSettingsToMemory()
+            g.IO.WantSaveIniSettings = true
+            g.SettingsDirtyTimer = 0.0
+        end
+    end
+end
+
+--- @param window? ImGuiWindow
+function ImGui.MarkIniSettingsDirty(window)
+    local g = GImGui
+    if window ~= nil and bit32.band(window.Flags, ImGuiWindowFlags.NoSavedSettings) ~= 0 then return end
+    if g.SettingsDirtyTimer <= 0.0 then
+        g.SettingsDirtyTimer = g.IO.IniSavingRate
+    end
+end
+
+--- @param handler ImGuiSettingsHandler
+function ImGui.AddSettingsHandler(handler)
+    local g = GImGui
+    IM_ASSERT(ImGui.FindSettingsHandler(handler.TypeName) == nil)
+    if handler.TypeHash == 0 or handler.TypeHash == nil then handler.TypeHash = ImHashStr(handler.TypeName) end
+    g.SettingsHandlers:push_back(handler)
+end
+
+function ImGui.RemoveSettingsHandler(type_name)
+    local g = GImGui
+    local handler = ImGui.FindSettingsHandler(type_name)
+    if handler then g.SettingsHandlers:find_erase(handler) end
+end
+
+function ImGui.FindSettingsHandler(type_name)
+    local g = GImGui
+    local type_hash = ImHashStr(type_name)
+    for _, handler in g.SettingsHandlers:iter() do
+        if handler.TypeHash == type_hash then return handler end
+    end
+    return nil
+end
+
+function ImGui.ClearIniSettings()
+    local g = GImGui
+    g.SettingsIniData = ""
+    for _, handler in g.SettingsHandlers:iter() do
+        if handler.ClearAllFn then handler.ClearAllFn(g, handler) end
+    end
+end
+
+function ImGui.CleanupIniSettings(args)
+    local g = GImGui
+    if args.DiscardAll then
+        for _, handler in g.SettingsHandlers:iter() do
+            if (args.TypeHashFilter or 0) == 0 or handler.TypeHash == args.TypeHashFilter then
+                if handler.ClearAllFn then handler.ClearAllFn(g, handler) end
+            end
+        end
+    end
+end
+
+function ImGui.LoadIniSettingsFromDisk(ini_filename)
+    local data = ImStd.ImFileLoadToMemory and ImStd.ImFileLoadToMemory(ini_filename, "rb")
+    if not data or #data == 0 then return end
+    local parts = {}
+    for i = 1, #data do parts[i] = string.char(data[i]) end
+    ImGui.LoadIniSettingsFromMemory(table.concat(parts))
+end
+
+--- Zero-tolerance, cheap .ini parsing. `ini_size` ignored (Lua strings know their length).
+function ImGui.LoadIniSettingsFromMemory(ini_data, ini_size)
+    local g = GImGui
+    IM_ASSERT(g.Initialized)
+    if ini_size and ini_size > 0 then ini_data = ini_data:sub(1, ini_size) end
+    g.SettingsIniData = ini_data
+
+    for _, handler in g.SettingsHandlers:iter() do
+        if handler.ReadInitFn then handler.ReadInitFn(g, handler) end
+    end
+
+    local entry_data, entry_handler = nil, nil
+    for line in ini_data:gmatch("[^\r\n]+") do
+        local c = line:sub(1, 1)
+        if c == ";" then
+            -- comment
+        elseif c == "[" and line:sub(-1) == "]" then
+            -- "[Type][Name]" (Name may contain [] characters)
+            local type_name, name = line:match("^%[([^%]]*)%]%[(.*)%]$")
+            if type_name then
+                entry_handler = ImGui.FindSettingsHandler(type_name)
+                entry_data = entry_handler and entry_handler.ReadOpenFn(g, entry_handler, name) or nil
+            else
+                entry_handler, entry_data = nil, nil
+            end
+        elseif entry_handler ~= nil and entry_data ~= nil then
+            entry_handler.ReadLineFn(g, entry_handler, entry_data, line)
+        end
+    end
+    g.SettingsLoaded = true
+
+    for _, handler in g.SettingsHandlers:iter() do
+        if handler.ApplyAllFn then handler.ApplyAllFn(g, handler) end
+    end
+end
+
+function ImGui.SaveIniSettingsToDisk(ini_filename)
+    local g = GImGui
+    g.SettingsDirtyTimer = 0.0
+    -- Roblox: no disk. Call SaveIniSettingsToMemory() and persist the string yourself (e.g. DataStore).
+end
+
+--- @return string ini_data, int size
+function ImGui.SaveIniSettingsToMemory()
+    local g = GImGui
+    g.SettingsDirtyTimer = 0.0
+    local buf = ImGuiTextBuffer()
+    for _, handler in g.SettingsHandlers:iter() do
+        handler.WriteAllFn(g, handler, buf)
+    end
+    g.SettingsIniData = buf:c_str()
+    return g.SettingsIniData, #g.SettingsIniData
+end
+
+function ImGui.CreateNewWindowSettings(name)
+    local g = GImGui
+    if not g.IO.ConfigDebugIniSettings then
+        -- ImHashSkipUncontributingPrefix: skip everything up to the last "###"
+        local p = name:match("^.*()###")
+        if p then name = name:sub(p) end
+    end
+    local settings = ImGuiWindowSettings()
+    settings.ID = ImHashStr(name)
+    settings.Name = name
+    g.SettingsWindows:push_back(settings)
+    return settings
+end
+
+function ImGui.ClearWindowSettings(name)
+    local window = ImGui.FindWindowByName(name)
+    if window ~= nil then
+        window.Flags = bit32.bor(window.Flags, ImGuiWindowFlags.NoSavedSettings)
+        InitOrLoadWindowSettings(window, nil)
+        if window.DockId and window.DockId ~= 0 and ImGui.DockContextProcessUndockWindow then
+            ImGui.DockContextProcessUndockWindow(GImGui, window, true)
+        end
+    end
+    local settings = window and ImGui.FindWindowSettingsByWindow(window) or ImGui.FindWindowSettingsByID(ImHashStr(name))
+    if settings then settings.WantDelete = true end
+end
+
+local function WindowSettingsHandler_ClearAll(ctx, handler)
+    local g = ctx
+    for _, window in g.Windows:iter() do window.SettingsOffset = -1 end
+    g.SettingsWindows:clear()
+end
+
+local function WindowSettingsHandler_ReadOpen(ctx, handler, name)
+    local id = ImHashStr(name)
+    local settings = ImGui.FindWindowSettingsByID(id)
+    if settings then
+        local fresh = ImGuiWindowSettings()
+        for k, v in pairs(fresh) do settings[k] = v end
+        settings.Name = name
+    else
+        settings = ImGui.CreateNewWindowSettings(name)
+    end
+    settings.ID = id
+    settings.WantApply = true
+    return settings
+end
+
+local function WindowSettingsHandler_ReadLine(ctx, handler, settings, line)
+    local x, y = line:match("^Pos=(%-?%d+),(%-?%d+)")
+    if x then ImVec2_CopyV(settings.Pos, tonumber(x), tonumber(y)) return end
+    x, y = line:match("^Size=(%-?%d+),(%-?%d+)")
+    if x then ImVec2_CopyV(settings.Size, tonumber(x), tonumber(y)) return end
+    x = line:match("^ViewportId=0x(%x+)")
+    if x then settings.ViewportId = tonumber(x, 16) return end
+    x, y = line:match("^ViewportPos=(%-?%d+),(%-?%d+)")
+    if x then ImVec2_CopyV(settings.ViewportPos, tonumber(x), tonumber(y)) return end
+    x = line:match("^Collapsed=(%d+)")
+    if x then settings.Collapsed = tonumber(x) ~= 0 return end
+    x = line:match("^IsChild=(%d+)")
+    if x then settings.IsChild = tonumber(x) ~= 0 return end
+    x = line:match("^LastUsed=(%d+)")
+    if x then settings.LastUsedDate = tonumber(x) return end
+    x, y = line:match("^DockId=0x(%x+),(%-?%d+)")
+    if x then settings.DockId = tonumber(x, 16); settings.DockOrder = tonumber(y) return end
+    x = line:match("^DockId=0x(%x+)")
+    if x then settings.DockId = tonumber(x, 16); settings.DockOrder = -1 return end
+    x = line:match("^ClassId=0x(%x+)")
+    if x then settings.ClassId = tonumber(x, 16) return end
+end
+
+local function WindowSettingsHandler_ApplyAll(ctx, handler)
+    local g = ctx
+    for _, settings in g.SettingsWindows:iter() do
+        if settings.WantApply then
+            local window = ImGui.FindWindowByID(settings.ID)
+            if window then ApplyWindowSettings(window, settings) end
+            settings.WantApply = false
+        end
+    end
+end
+
+local function WindowSettingsHandler_WriteAll(ctx, handler, buf)
+    local g = ctx
+    for _, window in g.Windows:iter() do
+        if bit32.band(window.Flags, ImGuiWindowFlags.NoSavedSettings) == 0 then
+            local settings = ImGui.FindWindowSettingsByWindow(window)
+            if not settings then
+                settings = ImGui.CreateNewWindowSettings(window.Name)
+                window.SettingsOffset = g.SettingsWindows:index_from_ptr(settings)
+            end
+            IM_ASSERT(settings.ID == window.ID)
+            ImVec2_CopyV(settings.Pos, ImTrunc(window.Pos.x - window.ViewportPos.x), ImTrunc(window.Pos.y - window.ViewportPos.y))
+            ImVec2_CopyV(settings.Size, ImTrunc(window.SizeFull.x), ImTrunc(window.SizeFull.y))
+            settings.ViewportId = window.ViewportId or 0
+            ImVec2_CopyV(settings.ViewportPos, ImTrunc(window.ViewportPos.x), ImTrunc(window.ViewportPos.y))
+            settings.DockId = window.DockId or 0
+            settings.ClassId = window.WindowClass and window.WindowClass.ClassId or 0
+            settings.DockOrder = window.DockOrder or -1
+            settings.Collapsed = window.Collapsed
+            settings.IsChild = (window.RootWindow ~= window)
+            settings.WantDelete = false
+        end
+    end
+
+    for _, settings in g.SettingsWindows:iter() do
+        if not settings.WantDelete then
+            buf:appendf("[%s][%s]\n", handler.TypeName, settings.Name)
+            if settings.IsChild then
+                buf:appendf("IsChild=1\n")
+                buf:appendf("Size=%d,%d\n", settings.Size.x, settings.Size.y)
+            else
+                if settings.ViewportId ~= 0 and settings.ViewportId ~= IMGUI_VIEWPORT_DEFAULT_ID then
+                    buf:appendf("ViewportPos=%d,%d\n", settings.ViewportPos.x, settings.ViewportPos.y)
+                    buf:appendf("ViewportId=0x%08X\n", settings.ViewportId)
+                end
+                if settings.Pos.x ~= 0 or settings.Pos.y ~= 0 or settings.ViewportId == IMGUI_VIEWPORT_DEFAULT_ID then
+                    buf:appendf("Pos=%d,%d\n", settings.Pos.x, settings.Pos.y)
+                end
+                if settings.Size.x ~= 0 or settings.Size.y ~= 0 then
+                    buf:appendf("Size=%d,%d\n", settings.Size.x, settings.Size.y)
+                end
+                buf:appendf("Collapsed=%d\n", settings.Collapsed and 1 or 0)
+                if settings.DockId ~= 0 then
+                    if settings.DockOrder == -1 then
+                        buf:appendf("DockId=0x%08X\n", settings.DockId)
+                    else
+                        buf:appendf("DockId=0x%08X,%d\n", settings.DockId, settings.DockOrder)
+                    end
+                    if settings.ClassId ~= 0 then buf:appendf("ClassId=0x%08X\n", settings.ClassId) end
+                end
+            end
+            buf:append("\n")
+        end
+    end
+end
+
+function ImGui.WindowSettingsAddSettingsHandler()
+    local ini_handler = ImGuiSettingsHandler()
+    ini_handler.TypeName = "Window"
+    ini_handler.TypeHash = ImHashStr("Window")
+    ini_handler.ClearAllFn = WindowSettingsHandler_ClearAll
+    ini_handler.ReadOpenFn = WindowSettingsHandler_ReadOpen
+    ini_handler.ReadLineFn = WindowSettingsHandler_ReadLine
+    ini_handler.ApplyAllFn = WindowSettingsHandler_ApplyAll
+    ini_handler.WriteAllFn = WindowSettingsHandler_WriteAll
+    ImGui.AddSettingsHandler(ini_handler)
+end
+
+---------------------------------------------------------------------------------------
+-- [SECTION] LOGGING/CAPTURING
+---------------------------------------------------------------------------------------
+
+ImGuiLogFlags = ImGuiLogFlags or {
+    None = 0, OutputTTY = 1, OutputFile = 2, OutputBuffer = 4, OutputClipboard = 8, OutputMask_ = 15,
+}
+
+local function LogTextV_Internal(g, fmt, ...)
+    local s = (select("#", ...) > 0) and string.format(fmt, ...) or fmt
+    if g.LogFile then
+        print(s) -- TTY (the only "file" available on Roblox)
+    else
+        g.LogBuffer:append(s)
+    end
+end
+
+function ImGui.LogText(fmt, ...)
+    local g = GImGui
+    if not g.LogEnabled then return end
+    LogTextV_Internal(g, fmt, ...)
+end
+ImGui.LogTextV = ImGui.LogText
+
+--- Internal version that takes a position to decide on newline placement and pad items according to their depth.
+--- `text` is a Lua string, `text_begin/text_end` optional 1-based byte range (text_end exclusive).
+function ImGui.LogRenderedText(ref_pos, text, text_end, text_begin)
+    local g = GImGui
+    local window = g.CurrentWindow
+
+    local prefix, suffix = g.LogNextPrefix, g.LogNextSuffix
+    g.LogNextPrefix = nil; g.LogNextSuffix = nil
+
+    text_begin = text_begin or 1
+    if not text_end then text_end = ImGui.FindRenderedTextEnd(text, text_end) end
+
+    local log_new_line = ref_pos and (ref_pos.y > g.LogLinePosY + ImMax(g.Style.FramePadding.y, g.Style.ItemSpacing.y) + 1)
+    if ref_pos then g.LogLinePosY = ref_pos.y end
+    if log_new_line then
+        ImGui.LogText("\n")
+        g.LogLineFirstItem = true
+    end
+
+    if prefix then ImGui.LogRenderedText(ref_pos, prefix, #prefix + 1) end
+
+    if g.LogDepthRef > window.DC.TreeDepth then g.LogDepthRef = window.DC.TreeDepth end
+    local tree_depth = window.DC.TreeDepth - g.LogDepthRef
+
+    local text_remaining = text_begin
+    while true do
+        local line_start = text_remaining
+        local nl = string.find(text, "\n", line_start, true)
+        local line_end = (nl and nl < text_end) and nl or text_end
+        local is_last_line = (line_end == text_end)
+        if line_start ~= line_end or not is_last_line then
+            local indentation = g.LogLineFirstItem and tree_depth * 4 or 1
+            ImGui.LogText(string.rep(" ", indentation) .. string.sub(text, line_start, line_end - 1))
+            g.LogLineFirstItem = false
+            if string.byte(text, line_end) == 10 then
+                ImGui.LogText("\n")
+                g.LogLineFirstItem = true
+            end
+        end
+        if is_last_line then break end
+        text_remaining = line_end + 1
+    end
+
+    if suffix then ImGui.LogRenderedText(ref_pos, suffix, #suffix + 1) end
+end
+
+function ImGui.LogBegin(flags, auto_open_depth)
+    local g = GImGui
+    local window = g.CurrentWindow
+    IM_ASSERT(g.LogEnabled == false)
+    g.LogEnabled = true; g.ItemUnclipByLog = true
+    g.LogFlags = flags
+    g.LogWindow = window
+    g.LogNextPrefix = nil; g.LogNextSuffix = nil
+    g.LogDepthRef = window.DC.TreeDepth
+    g.LogDepthToExpand = ((auto_open_depth or -1) >= 0) and auto_open_depth or g.LogDepthToExpandDefault
+    g.LogLinePosY = FLT_MAX
+    g.LogLineFirstItem = true
+    g.LogBuffer = ImGuiTextBuffer()
+end
+
+function ImGui.LogSetNextTextDecoration(prefix, suffix)
+    local g = GImGui
+    g.LogNextPrefix = prefix
+    g.LogNextSuffix = suffix
+end
+
+function ImGui.LogToTTY(auto_open_depth)
+    local g = GImGui
+    if g.LogEnabled then return end
+    ImGui.LogBegin(ImGuiLogFlags.OutputTTY, auto_open_depth or -1)
+    g.LogFile = "stdout"
+end
+
+function ImGui.LogToFile(auto_open_depth, filename)
+    -- Roblox: no file access. Falls back to TTY (output window).
+    ImGui.LogToTTY(auto_open_depth)
+end
+
+function ImGui.LogToClipboard(auto_open_depth)
+    local g = GImGui
+    if g.LogEnabled then return end
+    ImGui.LogBegin(ImGuiLogFlags.OutputClipboard, auto_open_depth or -1)
+end
+
+function ImGui.LogToBuffer(auto_open_depth)
+    local g = GImGui
+    if g.LogEnabled then return end
+    ImGui.LogBegin(ImGuiLogFlags.OutputBuffer, auto_open_depth or -1)
+end
+
+function ImGui.LogFinish()
+    local g = GImGui
+    if not g.LogEnabled then return end
+    ImGui.LogText("\n")
+    local out = bit32.band(g.LogFlags, ImGuiLogFlags.OutputMask_)
+    if out == ImGuiLogFlags.OutputClipboard then
+        if not g.LogBuffer:empty() then ImGui.SetClipboardText(g.LogBuffer:c_str()) end
+    end
+    g.LogEnabled = false; g.ItemUnclipByLog = false
+    g.LogFlags = ImGuiLogFlags.None
+    g.LogFile = nil
+    g.LogBuffer = ImGuiTextBuffer()
+end
+
+function ImGui.LogButtons()
+    local g = GImGui
+    ImGui.PushID("LogButtons")
+    local log_to_tty = ImGui.Button("Log To TTY"); ImGui.SameLine()
+    local log_to_file = ImGui.Button("Log To File"); ImGui.SameLine()
+    local log_to_clipboard = ImGui.Button("Log To Clipboard"); ImGui.SameLine()
+    ImGui.PushItemFlag(ImGuiItemFlags.NoTabStop, true)
+    ImGui.SetNextItemWidth(ImGui.CalcTextSize("999").x)
+    g.LogDepthToExpandDefault = ImGui.SliderInt("Default Depth", g.LogDepthToExpandDefault, 0, 9, nil)
+    ImGui.PopItemFlag()
+    ImGui.PopID()
+    if log_to_tty then ImGui.LogToTTY() end
+    if log_to_file then ImGui.LogToFile() end
+    if log_to_clipboard then ImGui.LogToClipboard() end
 end
 
 --- @param window ImGuiWindow
@@ -1444,6 +1881,87 @@ function ImGui.SetCursorScreenPos(pos)
     window.DC.IsSetPos = true
 end
 
+-- [window-local] cursor position, in window coordinates (relative to window position, including scrolling)
+--- @return ImVec2
+function ImGui.GetCursorPos()
+    local window = ImGui.GetCurrentWindowRead()
+    return ImVec2(window.DC.CursorPos.x - window.Pos.x + window.Scroll.x, window.DC.CursorPos.y - window.Pos.y + window.Scroll.y)
+end
+
+function ImGui.GetCursorPosX()
+    local window = ImGui.GetCurrentWindowRead()
+    return window.DC.CursorPos.x - window.Pos.x + window.Scroll.x
+end
+
+function ImGui.GetCursorPosY()
+    local window = ImGui.GetCurrentWindowRead()
+    return window.DC.CursorPos.y - window.Pos.y + window.Scroll.y
+end
+
+--- @param local_pos ImVec2
+function ImGui.SetCursorPos(local_pos)
+    local window = ImGui.GetCurrentWindow()
+    ImVec2_CopyV(window.DC.CursorPos, window.Pos.x - window.Scroll.x + local_pos.x, window.Pos.y - window.Scroll.y + local_pos.y)
+    window.DC.IsSetPos = true
+end
+
+--- @param x float
+function ImGui.SetCursorPosX(x)
+    local window = ImGui.GetCurrentWindow()
+    window.DC.CursorPos.x = window.Pos.x - window.Scroll.x + x
+    window.DC.IsSetPos = true
+end
+
+--- @param y float
+function ImGui.SetCursorPosY(y)
+    local window = ImGui.GetCurrentWindow()
+    window.DC.CursorPos.y = window.Pos.y - window.Scroll.y + y
+    window.DC.IsSetPos = true
+end
+
+--- @return ImVec2
+function ImGui.GetCursorStartPos()
+    local window = ImGui.GetCurrentWindowRead()
+    return window.DC.CursorStartPos - window.Pos
+end
+
+function ImGui.GetFrameHeightWithSpacing()
+    local g = GImGui
+    return g.FontSize + g.Style.FramePadding.y * 2.0 + g.Style.ItemSpacing.y
+end
+
+function ImGui.GetTextLineHeightWithSpacing()
+    local g = GImGui
+    return g.FontSize + g.Style.ItemSpacing.y
+end
+
+--- @return ImVec2
+function ImGui.GetContentRegionMax()
+    local window = GImGui.CurrentWindow
+    return ImGui.GetContentRegionAvail() + window.DC.CursorPos - window.Pos
+end
+
+--- @return ImVec2
+function ImGui.GetWindowContentRegionMin()
+    local window = GImGui.CurrentWindow
+    return window.ContentRegionRect.Min - window.Pos
+end
+
+--- @return ImVec2
+function ImGui.GetWindowContentRegionMax()
+    local window = GImGui.CurrentWindow
+    return window.ContentRegionRect.Max - window.Pos
+end
+
+-- Overloads: IsRectVisible(size) / IsRectVisible(rect_min, rect_max)
+function ImGui.IsRectVisible(a, b)
+    local window = GImGui.CurrentWindow
+    if b == nil then
+        return window.ClipRect:Overlaps(ImRect(window.DC.CursorPos, window.DC.CursorPos + a))
+    end
+    return window.ClipRect:Overlaps(ImRect(a, b))
+end
+
 -- Lock horizontal starting position + capture group bounding box into one "item" (so you can use IsItemHovered() or layout primitives such as SameLine() on whole group, etc.)
 -- Groups are currently a mishmash of functionalities which should perhaps be clarified and separated.
 -- FIXME-OPT: Could we safely early out on ->SkipItems?
@@ -1633,6 +2151,79 @@ end
 function ImGui.IsItemDeactivatedAfterEdit()
     local g = GImGui
     return ImGui.IsItemDeactivated() and g.DeactivatedItemData.HasBeenEditedBefore
+end
+
+function ImGui.IsItemActivated()
+    local g = GImGui
+    if g.ActiveId ~= 0 then
+        if g.ActiveId == g.LastItemData.ID and g.ActiveIdPreviousFrame ~= g.LastItemData.ID then
+            return true
+        end
+    end
+    return false
+end
+
+-- Important: this can be useful but it is NOT equivalent to the behavior of e.g.Button()!
+--- @param mouse_button? ImGuiMouseButton
+function ImGui.IsItemClicked(mouse_button)
+    if mouse_button == nil then mouse_button = 0 end
+    return ImGui.IsMouseClicked(mouse_button) and ImGui.IsItemHovered(ImGuiHoveredFlags.None)
+end
+
+function ImGui.IsItemToggledOpen()
+    return bit32.band(GImGui.LastItemData.StatusFlags, ImGuiItemStatusFlags.ToggledOpen) ~= 0
+end
+
+function ImGui.IsItemToggledSelection()
+    local g = GImGui
+    IM_ASSERT(g.CurrentMultiSelect ~= nil) -- Can only be used inside a BeginMultiSelect()/EndMultiSelect()
+    return bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.ToggledSelection) ~= 0
+end
+
+function ImGui.IsAnyItemHovered()
+    local g = GImGui
+    return g.HoveredId ~= 0 or g.HoveredIdPreviousFrame ~= 0
+end
+
+function ImGui.IsAnyItemActive()
+    return GImGui.ActiveId ~= 0
+end
+
+function ImGui.IsAnyItemFocused()
+    local g = GImGui
+    return g.NavId ~= 0 and g.NavCursorVisible
+end
+
+function ImGui.IsItemVisible()
+    return bit32.band(GImGui.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0
+end
+
+function ImGui.IsItemEdited()
+    return bit32.band(GImGui.LastItemData.StatusFlags, ImGuiItemStatusFlags.Edited) ~= 0
+end
+
+-- Allow next item to be overlapped by subsequent items.
+function ImGui.SetNextItemAllowOverlap()
+    local g = GImGui
+    g.NextItemData.ItemFlagsSet = bit32.bor(g.NextItemData.ItemFlagsSet, ImGuiItemFlags.AllowOverlap)
+end
+
+function ImGui.GetItemID()
+    return GImGui.LastItemData.ID
+end
+
+function ImGui.GetItemFlags()
+    return GImGui.LastItemData.ItemFlags
+end
+
+--- @return ImVec2
+function ImGui.GetItemRectSize()
+    return GImGui.LastItemData.Rect:GetSize()
+end
+
+function ImGui.GetHoveredID()
+    local g = GImGui
+    return (g.HoveredId ~= 0) and g.HoveredId or g.HoveredIdPreviousFrame
 end
 
 ---------------------------------------------------------------------------------------
@@ -2006,6 +2597,35 @@ function MT.ImGuiWindow:GetIDFromPos(p_abs)
     local seed = self.IDStack:back()
     local p_rel = ImGui.WindowPosAbsToRel(self, p_abs)
     return ImHashData(p_rel, 2, seed)
+end
+
+-- "
+--- @param r_abs ImRect
+--- @return ImGuiID
+function MT.ImGuiWindow:GetIDFromRectangle(r_abs)
+    local seed = self.IDStack:back()
+    local r_rel = ImGui.WindowRectAbsToRel(self, r_abs)
+    return ImHashData({ math.floor(r_rel.Min.x), math.floor(r_rel.Min.y), math.floor(r_rel.Max.x), math.floor(r_rel.Max.y) }, 4, seed)
+end
+
+-- Overloads: GetID(str_id) / GetID(str_id_begin, str_id_end) / GetID(int_id)
+--- @param str_or_int string|int
+--- @param str_end?   int # exclusive end (1-based byte position)
+--- @return ImGuiID
+function ImGui.GetID(str_or_int, str_end)
+    local window = GImGui.CurrentWindow
+    if str_end ~= nil and type(str_or_int) == "string" then
+        return ImHashStr(str_or_int, str_end - 1, window.IDStack:back())
+    end
+    return window:GetID(str_or_int)
+end
+
+-- Overloads: GetIDWithSeed(str, str_end, seed) / GetIDWithSeed(n, seed)
+function ImGui.GetIDWithSeed(a, b, c)
+    if type(a) == "number" then
+        return ImHashData(a, -1, b)
+    end
+    return ImHashStr(a, b and (b - 1) or nil, c)
 end
 
 --- @param id ImGuiID
@@ -2836,7 +3456,79 @@ end
 
 -- TODO:
 function ImGui.GetKeyChordName(key_chord)
-    error("NOT IMPLEMENTED", 2)
+    local key = bit32.band(key_chord, bit32.bnot(ImGuiMod_Mask_))
+    if ImGui.IsLRModKey(key) then
+        key_chord = bit32.band(key_chord, bit32.bnot(GetModForLRModKey(key))) -- Return "Ctrl+LeftShift" instead of "Ctrl+Shift+LeftShift"
+    end
+    local s = ((bit32.band(key_chord, ImGuiMod_Ctrl) ~= 0) and "Ctrl+" or "")
+        .. ((bit32.band(key_chord, ImGuiMod_Shift) ~= 0) and "Shift+" or "")
+        .. ((bit32.band(key_chord, ImGuiMod_Alt) ~= 0) and "Alt+" or "")
+        .. ((bit32.band(key_chord, ImGuiMod_Super) ~= 0) and "Super+" or "")
+        .. ((key ~= ImGuiKey.None or key_chord == ImGuiKey.None) and ImGui.GetKeyName(key) or "")
+    if key == ImGuiKey.None and key_chord ~= 0 and #s > 0 then
+        s = string.sub(s, 1, #s - 1) -- Remove trailing '+'
+    end
+    return s
+end
+
+local GKeyNames = {
+    "Tab", "LeftArrow", "RightArrow", "UpArrow", "DownArrow", "PageUp", "PageDown",
+    "Home", "End", "Insert", "Delete", "Backspace", "Space", "Enter", "Escape",
+    "LeftCtrl", "LeftShift", "LeftAlt", "LeftSuper", "RightCtrl", "RightShift", "RightAlt", "RightSuper", "Menu",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G", "H",
+    "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
+    "Apostrophe", "Comma", "Minus", "Period", "Slash", "Semicolon", "Equal", "LeftBracket",
+    "Backslash", "RightBracket", "GraveAccent", "CapsLock", "ScrollLock", "NumLock", "PrintScreen",
+    "Pause", "Keypad0", "Keypad1", "Keypad2", "Keypad3", "Keypad4", "Keypad5", "Keypad6",
+    "Keypad7", "Keypad8", "Keypad9", "KeypadDecimal", "KeypadDivide", "KeypadMultiply",
+    "KeypadSubtract", "KeypadAdd", "KeypadEnter", "KeypadEqual",
+    "AppBack", "AppForward", "Oem102",
+    "GamepadStart", "GamepadBack",
+    "GamepadFaceLeft", "GamepadFaceRight", "GamepadFaceUp", "GamepadFaceDown",
+    "GamepadDpadLeft", "GamepadDpadRight", "GamepadDpadUp", "GamepadDpadDown",
+    "GamepadL1", "GamepadR1", "GamepadL2", "GamepadR2", "GamepadL3", "GamepadR3",
+    "GamepadLStickLeft", "GamepadLStickRight", "GamepadLStickUp", "GamepadLStickDown",
+    "GamepadRStickLeft", "GamepadRStickRight", "GamepadRStickUp", "GamepadRStickDown",
+    "MouseLeft", "MouseRight", "MouseMiddle", "MouseX1", "MouseX2", "MouseWheelX", "MouseWheelY",
+    "ModCtrl", "ModShift", "ModAlt", "ModSuper", -- ReservedForModXXX are showing the ModXXX names.
+}
+
+--- @param key ImGuiKey
+--- @return string
+function ImGui.GetKeyName(key)
+    if key == ImGuiKey.None then
+        return "None"
+    end
+    IM_ASSERT(ImGui.IsNamedKeyOrMod(key), "Support for user key indices was dropped in favor of ImGuiKey. Please update backend and user code.")
+    if bit32.band(key, ImGuiMod_Mask_) ~= 0 then
+        key = ImGui.ConvertSingleModFlagToKey(key)
+    end
+    if not ImGui.IsNamedKey(key) then
+        return "Unknown"
+    end
+    return GKeyNames[key - ImGuiKey.NamedKey_BEGIN + 1] or "Unknown"
+end
+
+--- @param key ImGuiKey
+--- @return ImGuiID
+function ImGui.GetKeyOwner(key)
+    if not ImGui.IsNamedKeyOrMod(key) then
+        return ImGuiKeyOwner_NoOwner
+    end
+
+    local g = GImGui
+    local owner_data = ImGui.GetKeyOwnerData(g, key)
+    local owner_id = owner_data.OwnerCurr
+
+    if g.ActiveIdUsingAllKeyboardKeys and owner_id ~= g.ActiveId and owner_id ~= ImGuiKeyOwner_Any then
+        if key >= ImGuiKey_Keyboard_BEGIN and key < ImGuiKey_Keyboard_END then
+            return ImGuiKeyOwner_NoOwner
+        end
+    end
+
+    return owner_id
 end
 
 --- @param t0           float
@@ -3194,6 +3886,131 @@ function ImGui.IsMouseReleased(button, owner_id)
     local g = GImGui
     IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseReleased[button] and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id)
+end
+
+-- Use if you absolutely need to distinguish single-click from double-click by introducing a delay.
+--- @param button ImGuiMouseButton
+--- @param delay? float
+function ImGui.IsMouseReleasedWithDelay(button, delay)
+    if delay == nil then delay = -1.0 end
+    local g = GImGui
+    IM_ASSERT(button >= 0 and button < 3)
+    if ImGui.IsMouseDown(button) then
+        return false
+    end
+    if delay < 0.0 then
+        delay = g.IO.MouseSingleClickDelay or 0.50
+    end
+    local time_since_release = g.Time - g.IO.MouseReleasedTime[button]
+    return (time_since_release - g.IO.DeltaTime < delay) and (time_since_release >= delay)
+end
+
+--- @param button    ImGuiMouseButton
+--- @param owner_id? ImGuiID
+function ImGui.IsMouseDoubleClicked(button, owner_id)
+    if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
+    local g = GImGui
+    IM_ASSERT(button >= 0 and button < 3)
+    return g.IO.MouseClickedCount[button] == 2 and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id)
+end
+
+--- @param button ImGuiMouseButton
+function ImGui.GetMouseClickedCount(button)
+    local g = GImGui
+    IM_ASSERT(button >= 0 and button < 3)
+    return g.IO.MouseClickedCount[button]
+end
+
+-- FIXME: This is close to what BeginDragDropSource() is doing, maybe rework.
+--- @param mouse_button ImGuiMouseButton
+local function LastItemOverlayButtonForNullId(mouse_button)
+    local g = GImGui
+    IM_ASSERT(g.LastItemData.ID == 0)
+    local window = g.CurrentWindow
+    local id = window:GetIDFromRectangle(g.LastItemData.Rect)
+    if g.IO.MouseClicked[mouse_button] and ImGui.ItemHoverable(g.LastItemData.Rect, id, g.LastItemData.ItemFlags) then
+        ImGui.SetActiveID(id, window)
+        ImGui.FocusWindow(window)
+    elseif g.ActiveId == id then
+        ImGui.KeepAliveID(id)
+        if not g.IO.MouseDown[mouse_button] then
+            ImGui.ClearActiveID()
+        end
+    end
+    return id
+end
+
+--- @param mouse_button? ImGuiMouseButton
+--- @param delay?        float
+--- @return int
+function ImGui.GetItemClickedCountWithSingleClickDelay(mouse_button, delay)
+    if mouse_button == nil then mouse_button = 0 end
+    if delay == nil then delay = -1.0 end
+    -- Action: double-click and subsequent clicks
+    local g = GImGui
+    if g.IO.MouseClickedCount[mouse_button] >= 2 and ImGui.IsItemClicked(mouse_button) then
+        return g.IO.MouseClickedCount[mouse_button]
+    end
+
+    -- Action: second click, delayed
+    local id = g.LastItemData.ID
+    if id == 0 then
+        id = LastItemOverlayButtonForNullId(mouse_button)
+    end
+    if g.LastActiveId == id then
+        if delay >= 0.0 then
+            delay = ImMax(delay, g.IO.MouseDoubleClickTime + 0.01)
+        end
+        if ImGui.IsMouseReleasedWithDelay(mouse_button, delay) and g.IO.MouseClickedLastCount[mouse_button] == 1 then
+            return 1
+        end
+    end
+    return 0
+end
+
+--- @return ImVec2 # Ref
+function ImGui.GetMousePos()
+    return GImGui.IO.MousePos
+end
+
+--- @return ImVec2
+function ImGui.GetMousePosOnOpeningCurrentPopup()
+    local g = GImGui
+    if g.BeginPopupStack.Size > 0 then
+        return g.BeginPopupStack.Data[g.BeginPopupStack.Size].OpenMousePos
+    end
+    return g.IO.MousePos
+end
+
+-- Return the delta from the initial clicking position while the mouse button is clicked or was just released.
+--- @param button?         ImGuiMouseButton
+--- @param lock_threshold? float
+--- @return ImVec2
+function ImGui.GetMouseDragDelta(button, lock_threshold)
+    if button == nil then button = 0 end
+    if lock_threshold == nil then lock_threshold = -1.0 end
+    local g = GImGui
+    IM_ASSERT(button >= 0 and button < 3)
+    if lock_threshold < 0.0 then
+        lock_threshold = g.IO.MouseDragThreshold
+    end
+    if g.IO.MouseDown[button] or g.IO.MouseReleased[button] then
+        if g.IO.MouseDragMaxDistanceSqr[button] >= lock_threshold * lock_threshold then
+            if ImGui.IsMousePosValid(g.IO.MousePos) and ImGui.IsMousePosValid(g.IO.MouseClickedPos[button]) then
+                return g.IO.MousePos - g.IO.MouseClickedPos[button]
+            end
+        end
+    end
+    return ImVec2(0.0, 0.0)
+end
+
+--- @param button? ImGuiMouseButton
+function ImGui.ResetMouseDragDelta(button)
+    if button == nil then button = 0 end
+    local g = GImGui
+    IM_ASSERT(button >= 0 and button < 3)
+    -- NB: We don't need to reset g.IO.MouseDragMaxDistanceSqr
+    ImVec2_Copy(g.IO.MouseClickedPos[button], g.IO.MousePos)
 end
 
 do
@@ -4440,7 +5257,7 @@ local function RenderWindowTitleBarContents(window, title_bar_rect, name, open)
 
     if has_collapse_button then
         if ImGui.CollapseButton(window:GetID("#COLLAPSE"), collapse_button_pos) then
-            window.Collapsed = not window.Collapsed
+            window.WantCollapseToggle = true -- Defer actual collapsing to next frame as we are too far in the Begin() function
         end
     end
 
@@ -4571,6 +5388,7 @@ local function SetCurrentWindow(window)
     local g = GImGui
     --- @diagnostic disable-next-line
     g.CurrentWindow = window
+    g.CurrentTable = (window and window.DC.CurrentTableIdx ~= -1) and g.Tables:GetByIndex(window.DC.CurrentTableIdx) or nil
 
     if window then
         if bit32.band(g.IO.BackendFlags, ImGuiBackendFlags.RendererHasTextures) ~= 0 then
@@ -4592,6 +5410,7 @@ function ImGui.GcCompactTransientMiscBuffers()
     g.ItemFlagsStack:clear()
     g.GroupStack:clear()
     g.InputTextLineIndex:clear()
+    ImGui.TableGcCompactSettings()
     for _, atlas in g.FontAtlases:iter() do
         atlas:CompactCache()
     end
@@ -4627,6 +5446,13 @@ end
 --- @param pos    ImVec2
 --- @param cond?  ImGuiCond
 function ImGui.SetWindowPos(window, pos, cond)
+    -- Overloads: SetWindowPos(pos, cond) / SetWindowPos(name, pos, cond) / SetWindowPos(window, pos, cond)
+    if type(window) == "string" then
+        window = ImGui.FindWindowByName(window)
+        if window == nil then return end
+    elseif window.SetWindowPosAllowFlags == nil then
+        window, pos, cond = ImGui.GetCurrentWindowRead(), window, pos
+    end
     if cond == nil then cond = 0 end
 
     if (cond ~= 0) and (bit32.band(window.SetWindowPosAllowFlags, cond) == 0) then
@@ -4648,6 +5474,7 @@ function ImGui.SetWindowPos(window, pos, cond)
     if offset.x == 0 and offset.y == 0 then
         return
     end
+    ImGui.MarkIniSettingsDirty(window)
 
     ImVec2_Copy(window.DC.CursorPos, window.DC.CursorPos + offset)
     ImVec2_Copy(window.DC.CursorMaxPos, window.DC.CursorMaxPos + offset)
@@ -4659,6 +5486,13 @@ end
 --- @param size   ImVec2
 --- @param cond?  ImGuiCond
 function ImGui.SetWindowSize(window, size, cond)
+    -- Overloads: SetWindowSize(size, cond) / SetWindowSize(name, size, cond) / SetWindowSize(window, size, cond)
+    if type(window) == "string" then
+        window = ImGui.FindWindowByName(window)
+        if window == nil then return end
+    elseif window.SetWindowSizeAllowFlags == nil then
+        window, size, cond = GImGui.CurrentWindow, window, size
+    end
     if cond == nil then cond = 0 end
 
     if ((cond ~= 0) and bit32.band(window.SetWindowSizeAllowFlags, cond) == 0) then
@@ -4675,8 +5509,7 @@ function ImGui.SetWindowSize(window, size, cond)
         window.AutoFitFramesY = (size.y <= 0.0) and 2 or 0
     end
 
-    -- local old_size = ImVec2()
-    -- ImVec2_Copy(old_size, window.SizeFull)
+    local old_size_x, old_size_y = window.SizeFull.x, window.SizeFull.y
 
     if size.x <= 0.0 then
         window.AutoFitOnlyGrows = false
@@ -4688,9 +5521,79 @@ function ImGui.SetWindowSize(window, size, cond)
     else
         window.SizeFull.y = IM_TRUNC(size.y)
     end
-    -- if old_size.x ~= window.SizeFull.x or old_size.y ~= window.SizeFull.y then
-    --     TODO: MarkIniSettingsDirty(window)
-    -- end
+    if old_size_x ~= window.SizeFull.x or old_size_y ~= window.SizeFull.y then
+        ImGui.MarkIniSettingsDirty(window)
+    end
+end
+
+--- Overloads: SetWindowCollapsed(collapsed, cond) / SetWindowCollapsed(name, collapsed, cond) / SetWindowCollapsed(window, collapsed, cond)
+function ImGui.SetWindowCollapsed(window, collapsed, cond)
+    if type(window) == "string" then
+        window = ImGui.FindWindowByName(window)
+        if window == nil then return end
+    elseif type(window) == "boolean" then
+        window, collapsed, cond = GImGui.CurrentWindow, window, collapsed
+    end
+    if cond == nil then cond = 0 end
+    if cond ~= 0 and bit32.band(window.SetWindowCollapsedAllowFlags, cond) == 0 then
+        return
+    end
+    window.SetWindowCollapsedAllowFlags = bit32.band(window.SetWindowCollapsedAllowFlags, bit32.bnot(bit32.bor(ImGuiCond.Once, ImGuiCond.FirstUseEver, ImGuiCond.Appearing)))
+
+    -- Queue applying in Begin()
+    if window.WantCollapseToggle then
+        window.Collapsed = not window.Collapsed
+    end
+    window.WantCollapseToggle = (window.Collapsed ~= collapsed)
+end
+
+--- @param window ImGuiWindow
+--- @param pos    ImVec2
+--- @param size   ImVec2
+function ImGui.SetWindowHitTestHole(window, pos, size)
+    IM_ASSERT(window.HitTestHoleSize.x == 0) -- We don't support multiple holes/hit test filters
+    window.HitTestHoleSize = ImVec2(math.floor(size.x), math.floor(size.y))
+    window.HitTestHoleOffset = ImVec2(math.floor(pos.x - window.Pos.x), math.floor(pos.y - window.Pos.y))
+end
+
+function ImGui.IsWindowCollapsed()
+    return ImGui.GetCurrentWindowRead().Collapsed
+end
+
+function ImGui.IsWindowAppearing()
+    return ImGui.GetCurrentWindowRead().Appearing
+end
+
+function ImGui.GetWindowHeight()
+    return GImGui.CurrentWindow.Size.y
+end
+
+--- @return ImVec2 # Ref, do not modify
+function ImGui.GetWindowPos()
+    return GImGui.CurrentWindow.Pos
+end
+
+--- @return ImVec2 # Ref, do not modify
+function ImGui.GetWindowSize()
+    return ImGui.GetCurrentWindowRead().Size
+end
+
+-- Overloads: SetWindowFocus() / SetWindowFocus(name). Passing nil name removes focus.
+--- @param name? string
+function ImGui.SetWindowFocus(...)
+    if select("#", ...) == 0 then
+        ImGui.FocusWindow(GImGui.CurrentWindow)
+        return
+    end
+    local name = ...
+    if name then
+        local window = ImGui.FindWindowByName(name)
+        if window then
+            ImGui.FocusWindow(window)
+        end
+    else
+        ImGui.FocusWindow(nil)
+    end
 end
 
 --- @param window ImGuiWindow
@@ -4714,6 +5617,7 @@ function ImGui.SetNextWindowPos(pos, cond, pivot)
     ImVec2_Copy(g.NextWindowData.PosVal, pos)
     ImVec2_Copy(g.NextWindowData.PosPivotVal, pivot)
     g.NextWindowData.PosCond = (cond ~= 0) and cond or ImGuiCond.Always
+    g.NextWindowData.PosUndock = true
 end
 
 --- @param size  ImVec2
@@ -4801,6 +5705,13 @@ function ImGui.BeginChildEx(name, id, size_arg, child_flags, window_flags)
     local g = GImGui
     local parent_window = g.CurrentWindow
     IM_ASSERT(id ~= 0)
+    if child_flags == nil then child_flags = 0 end
+    if window_flags == nil then window_flags = 0 end
+    if size_arg == nil then size_arg = ImVec2(0, 0) end
+
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) ~= 0 then
+        child_flags = bit32.band(bit32.bor(child_flags, g.NextWindowData.ChildFlagsSet), bit32.bnot(g.NextWindowData.ChildFlagsClear))
+    end
 
     -- Sanity check as it is likely that some user will accidentally pass ImGuiWindowFlags into the ImGuiChildFlags argument
     local ImGuiChildFlags_SupportedMask_ = bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.AlwaysUseWindowPadding, ImGuiChildFlags.ResizeX, ImGuiChildFlags.ResizeY, ImGuiChildFlags.AutoResizeX, ImGuiChildFlags.AutoResizeY, ImGuiChildFlags.AlwaysAutoResize, ImGuiChildFlags.FrameStyle, ImGuiChildFlags.NavFlattened)
@@ -4819,7 +5730,7 @@ function ImGui.BeginChildEx(name, id, size_arg, child_flags, window_flags)
     end
 
     -- Set window flags
-    window_flags = bit32.bor(window_flags, ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.NoTitleBar)
+    window_flags = bit32.bor(window_flags, ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoDocking)
     window_flags = bit32.bor(window_flags, bit32.band(parent_window.Flags, ImGuiWindowFlags.NoMove)) -- Inherit the NoMove flag
     if bit32.band(child_flags, bit32.bor(ImGuiChildFlags.AutoResizeX, ImGuiChildFlags.AutoResizeY, ImGuiChildFlags.AlwaysAutoResize)) ~= 0 then
         window_flags = bit32.bor(window_flags, ImGuiWindowFlags.AlwaysAutoResize)
@@ -4859,14 +5770,7 @@ function ImGui.BeginChildEx(name, id, size_arg, child_flags, window_flags)
         end
     end
     ImGui.SetNextWindowSize(size)
-
-    -- Forward child flags (we allow prior settings to merge but it'll only work for adding flags)
-    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) ~= 0 then
-        g.NextWindowData.ChildFlags = bit32.bor(g.NextWindowData.ChildFlags, child_flags)
-    else
-        g.NextWindowData.ChildFlags = child_flags
-    end
-    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags)
+    ImGui.SetNextWindowChildFlags(child_flags, true)
 
     -- Build up name. If you need to append to a same child from multiple location in the ID stack, use BeginChild(ImGuiID id) with a stable value.
     -- FIXME: 2023/11/14: commented out shorted version. We had an issue with multiple ### in child window path names, which the trailing hash helped workaround.
@@ -4920,8 +5824,184 @@ function ImGui.BeginChildEx(name, id, size_arg, child_flags, window_flags)
     return ret
 end
 
+-- Prior to v1.90 2023/10/16, the BeginChild() function took a 'bool border = false' parameter instead of 'ImGuiChildFlags child_flags = 0'.
+-- `true` is accepted as ImGuiChildFlags.Borders for legacy code.
+--- @param str_id_or_id string|ImGuiID
+--- @param size_arg?     ImVec2
+--- @param child_flags?  ImGuiChildFlags|bool
+--- @param window_flags? ImGuiWindowFlags
+--- @return bool # visible (always call EndChild()!)
+function ImGui.BeginChild(str_id_or_id, size_arg, child_flags, window_flags)
+    if child_flags == true then child_flags = ImGuiChildFlags.Borders elseif not child_flags then child_flags = 0 end
+    if type(str_id_or_id) == "number" then
+        return ImGui.BeginChildEx(nil, str_id_or_id, size_arg, child_flags, window_flags)
+    end
+    local id = ImGui.GetCurrentWindow():GetID(str_id_or_id)
+    return ImGui.BeginChildEx(str_id_or_id, id, size_arg, child_flags, window_flags)
+end
+
 --- @param window ImGuiWindow
-local function StartMouseMovingWindow(window)
+--- @param rect   ImRect
+function ImGui.SetLastItemDataForChildWindowItem(window, rect)
+    local g = GImGui
+    ImGui.SetLastItemData(window.ChildId, g.CurrentItemFlags, window.DC.ChildItemStatusFlags or 0, rect)
+end
+
+function ImGui.EndChild()
+    local g = GImGui
+    local child_window = g.CurrentWindow
+
+    local backup_within_end_child_id = g.WithinEndChildID
+    IM_ASSERT(bit32.band(child_window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0) -- Mismatched BeginChild()/EndChild() calls
+
+    g.WithinEndChildID = child_window.ID
+    local child_size = ImVec2(child_window.Size.x, child_window.Size.y)
+    ImGui.End()
+    if child_window.BeginCount == 1 then
+        local parent_window = g.CurrentWindow
+        local bb = ImRect(parent_window.DC.CursorPos, parent_window.DC.CursorPos + child_size)
+        ImGui.ItemSize(child_size)
+        local nav_flattened = bit32.band(child_window.ChildFlags, ImGuiChildFlags.NavFlattened) ~= 0
+        if (child_window.DC.NavLayersActiveMask ~= 0 or child_window.DC.NavWindowHasScrollY) and not nav_flattened then
+            ImGui.ItemAdd(bb, child_window.ChildId)
+            ImGui.RenderNavCursor(bb, child_window.ChildId)
+
+            -- When browsing a window that has no activable items (scroll only) we keep a highlight on the child (pass g.NavId to trick into always displaying)
+            if child_window.DC.NavLayersActiveMask == 0 and child_window == g.NavWindow then
+                ImGui.RenderNavCursor(ImRect(bb.Min - ImVec2(2, 2), bb.Max + ImVec2(2, 2)), g.NavId, ImGuiNavRenderCursorFlags.Compact)
+            end
+        else
+            -- Not navigable into
+            ImGui.ItemAdd(bb, child_window.ChildId, nil, ImGuiItemFlags.NoNav)
+
+            -- But when flattened we directly reach items, adjust active layer mask accordingly
+            if nav_flattened then
+                parent_window.DC.NavLayersActiveMaskNext = bit32.bor(parent_window.DC.NavLayersActiveMaskNext, child_window.DC.NavLayersActiveMaskNext)
+            end
+        end
+        if g.HoveredWindow == child_window then
+            g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredWindow)
+        end
+        child_window.DC.ChildItemStatusFlags = g.LastItemData.StatusFlags
+    else
+        ImGui.SetLastItemDataForChildWindowItem(child_window, child_window:Rect())
+    end
+
+    g.WithinEndChildID = backup_within_end_child_id
+    g.LogLinePosY = -FLT_MAX -- To enforce a carriage return
+end
+
+--- @param flags   ImGuiChildFlags
+--- @param enabled bool
+function ImGui.SetNextWindowChildFlags(flags, enabled)
+    local g = GImGui
+    local nwd = g.NextWindowData
+    if bit32.band(nwd.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) == 0 then
+        nwd.ChildFlagsSet = 0; nwd.ChildFlagsClear = 0
+    end
+    if enabled then
+        nwd.ChildFlagsSet = bit32.bor(nwd.ChildFlagsSet, flags)
+        nwd.ChildFlagsClear = bit32.band(nwd.ChildFlagsClear, bit32.bnot(flags))
+    else
+        nwd.ChildFlagsSet = bit32.band(nwd.ChildFlagsSet, bit32.bnot(flags))
+        nwd.ChildFlagsClear = bit32.bor(nwd.ChildFlagsClear, flags)
+    end
+    nwd.HasFlags = bit32.bor(nwd.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags)
+end
+
+--- @param flags   ImGuiWindowFlags
+--- @param enabled bool
+function ImGui.SetNextWindowFlags(flags, enabled)
+    local g = GImGui
+    local nwd = g.NextWindowData
+    if bit32.band(nwd.HasFlags, ImGuiNextWindowDataFlags.HasWindowFlags) == 0 then
+        nwd.WindowFlagsSet = 0; nwd.WindowFlagsClear = 0
+    end
+    if enabled then
+        nwd.WindowFlagsSet = bit32.bor(nwd.WindowFlagsSet, flags)
+        nwd.WindowFlagsClear = bit32.band(nwd.WindowFlagsClear, bit32.bnot(flags))
+    else
+        nwd.WindowFlagsSet = bit32.band(nwd.WindowFlagsSet, bit32.bnot(flags))
+        nwd.WindowFlagsClear = bit32.bor(nwd.WindowFlagsClear, flags)
+    end
+    nwd.HasFlags = bit32.bor(nwd.HasFlags, ImGuiNextWindowDataFlags.HasWindowFlags)
+end
+
+-- Content size = inner scrollable rectangle, padded with WindowPadding.
+--- @param size ImVec2
+function ImGui.SetNextWindowContentSize(size)
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasContentSize)
+    ImVec2_CopyV(g.NextWindowData.ContentSizeVal, ImTrunc(size.x), ImTrunc(size.y))
+end
+
+--- @param scroll ImVec2
+function ImGui.SetNextWindowScroll(scroll)
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasScroll)
+    ImVec2_Copy(g.NextWindowData.ScrollVal, scroll)
+end
+
+--- @param collapsed bool
+--- @param cond?     ImGuiCond
+function ImGui.SetNextWindowCollapsed(collapsed, cond)
+    if cond == nil then cond = 0 end
+    local g = GImGui
+    IM_ASSERT(cond == 0 or ImIsPowerOfTwo(cond))
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasCollapsed)
+    g.NextWindowData.CollapsedVal = collapsed
+    g.NextWindowData.CollapsedCond = (cond ~= 0) and cond or ImGuiCond.Always
+end
+
+function ImGui.SetNextWindowFocus()
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasFocus)
+end
+
+--- @param id ImGuiID
+function ImGui.SetNextWindowViewport(id)
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasViewport)
+    g.NextWindowData.ViewportId = id
+end
+
+--- @param window_class ImGuiWindowClass
+function ImGui.SetNextWindowClass(window_class)
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasWindowClass)
+    local wc = ImGuiWindowClass()
+    for k, v in pairs(window_class) do wc[k] = v end -- C++ copies the struct
+    g.NextWindowData.WindowClass = wc
+end
+
+-- This is experimental and meant to be a toy for exploring a future/wider range of features.
+--- @param flags ImGuiWindowRefreshFlags
+function ImGui.SetNextWindowRefreshPolicy(flags)
+    local g = GImGui
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasRefreshPolicy)
+    g.NextWindowData.RefreshFlagsVal = flags
+end
+
+function ImGui.GetWindowDpiScale()
+    return 1.0 -- Roblox: single viewport, no DPI scaling
+end
+
+function ImGui.GetWindowViewport()
+    local g = GImGui
+    return g.CurrentViewport or ImGui.GetMainViewport()
+end
+
+-- Prefer using PushFont(nil, style.FontSizeBase * factor), or use style.FontScaleMain to scale all windows.
+--- @param scale float
+function ImGui.SetWindowFontScale(scale)
+    IM_ASSERT(scale > 0.0)
+    local window = ImGui.GetCurrentWindow()
+    window.FontWindowScale = scale
+    ImGui.UpdateCurrentFontSize(0.0)
+end
+
+--- @param window ImGuiWindow
+function ImGui.StartMouseMovingWindow(window)
     local g = GImGui
     ImGui.FocusWindow(window)
     ImGui.SetActiveID(window.MoveId, window)
@@ -4934,6 +6014,10 @@ local function StartMouseMovingWindow(window)
 
     local can_move_window = true
     if bit32.band(window.Flags, ImGuiWindowFlags.NoMove) ~= 0 or bit32.band(window.RootWindowDockTree.Flags, ImGuiWindowFlags.NoMove) ~= 0 then
+        can_move_window = false
+    end
+    local node = window.DockNodeAsHost
+    if node and node.VisibleWindow and bit32.band(node.VisibleWindow.Flags, ImGuiWindowFlags.NoMove) ~= 0 then
         can_move_window = false
     end
     if can_move_window then
@@ -5048,7 +6132,7 @@ function ImGui.UpdateMouseMovingWindowEndFrame()
         local is_queued_focus_request = g.NavMoveSubmitted and (bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.FocusApi) ~= 0)
 
         if hovered_window ~= nil and not is_closed_popup and not is_queued_focus_request then
-            StartMouseMovingWindow(hovered_window)
+            ImGui.StartMouseMovingWindow(hovered_window)
 
             -- Cancel moving if clicked outside of title bar
             if bit32.band(hovered_window.BgClickFlags, ImGuiWindowBgClickFlags.Move) == 0 then  -- set by io.ConfigWindowsMoveFromTitleBarOnly
@@ -5135,6 +6219,15 @@ function ImGui.Begin(name, open, flags)
         window = CreateNewWindow(name, flags) --- @cast window ImGuiWindow
     end
 
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasWindowFlags) ~= 0 then
+        flags = bit32.band(bit32.bor(flags, g.NextWindowData.WindowFlagsSet), bit32.bnot(g.NextWindowData.WindowFlagsClear))
+    end
+
+    -- Automatically disable manual moving/resizing when NoInputs is set
+    if bit32.band(flags, ImGuiWindowFlags.NoInputs) == ImGuiWindowFlags.NoInputs then
+        flags = bit32.bor(flags, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoResize)
+    end
+
     local current_frame = g.FrameCount
     local first_begin_of_the_frame = (window.LastFrameActive ~= current_frame)
     window.IsFallbackWindow = (g.CurrentWindowStack.Size == 0 and g.WithinFrameScopeWithImplicitWindow)
@@ -5144,11 +6237,6 @@ function ImGui.Begin(name, open, flags)
         local popup_ref = g.OpenPopupStack.Data[g.BeginPopupStack.Size + 1]
         window_just_activated_by_user = window_just_activated_by_user or (window.PopupId ~= popup_ref.PopupId) -- We recycle popups so treat window as activated if popup id changed
         window_just_activated_by_user = window_just_activated_by_user or (window ~= popup_ref.Window)
-    end
-
-    window.Appearing = window_just_activated_by_user
-    if (window.Appearing) then
-        SetWindowConditionAllowFlags(window, ImGuiCond.Appearing, true)
     end
 
     -- Update Flags, LastFrameActive, BeginOrderXXX fields
@@ -5161,7 +6249,7 @@ function ImGui.Begin(name, open, flags)
         end
         window.FlagsPreviousFrame = window.Flags
         window.Flags = flags
-        window.ChildFlags = (bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) ~= 0) and g.NextWindowData.ChildFlags or 0
+        window.ChildFlags = (bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) ~= 0) and g.NextWindowData.ChildFlagsSet or 0
         window.LastFrameActive = current_frame
         window.LastTimeActive = g.Time
         window.BeginOrderWithinParent = 0
@@ -5171,8 +6259,41 @@ function ImGui.Begin(name, open, flags)
         flags = window.Flags
     end
 
+    -- Docking
+    -- (NB: during the frame dock nodes are created, it is possible that (window->DockIsActive == false) even though (window->DockNode->Windows.Size > 1)
+    IM_ASSERT(window.DockNode == nil or window.DockNodeAsHost == nil) -- Cannot be both
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasDock) ~= 0 then
+        ImGui.SetWindowDock(window, g.NextWindowData.DockId, g.NextWindowData.DockCond)
+    end
+    if first_begin_of_the_frame then
+        local has_dock_node = (window.DockId ~= 0 or window.DockNode ~= nil)
+        local new_auto_dock_node = not has_dock_node and ImGui.GetWindowAlwaysWantOwnTabBar(window)
+        local dock_node_was_visible = window.DockNodeIsVisible
+        local dock_tab_was_visible = window.DockTabIsVisible
+        window.DockIsActive = false
+        window.DockNodeIsVisible = false
+        window.DockTabIsVisible = false
+
+        if has_dock_node or new_auto_dock_node then
+            open = ImGui.BeginDocked(window, open)
+            flags = window.Flags
+            if window.DockIsActive then
+                IM_ASSERT(window.DockNode ~= nil)
+                g.NextWindowData.HasFlags = bit32.band(g.NextWindowData.HasFlags, bit32.bnot(ImGuiNextWindowDataFlags.HasSizeConstraint))
+            end
+
+            -- Amend the Appearing flag
+            if window.DockTabIsVisible and not dock_tab_was_visible and dock_node_was_visible and not window.Appearing and not window_was_appearing then
+                window.Appearing = true
+                SetWindowConditionAllowFlags(window, ImGuiCond.Appearing, true)
+            end
+        end
+    end
+
     local parent_window_in_stack
-    if g.CurrentWindowStack:empty() then
+    if window.DockIsActive and window.DockNode.HostWindow then
+        parent_window_in_stack = window.DockNode.HostWindow
+    elseif g.CurrentWindowStack:empty() then
         parent_window_in_stack = nil
     else
         parent_window_in_stack = g.CurrentWindowStack:back().Window
@@ -5201,7 +6322,9 @@ function ImGui.Begin(name, open, flags)
     ImGuiLastItemData_Copy(window_stack_data.ParentLastItemDataBackup, g.LastItemData)
     window_stack_data.DisabledOverrideReenable = (bit32.band(flags, ImGuiWindowFlags.Tooltip) ~= 0) and (bit32.band(g.CurrentItemFlags, ImGuiItemFlags.Disabled) ~= 0)
     window_stack_data.DisabledOverrideReenableAlphaBackup = 0.0
-    -- g.StackSizesInBeginForCurrentWindow = window_stack_data.StackSizesInBegin
+    window_stack_data.StackSizesInBegin = ImGuiErrorRecoveryState()
+    ImGui.ErrorRecoveryStoreState(window_stack_data.StackSizesInBegin)
+    g.StackSizesInBeginForCurrentWindow = window_stack_data.StackSizesInBegin
     if bit32.band(flags, ImGuiWindowFlags.ChildMenu) ~= 0 then
         g.BeginMenuDepth = g.BeginMenuDepth + 1
     end
@@ -5210,10 +6333,18 @@ function ImGui.Begin(name, open, flags)
         ImGui.UpdateWindowParentAndRootLinks(window, flags, parent_window)
         window.ParentWindowInBeginStack = parent_window_in_stack
 
-        if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+        if window.RootWindow ~= window then
             window.ParentWindowForFocusRoute = parent_window_in_stack
         else
             window.ParentWindowForFocusRoute = nil
+        end
+        if window.ParentWindowForFocusRoute == nil and window.DockNode ~= nil then
+            if bit32.band(window.DockNode.MergedFlags, ImGuiDockNodeFlags.DockedWindowsInFocusRoute) ~= 0 then
+                window.ParentWindowForFocusRoute = window.DockNode.HostWindow
+            end
+        end
+        if window.WindowClass and window.WindowClass.FocusRouteParentWindowId ~= nil and window.WindowClass.FocusRouteParentWindowId ~= 0 then
+            window.ParentWindowForFocusRoute = ImGui.FindWindowByID(window.WindowClass.FocusRouteParentWindowId)
         end
 
         if parent_window then
@@ -5278,6 +6409,15 @@ function ImGui.Begin(name, open, flags)
     if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasWindowClass) ~= 0 then
         window.WindowClass = g.NextWindowData.WindowClass
     end
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasCollapsed) ~= 0 then
+        ImGui.SetWindowCollapsed(window, g.NextWindowData.CollapsedVal, g.NextWindowData.CollapsedCond)
+    end
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasFocus) ~= 0 then
+        ImGui.FocusWindow(window)
+    end
+    if window.Appearing then
+        SetWindowConditionAllowFlags(window, ImGuiCond.Appearing, false)
+    end
 
     -- [EXPERIMENTAL] Skip Refresh mode
     ImGui.UpdateWindowSkipRefresh(window)
@@ -5299,6 +6439,11 @@ function ImGui.Begin(name, open, flags)
         window.IDStack:resize(1)
 
         window.DrawList:_ResetForNewFrame()
+        window.DC.CurrentTableIdx = -1
+        if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) ~= 0 then
+            window.DrawList:ChannelsSplit(2)
+            window.DrawList:ChannelsSetCurrent(1) -- DOCKING_HOST_DRAW_CHANNEL_FG: render decorations on channel 1, backgrounds rendered manually later
+        end
 
         if window.MemoryCompacted then
             ImGui.GcAwakeTransientWindowBuffers(window)
@@ -5318,7 +6463,7 @@ function ImGui.Begin(name, open, flags)
         end
 
         -- Hide new windows for one frame until they calculate their size
-        if window_just_created then
+        if window_just_created and (not window_size_x_set_by_api or not window_size_y_set_by_api) then
             window.HiddenFramesCannotSkipItems = 1
         end
 
@@ -5346,13 +6491,13 @@ function ImGui.Begin(name, open, flags)
         SetCurrentWindow(window)
         flags = window.Flags
 
-        if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+        if not window.DockIsActive and bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
             window.WindowBorderSize = style.ChildBorderSize
         else
             window.WindowBorderSize = (bit32.band(flags, bit32.bor(ImGuiWindowFlags.Popup, ImGuiWindowFlags.Tooltip)) ~= 0 and bit32.band(flags, ImGuiWindowFlags.Modal) == 0) and style.PopupBorderSize or style.WindowBorderSize
         end
         window.WindowPadding = style.WindowPadding
-        if (bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.Popup) == 0) and (bit32.band(window.ChildFlags, ImGuiChildFlags.AlwaysUseWindowPadding) == 0) and window.WindowBorderSize == 0.0 then
+        if not window.DockIsActive and (bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.Popup) == 0) and (bit32.band(window.ChildFlags, ImGuiChildFlags.AlwaysUseWindowPadding) == 0) and window.WindowBorderSize == 0.0 then
             if bit32.band(flags, ImGuiWindowFlags.MenuBar) ~= 0 then
                 window.WindowPadding = ImVec2(0.0, style.WindowPadding.y)
             else
@@ -5389,7 +6534,27 @@ function ImGui.Begin(name, open, flags)
             use_current_size_for_scrollbar_y = true
         end
 
-        -- TODO: Collapse window by double-clicking on title bar
+        -- Collapse window by double-clicking on title bar
+        -- At this point we don't have a clipping rectangle setup yet, so we can use the title bar area for hit detection and drawing
+        if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and bit32.band(flags, ImGuiWindowFlags.NoCollapse) == 0 and not window.DockIsActive then
+            local title_bar_rect = window:TitleBarRect()
+            if g.HoveredWindow == window and g.HoveredId == 0 and g.HoveredIdPreviousFrame == 0 and g.ActiveId == 0 and ImGui.IsMouseHoveringRect(title_bar_rect.Min, title_bar_rect.Max) then
+                if g.IO.MouseClickedCount[0] == 2 and ImGui.GetKeyOwner(ImGuiKey.MouseLeft) == ImGuiKeyOwner_NoOwner then
+                    window.WantCollapseToggle = true
+                    ImGui.SetKeyOwner(ImGuiKey.MouseLeft, window.MoveId)
+                end
+            end
+            if window.WantCollapseToggle then
+                window.Collapsed = not window.Collapsed
+                if not window.Collapsed then
+                    use_current_size_for_scrollbar_y = true
+                end
+                ImGui.MarkIniSettingsDirty(window)
+            end
+        else
+            window.Collapsed = false
+        end
+        window.WantCollapseToggle = false
 
         local scrollbar_sizes_from_last_frame = ImVec2()
         ImVec2_Copy(scrollbar_sizes_from_last_frame, window.ScrollbarSizes)
@@ -5447,7 +6612,7 @@ function ImGui.Begin(name, open, flags)
             end
 
             if old_size.x ~= window.SizeFull.x or old_size.y ~= window.SizeFull.y then
-                -- ImGui.MarkIniSettingsDirty(window)
+                ImGui.MarkIniSettingsDirty(window)
             end
         end
 
@@ -5507,19 +6672,32 @@ function ImGui.Begin(name, open, flags)
         local visibility_padding = ImMax(style.DisplayWindowPadding, style.DisplaySafeAreaPadding)
         local visibility_rect = ImRect(viewport_work_rect.Min + visibility_padding, viewport_work_rect.Max - visibility_padding)
 
+        -- Clamp position/size so window stays visible within its viewport or monitor
+        if not window_pos_set_by_api and bit32.band(flags, ImGuiWindowFlags.ChildWindow) == 0 then
+            if not window.ViewportOwned and viewport_rect:GetWidth() > 0 and viewport_rect:GetHeight() > 0.0 then
+                local size_for_clamping_y = window.Size.y
+                if bit32.band(window.BgClickFlags, ImGuiWindowBgClickFlags.Move) == 0 and bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0 then
+                    size_for_clamping_y = window.TitleBarHeight
+                end
+                window.Pos.x = ImClamp(window.Pos.x, visibility_rect.Min.x - window.Size.x, visibility_rect.Max.x)
+                window.Pos.y = ImClamp(window.Pos.y, visibility_rect.Min.y - size_for_clamping_y, visibility_rect.Max.y)
+            end
+        end
         window.Pos.x = ImTrunc(window.Pos.x) window.Pos.y = ImTrunc(window.Pos.y)
 
         local want_focus = false
         if (window_just_activated_by_user and bit32.band(flags, ImGuiWindowFlags.NoFocusOnAppearing) == 0) then
             if bit32.band(flags, ImGuiWindowFlags.Popup) ~= 0 then
                 want_focus = true
-            elseif (bit32.band(flags, bit32.bor(ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.Tooltip)) == 0)then
+            elseif (window.DockIsActive or bit32.band(flags, ImGuiWindowFlags.ChildWindow) == 0) and bit32.band(flags, ImGuiWindowFlags.Tooltip) == 0 then
                 want_focus = true
             end
         end
 
-        if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+        if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 and not window.DockIsActive then
             window.WindowRounding = style.ChildRounding
+        elseif window.RootWindowDockTree.ViewportOwned then
+            window.WindowRounding = 0.0
         else
             if (bit32.band(flags, ImGuiWindowFlags.Popup) ~= 0 and bit32.band(flags, ImGuiWindowFlags.Modal) == 0) then
                 window.WindowRounding = style.PopupRounding
@@ -5528,7 +6706,7 @@ function ImGui.Begin(name, open, flags)
             end
         end
 
-        local handle_borders_and_resize_grips = true
+        local handle_borders_and_resize_grips = (window.DockNodeAsHost ~= nil or not window.DockIsActive)
         if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 and window.ParentWindow.SkipItems then
             handle_borders_and_resize_grips = false
         end
@@ -5635,6 +6813,9 @@ function ImGui.Begin(name, open, flags)
         local outer_rect = window:Rect()
         local title_bar_rect = window:TitleBarRect()
         ImRect_Copy(window.OuterRectClipped, outer_rect)
+        if window.DockIsActive then
+            window.OuterRectClipped.Min.y = window.OuterRectClipped.Min.y + window.TitleBarHeight
+        end
         window.OuterRectClipped:ClipWith(host_rect)
 
         window.InnerRect.Min.x = window.Pos.x + window.DecoOuterSizeX1
@@ -5666,7 +6847,8 @@ function ImGui.Begin(name, open, flags)
         window.DrawList:PushTexture(g.Font.OwnerAtlas.TexRef)
         ImGui.PushClipRect(host_rect.Min, host_rect.Max, false)
 
-        do
+        local is_undocked_or_docked_visible = not window.DockIsActive or window.DockTabIsVisible
+        if is_undocked_or_docked_visible then
             local render_decorations_in_parent = false
             if (bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.Popup) == 0) and not window_is_child_tooltip then
                 -- - We test overlap with the previous child window only (testing all would end up being O(log N) not a good investment here)
@@ -5693,7 +6875,8 @@ function ImGui.Begin(name, open, flags)
                 window.DrawList = parent_window.DrawList
             end
 
-            local title_bar_is_highlight = (g.NavWindow == window) -- TODO: proper cond, just simple highlight now
+            local window_to_highlight = g.NavWindowingTarget or g.NavWindow
+            local title_bar_is_highlight = want_focus or (window_to_highlight ~= nil and (window.RootWindowForTitleBarHighlight == window_to_highlight.RootWindowForTitleBarHighlight or (window.DockNode ~= nil and window.DockNode == window_to_highlight.DockNode)))
 
             RenderWindowDecorations(window, title_bar_rect, title_bar_is_highlight, handle_borders_and_resize_grips, resize_grip_col, resize_grip_draw_size)
 
@@ -5776,7 +6959,7 @@ function ImGui.Begin(name, open, flags)
         window.DC.TreeRecordsClippedNodesY2Mask = 0x00
         window.DC.ChildWindows:resize(0)
         window.DC.StateStorage = window.StateStorage
-        -- TODO: CurrentColumns
+        window.DC.CurrentColumns = nil
         window.DC.LayoutType = ImGuiLayoutType.Vertical
         window.DC.ParentLayoutType = (parent_window ~= nil) and parent_window.DC.LayoutType or ImGuiLayoutType.Vertical
 
@@ -5798,6 +6981,9 @@ function ImGui.Begin(name, open, flags)
         window.DC.ItemWidthStack:resize(0)
         window.DC.TextWrapPos = -1.0
         window.DC.TextWrapPosStack:resize(0)
+        if bit32.band(flags, ImGuiWindowFlags.Modal) ~= 0 then
+            window.DC.ModalDimBgColor = ImGui.ColorConvertFloat4ToU32(ImGui.GetStyleColorVec4(ImGuiCol.ModalWindowDimBg))
+        end
 
         if window.AutoFitFramesX > 0 then
             window.AutoFitFramesX = window.AutoFitFramesX - 1
@@ -5815,12 +7001,41 @@ function ImGui.Begin(name, open, flags)
             ImGui.NavInitWindow(window, false)
         end
 
-        if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 then
-            open = RenderWindowTitleBarContents(window, title_bar_rect, name, open)
+        -- Pressing Ctrl+C copy window content into the clipboard
+        if g.IO.ConfigWindowsCopyContentsWithCtrlC then
+            if g.NavWindow and g.NavWindow.RootWindow == window and g.ActiveId == 0 and ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.C)) then
+                ImGui.LogToClipboard(0)
+            end
         end
+
+        if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and not window.DockIsActive then
+            open = RenderWindowTitleBarContents(window, ImRect(title_bar_rect.Min.x + window.WindowBorderSize, title_bar_rect.Min.y, title_bar_rect.Max.x - window.WindowBorderSize, title_bar_rect.Max.y), name, open)
+        elseif bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and window.DockIsActive then
+            ImGui.LogText("%s\n", string.sub(window.Name, 1, ImGui.FindRenderedTextEnd(window.Name) - 1))
+        end
+
+        -- Clear hit test shape every frame
+        window.HitTestHoleSize.x = 0; window.HitTestHoleSize.y = 0
 
         if bit32.band(flags, ImGuiWindowFlags.Tooltip) ~= 0 then
             g.TooltipPreviousWindow = window
+        end
+
+        if bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.DockingEnable) ~= 0 then
+            -- Docking: Dragging a dockable window (or any of its child) turns it into a drag and drop source.
+            -- We need to do this _before_ we overwrite window->DC.LastItemId below because BeginDockableDragDropSource() also overwrites it.
+            if g.MovingWindow == window and bit32.band(window.RootWindowDockTree.Flags, ImGuiWindowFlags.NoDocking) == 0 then
+                ImGui.BeginDockableDragDropSource(window)
+            end
+
+            -- Docking: Any dockable window can act as a target. For dock node hosts we call BeginDockableDragDropTarget() in DockNodeUpdate() instead.
+            if g.DragDropActive and bit32.band(flags, ImGuiWindowFlags.NoDocking) == 0 then
+                if g.MovingWindow == nil or g.MovingWindow.RootWindowDockTree ~= window then
+                    if window == window.RootWindowDockTree and bit32.band(window.Flags, ImGuiWindowFlags.DockNodeHost) == 0 then
+                        ImGui.BeginDockableDragDropTarget(window)
+                    end
+                end
+            end
         end
 
         if bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
@@ -5846,7 +7061,7 @@ function ImGui.Begin(name, open, flags)
         ImGui.SetLastItemDataForWindow(window, window:TitleBarRect())
     end
 
-    if (not window.SkipRefresh) then
+    if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.SkipRefresh then
         ImGui.PushClipRect(window.InnerClipRect.Min, window.InnerClipRect.Max, true)
     end
 
@@ -5855,10 +7070,19 @@ function ImGui.Begin(name, open, flags)
     g.NextWindowData:ClearFlags()
 
     if first_begin_of_the_frame and not window.SkipRefresh then
+        -- When we are about to select this tab (which will only be visible on the _next frame_), flag it with a non-zero HiddenFramesCannotSkipItems.
+        if window.DockIsActive and not window.DockTabIsVisible then
+            if window.LastFrameJustFocused == g.FrameCount then
+                window.HiddenFramesCannotSkipItems = 1
+            else
+                window.HiddenFramesCanSkipItems = 1
+            end
+        end
+
         if (bit32.band(flags, ImGuiWindowFlags.ChildWindow) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.ChildMenu) == 0) then
             -- Child window can be out of sight and have "negative" clip windows.
             -- Mark them as collapsed so commands are skipped earlier (we can't manually collapse them because they have no title bar).
-            IM_ASSERT((bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0))
+            IM_ASSERT((bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) or window.DockIsActive)
 
             local nav_request = (bit32.band(window.ChildFlags, ImGuiChildFlags.NavFlattened) ~= 0) and (g.NavAnyRequest and g.NavWindow and g.NavWindow.RootWindowForNav == window.RootWindowForNav)
 
@@ -5902,6 +7126,11 @@ function ImGui.Begin(name, open, flags)
             end
         end
         window.SkipItems = skip_items
+
+        -- Restore NavLayersActiveMaskNext to previous value when not visible, so a CTRL+Tab back can use a safe value.
+        if window.SkipItems then
+            window.DC.NavLayersActiveMaskNext = window.DC.NavLayersActiveMask
+        end
     elseif first_begin_of_the_frame then
         window.SkipItems = true
     end
@@ -5924,11 +7153,14 @@ function ImGui.End()
     if bit32.band(window.Flags, ImGuiWindowFlags.Popup) ~= 0 then
         IM_ASSERT_USER_ERROR(g.WithinEndPopupID == window.ID, "Must call EndPopup() and not End()!")
     end
-    if bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0 then
+    if bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0 and bit32.band(window.Flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.DockIsActive then
         IM_ASSERT_USER_ERROR(g.WithinEndChildID == window.ID, "Must call EndChild() and not End()!")
     end
 
-    if not window.SkipRefresh then
+    if window.DC.CurrentColumns then
+        ImGui.EndColumns()
+    end
+    if bit32.band(window.Flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.SkipRefresh then
         ImGui.PopClipRect()
     end
     ImGui.PopFocusScope()
@@ -5942,6 +7174,23 @@ function ImGui.End()
         window.DrawList = window.DrawListInst
     end
 
+    -- Stop logging
+    if g.LogWindow == window then -- FIXME: add more options for scope of logging
+        ImGui.LogFinish()
+    end
+
+    if window.DC.IsSetPos then
+        ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
+    end
+
+    -- Docking: report contents sizes to parent to allow for auto-resize
+    if window.DockNode and window.DockTabIsVisible then
+        local host_window = window.DockNode.HostWindow
+        if host_window then
+            ImVec2_Copy(host_window.DC.CursorMaxPos, window.DC.CursorMaxPos + window.WindowPadding - host_window.WindowPadding)
+        end
+    end
+
     -- Pop from window stack
     ImGuiLastItemData_Copy(g.LastItemData, window_stack_data.ParentLastItemDataBackup)
     if bit32.band(window.Flags, ImGuiWindowFlags.ChildMenu) ~= 0 then
@@ -5949,6 +7198,11 @@ function ImGui.End()
     end
     if bit32.band(window.Flags, ImGuiWindowFlags.Popup) ~= 0 then
         g.BeginPopupStack:pop_back()
+    end
+
+    -- Error handling, state recovery
+    if g.IO.ConfigErrorRecovery and window_stack_data.StackSizesInBegin then
+        ImGui.ErrorRecoveryTryToRecoverWindowState(window_stack_data.StackSizesInBegin)
     end
 
     g.CurrentWindowStack:pop_back()
@@ -6783,6 +8037,9 @@ function ImGui.NewFrame()
     g.ConfigFlagsLastFrame = g.ConfigFlagsCurrFrame
     g.ConfigFlagsCurrFrame = g.IO.ConfigFlags
 
+    -- Load settings on first frame, save settings when modified (after a delay)
+    ImGui.UpdateSettings()
+
     g.Time = g.Time + g.IO.DeltaTime
 
     g.FrameCount = g.FrameCount + 1
@@ -6919,11 +8176,31 @@ function ImGui.NewFrame()
 
     ImGui.UpdateKeyboardInputs()
 
+    -- Drag and drop
+    g.DragDropAcceptIdPrev = g.DragDropAcceptIdCurr
+    g.DragDropAcceptIdCurr = 0
+    g.DragDropAcceptFlagsPrev = g.DragDropAcceptFlagsCurr
+    g.DragDropAcceptFlagsCurr = ImGuiDragDropFlags.None
+    g.DragDropAcceptIdCurrRectSurface = FLT_MAX
+    g.DragDropWithinSource = false
+    g.DragDropWithinTarget = false
+    g.DragDropHoldJustPressedId = 0
+    if g.DragDropActive then
+        local owner_id = (g.ActiveId ~= 0) and g.ActiveId or ImHashStr("##DragDropCancelHandler")
+        if ImGui.Shortcut(ImGuiKey.Escape, ImGuiInputFlags.RouteGlobal, owner_id) then
+            ImGui.ClearActiveID()
+            ImGui.ClearDragDrop()
+        end
+    end
     g.TooltipPreviousWindow = nil
 
     ImGui.NavUpdate()
 
     ImGui.UpdateMouseInputs()
+
+    -- Undocking
+    -- (needs to be before UpdateMouseMovingWindowNewFrame so the window is already offset and following the mouse on the detaching frame)
+    ImGui.DockContextNewFrameUpdateUndocking(g)
 
     IM_ASSERT(g.WindowsFocusOrder.Size <= g.Windows.Size)
     local gc_all = g.GcCompactAll or g.IO.ConfigMemoryCompactTimer < 0.0
@@ -6945,6 +8222,13 @@ function ImGui.NewFrame()
 
     ImGui.UpdateMouseMovingWindowNewFrame()
 
+    -- Background darkening/whitening
+    if ImGui.GetTopMostPopupModal() ~= nil or (g.NavWindowingTarget ~= nil and g.NavWindowingHighlightAlpha > 0.0) then
+        g.DimBgRatio = ImMin(g.DimBgRatio + g.IO.DeltaTime * 6.0, 1.0)
+    else
+        g.DimBgRatio = ImMax(g.DimBgRatio - g.IO.DeltaTime * 10.0, 0.0)
+    end
+
     g.MouseCursor = ImGuiMouseCursor.Arrow
     g.WantCaptureMouseNextFrame = -1
     g.WantCaptureKeyboardNextFrame = -1
@@ -6957,6 +8241,18 @@ function ImGui.NewFrame()
 
     ImGui.UpdateMouseWheel()
 
+    -- Garbage collect transient buffers of recently unused tables
+    for i = 1, g.TablesLastTimeActive.Size do
+        if g.TablesLastTimeActive.Data[i] >= 0.0 and g.TablesLastTimeActive.Data[i] < memory_compact_start_time then
+            ImGui.TableGcCompactTransientBuffers(g.Tables:GetByIndex(i - 1))
+        end
+    end
+    for _, table_temp_data in g.TablesTempData:iter() do
+        table_temp_data.ReconcileColumnsRequests:clear() -- Unusual: clear every frame because this is rarely used.
+        if table_temp_data.LastTimeActive >= 0.0 and table_temp_data.LastTimeActive < memory_compact_start_time then
+            ImGui.TableGcCompactTransientBuffers(table_temp_data)
+        end
+    end
     if g.GcCompactAll then
         ImGui.GcCompactTransientMiscBuffers()
     end
@@ -6972,6 +8268,9 @@ function ImGui.NewFrame()
     g.ItemFlagsStack:push_back(ImGuiItemFlags.Default_)
     g.CurrentItemFlags = g.ItemFlagsStack:back()
     g.GroupStack:resize(0)
+
+    -- Docking
+    ImGui.DockContextNewFrameUpdateDocking(g)
 
     g.WithinFrameScopeWithImplicitWindow = true
     ImGui.SetNextWindowSize(ImVec2(400, 400), ImGuiCond.FirstUseEver)
@@ -7006,7 +8305,20 @@ function ImGui.EndFrame()
     end
     ImGui.End()
 
+    -- Update navigation: Ctrl+Tab, wrap-around requests
+    if ImGui.NavEndFrame then ImGui.NavEndFrame() end
+
+    -- Update docking
+    ImGui.DockContextEndFrame(g)
+
     ImGui.SetCurrentViewport(nil, nil)
+
+    -- Drag and Drop: Elapse payload (if delivered, or if source stops being submitted)
+    if g.DragDropActive then
+        local is_delivered = g.DragDropPayload.Delivery
+        local is_elapsed = (g.DragDropSourceFrameCount + 1 < g.FrameCount) and (bit32.band(g.DragDropSourceFlags, ImGuiDragDropFlags.PayloadAutoExpire) ~= 0 or g.DragDropMouseButton == -1 or not ImGui.IsMouseDown(g.DragDropMouseButton))
+        if is_delivered or is_elapsed then ImGui.ClearDragDrop() end
+    end
 
     -- Drag and Drop: Fallback for missing source tooltip. This is not ideal but better than nothing.
     -- If you want to handle source item disappearing: instead of submitting your description tooltip
@@ -7077,7 +8389,7 @@ function ImGui.Render()
         end
     end
 
-    -- TODO: RenderDimmedBackgrounds()
+    ImGui.RenderDimmedBackgrounds()
 
     local windows_to_render_top_most = {nil, nil}
     windows_to_render_top_most[1] = (g.NavWindowingTarget and (bit32.band(g.NavWindowingTarget.Flags, ImGuiWindowFlags.NoBringToFrontOnFocus) == 0)) and g.NavWindowingTarget.RootWindowDockTree or nil
@@ -7186,6 +8498,8 @@ function ImGui.Shutdown()
         end
     end
     g.DrawListSharedData.TempBuffer:clear()
+
+    ImGui.DockContextShutdown(g)
 
     if not g.Initialized then
         return
@@ -7633,6 +8947,86 @@ function ImGui.IsWindowAbove(potential_above, potential_below)
     return false
 end
 
+-- Is current window hovered and hoverable (e.g. not blocked by a popup/modal)? See ImGuiHoveredFlags for options.
+--- @param flags? ImGuiHoveredFlags
+function ImGui.IsWindowHovered(flags)
+    if flags == nil then flags = 0 end
+    local g = GImGui
+    IM_ASSERT_USER_ERROR(bit32.band(flags, bit32.bnot(ImGuiHoveredFlags.AllowedMaskForIsWindowHovered)) == 0, "Invalid flags for IsWindowHovered()!")
+
+    local ref_window = g.HoveredWindow
+    local cur_window = g.CurrentWindow
+    if ref_window == nil then
+        return false
+    end
+
+    if bit32.band(flags, ImGuiHoveredFlags.AnyWindow) == 0 then
+        IM_ASSERT(cur_window) -- Not inside a Begin()/End()
+        local popup_hierarchy = bit32.band(flags, ImGuiHoveredFlags.NoPopupHierarchy) == 0
+        local dock_hierarchy = bit32.band(flags, ImGuiHoveredFlags.DockHierarchy) ~= 0
+        if bit32.band(flags, ImGuiHoveredFlags.RootWindow) ~= 0 then
+            cur_window = GetCombinedRootWindow(cur_window, popup_hierarchy, dock_hierarchy)
+        end
+
+        local result
+        if bit32.band(flags, ImGuiHoveredFlags.ChildWindows) ~= 0 then
+            result = ImGui.IsWindowChildOf(ref_window, cur_window, popup_hierarchy, dock_hierarchy)
+        else
+            result = (ref_window == cur_window)
+        end
+        if not result then
+            return false
+        end
+    end
+
+    if not ImGui.IsWindowContentHoverable(ref_window, flags) then
+        return false
+    end
+    if bit32.band(flags, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem) == 0 then
+        if g.ActiveId ~= 0 and not g.ActiveIdAllowOverlap and g.ActiveId ~= ref_window.MoveId then
+            return false
+        end
+    end
+
+    if bit32.band(flags, ImGuiHoveredFlags.ForTooltip) ~= 0 then
+        flags = ApplyHoverFlagsForTooltip(flags, g.Style.HoverFlagsForTooltipMouse)
+    end
+    if bit32.band(flags, ImGuiHoveredFlags.Stationary) ~= 0 and g.HoverWindowUnlockedStationaryId ~= ref_window.ID then
+        return false
+    end
+
+    return true
+end
+
+-- Similar to IsWindowHovered()
+--- @param flags? ImGuiFocusedFlags
+function ImGui.IsWindowFocused(flags)
+    if flags == nil then flags = 0 end
+    local g = GImGui
+    local ref_window = g.NavWindow
+    local cur_window = g.CurrentWindow
+
+    if ref_window == nil then
+        return false
+    end
+    if bit32.band(flags, ImGuiFocusedFlags.AnyWindow) ~= 0 then
+        return true
+    end
+
+    IM_ASSERT(cur_window) -- Not inside a Begin()/End()
+    local popup_hierarchy = bit32.band(flags, ImGuiFocusedFlags.NoPopupHierarchy) == 0
+    local dock_hierarchy = bit32.band(flags, ImGuiFocusedFlags.DockHierarchy) ~= 0
+    if bit32.band(flags, ImGuiFocusedFlags.RootWindow) ~= 0 then
+        cur_window = GetCombinedRootWindow(cur_window, popup_hierarchy, dock_hierarchy)
+    end
+
+    if bit32.band(flags, ImGuiFocusedFlags.ChildWindows) ~= 0 then
+        return ImGui.IsWindowChildOf(ref_window, cur_window, popup_hierarchy, dock_hierarchy)
+    else
+        return ref_window == cur_window
+    end
+end
+
 --- @param window ImGuiWindow
 --- @param scale  float
 local function ScaleWindow(window, scale)
@@ -7785,9 +9179,58 @@ function ImGui.GetScrollMaxY()
     return window.ScrollMax.y
 end
 
---- @param window   ImGuiWindow
---- @param scroll_x float
+function ImGui.GetScrollMaxX()
+    return GImGui.CurrentWindow.ScrollMax.x
+end
+
+function ImGui.GetScrollX()
+    return GImGui.CurrentWindow.Scroll.x
+end
+
+function ImGui.GetScrollY()
+    return GImGui.CurrentWindow.Scroll.y
+end
+
+--- @param flags? ImGuiScrollFlags
+function ImGui.ScrollToItem(flags)
+    local g = GImGui
+    ImGui.ScrollToRectEx(g.CurrentWindow, g.LastItemData.NavRect, flags or 0)
+end
+
+--- @param window    ImGuiWindow
+--- @param item_rect ImRect
+--- @param flags?    ImGuiScrollFlags
+function ImGui.ScrollToRect(window, item_rect, flags)
+    ImGui.ScrollToRectEx(window, item_rect, flags or 0)
+end
+
+--- @param center_x_ratio? float
+function ImGui.SetScrollHereX(center_x_ratio)
+    if center_x_ratio == nil then center_x_ratio = 0.5 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    local spacing_x = ImMax(window.WindowPadding.x, g.Style.ItemSpacing.x)
+    local target_pos_x = ImLerp(g.LastItemData.Rect.Min.x - spacing_x, g.LastItemData.Rect.Max.x + spacing_x, center_x_ratio)
+    ImGui.SetScrollFromPosX(window, target_pos_x - window.Pos.x, center_x_ratio)
+    window.ScrollTargetEdgeSnapDist.x = ImMax(0.0, window.WindowPadding.x - spacing_x)
+end
+
+--- @param center_y_ratio? float
+function ImGui.SetScrollHereY(center_y_ratio)
+    if center_y_ratio == nil then center_y_ratio = 0.5 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    local spacing_y = ImMax(window.WindowPadding.y, g.Style.ItemSpacing.y)
+    local target_pos_y = ImLerp(window.DC.CursorPosPrevLine.y - spacing_y, window.DC.CursorPosPrevLine.y + window.DC.PrevLineSize.y + spacing_y, center_y_ratio)
+    ImGui.SetScrollFromPosY(window, target_pos_y - window.Pos.y, center_y_ratio)
+    window.ScrollTargetEdgeSnapDist.y = ImMax(0.0, window.WindowPadding.y - spacing_y)
+end
+
+-- Overloads: SetScrollX(scroll_x) / SetScrollX(window, scroll_x)
+--- @param window   ImGuiWindow|float
+--- @param scroll_x float?
 function ImGui.SetScrollX(window, scroll_x)
+    if type(window) == "number" then window, scroll_x = GImGui.CurrentWindow, window end
     window.ScrollTarget.x = scroll_x
     window.ScrollTargetCenterRatio.x = 0.0
     window.ScrollTargetEdgeSnapDist.x = 0.0
@@ -7796,6 +9239,7 @@ end
 --- @param window   ImGuiWindow
 --- @param scroll_y float
 function ImGui.SetScrollY(window, scroll_y)
+    if type(window) == "number" then window, scroll_y = GImGui.CurrentWindow, window end
     window.ScrollTarget.y = scroll_y
     window.ScrollTargetCenterRatio.y = 0.0
     window.ScrollTargetEdgeSnapDist.y = 0.0
@@ -7805,6 +9249,8 @@ end
 --- @param local_x        float
 --- @param center_x_ratio float
 function ImGui.SetScrollFromPosX(window, local_x, center_x_ratio)
+    if type(window) == "number" then window, local_x, center_x_ratio = GImGui.CurrentWindow, window, local_x end
+    if center_x_ratio == nil then center_x_ratio = 0.5 end
     IM_ASSERT(center_x_ratio >= 0.0 and center_x_ratio <= 1.0)
     window.ScrollTarget.x = IM_TRUNC(local_x - window.DecoOuterSizeX1 - window.DecoInnerSizeX1 + window.Scroll.x)
     window.ScrollTargetCenterRatio.x = center_x_ratio
@@ -7815,6 +9261,8 @@ end
 --- @param local_y        float
 --- @param center_y_ratio float
 function ImGui.SetScrollFromPosY(window, local_y, center_y_ratio)
+    if type(window) == "number" then window, local_y, center_y_ratio = GImGui.CurrentWindow, window, local_y end
+    if center_y_ratio == nil then center_y_ratio = 0.5 end
     IM_ASSERT(center_y_ratio >= 0.0 and center_y_ratio <= 1.0)
     window.ScrollTarget.y = IM_TRUNC(local_y - window.DecoOuterSizeY1 - window.DecoInnerSizeY1 + window.Scroll.y)
     window.ScrollTargetCenterRatio.y = center_y_ratio
@@ -8180,12 +9628,7 @@ function ImGui.BeginPopupMenuEx(id, label, extra_window_flags)
     end
 
     if bit32.band(extra_window_flags, ImGuiWindowFlags.ChildWindow) ~= 0 and bit32.band(extra_window_flags, ImGuiWindowFlags.AlwaysAutoResize) ~= 0 then
-        if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags) ~= 0 then
-            g.NextWindowData.ChildFlags = bit32.bor(g.NextWindowData.ChildFlags, ImGuiChildFlags.AlwaysAutoResize)
-        else
-            g.NextWindowData.ChildFlags = ImGuiChildFlags.AlwaysAutoResize
-        end
-        g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasChildFlags)
+        ImGui.SetNextWindowChildFlags(ImGuiChildFlags.AlwaysAutoResize, true)
     end
 
     IM_ASSERT(bit32.band(extra_window_flags, ImGuiWindowFlags.ChildMenu) ~= 0)
@@ -11249,55 +12692,532 @@ function ImGui.ShowMetricsWindow(open)
 end
 
 
+
+--- @param idx ImGuiCol
+--- @return ImVec4  # live reference to the style color (like upstream's const&)
+function ImGui.GetStyleColorVec4(idx)
+    return GImGui.Style.Colors[idx]
+end
+
+function ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
+    local g = GImGui
+    local window = g.CurrentWindow
+    IM_ASSERT(window.DC.IsSetPos)
+    window.DC.IsSetPos = false
+    if window.DC.CursorPos.x <= window.DC.CursorMaxPos.x and window.DC.CursorPos.y <= window.DC.CursorMaxPos.y then return end
+    if window.SkipItems then return end
+    -- Upstream asserts (user error): "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.
+    -- Please submit an item e.g. Dummy() afterwards". We keep the old, tolerant behavior instead of erroring.
+    window.DC.CursorMaxPos = ImMax(window.DC.CursorMaxPos, window.DC.CursorPos)
+end
+
+---------------------------------------------------------------------------------------
+-- [SECTION] POPUPS: modals, context popups, dimming
+---------------------------------------------------------------------------------------
+
+local function GetWindowDisplayLayer(window)
+    return (bit32.band(window.Flags, ImGuiWindowFlags.Tooltip) ~= 0) and 1 or 0
+end
+
+--- @return int # 0-based display index (like upstream), -1 if not found
+function ImGui.FindWindowDisplayIndex(window)
+    local g = GImGui
+    local i = g.Windows:find_index(window)
+    return i and (i - 1) or -1
+end
+
+function ImGui.BringWindowToDisplayBack(window)
+    local g = GImGui
+    if g.Windows.Data[1] == window then return end
+    local i = g.Windows:find_index(window)
+    if i then
+        table.remove(g.Windows.Data, i)
+        table.insert(g.Windows.Data, 1, window)
+    end
+end
+
+function ImGui.FindBottomMostVisibleWindowWithinBeginStack(parent_window)
+    local g = GImGui
+    local bottom_most_visible_window = parent_window
+    for i = ImGui.FindWindowDisplayIndex(parent_window), 0, -1 do
+        local window = g.Windows.Data[i + 1]
+        if bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) == 0 then
+            if not ImGui.IsWindowWithinBeginStackOf(window, parent_window) then break end
+            if ImGui.IsWindowActiveAndVisible(window) and GetWindowDisplayLayer(window) <= GetWindowDisplayLayer(parent_window) then
+                bottom_most_visible_window = window
+            end
+        end
+    end
+    return bottom_most_visible_window
+end
+
+function ImGui.GetTopMostAndVisiblePopupModal()
+    local g = GImGui
+    for n = g.OpenPopupStack.Size, 1, -1 do
+        local popup = g.OpenPopupStack.Data[n].Window
+        if popup and bit32.band(popup.Flags, ImGuiWindowFlags.Modal) ~= 0 and ImGui.IsWindowActiveAndVisible(popup) then
+            return popup
+        end
+    end
+    return nil
+end
+
+function ImGui.RenderDimmedBackgroundBehindWindow(window, col)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    local viewport = window.Viewport
+    local viewport_rect = viewport:GetMainRect()
+    -- Draw behind window by moving the draw command at the FRONT of the draw list
+    local draw_list = (window.RootWindowDockTree or window.RootWindow).DrawList
+    draw_list:ChannelsMerge()
+    if draw_list.CmdBuffer.Size == 0 then draw_list:AddDrawCmd() end
+    draw_list:PushClipRect(viewport_rect.Min - ImVec2(1, 1), viewport_rect.Max + ImVec2(1, 1), false)
+    draw_list:AddRectFilled(viewport_rect.Min, viewport_rect.Max, col)
+    local cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    draw_list.CmdBuffer:pop_back()
+    draw_list.CmdBuffer:push_front(cmd)
+    draw_list:AddDrawCmd()
+    draw_list:PopClipRect()
+end
+
+function ImGui.RenderDimmedBackgrounds()
+    local g = GImGui
+    local modal_window = ImGui.GetTopMostAndVisiblePopupModal()
+    if g.DimBgRatio <= 0.0 and g.NavWindowingHighlightAlpha <= 0.0 then return end
+    local dim_bg_for_modal = (modal_window ~= nil)
+    local dim_bg_for_window_list = (g.NavWindowingTargetAnim ~= nil and g.NavWindowingTargetAnim.Active)
+    if not dim_bg_for_modal and not dim_bg_for_window_list then return end
+
+    if dim_bg_for_modal then
+        local dim_behind_window = ImGui.FindBottomMostVisibleWindowWithinBeginStack(modal_window)
+        ImGui.RenderDimmedBackgroundBehindWindow(dim_behind_window, ImGui.GetColorU32(modal_window.DC.ModalDimBgColor, g.DimBgRatio, true))
+    elseif dim_bg_for_window_list then
+        ImGui.RenderDimmedBackgroundBehindWindow(g.NavWindowingTargetAnim, ImGui.GetColorU32(ImGuiCol.NavWindowingDimBg, g.DimBgRatio))
+        if g.NavWindowingListWindow ~= nil and g.NavWindowingListWindow.Active and g.NavWindowingListWindow.Viewport and g.NavWindowingListWindow.Viewport ~= g.NavWindowingTargetAnim.Viewport then
+            ImGui.RenderDimmedBackgroundBehindWindow(g.NavWindowingListWindow, ImGui.GetColorU32(ImGuiCol.NavWindowingDimBg, g.DimBgRatio))
+        end
+        -- Draw border around Ctrl+Tab target window
+        local window = g.NavWindowingTargetAnim
+        local viewport = window.Viewport
+        local distance = g.FontSize
+        local bb = window:Rect()
+        bb:Expand(distance)
+        if bb:GetWidth() >= viewport.Size.x and bb:GetHeight() >= viewport.Size.y then bb:Expand(-distance - 1.0) end
+        window.DrawList:ChannelsMerge()
+        if window.DrawList.CmdBuffer.Size == 0 then window.DrawList:AddDrawCmd() end
+        window.DrawList:PushClipRect(viewport.Pos, viewport.Pos + viewport.Size)
+        window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.NavWindowingHighlight, g.NavWindowingHighlightAlpha), window.WindowRounding, 0, 3.0)
+        window.DrawList:PopClipRect()
+    end
+end
+
+function ImGui.ClosePopupsExceptModals()
+    local g = GImGui
+    local popup_count_to_keep = g.OpenPopupStack.Size
+    while popup_count_to_keep > 0 do
+        local window = g.OpenPopupStack.Data[popup_count_to_keep].Window
+        if not window or bit32.band(window.Flags, ImGuiWindowFlags.Modal) ~= 0 then break end
+        popup_count_to_keep = popup_count_to_keep - 1
+    end
+    if popup_count_to_keep < g.OpenPopupStack.Size then
+        ImGui.ClosePopupToLevel(popup_count_to_keep, true)
+    end
+end
+
+--- @return bool visible, bool? p_open   # p_open is the updated value of the optional close button flag
+function ImGui.BeginPopupModal(name, p_open, flags)
+    if flags == nil then flags = 0 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    local id = window:GetID(name)
+    if not ImGui.IsPopupOpen(id, ImGuiPopupFlags.None) then
+        g.NextWindowData:ClearFlags()
+        if p_open then p_open = false end
+        return false, p_open
+    end
+
+    if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasPos) == 0 then
+        local viewport = window.WasActive and window.Viewport or ImGui.GetMainViewport()
+        ImGui.SetNextWindowPos(viewport:GetCenter(), ImGuiCond.FirstUseEver, ImVec2(0.5, 0.5))
+    end
+
+    flags = bit32.bor(flags, ImGuiWindowFlags.Popup, ImGuiWindowFlags.Modal, ImGuiWindowFlags.NoCollapse, ImGuiWindowFlags.NoDocking)
+    local is_open
+    p_open, is_open = ImGui.Begin(name, p_open, flags)
+    if not is_open or (p_open ~= nil and not p_open) then
+        ImGui.EndPopup()
+        if is_open then ImGui.ClosePopupToLevel(g.BeginPopupStack.Size, true) end
+        return false, p_open
+    end
+    return is_open, p_open
+end
+
+function ImGui.IsPopupOpenRequestForWindow(popup_flags)
+    local g = GImGui
+    local mouse_button = ImGui.GetMouseButtonFromPopupFlags(popup_flags)
+    if ImGui.IsMouseReleased(mouse_button, ImGuiKeyOwner_NoOwner) and ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup) then
+        if bit32.band(popup_flags, ImGuiPopupFlags.NoOpenOverItems) == 0 or not ImGui.IsAnyItemHovered() then
+            return true
+        end
+    end
+    if g.NavOpenContextMenuWindowId and g.NavOpenContextMenuWindowId ~= 0 and g.CurrentWindow.ID ~= 0 then
+        if ImGui.IsWindowChildOf(g.NavWindow, g.CurrentWindow, false, false) then return true end
+    end
+    return false
+end
+
+function ImGui.BeginPopupContextWindow(str_id, popup_flags)
+    if popup_flags == nil then popup_flags = 0 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    if not str_id then str_id = "window_context" end
+    local id = window:GetID(str_id)
+    if ImGui.IsPopupOpenRequestForWindow(popup_flags) then ImGui.OpenPopupEx(id, popup_flags) end
+    return ImGui.BeginPopupEx(id, bit32.bor(ImGuiWindowFlags.AlwaysAutoResize, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoSavedSettings))
+end
+
+function ImGui.BeginPopupContextVoid(str_id, popup_flags)
+    if popup_flags == nil then popup_flags = 0 end
+    local g = GImGui
+    local window = g.CurrentWindow
+    if not str_id then str_id = "void_context" end
+    local id = window:GetID(str_id)
+    local mouse_button = ImGui.GetMouseButtonFromPopupFlags(popup_flags)
+    if ImGui.IsMouseReleased(mouse_button, id) and not ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow) then
+        if ImGui.GetTopMostPopupModal() == nil then ImGui.OpenPopupEx(id, popup_flags) end
+    end
+    return ImGui.BeginPopupEx(id, bit32.bor(ImGuiWindowFlags.AlwaysAutoResize, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoSavedSettings))
+end
+
+function ImGui.BeginTooltipHidden()
+    local g = GImGui
+    local _, ret = ImGui.Begin("##Tooltip_Hidden", nil, bit32.bor(ImGuiWindowFlags.Tooltip, ImGuiWindowFlags.NoInputs, ImGuiWindowFlags.NoTitleBar,
+        ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.AlwaysAutoResize))
+    ImGui.SetWindowHiddenAndSkipItemsForCurrentFrame(g.CurrentWindow)
+    return ret
+end
+
+-- Baseline fallbacks (the real ports, if defined earlier in this file, win)
+if not ImGuiErrorRecoveryState then
+    function ImGuiErrorRecoveryState()
+        return { SizeOfWindowStack = 0, SizeOfIDStack = 0, SizeOfTreeStack = 0, SizeOfColorStack = 0, SizeOfStyleVarStack = 0,
+                 SizeOfFontStack = 0, SizeOfFocusScopeStack = 0, SizeOfGroupStack = 0, SizeOfItemFlagsStack = 0,
+                 SizeOfBeginPopupStack = 0, SizeOfDisabledStack = 0 }
+    end
+end
+if not ImGui.ErrorRecoveryStoreState then
+    function ImGui.ErrorRecoveryStoreState(state_out)
+        local g = GImGui
+        state_out.SizeOfWindowStack = g.CurrentWindowStack.Size
+        state_out.SizeOfIDStack = g.CurrentWindow.IDStack.Size
+        state_out.SizeOfTreeStack = g.CurrentWindow.DC.TreeDepth
+        state_out.SizeOfColorStack = g.ColorStack.Size
+        state_out.SizeOfStyleVarStack = g.StyleVarStack.Size
+        state_out.SizeOfFontStack = g.FontStack.Size
+        state_out.SizeOfFocusScopeStack = g.FocusScopeStack.Size
+        state_out.SizeOfGroupStack = g.GroupStack.Size
+        state_out.SizeOfItemFlagsStack = g.ItemFlagsStack.Size
+        state_out.SizeOfBeginPopupStack = g.BeginPopupStack.Size
+        state_out.SizeOfDisabledStack = g.DisabledStackSize or 0
+    end
+end
+if not ImGui.ErrorRecoveryTryToRecoverWindowState then
+    function ImGui.ErrorRecoveryTryToRecoverWindowState(state_in) end -- TODO(core agent)
+end
+
 return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
 __FILES['imgui_demo.lua'] = function()
 --- ImGui Sincerely WIP
--- (Demo Code)
+-- (Demo Code) Port of imgui_demo.cpp (docking branch)
+-- This file: shared demo helpers, ShowDemoWindow(), DemoWindowMenuBar(), DemoWindowWidgets() dispatcher, example tree/image viewer helpers.
+-- Other parts (all global functions, loaded from the same bundle):
+--   imgui_demo_w1.lua    : DemoWindowWidgets{Basic,Bullets,CollapsingHeaders,ColorAndPickers,ComboBoxes,DataTypes,...}
+--   imgui_demo_w2.lua    : DemoWindowWidgets{QueryingStatuses,Selectables,SelectionAndMultiSelect}
+--   imgui_demo_w3.lua    : DemoWindowWidgets{Tabs,Text,TextInput,Tooltips,TreeNodes,VerticalSliders}
+--   imgui_demo_style.lua : ShowAboutWindow, ShowStyleEditor, ShowUserGuide, ShowExampleMenuFile, ...
+--   imgui_demo_2.lua     : Layout, Popups, Tables, Columns, Inputs + example apps
 
--- NOTE: Make sure to use fields with different names inside `static`!
+local _
 
-local IM_MIN = math.min
-local IM_MAX = math.max
-local function IM_CLAMP(V, MN, MX) return (V < MN) and MN or (V > MX) and MX or V end
+----------------------------------------------------------------
+-- Shared helpers (globals)
+----------------------------------------------------------------
 
--- TODO: HelpMarker()
--- TODO: ImColor helpers?
+function IMGUI_DEMO_MARKER(_) end -- upstream hook, no-op here
 
---- @class ImGuiDemoWindowData
+--- Helper to display a little (?) mark which shows a tooltip when hovered.
+function HelpMarker(desc)
+    ImGui.TextDisabled("(?)")
+    if ImGui.BeginItemTooltip() then
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35.0)
+        ImGui.TextUnformatted(desc)
+        ImGui.PopTextWrapPos()
+        ImGui.EndTooltip()
+    end
+end
 
---- @return ImGuiDemoWindowData
---- @nodiscard
-local function ImGuiDemoWindowData()
+function ShowDockingDisabledMessage()
+    local io = ImGui.GetIO()
+    ImGui.Text("ERROR: Docking is not enabled! See Demo > Configuration.")
+    ImGui.Text("Set io.ConfigFlags |= ImGuiConfigFlags_DockingEnable in your code, or ")
+    ImGui.SameLine(0.0, 0.0)
+    if ImGui.SmallButton("click here") then
+        io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.DockingEnable)
+    end
+end
+
+function DemoNotSupported() ImGui.TextDisabled("(not supported on Roblox)") end
+function DemoNotPorted(what) ImGui.TextDisabled("(not ported yet%s)", what and (": " .. what) or "") end
+function DemoB2I(b) return b and 1 or 0 end
+function DemoHas(flags, f) return bit32.band(flags, f) ~= 0 end
+function DemoClamp(v, mn, mx) return (v < mn) and mn or (v > mx) and mx or v end
+
+--- `char buf[size] = "str"` -> zero-terminated byte table
+function DemoBuf(str, size)
+    local t = {}
+    for i = 1, #str do t[i] = string.byte(str, i) end
+    t[#str + 1] = 0
+    if size then for i = #str + 2, size do t[i] = 0 end end
+    return t
+end
+--- byte table -> Lua string (up to the zero terminator)
+function DemoBufStr(buf)
+    local n = 0
+    while buf[n + 1] ~= nil and buf[n + 1] ~= 0 do n = n + 1 end
+    if n == 0 then return "" end
+    return ImGui._ByteArrayToString(buf, 1, n + 1)
+end
+
+--- "a\0b\0c\0\0" -> { "a", "b", "c" }
+function DemoItems(s)
+    if type(s) == "table" then return s end
+    local t = {}
+    for item in string.gmatch(s, "([^%z]+)") do t[#t + 1] = item end
+    return t
+end
+
+--- Combo() one-liner. `idx` is 0-based; `items` is a table of strings (1-based) or a "\0"-separated string.
+--- Uses ImGui.Combo if it exists, falls back to BeginCombo/Selectable.
+--- @return int idx, bool changed
+function DemoCombo(label, idx, items, popup_max_height_in_items)
+    items = DemoItems(items)
+    if ImGui.Combo then
+        return ImGui.Combo(label, idx, items, #items, popup_max_height_in_items or -1)
+    end
+    local changed = false
+    local preview = (idx >= 0 and idx < #items) and items[idx + 1] or ""
+    if ImGui.BeginCombo(label, preview) then
+        for n = 0, #items - 1 do
+            local is_selected = (idx == n)
+            if ImGui.Selectable(items[n + 1], is_selected) then
+                idx = n
+                changed = true
+            end
+            if is_selected then ImGui.SetItemDefaultFocus() end
+        end
+        ImGui.EndCombo()
+    end
+    return idx, changed
+end
+
+--- ListBox() one-liner (see DemoCombo)
+function DemoListBox(label, idx, items, height_in_items)
+    items = DemoItems(items)
+    if ImGui.ListBox then
+        return ImGui.ListBox(label, idx, items, #items, height_in_items or -1)
+    end
+    local changed = false
+    if height_in_items == nil or height_in_items < 0 then height_in_items = math.min(#items, 7) end
+    local height_in_items_f = height_in_items + 0.25
+    local height_in_pixels = math.floor(ImGui.GetTextLineHeightWithSpacing() * height_in_items_f + ImGui.GetStyle().FramePadding.y * 2.0)
+    if ImGui.BeginListBox and ImGui.BeginListBox(label, ImVec2(0.0, height_in_pixels)) then
+        for n = 0, #items - 1 do
+            local is_selected = (idx == n)
+            if ImGui.Selectable(items[n + 1], is_selected) then
+                idx = n
+                changed = true
+            end
+            if is_selected then ImGui.SetItemDefaultFocus() end
+        end
+        ImGui.EndListBox()
+    elseif not ImGui.BeginListBox then
+        DemoNotPorted("ListBox")
+    end
+    return idx, changed
+end
+
+--- Closable header: CollapsingHeader(label, &p_open). Returns visible, open.
+function DemoCollapsingHeaderClosable(label, open)
+    if not open then return false, open end
+    local visible = ImGui.CollapsingHeader(label, open)
+    -- ponytail: until CollapsingHeader(label, p_open) lands, a boolean 2nd arg is treated as flags=None by the library
+    if type(visible) == "table" then visible = visible[1] end
+    return visible, open
+end
+
+--- ImColor::HSV() as ImVec4
+function DemoHSV(h, s, v, a)
+    local r, g, b = ImGui.ColorConvertHSVtoRGB(h, s, v)
+    return ImVec4(r, g, b, a or 1.0)
+end
+
+--- Minimal ImGuiTextFilter when the library one isn't available (Draw/DrawWithHint/PassFilter/Clear/IsActive)
+function DemoTextFilter()
+    if ImGuiTextFilter then return ImGuiTextFilter() end
+    local f = { InputBuf = DemoBuf("", 256) }
+    local function parse(self)
+        local inc, exc = {}, {}
+        for tok in string.gmatch(string.lower(DemoBufStr(self.InputBuf)), "[^,%s]+") do
+            if string.sub(tok, 1, 1) == "-" then
+                if #tok > 1 then exc[#exc + 1] = string.sub(tok, 2) end
+            else
+                inc[#inc + 1] = tok
+            end
+        end
+        return inc, exc
+    end
+    function f:Draw(label, width)
+        if width and width ~= 0 then ImGui.SetNextItemWidth(width) end
+        return ImGui.InputText(label or "Filter (inc,-exc)", self.InputBuf, 256)
+    end
+    function f:DrawWithHint(label, hint, width)
+        if width and width ~= 0 then ImGui.SetNextItemWidth(width) end
+        return ImGui.InputTextWithHint(label, hint, self.InputBuf, 256)
+    end
+    function f:Clear() self.InputBuf[1] = 0 end
+    function f:IsActive() return self.InputBuf[1] ~= 0 and self.InputBuf[1] ~= nil end
+    function f:PassFilter(text)
+        local inc, exc = parse(self)
+        text = string.lower(text)
+        for _, e in ipairs(exc) do if string.find(text, e, 1, true) then return false end end
+        if #inc == 0 then return true end
+        for _, i in ipairs(inc) do if string.find(text, i, 1, true) then return true end end
+        return false
+    end
+    return f
+end
+
+----------------------------------------------------------------
+-- [SECTION] Demo Window data
+----------------------------------------------------------------
+
+--- Data to be shared across different functions of the demo.
+function ImGuiDemoWindowData()
     return {
+        -- Examples Apps (accessible from the "Examples" menu)
+        ShowMainMenuBar = false,
+        ShowAppAssetsBrowser = false,
+        ShowAppConsole = false,
+        ShowAppCustomRendering = false,
+        ShowAppDocuments = false,
+        ShowAppDockSpace = false,
         ShowAppImageViewer = false,
+        ShowAppLog = false,
+        ShowAppLayout = false,
+        ShowAppPropertyEditor = false,
+        ShowAppSimpleOverlay = false,
+        ShowAppAutoResize = false,
+        ShowAppConstrainedResize = false,
         ShowAppFullscreen = false,
+        ShowAppLongText = false,
+        ShowAppWindowTitles = false,
 
+        -- Dear ImGui Tools (accessible from the "Tools" menu)
         ShowMetrics = false,
+        ShowDebugLog = false,
+        ShowIDStackTool = false,
         ShowStyleEditor = false,
+        ShowAbout = false,
+
+        -- Other data
+        DisableSections = false,
+        LiveEditOverride = false,
+        LiveEditFlags = ImGuiItemFlags.LiveEditOnInputText or 0,
+        DemoTree = nil,
     }
 end
 
---- @class ExampleImageViewerData
+----------------------------------------------------------------
+-- [SECTION] Helpers: ExampleTreeNode, ExampleMemberInfo (for use by Property Editor & Multi-Select demos)
+----------------------------------------------------------------
 
---- @return ExampleImageViewerData
---- @nodiscard
-local function ExampleImageViewerData()
+function ExampleTreeNode()
+    return {
+        -- Tree structure
+        Name = "",
+        UID = 0,
+        Parent = nil,
+        Childs = {},         -- 1-based
+        IndexInParent = 0,   -- 0-based
+
+        -- Leaf Data
+        HasData = false,     -- All leaves have data
+        DataMyBool = true,
+        DataMyInt = 128,
+        DataMyVec2 = ImVec2(0.0, 3.141592),
+    }
+end
+
+function ExampleTree_CreateNode(name, uid, parent)
+    local node = ExampleTreeNode()
+    node.Name = string.sub(name, 1, 27)
+    node.UID = uid
+    node.Parent = parent
+    node.IndexInParent = parent and #parent.Childs or 0
+    if parent then
+        parent.Childs[#parent.Childs + 1] = node
+    end
+    return node
+end
+
+function ExampleTree_DestroyNode(node) end -- GC
+
+--- Create example tree data
+function ExampleTree_CreateDemoTree()
+    local ROOT_ITEMS_COUNT = 20
+    local category_names = { "Apple", "Banana", "Cherry", "Kiwi", "Mango", "Orange", "Pear", "Pineapple", "Strawberry", "Watermelon" }
+    local category_count = #category_names
+    local uid = 0
+    uid = uid + 1
+    local node_L0 = ExampleTree_CreateNode("<ROOT>", uid, nil)
+    for idx_L0 = 0, ROOT_ITEMS_COUNT - 1 do
+        local name_buf = string.format("%s %d", category_names[idx_L0 // (ROOT_ITEMS_COUNT // category_count) + 1], idx_L0 % (ROOT_ITEMS_COUNT // category_count))
+        uid = uid + 1
+        local node_L1 = ExampleTree_CreateNode(name_buf, uid, node_L0)
+        local number_of_childs = #node_L1.Name
+        for idx_L1 = 0, number_of_childs - 1 do
+            uid = uid + 1
+            local node_L2 = ExampleTree_CreateNode(string.format("Child %d", idx_L1), uid, node_L1)
+            node_L2.HasData = true
+            if idx_L1 == 0 then
+                uid = uid + 1
+                local node_L3 = ExampleTree_CreateNode(string.format("Sub-child %d", 0), uid, node_L2)
+                node_L3.HasData = true
+            end
+        end
+    end
+    return node_L0
+end
+
+----------------------------------------------------------------
+-- [SECTION] Helpers: ExampleImageViewer
+----------------------------------------------------------------
+
+function ExampleImageViewerData()
     return {
         ImageBgColor = IM_COL32(100, 100, 100, 255),
         GridColor    = IM_COL32(255, 255, 255, 100),
         GridEnabled  = true,
         ViewReset    = true,
-        ViewOffset   = ImVec2(0, 0),
+        ViewOffset   = ImVec2(0, 0), -- in image space
         Zoom         = 10.0,
         ZoomMin      = 1.0,
-        ZoomMax      = 10000.0
+        ZoomMax      = 10000.0,
     }
 end
 
---- @param data ExampleImageViewerData
-local function ExampleImageViewer_DrawOptions(data)
+function ExampleImageViewer_DrawOptions(data)
     ImGui.SetNextItemShortcut(ImGuiKey.G, ImGuiInputFlags.Tooltip)
     _, data.GridEnabled = ImGui.Checkbox("Grid", data.GridEnabled)
     ImGui.SameLine()
@@ -11310,29 +13230,26 @@ local function ExampleImageViewer_DrawOptions(data)
     end
 end
 
---- @param data          ExampleImageViewerData
---- @param canvas_size   ImVec2
---- @param image_tex_ref ImTextureRef
---- @param image_w       int
---- @param image_h       int
-local function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, image_w, image_h)
+function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, image_w, image_h)
     local io = ImGui.GetIO()
     local platform_io = ImGui.GetPlatformIO()
     local draw_list = ImGui.GetWindowDrawList()
     IM_ASSERT(canvas_size.x >= 0.0 and canvas_size.y >= 0.0)
 
+    -- Layout canvas
     ImGui.InvisibleButton("##Canvas", canvas_size)
     local canvas_min = ImGui.GetItemRectMin()
     local canvas_max = ImGui.GetItemRectMax()
 
     if data.ViewReset then
-        data.ViewOffset = ImVec2((canvas_size.x * 0.5 / data.Zoom) - 0.5, (canvas_size.y * 0.5 / data.Zoom) - 0.5)
+        data.ViewOffset = ImVec2((canvas_size.x * 0.5 / data.Zoom) - 0.5, (canvas_size.y * 0.5 / data.Zoom) - 0.5) -- Add half a pixel padding
     end
     data.ViewReset = false
 
+    -- Handle inputs
     if ImGui.SetItemKeyOwner(ImGuiKey.MouseWheelY) then
         if io.MouseWheel ~= 0.0 then
-            data.Zoom = IM_CLAMP(data.Zoom * (1.0 + io.MouseWheel * 0.10), data.ZoomMin, data.ZoomMax)
+            data.Zoom = DemoClamp(data.Zoom * (1.0 + io.MouseWheel * 0.10), data.ZoomMin, data.ZoomMax)
         end
     end
     local zoom = data.Zoom
@@ -11341,12 +13258,12 @@ local function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, i
         data.ViewOffset.y = data.ViewOffset.y - io.MouseDelta.y / zoom
     end
 
+    -- Display image
     local image_min = ImVec2(); local image_max = ImVec2()
     image_min.x = math.floor((canvas_min.x - (data.ViewOffset.x * zoom)) + (canvas_size.x * 0.5))
     image_min.y = math.floor((canvas_min.y - (data.ViewOffset.y * zoom)) + (canvas_size.y * 0.5))
     image_max.x = math.floor(image_min.x + image_w * zoom)
     image_max.y = math.floor(image_min.y + image_h * zoom)
-
     draw_list:AddRect(ImVec2(canvas_min.x - 1.0, canvas_min.y - 1.0), ImVec2(canvas_max.x + 1.0, canvas_max.y + 1.0), IM_COL32(255, 255, 255, 255))
     draw_list:PushClipRect(canvas_min, canvas_max, true)
     draw_list:AddRectFilled(image_min, image_max, data.ImageBgColor)
@@ -11358,6 +13275,7 @@ local function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, i
         draw_list:AddCallback(ImGui.GetPlatformIO().DrawCallback_SetSamplerLinear)
     end
 
+    -- Display grid lines for visible pixels
     if data.GridEnabled and zoom > 6.0 then
         local step = zoom
         for px = math.floor((canvas_min.x - image_min.x) / step), math.floor((canvas_max.x - image_min.x) / step) do
@@ -11370,763 +13288,9 @@ local function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, i
     draw_list:PopClipRect()
 end
 
-local function ShowExampleMenuFile()
-    ImGui.MenuItem("(demo menu)", nil, false, false)
-    if ImGui.MenuItem("New") then end
-    if ImGui.MenuItem("Open", "Ctrl+O") then end
-    if ImGui.BeginMenu("Open Recent") then
-        ImGui.MenuItem("fish_hat.c")
-        ImGui.MenuItem("fish_hat.inl")
-        ImGui.MenuItem("fish_hat.h")
-        if ImGui.BeginMenu("More..") then
-            ImGui.MenuItem("Hello")
-            ImGui.MenuItem("Sailor")
-            if ImGui.BeginMenu("Recurse..") then
-                ShowExampleMenuFile()
-                ImGui.EndMenu()
-            end
-            ImGui.EndMenu()
-        end
-        ImGui.EndMenu()
-    end
-    if ImGui.MenuItem("Save", "Ctrl+S") then end
-    if ImGui.MenuItem("Save As..") then end
-end
-
-local function DemoWindowMenuBar(demo_data)
-    if ImGui.BeginMenuBar() then
-        if ImGui.BeginMenu("Menu") then
-            ShowExampleMenuFile()
-            ImGui.EndMenu()
-        end
-        if ImGui.BeginMenu("Examples") then
-            ImGui.SeparatorText("Concepts")
-            _, demo_data.ShowAppFullscreen = ImGui.MenuItem("Fullscreen window", nil, demo_data.ShowAppFullscreen)
-
-            ImGui.EndMenu()
-        end
-        if ImGui.BeginMenu("Tools") then
-
-local has_debug_tools = false
-if not IMGUI_DISABLE_DEBUG_TOOLS then
-    has_debug_tools = true
-end
-
-            _, demo_data.ShowMetrics = ImGui.MenuItem("Metrics/Debugger", nil, demo_data.ShowMetrics, has_debug_tools)
-            _, demo_data.ShowStyleEditor = ImGui.MenuItem("Style Editor", nil, demo_data.ShowStyleEditor)
-
-            ImGui.EndMenu()
-        end
-
-        ImGui.EndMenuBar()
-    end
-end
-
-local DemoWindowWidgetsBasic
-do
-
-local static = {}
-
-local clicked = 0
-local checked = true
-local radio_v = 0
-
-local col0 = ImVec4(0, 0, 0, 1)
-local col1 = ImVec4(0, 0, 0, 1)
-local col2 = ImVec4(0, 0, 0, 1)
-
-local counter = 0
-
-local str0 = {string.byte("Hello, World!", 1, 13)}
-table.insert(str0, 0)
-
-local str1 = {}
-str1[1] = 0
-
-local hint0 = {string.byte("enter text here", 1, 15)}
-table.insert(hint0, 0)
-
-local vec4a = { 0.10, 0.20, 0.30, 0.44 }
-
-local Element = { Fire = 1, Earth = 2, Air = 3, Water = 4, COUNT = 5 }
-local elems_names = { "Fire", "Earth", "Air", "Water" }
-
-function DemoWindowWidgetsBasic()
-    if ImGui.TreeNode("Basic") then
-        ImGui.SeparatorText("General")
-
-        if ImGui.Button("Button") then
-            clicked = clicked + 1
-        end
-
-        if clicked % 2 ~= 0 then
-            ImGui.SameLine()
-            ImGui.Text("Thanks for clicking me!")
-        end
-
-        _, check = ImGui.Checkbox("checkbox", check)
-
-        _, radio_v = ImGui.RadioButton("radio a", radio_v, 0) ImGui.SameLine()
-        _, radio_v = ImGui.RadioButton("radio b", radio_v, 1) ImGui.SameLine()
-        _, radio_v = ImGui.RadioButton("radio c", radio_v, 2)
-
-        ImGui.AlignTextToFramePadding()
-        ImGui.TextLinkOpenURL("Hyperlink", "https://github.com/GrayWolf64/imgui-lua")
-
-        for i = 1, 7 do
-            if i > 1 then
-                ImGui.SameLine()
-            end
-            ImGui.PushID(i)
-
-            col0.x, col0.y, col0.z = ImGui.ColorConvertHSVtoRGB(i / 7.0, 0.6, 0.6)
-            col1.x, col1.y, col1.z = ImGui.ColorConvertHSVtoRGB(i / 7.0, 0.7, 0.7)
-            col2.x, col2.y, col2.z = ImGui.ColorConvertHSVtoRGB(i / 7.0, 0.8, 0.8)
-            ImGui.PushStyleColor(ImGuiCol.Button, col0)
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, col1)
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, col2)
-
-            ImGui.Button("Click")
-
-            ImGui.PopStyleColor(3)
-            ImGui.PopID()
-        end
-
-        -- Use AlignTextToFramePadding() to align text baseline to the baseline of framed widgets elements
-        -- (otherwise a Text+SameLine+Button sequence will have the text a little too high by default!)
-        -- See 'Demo->Layout->Text Baseline Alignment' for details.
-        ImGui.AlignTextToFramePadding()
-        ImGui.Text("Hold to repeat:")
-        ImGui.SameLine()
-
-        -- Arrow buttons with Repeater
-        local spacing = ImGui.GetStyle().ItemInnerSpacing.x
-        ImGui.PushItemFlag(ImGuiItemFlags.ButtonRepeat, true)
-        if ImGui.ArrowButton("##left", ImGuiDir.Left) then counter = counter - 1 end
-        ImGui.SameLine(0.0, spacing)
-        if ImGui.ArrowButton("##right", ImGuiDir.Right) then counter = counter + 1 end
-        ImGui.PopItemFlag()
-        ImGui.SameLine()
-        ImGui.Text("%d", counter)
-
-        ImGui.Button("Tooltip")
-        ImGui.SetItemTooltip("I am a tooltip")
-
-        ImGui.LabelText("label", "Value")
-
-        ImGui.SeparatorText("Inputs")
-
-        do
-            ImGui.InputText("input text", str0, 128)
-
-            ImGui.InputTextWithHint("input text (w/ hint)", hint0, str1, 128)
-
-            if not static.i0 then static.i0 = 233 end
-            static.i0 = ImGui.InputInt("input int", static.i0)
-
-            if not static.f0 then static.f0 = 0.001 end
-            static.f0 = ImGui.InputFloat("input float", static.f0, 0.01, 1.0)
-
-            if not static.d0 then static.d0 = 999999.00000001 end
-            static.d0 = ImGui.InputDouble("input double", static.d0, 0.01, 1.0, "%.8f")
-            -- TODO:
-
-            ImGui.InputFloat3("input float3", vec4a)
-        end
-
-        ImGui.SeparatorText("Drags")
-
-        do
-            if not static.i1 then static.i1 = 50  end
-            if not static.i2 then static.i2 = 42  end
-            if not static.i3 then static.i3 = 128 end
-            static.i1 = ImGui.DragInt("drag int", static.i1, 1)
-            static.i2 = ImGui.DragInt("drag int 0..100", static.i2, 1, 0, 100, "%d%%", ImGuiSliderFlags.AlwaysClamp)
-            static.i3 = ImGui.DragInt("drag int wrap 100..200", static.i3, 1, 100, 200, "%d", ImGuiSliderFlags.WrapAround)
-
-            if not static.f1 then static.f1 = 1.00   end
-            if not static.f2 then static.f2 = 0.0067 end
-            static.f1 = ImGui.DragFloat("drag float", static.f1, 0.005)
-            static.f2 = ImGui.DragFloat("drag small float", static.f2, 0.0001, 0.0, 0.0, "%.06f ns")
-        end
-
-        ImGui.SeparatorText("Sliders")
-
-        do
-            if not static.f01 then static.f01 = 0.123 end
-            if not static.f02 then static.f02 = 0.0   end
-            static.f01 = ImGui.SliderFloat("slider float", static.f01, 0.0, 1.0, "ratio = %.3f")
-            static.f02 = ImGui.SliderFloat("slider float (log)", static.f02, -10.0, 10.0, "%.4f", ImGuiSliderFlags.Logarithmic)
-
-            if not static.angle then static.angle = 0.0 end
-            static.angle = ImGui.SliderAngle("slider angle", static.angle)
-
-            if not static.elem then static.elem = Element.Fire end
-            local elem_name = (static.elem >= 1 and static.elem < Element.COUNT) and elems_names[static.elem] or "Unknown"
-            static.elem = ImGui.SliderInt("slider enum", static.elem, 1, Element.COUNT - 1, elem_name)
-        end
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local function DemoWindowWidgetsBullets()
-    if ImGui.TreeNode("Bullets") then
-        ImGui.BulletText("Bullet point 1")
-        ImGui.BulletText("Bullet point 2\nOn multiple lines")
-        if ImGui.TreeNode("Tree node") then
-            ImGui.BulletText("Another bullet point")
-            ImGui.TreePop()
-        end
-        ImGui.Bullet() ImGui.Text("Bullet point 3 (two calls)")
-        ImGui.Bullet() ImGui.SmallButton("Button")
-        ImGui.TreePop()
-    end
-end
-
-local DemoWindowWidgetsColorAndPickers
-do
-
-local color = {114.0 / 255.0, 144.0 / 255.0, 154.0 / 255.0, 200.0 / 255.0}
-local base_flags = ImGuiColorEditFlags.None
-
-local ref_color = false
-local ref_color_v = {1.0, 0.0, 1.0, 0.5}
-local picker_mode = 0
-local display_mode = 0
-local color_picker_flags = ImGuiColorEditFlags.AlphaBar
-local picker_mode_names = {"Auto/Current", "ImGuiColorEditFlags.PickerHueBar", "ImGuiColorEditFlags.PickerHueWheel"}
-local display_mode_names = {"Auto/Current", "ImGuiColorEditFlags.NoInputs", "ImGuiColorEditFlags.DisplayRGB", "ImGuiColorEditFlags.DisplayHSV", "ImGuiColorEditFlags.DisplayHex"}
-
-function DemoWindowWidgetsColorAndPickers()
-    if ImGui.TreeNode("Color/Picker Widgets") then
-        ImGui.SeparatorText("Options")
-
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoAlpha", base_flags, ImGuiColorEditFlags.NoAlpha)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.AlphaOpaque", base_flags, ImGuiColorEditFlags.AlphaOpaque)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.AlphaNoBg", base_flags, ImGuiColorEditFlags.AlphaNoBg)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.AlphaPreviewHalf", base_flags, ImGuiColorEditFlags.AlphaPreviewHalf)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoOptions", base_flags, ImGuiColorEditFlags.NoOptions)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoDragDrop", base_flags, ImGuiColorEditFlags.NoDragDrop)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoColorMarkers", base_flags, ImGuiColorEditFlags.NoColorMarkers)
-        _, base_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.HDR", base_flags, ImGuiColorEditFlags.HDR)
-
-        ImGui.SeparatorText("Inline color editor")
-        ImGui.Text("Color widget:")
-        ImGui.ColorEdit3("MyColor##1", color, base_flags)
-
-        ImGui.Text("Color widget HSV with Alpha:")
-        ImGui.ColorEdit4("MyColor##2", color, bit32.bor(ImGuiColorEditFlags.DisplayHSV, base_flags))
-
-        ImGui.Text("Color widget with Float Display:")
-        ImGui.ColorEdit4("MyColor##2f", color, bit32.bor(ImGuiColorEditFlags.Float, base_flags))
-
-        ImGui.Text("Color button with Picker:")
-        ImGui.ColorEdit4("MyColor##3", color, bit32.bor(ImGuiColorEditFlags.NoInputs, ImGuiColorEditFlags.NoLabel, base_flags))
-
-        -- TODO:
-
-        ImGui.SeparatorText("Color picker")
-
-        ImGui.PushID("Color picker")
-        _, color_picker_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoAlpha", color_picker_flags, ImGuiColorEditFlags.NoAlpha)
-        _, color_picker_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.AlphaBar", color_picker_flags, ImGuiColorEditFlags.AlphaBar)
-        _, color_picker_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.NoSidePreview", color_picker_flags, ImGuiColorEditFlags.NoSidePreview)
-
-        if bit32.band(color_picker_flags, ImGuiColorEditFlags.NoSidePreview) ~= 0 then
-            ImGui.SameLine()
-            _, ref_color = ImGui.Checkbox("With Ref Color", ref_color)
-            if ref_color then
-                ImGui.SameLine()
-                ImGui.ColorEdit4("##RefColor", ref_color_v, bit32.bor(ImGuiColorEditFlags.NoInputs, base_flags))
-            end
-        end
-        _, color_picker_flags = ImGui.CheckboxFlags("ImGuiColorEditFlags.PickerNoRotate", color_picker_flags, ImGuiColorEditFlags.PickerNoRotate)
-
-        if ImGui.BeginCombo("Picker Mode", picker_mode_names[picker_mode + 1], ImGuiComboFlags.None) then
-            for mode_idx, mode_name in ipairs(picker_mode_names) do
-                local pressed = ImGui.Selectable(mode_name, mode_idx == picker_mode + 1)
-                if pressed then
-                    picker_mode = mode_idx - 1
-                end
-            end
-            ImGui.EndCombo()
-        end
-
-        if ImGui.BeginCombo("Display Mode", display_mode_names[display_mode + 1], ImGuiComboFlags.None) then
-            for mode_idx, mode_name in ipairs(display_mode_names) do
-                local pressed = ImGui.Selectable(mode_name, mode_idx == display_mode + 1)
-                if pressed then
-                    display_mode = mode_idx - 1
-                end
-            end
-            ImGui.EndCombo()
-        end
-
-        local flags = bit32.bor(base_flags, color_picker_flags)
-        if picker_mode == 1 then flags = bit32.bor(flags, ImGuiColorEditFlags.PickerHueBar) end
-        if picker_mode == 2 then flags = bit32.bor(flags, ImGuiColorEditFlags.PickerHueWheel) end
-        if display_mode == 1 then flags = bit32.bor(flags, ImGuiColorEditFlags.NoInputs) end   -- Disable all RGB/HSV/Hex displays
-        if display_mode == 2 then flags = bit32.bor(flags, ImGuiColorEditFlags.DisplayRGB) end -- Override display mode
-        if display_mode == 3 then flags = bit32.bor(flags, ImGuiColorEditFlags.DisplayHSV) end
-        if display_mode == 4 then flags = bit32.bor(flags, ImGuiColorEditFlags.DisplayHex) end
-
-        ImGui.ColorPicker4("MyColor##4", color, flags, ref_color and ref_color_v or nil)
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local DemoWindowWidgetsImages do
-
-local pressed_count = 0
-
-local image_viewer = ExampleImageViewerData()
-
-function DemoWindowWidgetsImages()
-    if ImGui.TreeNode("Images") then
-        ImGui.TextWrapped(
-            "Below we are displaying the font texture (which is the only texture we have access to in this demo). " ..
-            "Use the 'ImTextureID' type as storage to pass pointers or identifier to your own texture data. " ..
-            "Hover the texture for a zoomed view!"
-        )
-
-        -- Grab the current texture identifier used by the font atlas
-        local io = ImGui.GetIO()
-
-        local atlas = io.Fonts
-        local my_tex_id = atlas.TexRef
-        local my_tex_w = atlas.TexData.Width
-        local my_tex_h = atlas.TexData.Height
-        ImGui.Text("%.0fx%.0f", my_tex_w, my_tex_h)
-
-        ImGui.SeparatorText("Image()/ImageWithBg() function")
-        local uv_min = ImVec2(0.0, 0.0)
-        local uv_max = ImVec2(1.0, 1.0)
-        ImGui.PushStyleVar(ImGuiStyleVar.ImageBorderSize, IM_MAX(1.0, ImGui.GetStyle().ImageBorderSize))
-        ImGui.ImageWithBg(my_tex_id, ImVec2(my_tex_w, my_tex_h), uv_min, uv_max, ImVec4(0.0, 0.0, 0.0, 1.0))
-        ImGui.PopStyleVar()
-
-        -- Fancy widget
-        ImGui.SeparatorText("Interactive Image Viewer")
-
-        local canvas_size = ImVec2(ImGui.GetContentRegionAvail().x, my_tex_h * 2.0)
-        ExampleImageViewer_DrawOptions(image_viewer)
-        ExampleImageViewer_DrawCanvas(image_viewer, canvas_size, my_tex_id, my_tex_w, my_tex_h)
-
-        ImGui.SeparatorText("Textured Buttons")
-
-        ImGui.TextWrapped("And now some textured buttons..")
-        for i = 1, 8 do
-            -- UV coordinates are often (0.0f, 0.0f) and (1.0f, 1.0f) to display an entire textures.
-            -- Here are trying to display only a 32x32 pixels area of the texture, hence the UV computation.
-            ImGui.PushID(i)
-            if i > 1 then
-                ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(i, i))
-            end
-
-            local size = ImVec2(32.0, 32.0) -- Size of the image we want to make visible
-            local uv0 = ImVec2(0.0, 0.0) -- UV coordinates for lower-left
-            local uv1 = ImVec2(32.0 / my_tex_w, 32.0 / my_tex_h) -- UV coordinates for (32,32) in our texture
-            local bg_col = ImVec4(0.0, 0.0, 0.0, 1.0) -- Black background
-            local tint_col = ImVec4(1.0, 1.0, 1.0, 1.0) -- No tint
-
-            if ImGui.ImageButton("", my_tex_id, size, uv0, uv1, bg_col, tint_col) then
-                pressed_count = pressed_count + 1
-            end
-
-            if i > 1 then
-                ImGui.PopStyleVar()
-            end
-
-            ImGui.PopID()
-            ImGui.SameLine()
-        end
-
-        ImGui.NewLine()
-        ImGui.Text("Pressed %d times.", pressed_count)
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local function DemoWindowWidgetsLiveEdit()
-    -- TODO:
-end
-
-local DemoWindowWidgetsPlotting
-do
-
-local animate = true
-local arr = { 0.6, 0.1, 1.0, 0.5, 0.92, 0.1, 0.2 }
-
-local values_sz = 90
-local values = {} for i = 1, values_sz do values[i] = 0 end
-local values_offset = 0
-local refresh_time = 0.0
-local phase = 0.0
-
-function DemoWindowWidgetsPlotting()
-    if ImGui.TreeNode("Plotting") then
-        _, animate = ImGui.Checkbox("Animate", animate)
-
-        -- Plot as lines and plot as histogram
-        ImGui.PlotLines("Frame Times", arr, nil, #arr)
-        ImGui.PlotHistogram("Histogram", arr, nil, #arr, 0, nil, 0.0, 1.0, ImVec2(0, 80.0))
-
-        if not animate or refresh_time == 0.0 then
-            refresh_time = ImGui.GetTime()
-        end
-        while refresh_time < ImGui.GetTime() do -- Create data at fixed 60 Hz rate for the demo
-            values[values_offset + 1] = math.cos(phase)
-            values_offset = (values_offset + 1) % values_sz
-            phase = phase + 0.10 * values_offset
-            refresh_time = refresh_time + 1.0 / 60.0
-        end
-
-        -- Plots can display overlay texts
-        -- (in this example, we will display an average value)
-        do
-            local average = 0.0
-            for i = 1, values_sz do
-                average = average + values[i]
-            end
-            average = average / values_sz
-            local overlay = string.format("avg %f", average)
-            ImGui.PlotLines("Lines", values, nil, values_sz, values_offset, overlay, -1.0, 1.0, ImVec2(0, 80.0))
-        end
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local DemoWindowWidgetsProgressBars do
-
-local progress_accum = 0.0
-local progress_dir = 1.0
-
-function DemoWindowWidgetsProgressBars()
-    if ImGui.TreeNode("Progress Bars") then
-        -- Animate a simple progress bar
-        progress_accum = progress_accum + progress_dir * 0.4 * ImGui.GetIO().DeltaTime
-        if progress_accum >= 1.1 then
-            progress_accum = 1.1
-            progress_dir = progress_dir * -1.0
-        end
-
-        if progress_accum <= -0.1 then
-            progress_accum = -0.1
-            progress_dir = progress_dir * -1.0
-        end
-
-        local progress = IM_CLAMP(progress_accum, 0.0, 1.0)
-
-        -- Typically we would use ImVec2(-1.0,0.0) or ImVec2(-math.huge,0.0) to use all available width,
-        -- or ImVec2(width,0.0) for a specified width. ImVec2(0.0,0.0) uses ItemWidth
-        ImGui.ProgressBar(progress, ImVec2(0.0, 0.0))
-        ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
-        ImGui.Text("Progress Bar")
-
-        local buf = string.format("%d/%d", math.floor(progress * 1753), 1753)
-        ImGui.ProgressBar(progress, ImVec2(0.0, 0.0), buf)
-
-        -- Pass an animated negative value, e.g. -1.0 * ImGui.GetTime() is the recommended value
-        -- Adjust the factor if you want to adjust the animation speed
-        ImGui.ProgressBar(-1.0 * ImGui.GetTime(), ImVec2(0.0, 0.0), "Searching..")
-        ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
-        ImGui.Text("Indeterminate")
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local DemoWindowWidgetsVerticalSliders do
-
-local int_value = 0
-local values = { 0.0, 0.60, 0.35, 0.9, 0.70, 0.20, 0.0 }
-local values2 = { 0.20, 0.80, 0.40, 0.25 }
-
-local col0 = ImVec4(0, 0, 0, 1)
-local col1 = ImVec4(0, 0, 0, 1)
-local col2 = ImVec4(0, 0, 0, 1)
-local col3 = ImVec4(0, 0, 0, 1)
-
-function DemoWindowWidgetsVerticalSliders()
-    if ImGui.TreeNode("Vertical Sliders") then
-        local spacing = 4
-        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(spacing, spacing))
-
-        int_value = ImGui.VSliderInt("##int", ImVec2(18, 160), int_value, 0, 5)
-        ImGui.SameLine()
-
-        ImGui.PushID("set1")
-        for i = 1, 7 do
-            if i > 1 then ImGui.SameLine() end
-            ImGui.PushID(i)
-            local hue = (i - 1) / 7.0
-            col0.x, col0.y, col0.z = ImGui.ColorConvertHSVtoRGB(hue, 0.5, 0.5)
-            col1.x, col1.y, col1.z = ImGui.ColorConvertHSVtoRGB(hue, 0.6, 0.5)
-            col2.x, col2.y, col2.z = ImGui.ColorConvertHSVtoRGB(hue, 0.7, 0.5)
-            col3.x, col3.y, col3.z = ImGui.ColorConvertHSVtoRGB(hue, 0.9, 0.9)
-            ImGui.PushStyleColor(ImGuiCol.FrameBg, col0)
-            ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, col1)
-            ImGui.PushStyleColor(ImGuiCol.FrameBgActive, col2)
-            ImGui.PushStyleColor(ImGuiCol.SliderGrab, col3)
-            values[i] = ImGui.VSliderFloat("##v", ImVec2(18, 160), values[i], 0.0, 1.0, "")
-            if ImGui.IsItemActive() or ImGui.IsItemHovered() then
-                ImGui.SetTooltip("%.3f", values[i])
-            end
-            ImGui.PopStyleColor(4)
-            ImGui.PopID()
-        end
-        ImGui.PopID()
-
-        ImGui.SameLine()
-        ImGui.PushID("set2")
-        local rows = 3
-        local small_slider_size = ImVec2(18, math.floor((160.0 - (rows - 1) * spacing) / rows))
-        for nx = 1, 4 do
-            if nx > 1 then ImGui.SameLine() end
-            ImGui.BeginGroup()
-            for ny = 1, rows do
-                ImGui.PushID((nx - 1) * rows + ny)
-                values2[nx] = ImGui.VSliderFloat("##v", small_slider_size, values2[nx], 0.0, 1.0, "")
-                if ImGui.IsItemActive() or ImGui.IsItemHovered() then
-                    ImGui.SetTooltip("%.3f", values2[nx])
-                end
-                ImGui.PopID()
-            end
-            ImGui.EndGroup()
-        end
-        ImGui.PopID()
-
-        ImGui.SameLine()
-        ImGui.PushID("set3")
-        for i = 1, 4 do
-            if i > 1 then ImGui.SameLine() end
-            ImGui.PushID(i)
-            ImGui.PushStyleVar(ImGuiStyleVar.GrabMinSize, 40)
-            values[i] = ImGui.VSliderFloat("##v", ImVec2(40, 160), values[i], 0.0, 1.0, "%.2f\nsec")
-            ImGui.PopStyleVar()
-            ImGui.PopID()
-        end
-        ImGui.PopID()
-
-        ImGui.PopStyleVar()
-
-        ImGui.TreePop()
-    end
-end
-
-end
-
-local function DemoWindowWidgets()
-    if not ImGui.CollapsingHeader("Widgets") then
-        return
-    end
-
-    DemoWindowWidgetsBasic()
-    DemoWindowWidgetsBullets()
-    DemoWindowWidgetsColorAndPickers()
-    DemoWindowWidgetsImages()
-    DemoWindowWidgetsLiveEdit()
-    DemoWindowWidgetsPlotting()
-    DemoWindowWidgetsProgressBars()
-    DemoWindowWidgetsVerticalSliders()
-end
-
-local function DemoWindowLayout()
-    if not ImGui.CollapsingHeader("Layout & Scrolling") then
-        return
-    end
-
-end
-
-local function DemoWindowPopups()
-    if not ImGui.CollapsingHeader("Popups & Modal windows") then
-        return
-    end
-
-end
-
-local function DemoWindowTables()
-    if not ImGui.CollapsingHeader("Tables & Columns") then
-        return
-    end
-
-end
-
-local function DemoWindowInputs()
-    if not ImGui.CollapsingHeader("Inputs & Focus") then
-        return
-    end
-
-end
-
-do
-
-local static = {}
-
-local style_idx = -1
-local style_names = { "Dark", "Light", "Classic" }
-
---- @param label string
-function ImGui.ShowStyleSelector(label)
-    local ret = false
-    if ImGui.BeginCombo(label, (style_idx >= 1 and style_idx <= #style_names) and style_names[style_idx] or "") then
-        for n = 1, #style_names do
-            if ImGui.Selectable(style_names[n], style_idx == n, ImGuiSelectableFlags.SelectOnNav) then
-                style_idx = n
-                ret = true
-
-                if style_idx == 1 then ImGui.StyleColorsDark() end
-                if style_idx == 2 then ImGui.StyleColorsLight() end
-                if style_idx == 3 then ImGui.StyleColorsClassic() end
-
-            elseif style_idx == n then
-                ImGui.SetItemDefaultFocus()
-            end
-        end
-        ImGui.EndCombo()
-    end
-    return ret
-end
-
---- @param label string
-function ImGui.ShowFontSelector(label)
-    local io = ImGui.GetIO()
-    local font_current = ImGui.GetFont()
-    if ImGui.BeginCombo(label, font_current:GetDebugName()) then
-        for _, font in io.Fonts.Fonts:iter() do
-            ImGui.PushID(tostring(font):match("0x%x+")) -- (void*)font
-            if ImGui.Selectable(font:GetDebugName(), font == font_current, ImGuiSelectableFlags.SelectOnNav) then
-                io.FontDefault = font
-            end
-            if font == font_current then
-                ImGui.SetItemDefaultFocus()
-            end
-            ImGui.PopID()
-        end
-        ImGui.EndCombo()
-    end
-end
-
---- @param ref ImGuiStyle?
-function ImGui.ShowStyleEditor(ref)
-    local style = ImGui.GetStyle()
-
-    local default_border_size = ImTrunc(style._MainScale)
-    local max_border_size = ImMax(default_border_size, 2.0)
-
-    ImGui.PushItemWidth(ImGui.GetWindowWidth() * 0.50)
-
-    ImGui.SeparatorText("General")
-    do
-        if ImGui.ShowStyleSelector("Colors##Selector") then
-            -- TODO:
-        end
-        ImGui.ShowFontSelector("Fonts##Selector")
-
-        local ret0
-        style.FontSizeBase, ret0 = ImGui.DragFloat("FontSizeBase", style.FontSizeBase, 0.20, 5.0, 100.0, "%.0f")
-        if ret0 then
-            style._NextFrameFontSizeBase = style.FontSizeBase -- FIXME: Temporary hack until we finish remaining work.
-        end
-        ImGui.SameLine(0.0, 0.0); ImGui.Text(" (out %.2f)", ImGui.GetFontSize())
-
-        style.FontScaleMain = ImGui.DragFloat("FontScaleMain", style.FontScaleMain, 0.02, 0.5, 4.0)
-
-        ImGui.BeginDisabled(ImGui.GetIO().ConfigDpiScaleFonts)
-            style.FontScaleDpi = ImGui.DragFloat("FontScaleDpi", style.FontScaleDpi, 0.02, 0.5, 4.0)
-            ImGui.SetItemTooltip("When io.ConfigDpiScaleFonts is set, this value is automatically overwritten.")
-        ImGui.EndDisabled()
-
-        local ret1
-        style.FrameRounding, ret1 = ImGui.SliderFloat("FrameRounding", style.FrameRounding, 0.0, 12.0, "%.0f")
-        if ret1 then
-            style.GrabRounding = style.FrameRounding -- Make GrabRounding always the same value as FrameRounding
-        end
-
-        do
-            local border = (style.WindowBorderSize > 0.0)
-            local pressed
-            pressed, border = ImGui.Checkbox("WindowBorder", border)
-            if pressed then style.WindowBorderSize = (border and default_border_size or 0.0) end
-        end
-        ImGui.SameLine()
-        do
-            local border = (style.FrameBorderSize > 0.0)
-            local pressed
-            pressed, border = ImGui.Checkbox("FrameBorder", border)
-            if pressed then style.FrameBorderSize = (border and default_border_size or 0.0) end
-        end
-        ImGui.SameLine()
-        do
-            local border = (style.PopupBorderSize > 0.0)
-            local pressed
-            pressed, border = ImGui.Checkbox("PopupBorder", border)
-            if pressed then style.PopupBorderSize = (border and default_border_size or 0.0) end
-        end
-    end
-
-    ImGui.SeparatorText("Details")
-    -- TODO:
-
-    ImGui.PopItemWidth()
-end
-
-end
-
-local function ShowExampleAppImageViewer()
-    -- TODO:
-end
-
-local ShowExampleAppFullscreen do
-
-local use_work_area = true
-local flags = bit32.bor(ImGuiWindowFlags.NoDecoration, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoSavedSettings)
-
-function ShowExampleAppFullscreen(open)
-    local viewport = ImGui.GetMainViewport()
-    ImGui.SetNextWindowPos(use_work_area and viewport.WorkPos or viewport.Pos)
-    ImGui.SetNextWindowSize(use_work_area and viewport.WorkSize or viewport.Size)
-
-    local ret
-    open, ret = ImGui.Begin("Example: Fullscreen window", open, flags)
-    if ret then
-        _, use_work_area = ImGui.Checkbox("Use work area instead of main area", use_work_area)
-        ImGui.SameLine()
-
-        _, flags = ImGui.CheckboxFlags("ImGuiWindowFlags.NoBackground", flags, ImGuiWindowFlags.NoBackground)
-        _, flags = ImGui.CheckboxFlags("ImGuiWindowFlags.NoDecoration", flags, ImGuiWindowFlags.NoDecoration)
-        ImGui.Indent()
-        _, flags = ImGui.CheckboxFlags("ImGuiWindowFlags.NoTitleBar", flags, ImGuiWindowFlags.NoTitleBar)
-        _, flags = ImGui.CheckboxFlags("ImGuiWindowFlags.NoCollapse", flags, ImGuiWindowFlags.NoCollapse)
-        _, flags = ImGui.CheckboxFlags("ImGuiWindowFlags.NoScrollbar", flags, ImGuiWindowFlags.NoScrollbar)
-        ImGui.Unindent()
-
-        if open and ImGui.Button("Close this window") then
-            open = false
-        end
-    end
-    ImGui.End()
-
-    return open
-end
-
-end
-
-do
+----------------------------------------------------------------
+-- [SECTION] Demo Window / ShowDemoWindow()
+----------------------------------------------------------------
 
 local demo_data = ImGuiDemoWindowData()
 
@@ -12143,89 +13307,6824 @@ local no_bring_to_front = false
 local no_docking        = false
 local unsaved_document  = false
 
-function ImGui.ShowDemoWindow(open)
-    if demo_data.ShowAppFullscreen then demo_data.ShowAppFullscreen = ShowExampleAppFullscreen(demo_data.ShowAppFullscreen) end
-
-    if demo_data.ShowMetrics then
-        demo_data.ShowMetrics = ImGui.ShowMetricsWindow(demo_data.ShowMetrics)
+--- Shows an example app: `if X then X.open = X(open) end`. Example apps return the new p_open.
+local function RunApp(fn, key, ...)
+    if fn then
+        demo_data[key] = fn(demo_data[key], ...)
+        if demo_data[key] == nil then demo_data[key] = false end
+    else
+        demo_data[key] = false
     end
-    if demo_data.ShowStyleEditor then
-        demo_data.ShowStyleEditor = ImGui.Begin("ImGui Sincerely Style Editor", demo_data.ShowStyleEditor)
-        ImGui.ShowStyleEditor()
+end
+
+local function DemoWindowMenuBar(data)
+    if ImGui.BeginMenuBar() then
+        if ImGui.BeginMenu("Menu") then
+            IMGUI_DEMO_MARKER("Menu/File")
+            ShowExampleMenuFile()
+            ImGui.EndMenu()
+        end
+        if ImGui.BeginMenu("Examples") then
+            IMGUI_DEMO_MARKER("Menu/Examples")
+            _, data.ShowMainMenuBar = ImGui.MenuItem("Main menu bar", nil, data.ShowMainMenuBar)
+
+            ImGui.SeparatorText("Mini apps")
+            _, data.ShowAppAssetsBrowser = ImGui.MenuItem("Assets Browser", nil, data.ShowAppAssetsBrowser)
+            _, data.ShowAppConsole = ImGui.MenuItem("Console", nil, data.ShowAppConsole)
+            _, data.ShowAppCustomRendering = ImGui.MenuItem("Custom rendering", nil, data.ShowAppCustomRendering)
+            _, data.ShowAppDocuments = ImGui.MenuItem("Documents", nil, data.ShowAppDocuments)
+            _, data.ShowAppDockSpace = ImGui.MenuItem("Dockspace", nil, data.ShowAppDockSpace)
+            _, data.ShowAppImageViewer = ImGui.MenuItem("Image Viewer", nil, data.ShowAppImageViewer)
+            _, data.ShowAppLog = ImGui.MenuItem("Log", nil, data.ShowAppLog)
+            _, data.ShowAppPropertyEditor = ImGui.MenuItem("Property editor", nil, data.ShowAppPropertyEditor)
+            _, data.ShowAppLayout = ImGui.MenuItem("Simple layout", nil, data.ShowAppLayout)
+            _, data.ShowAppSimpleOverlay = ImGui.MenuItem("Simple overlay", nil, data.ShowAppSimpleOverlay)
+
+            ImGui.SeparatorText("Concepts")
+            _, data.ShowAppAutoResize = ImGui.MenuItem("Auto-resizing window", nil, data.ShowAppAutoResize)
+            _, data.ShowAppConstrainedResize = ImGui.MenuItem("Constrained-resizing window", nil, data.ShowAppConstrainedResize)
+            _, data.ShowAppFullscreen = ImGui.MenuItem("Fullscreen window", nil, data.ShowAppFullscreen)
+            _, data.ShowAppLongText = ImGui.MenuItem("Long text display", nil, data.ShowAppLongText)
+            _, data.ShowAppWindowTitles = ImGui.MenuItem("Manipulating window titles", nil, data.ShowAppWindowTitles)
+
+            ImGui.EndMenu()
+        end
+        if ImGui.BeginMenu("Tools") then
+            IMGUI_DEMO_MARKER("Menu/Tools")
+            local io = ImGui.GetIO()
+            local has_debug_tools = not IMGUI_DISABLE_DEBUG_TOOLS
+            _, data.ShowMetrics = ImGui.MenuItem("Metrics/Debugger", nil, data.ShowMetrics, has_debug_tools and ImGui.ShowMetricsWindow ~= nil)
+            if ImGui.BeginMenu("Debug Options") then
+                ImGui.BeginDisabled(not has_debug_tools)
+                _, io.ConfigDebugHighlightIdConflicts = ImGui.Checkbox("Highlight ID Conflicts", io.ConfigDebugHighlightIdConflicts)
+                ImGui.EndDisabled()
+                _, io.ConfigErrorRecoveryEnableAssert = ImGui.Checkbox("Assert on error recovery", io.ConfigErrorRecoveryEnableAssert)
+                ImGui.TextDisabled("(see Demo->Configuration for more)")
+                ImGui.EndMenu()
+            end
+            _, data.ShowDebugLog = ImGui.MenuItem("Debug Log", nil, data.ShowDebugLog, has_debug_tools and ImGui.ShowDebugLogWindow ~= nil)
+            _, data.ShowIDStackTool = ImGui.MenuItem("ID Stack Tool", nil, data.ShowIDStackTool, has_debug_tools and ImGui.ShowIDStackToolWindow ~= nil)
+            local is_debugger_present = io.ConfigDebugIsDebuggerPresent
+            if ImGui.MenuItem("Item Picker", nil, false, has_debug_tools and ImGui.DebugStartItemPicker ~= nil) then
+                ImGui.DebugStartItemPicker()
+            end
+            if not is_debugger_present then
+                ImGui.SetItemTooltip("Requires io.ConfigDebugIsDebuggerPresent=true to be set.\n\nWe otherwise disable some extra features to avoid casual users crashing the application.")
+            end
+            _, data.ShowStyleEditor = ImGui.MenuItem("Style Editor", nil, data.ShowStyleEditor)
+            _, data.ShowAbout = ImGui.MenuItem("About ImGui Sincerely", nil, data.ShowAbout)
+
+            ImGui.EndMenu()
+        end
+        ImGui.EndMenuBar()
+    end
+end
+
+--- Configuration header contents (split from ShowDemoWindow to keep the function small)
+local function DemoWindowConfiguration(io)
+    local F = ImGuiConfigFlags
+    local function CF(label, flag)
+        local pressed
+        pressed, io.ConfigFlags = ImGui.CheckboxFlags(label, io.ConfigFlags, flag)
+        return pressed
+    end
+    local function CB(label, field)
+        local pressed
+        pressed, io[field] = ImGui.Checkbox(label, io[field])
+        return pressed
+    end
+    local function HM(desc) ImGui.SameLine(); HelpMarker(desc) end
+
+    if ImGui.TreeNode("Configuration##2") then
+        IMGUI_DEMO_MARKER("Configuration")
+        ImGui.SeparatorText("General")
+        CF("io.ConfigFlags: NavEnableKeyboard", F.NavEnableKeyboard)
+        HM("Enable keyboard controls.")
+        CF("io.ConfigFlags: NavEnableGamepad", F.NavEnableGamepad)
+        HM("Enable gamepad controls. Require backend to set io.BackendFlags |= ImGuiBackendFlags_HasGamepad.\n\nRead instructions in imgui.cpp for details.")
+        CF("io.ConfigFlags: NoMouse", F.NoMouse)
+        HM("Instruct dear imgui to disable mouse inputs and interactions.")
+
+        -- The "NoMouse" option can get us stuck with a disabled mouse! Let's provide an alternative way to fix it:
+        if DemoHas(io.ConfigFlags, F.NoMouse) then
+            if (ImGui.GetTime() % 0.40) < 0.20 then
+                ImGui.SameLine()
+                ImGui.Text("<<PRESS SPACE TO DISABLE>>")
+            end
+            -- Prevent both being checked
+            if ImGui.IsKeyPressed(ImGuiKey.Space) or DemoHas(io.ConfigFlags, F.NoKeyboard) then
+                io.ConfigFlags = bit32.band(io.ConfigFlags, bit32.bnot(F.NoMouse))
+            end
+        end
+
+        CF("io.ConfigFlags: NoMouseCursorChange", F.NoMouseCursorChange)
+        HM("Instruct backend to not alter mouse cursor shape and visibility.")
+        CF("io.ConfigFlags: NoKeyboard", F.NoKeyboard)
+        HM("Instruct dear imgui to disable keyboard inputs and interactions.")
+
+        CB("io.ConfigInputTrickleEventQueue", "ConfigInputTrickleEventQueue")
+        HM("Enable input queue trickling: some types of events submitted during the same frame (e.g. button down + up) will be spread over multiple frames, improving interactions with low framerates.")
+        CB("io.MouseDrawCursor", "MouseDrawCursor")
+        HM("Instruct Dear ImGui to render a mouse cursor itself. Note that a mouse cursor rendered via your application GPU rendering path will feel more laggy than hardware cursor, but will be more in sync with your other visuals.\n\nSome desktop applications may use both kinds of cursors (e.g. enable software cursor only when resizing/dragging something).")
+
+        ImGui.SeparatorText("Keyboard/Gamepad Navigation")
+        CB("io.ConfigNavSwapGamepadButtons", "ConfigNavSwapGamepadButtons")
+        CB("io.ConfigNavMoveSetMousePos", "ConfigNavMoveSetMousePos")
+        HM("Directional/tabbing navigation teleports the mouse cursor. May be useful on TV/console systems where moving a virtual mouse is difficult")
+        CB("io.ConfigNavCaptureKeyboard", "ConfigNavCaptureKeyboard")
+        CB("io.ConfigNavEscapeClearFocusItem", "ConfigNavEscapeClearFocusItem")
+        HM("Pressing Escape clears focused item.")
+        CB("io.ConfigNavEscapeClearFocusWindow", "ConfigNavEscapeClearFocusWindow")
+        HM("Pressing Escape clears focused window.")
+        CB("io.ConfigNavCursorVisibleAuto", "ConfigNavCursorVisibleAuto")
+        HM("Using directional navigation key makes the cursor visible. Mouse click hides the cursor.")
+        CB("io.ConfigNavCursorVisibleAlways", "ConfigNavCursorVisibleAlways")
+        HM("Navigation cursor is always visible.")
+
+        ImGui.SeparatorText("Docking")
+        CF("io.ConfigFlags: DockingEnable", F.DockingEnable)
+        ImGui.SameLine()
+        if io.ConfigDockingWithShift then
+            HelpMarker("Drag from window title bar or their tab to dock/undock. Hold SHIFT to enable docking.\n\nDrag from window menu button (upper-left button) to undock an entire node (all windows).")
+        else
+            HelpMarker("Drag from window title bar or their tab to dock/undock. Hold SHIFT to disable docking.\n\nDrag from window menu button (upper-left button) to undock an entire node (all windows).")
+        end
+        if DemoHas(io.ConfigFlags, F.DockingEnable) then
+            ImGui.Indent()
+            CB("io.ConfigDockingNoSplit", "ConfigDockingNoSplit")
+            HM("Simplified docking mode: disable window splitting, so docking is limited to merging multiple windows together into tab-bars.")
+            CB("io.ConfigDockingNoDockingOver", "ConfigDockingNoDockingOver")
+            HM("Simplified docking mode: disable window merging into a same tab-bar, so docking is limited to splitting windows.")
+            CB("io.ConfigDockingWithShift", "ConfigDockingWithShift")
+            HM("Enable docking when holding Shift only (allow to drop in wider space, reduce visual noise)")
+            CB("io.ConfigDockingAlwaysTabBar", "ConfigDockingAlwaysTabBar")
+            HM("Create a docking node and tab-bar on single floating windows.")
+            CB("io.ConfigDockingTransparentPayload", "ConfigDockingTransparentPayload")
+            HM("Make window or viewport transparent when docking and only display docking boxes on the target viewport. Useful if rendering of multiple viewport cannot be synced. Best used with ConfigViewportsNoAutoMerge.")
+            ImGui.Unindent()
+        end
+
+        ImGui.SeparatorText("Multi-viewports")
+        CF("io.ConfigFlags: ViewportsEnable", F.ViewportsEnable)
+        HM("[beta] Enable beta multi-viewports support. See ImGuiPlatformIO for details.")
+        if DemoHas(io.ConfigFlags, F.ViewportsEnable) then
+            ImGui.Indent()
+            DemoNotSupported()
+            ImGui.Unindent()
+        end
+
+        ImGui.SeparatorText("Windows")
+        CB("io.ConfigWindowsResizeFromEdges", "ConfigWindowsResizeFromEdges")
+        HM("Enable resizing of windows from their edges and from the lower-left corner.\nThis requires ImGuiBackendFlags_HasMouseCursors for better mouse cursor feedback.")
+        CB("io.ConfigWindowsMoveFromTitleBarOnly", "ConfigWindowsMoveFromTitleBarOnly")
+        CB("io.ConfigWindowsCopyContentsWithCtrlC", "ConfigWindowsCopyContentsWithCtrlC") -- [EXPERIMENTAL]
+        HM("*EXPERIMENTAL* Ctrl+C copy the contents of focused window into the clipboard.\n\nExperimental because:\n- (1) has known issues with nested Begin/End pairs.\n- (2) text output quality varies.\n- (3) text output is in submission order rather than spatial order.")
+        CB("io.ConfigScrollbarScrollByPage", "ConfigScrollbarScrollByPage")
+        HM("Enable scrolling page by page when clicking outside the scrollbar grab.\nWhen disabled, always scroll to clicked location.\nWhen enabled, Shift+Click scrolls to clicked location.")
+
+        ImGui.SeparatorText("Widgets")
+        CB("io.ConfigInputTextCursorBlink", "ConfigInputTextCursorBlink")
+        HM("Enable blinking cursor (optional as some users consider it to be distracting).")
+        CB("io.ConfigInputTextEnterKeepActive", "ConfigInputTextEnterKeepActive")
+        HM("Pressing Enter will reactivate item and select all text (single-line only).")
+        CB("io.ConfigDragClickToInputText", "ConfigDragClickToInputText")
+        HM("Enable turning DragXXX widgets into text input with a simple mouse click-release (without moving).")
+        CB("io.ConfigMacOSXBehaviors", "ConfigMacOSXBehaviors")
+        HM("Swap Cmd<>Ctrl keys, enable various MacOS style behaviors.")
+        ImGui.Text("Also see Style->Rendering for rendering options.")
+
+        ImGui.SeparatorText("Settings")
+        CB("io.ConfigIniSettingsSaveLastUsedDate", "ConfigIniSettingsSaveLastUsedDate")
+
+        -- Also read: https://github.com/ocornut/imgui/wiki/Error-Handling
+        ImGui.SeparatorText("Error Handling")
+
+        CB("io.ConfigErrorRecovery", "ConfigErrorRecovery")
+        HM(
+            "Options to configure how we handle recoverable errors.\n" ..
+            "- Error recovery is not perfect nor guaranteed! It is a feature to ease development.\n" ..
+            "- You not are not supposed to rely on it in the course of a normal application run.\n" ..
+            "- Possible usage: facilitate recovery from errors triggered from a scripting language or after specific exceptions handlers.\n" ..
+            "- Always ensure that on programmers seat you have at minimum Asserts or Tooltips enabled when making direct imgui API call! " ..
+            "Otherwise it would severely hinder your ability to catch and correct mistakes!")
+        CB("io.ConfigErrorRecoveryEnableAssert", "ConfigErrorRecoveryEnableAssert")
+        CB("io.ConfigErrorRecoveryEnableDebugLog", "ConfigErrorRecoveryEnableDebugLog")
+        CB("io.ConfigErrorRecoveryEnableTooltip", "ConfigErrorRecoveryEnableTooltip")
+        if not io.ConfigErrorRecoveryEnableAssert and not io.ConfigErrorRecoveryEnableDebugLog and not io.ConfigErrorRecoveryEnableTooltip then
+            io.ConfigErrorRecoveryEnableAssert = true
+            io.ConfigErrorRecoveryEnableDebugLog = true
+            io.ConfigErrorRecoveryEnableTooltip = true
+        end
+
+        -- Also read: https://github.com/ocornut/imgui/wiki/Debug-Tools
+        ImGui.SeparatorText("Debug")
+        CB("io.ConfigDebugIsDebuggerPresent", "ConfigDebugIsDebuggerPresent")
+        HM("Enable various tools calling IM_DEBUG_BREAK().\n\nRequires a debugger being attached, otherwise IM_DEBUG_BREAK() options will appear to crash your application.")
+        CB("io.ConfigDebugHighlightIdConflicts", "ConfigDebugHighlightIdConflicts")
+        HM("Highlight and show an error message when multiple items have conflicting identifiers.")
+        ImGui.BeginDisabled()
+        CB("io.ConfigDebugBeginReturnValueOnce", "ConfigDebugBeginReturnValueOnce")
+        ImGui.EndDisabled()
+        HM("First calls to Begin()/BeginChild() will return false.\n\nTHIS OPTION IS DISABLED because it needs to be set at application boot-time to make sense. Showing the disabled option is a way to make this feature easier to discover.")
+        CB("io.ConfigDebugBeginReturnValueLoop", "ConfigDebugBeginReturnValueLoop")
+        HM("Some calls to Begin()/BeginChild() will return false.\n\nWill cycle through window depths then repeat. Windows should be flickering while running.")
+        CB("io.ConfigDebugIgnoreFocusLoss", "ConfigDebugIgnoreFocusLoss")
+        HM("Option to deactivate io.AddFocusEvent(false) handling. May facilitate interactions with a debugger when focus loss leads to clearing inputs data.")
+        CB("io.ConfigDebugDrawListDefaultsToStrokeLegacy", "ConfigDebugDrawListDefaultsToStrokeLegacy")
+        HM("Option to default all ImDrawList to ImDrawFlags_StrokeLegacy mode, mimicking pre-1.93.0 rendering.")
+        CB("io.ConfigDebugIniSettings", "ConfigDebugIniSettings")
+        HM("Option to save .ini data with extra comments (particularly helpful for Docking, but makes saving slower).")
+
+        ImGui.TreePop()
+        ImGui.Spacing()
+    end
+
+    if ImGui.TreeNode("Backend Flags") then
+        IMGUI_DEMO_MARKER("Configuration/Backend Flags")
+        HelpMarker(
+            "Those flags are set by the backends (imgui_impl_xxx files) to specify their capabilities.\n" ..
+            "Here we expose them as read-only fields to avoid breaking interactions with your backend.")
+
+        -- Make a local copy to avoid modifying actual backend flags.
+        local B = ImGuiBackendFlags
+        local backend_flags = io.BackendFlags
+        ImGui.BeginDisabled()
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: HasGamepad", backend_flags, B.HasGamepad)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: HasMouseCursors", backend_flags, B.HasMouseCursors)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: HasSetMousePos", backend_flags, B.HasSetMousePos)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: PlatformHasViewports", backend_flags, B.PlatformHasViewports)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: HasMouseHoveredViewport", backend_flags, B.HasMouseHoveredViewport)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: HasParentViewport", backend_flags, B.HasParentViewport)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: RendererHasVtxOffset", backend_flags, B.RendererHasVtxOffset)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: RendererHasTextures", backend_flags, B.RendererHasTextures)
+        _, backend_flags = ImGui.CheckboxFlags("io.BackendFlags: RendererHasViewports", backend_flags, B.RendererHasViewports)
+        ImGui.EndDisabled()
+
+        ImGui.TreePop()
+        ImGui.Spacing()
+    end
+
+    if ImGui.TreeNode("Style, Fonts") then
+        IMGUI_DEMO_MARKER("Configuration/Style, Fonts")
+        _, demo_data.ShowStyleEditor = ImGui.Checkbox("Style Editor", demo_data.ShowStyleEditor)
+        ImGui.SameLine()
+        HelpMarker("The same contents can be accessed in 'Tools->Style Editor' or by calling the ShowStyleEditor() function.")
+        ImGui.TreePop()
+        ImGui.Spacing()
+    end
+
+    if ImGui.TreeNode("Capture/Logging") then
+        IMGUI_DEMO_MARKER("Configuration/Capture, Logging")
+        HelpMarker(
+            "The logging API redirects all text output so you can easily capture the content of " ..
+            "a window or a block. Tree nodes can be automatically expanded.\n" ..
+            "Try opening any of the contents below in this window and then click one of the \"Log To\" button.")
+        if ImGui.LogButtons then
+            ImGui.LogButtons()
+        else
+            DemoNotPorted("LogButtons")
+        end
+
+        HelpMarker("You can also call ImGui::LogText() to output directly to the log without a visual output.")
+        if ImGui.Button("Copy \"Hello, world!\" to clipboard") then
+            if ImGui.LogToClipboard then
+                ImGui.LogToClipboard()
+                ImGui.LogText("Hello, world!")
+                ImGui.LogFinish()
+            else
+                ImGui.SetClipboardText("Hello, world!") -- internal clipboard only on Roblox
+            end
+        end
+        ImGui.TreePop()
+    end
+end
+
+--- Demonstrate most Dear ImGui features (this is big function!)
+--- @param p_open? bool
+--- @return bool? p_open
+function ImGui.ShowDemoWindow(p_open)
+    IM_ASSERT(ImGui.GetCurrentContext() ~= nil, "Missing Dear ImGui context. Refer to examples app!")
+
+    local data = demo_data
+
+    -- Examples Apps (accessible from the "Examples" menu)
+    if data.ShowMainMenuBar then
+        if ShowExampleAppMainMenuBar then ShowExampleAppMainMenuBar() end
+    end
+    if data.ShowAppDockSpace then RunApp(ShowExampleAppDockSpace, "ShowAppDockSpace") end -- Important: Process the Docking app first, as explicit DockSpace() nodes needs to be submitted early (read comments near the DockSpace function)
+    if data.ShowAppDocuments then RunApp(ShowExampleAppDocuments, "ShowAppDocuments") end -- ...process the Document app next, as it may also use a DockSpace()
+    if data.ShowAppAssetsBrowser then RunApp(ShowExampleAppAssetsBrowser, "ShowAppAssetsBrowser") end
+    if data.ShowAppConsole then RunApp(ShowExampleAppConsole, "ShowAppConsole") end
+    if data.ShowAppCustomRendering then RunApp(ShowExampleAppCustomRendering, "ShowAppCustomRendering") end
+    if data.ShowAppImageViewer then RunApp(ShowExampleAppImageViewer, "ShowAppImageViewer") end
+    if data.ShowAppLog then RunApp(ShowExampleAppLog, "ShowAppLog") end
+    if data.ShowAppLayout then RunApp(ShowExampleAppLayout, "ShowAppLayout") end
+    if data.ShowAppPropertyEditor then RunApp(ShowExampleAppPropertyEditor, "ShowAppPropertyEditor", data) end
+    if data.ShowAppSimpleOverlay then RunApp(ShowExampleAppSimpleOverlay, "ShowAppSimpleOverlay") end
+    if data.ShowAppAutoResize then RunApp(ShowExampleAppAutoResize, "ShowAppAutoResize") end
+    if data.ShowAppConstrainedResize then RunApp(ShowExampleAppConstrainedResize, "ShowAppConstrainedResize") end
+    if data.ShowAppFullscreen then RunApp(ShowExampleAppFullscreen, "ShowAppFullscreen") end
+    if data.ShowAppLongText then RunApp(ShowExampleAppLongText, "ShowAppLongText") end
+    if data.ShowAppWindowTitles then RunApp(ShowExampleAppWindowTitles, "ShowAppWindowTitles") end
+
+    -- Dear ImGui Tools (accessible from the "Tools" menu)
+    if data.ShowMetrics then RunApp(ImGui.ShowMetricsWindow, "ShowMetrics") end
+    if data.ShowDebugLog then RunApp(ImGui.ShowDebugLogWindow, "ShowDebugLog") end
+    if data.ShowIDStackTool then RunApp(ImGui.ShowIDStackToolWindow, "ShowIDStackTool") end
+    if data.ShowAbout then RunApp(ImGui.ShowAboutWindow, "ShowAbout") end
+    if data.ShowStyleEditor then
+        local visible
+        data.ShowStyleEditor, visible = ImGui.Begin("ImGui Sincerely Style Editor", data.ShowStyleEditor)
+        if visible then
+            ImGui.ShowStyleEditor()
+        end
         ImGui.End()
     end
 
+    -- Demonstrate the various window flags. Typically you would just use the default!
+    local W = ImGuiWindowFlags
     local window_flags = 0
-    if no_titlebar       then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoTitleBar) end
-    if no_scrollbar      then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoScrollbar) end
-    if not no_menu       then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.MenuBar) end
-    if no_move           then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoMove) end
-    if no_resize         then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoResize) end
-    if no_collapse       then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoCollapse) end
-    if no_nav            then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoNav) end
-    if no_background     then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoBackground) end
-    if no_bring_to_front then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoBringToFrontOnFocus) end
-    if no_docking        then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoDocking) end
-    if unsaved_document  then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.UnsavedDocument) end
-    if no_close          then open = nil end
+    if no_titlebar       then window_flags = bit32.bor(window_flags, W.NoTitleBar) end
+    if no_scrollbar      then window_flags = bit32.bor(window_flags, W.NoScrollbar) end
+    if not no_menu       then window_flags = bit32.bor(window_flags, W.MenuBar) end
+    if no_move           then window_flags = bit32.bor(window_flags, W.NoMove) end
+    if no_resize         then window_flags = bit32.bor(window_flags, W.NoResize) end
+    if no_collapse       then window_flags = bit32.bor(window_flags, W.NoCollapse) end
+    if no_nav            then window_flags = bit32.bor(window_flags, W.NoNav) end
+    if no_background     then window_flags = bit32.bor(window_flags, W.NoBackground) end
+    if no_bring_to_front then window_flags = bit32.bor(window_flags, W.NoBringToFrontOnFocus) end
+    if no_docking        then window_flags = bit32.bor(window_flags, W.NoDocking) end
+    if unsaved_document  then window_flags = bit32.bor(window_flags, W.UnsavedDocument) end
+    if no_close          then p_open = nil end -- Don't pass our bool* to Begin
 
-    if not no_menu then window_flags = bit32.bor(window_flags, ImGuiWindowFlags.MenuBar) end
+    -- We specify a default position/size in case there's no data in the .ini file.
+    local main_viewport = ImGui.GetMainViewport()
+    ImGui.SetNextWindowPos(ImVec2(main_viewport.WorkPos.x + 650, main_viewport.WorkPos.y + 20), ImGuiCond.FirstUseEver)
+    ImGui.SetNextWindowSize(ImVec2(550, 680), ImGuiCond.FirstUseEver)
 
-    local ret -- is_visible
-    open, ret = ImGui.Begin("ImGui Sincerely Demo", open, window_flags)
-    if not ret then
+    -- Main body of the Demo window starts here.
+    local visible
+    p_open, visible = ImGui.Begin("ImGui Sincerely Demo", p_open, window_flags)
+    if no_close then p_open = nil end
+    if not visible then
+        -- Early out if the window is collapsed, as an optimization.
         ImGui.End()
-        return open
+        return p_open
     end
 
-    local label_width_base = ImGui.GetFontSize() * 12
-    local label_width_max = ImGui.GetContentRegionAvail().x * 0.40
-    local label_width = IM_MIN(label_width_base, label_width_max)
-    ImGui.PushItemWidth(-label_width)
+    -- Most framed widgets share a common width settings. Remaining width is used for the label.
+    local label_width_base = ImGui.GetFontSize() * 12                  -- Some amount of width for label, based on font size.
+    local label_width_max = ImGui.GetContentRegionAvail().x * 0.40     -- ...but always leave some room for framed widgets.
+    local label_width = math.min(label_width_base, label_width_max)
+    ImGui.PushItemWidth(-label_width)                                  -- Right-align: framed items will leave 'label_width' available for the label.
 
-    DemoWindowMenuBar(demo_data)
+    -- Menu Bar
+    DemoWindowMenuBar(data)
+
+    ImGui.Text("ImGui Sincerely says hello! (%s) (%d)", IMGUI_VERSION or "WIP", IMGUI_VERSION_NUM or 0)
+    ImGui.Spacing()
 
     if ImGui.CollapsingHeader("Help") then
+        IMGUI_DEMO_MARKER("Help")
         ImGui.SeparatorText("ABOUT THIS DEMO:")
+        ImGui.BulletText("Sections below are demonstrating many aspects of the library.")
+        ImGui.BulletText("The \"Examples\" menu above leads to more demo contents.")
+        ImGui.BulletText("The \"Tools\" menu above gives access to: About Box, Style Editor,\n" ..
+                         "and Metrics/Debugger (general purpose Dear ImGui debugging tool).")
+        ImGui.BulletText("Web demo (w/ source code browser): ")
+        ImGui.SameLine(0, 0)
+        ImGui.TextLinkOpenURL("https://pthom.github.io/imgui_explorer")
+
+        ImGui.SeparatorText("PROGRAMMER GUIDE:")
+        ImGui.BulletText("See the ShowDemoWindow() code in imgui_demo.lua. <- you are here!")
+        ImGui.BulletText("See comments in imgui.lua.")
+        ImGui.BulletText("See example applications in the examples/ folder.")
+        ImGui.BulletText("Read the FAQ at ")
+        ImGui.SameLine(0, 0)
+        ImGui.TextLinkOpenURL("https://www.dearimgui.com/faq/")
+        ImGui.BulletText("Set 'io.ConfigFlags |= NavEnableKeyboard' for keyboard controls.")
+        ImGui.BulletText("Set 'io.ConfigFlags |= NavEnableGamepad' for gamepad controls.")
+
+        ImGui.SeparatorText("USER GUIDE:")
+        ImGui.ShowUserGuide()
     end
 
     if ImGui.CollapsingHeader("Configuration") then
-        
+        DemoWindowConfiguration(ImGui.GetIO())
     end
 
-    if ImGui.CollapsingHeader("Window Options") then
+    if ImGui.CollapsingHeader("Window options") then
+        IMGUI_DEMO_MARKER("Window options")
         if ImGui.BeginTable("split", 3) then
-            ImGui.TableNextColumn() _, no_titlebar       = ImGui.Checkbox("No titlebar", no_titlebar)
-            ImGui.TableNextColumn() _, no_scrollbar      = ImGui.Checkbox("No scrollbar", no_scrollbar)
-            ImGui.TableNextColumn() _, no_menu           = ImGui.Checkbox("No menu", no_menu)
-            ImGui.TableNextColumn() _, no_move           = ImGui.Checkbox("No move", no_move)
-            ImGui.TableNextColumn() _, no_resize         = ImGui.Checkbox("No resize", no_resize)
-            ImGui.TableNextColumn() _, no_collapse       = ImGui.Checkbox("No collapse", no_collapse)
-            ImGui.TableNextColumn() _, no_close          = ImGui.Checkbox("No close", no_close)
-            ImGui.TableNextColumn() _, no_nav            = ImGui.Checkbox("No nav", no_nav)
-            ImGui.TableNextColumn() _, no_background     = ImGui.Checkbox("No background", no_background)
-            ImGui.TableNextColumn() _, no_bring_to_front = ImGui.Checkbox("No bring to front", no_bring_to_front)
-            ImGui.TableNextColumn() _, no_docking        = ImGui.Checkbox("No docking", no_docking)
-            ImGui.TableNextColumn() _, unsaved_document  = ImGui.Checkbox("Unsaved document", unsaved_document)
+            ImGui.TableNextColumn(); _, no_titlebar       = ImGui.Checkbox("No titlebar", no_titlebar)
+            ImGui.TableNextColumn(); _, no_scrollbar      = ImGui.Checkbox("No scrollbar", no_scrollbar)
+            ImGui.TableNextColumn(); _, no_menu           = ImGui.Checkbox("No menu", no_menu)
+            ImGui.TableNextColumn(); _, no_move           = ImGui.Checkbox("No move", no_move)
+            ImGui.TableNextColumn(); _, no_resize         = ImGui.Checkbox("No resize", no_resize)
+            ImGui.TableNextColumn(); _, no_collapse       = ImGui.Checkbox("No collapse", no_collapse)
+            ImGui.TableNextColumn(); _, no_close          = ImGui.Checkbox("No close", no_close)
+            ImGui.TableNextColumn(); _, no_nav            = ImGui.Checkbox("No nav", no_nav)
+            ImGui.TableNextColumn(); _, no_background     = ImGui.Checkbox("No background", no_background)
+            ImGui.TableNextColumn(); _, no_bring_to_front = ImGui.Checkbox("No bring to front", no_bring_to_front)
+            ImGui.TableNextColumn(); _, no_docking        = ImGui.Checkbox("No docking", no_docking)
+            ImGui.TableNextColumn(); _, unsaved_document  = ImGui.Checkbox("Unsaved document", unsaved_document)
             ImGui.EndTable()
         end
     end
 
-    DemoWindowWidgets()
-    DemoWindowLayout()
-    DemoWindowPopups()
-    DemoWindowTables()
-    DemoWindowInputs()
+    -- All demo contents
+    DemoWindowWidgets(data)
+    if DemoWindowLayout then DemoWindowLayout() end
+    if DemoWindowPopups then DemoWindowPopups() end
+    if DemoWindowTables then DemoWindowTables() end
+    if DemoWindowInputs then DemoWindowInputs() end
+
+    -- End of ShowDemoWindow()
+    ImGui.PopItemWidth()
+    ImGui.End()
+    return p_open
+end
+
+----------------------------------------------------------------
+-- [SECTION] DemoWindowWidgets()
+----------------------------------------------------------------
+
+--- Calls a (global) demo section if it exists, otherwise shows a placeholder
+local function Sub(fn, title, ...)
+    if fn then fn(...) else
+        if ImGui.TreeNode(title) then DemoNotPorted(title) ImGui.TreePop() end
+    end
+end
+
+function DemoWindowWidgets(data)
+    if not ImGui.CollapsingHeader("Widgets") then
+        return
+    end
+    -- IMGUI_DEMO_MARKER("Widgets")
+
+    local disable_all = data.DisableSections -- The Checkbox for that is inside the "Disabled" section at the bottom
+    local override_liveedit = data.LiveEditOverride
+    if disable_all then
+        ImGui.BeginDisabled()
+    end
+    if override_liveedit then
+        ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInputText, DemoHas(data.LiveEditFlags, ImGuiItemFlags.LiveEditOnInputText))
+        ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInputScalar, DemoHas(data.LiveEditFlags, ImGuiItemFlags.LiveEditOnInputScalar))
+    end
+
+    Sub(DemoWindowWidgetsBasic, "Basic")
+    Sub(DemoWindowWidgetsBullets, "Bullets")
+    Sub(DemoWindowWidgetsCollapsingHeaders, "Collapsing Headers")
+    Sub(DemoWindowWidgetsComboBoxes, "Combo")
+    Sub(DemoWindowWidgetsColorAndPickers, "Color/Picker Widgets")
+    Sub(DemoWindowWidgetsDataTypes, "Data Types")
+
+    if disable_all then
+        ImGui.EndDisabled()
+    end
+    Sub(DemoWindowWidgetsDisableBlocks, "Disable Blocks", data)
+    if disable_all then
+        ImGui.BeginDisabled()
+    end
+
+    Sub(DemoWindowWidgetsDragAndDrop, "Drag and Drop")
+    Sub(DemoWindowWidgetsDragsAndSliders, "Drag/Slider Flags")
+    Sub(DemoWindowWidgetsFonts, "Fonts")
+    Sub(DemoWindowWidgetsImages, "Images")
+    Sub(DemoWindowWidgetsListBoxes, "List Boxes")
+    Sub(DemoWindowWidgetsLiveEdit, "Live Edit Flags", data)
+    Sub(DemoWindowWidgetsMixedValues, "Mixed Values")
+    Sub(DemoWindowWidgetsMultiComponents, "Multi-component Widgets")
+    Sub(DemoWindowWidgetsPlotting, "Plotting")
+    Sub(DemoWindowWidgetsProgressBars, "Progress Bars")
+    Sub(DemoWindowWidgetsQueryingStatuses, "Querying Item Status (Edited/Active/Hovered etc.)")
+    Sub(DemoWindowWidgetsSelectables, "Selectables")
+    Sub(DemoWindowWidgetsSelectionAndMultiSelect, "Selection State & Multi-Select", data)
+    Sub(DemoWindowWidgetsTabs, "Tabs")
+    Sub(DemoWindowWidgetsText, "Text")
+    Sub(DemoWindowWidgetsTextFilter, "Text Filter")
+    Sub(DemoWindowWidgetsTextInput, "Text Input")
+    Sub(DemoWindowWidgetsTooltips, "Tooltips")
+    Sub(DemoWindowWidgetsTreeNodes, "Tree Nodes")
+    Sub(DemoWindowWidgetsVerticalSliders, "Vertical Sliders")
+
+    if override_liveedit then
+        ImGui.PopItemFlag()
+        ImGui.PopItemFlag()
+    end
+    if disable_all then
+        ImGui.EndDisabled()
+    end
+end
+
+return true -- [Roblox] ModuleScripts must return exactly one value
+end
+
+__FILES['imgui_demo_2.lua'] = function()
+--- ImGui Sincerely WIP
+-- (Demo Code, part 2): DemoWindowLayout(), DemoWindowPopups(), DemoWindowTables(), DemoWindowColumns(),
+-- DemoWindowInputs() and all ShowExampleAppXXX() example apps.
+-- Port of imgui_demo.cpp (docking branch). Globals are shared with imgui_demo.lua (HelpMarker, ShowExampleMenuFile, ...)
+
+local IM_MIN = math.min
+local IM_MAX = math.max
+local function IM_CLAMP(V, MN, MX) return (V < MN) and MN or (V > MX) and MX or V end
+local _
+local function IMGUI_DEMO_MARKER(_) end -- upstream hook, no-op here
+
+--- `char buf[size] = "str"` -> zero-terminated byte table
+local function Buf(str, size)
+    local t = {}
+    for i = 1, #str do t[i] = string.byte(str, i) end
+    t[#str + 1] = 0
+    if size then for i = #str + 2, size do t[i] = 0 end end
+    return t
+end
+--- byte table -> Lua string (up to the zero terminator)
+local function BufStr(buf)
+    local n = 0
+    while buf[n + 1] ~= nil and buf[n + 1] ~= 0 do n = n + 1 end
+    return ImGui._ByteArrayToString(buf, 1, n + 1)
+end
+local function BufSet(buf, str)
+    for i = 1, #str do buf[i] = string.byte(str, i) end
+    buf[#str + 1] = 0
+end
+
+--- ImColor::HSV() as ImVec4
+local function HSV(h, s, v, a)
+    local r, g, b = ImGui.ColorConvertHSVtoRGB(h, s, v)
+    return ImVec4(r, g, b, a or 1.0)
+end
+local function B2I(b) return b and 1 or 0 end
+
+local function Has(flags, f) return bit32.band(flags, f) ~= 0 end
+local function NotSupported() ImGui.TextDisabled("(not supported on Roblox)") end
+local function NotPorted(what) ImGui.TextDisabled("(not ported yet%s)", what and (": " .. what) or "") end
+
+local function DemoHelpMarker(desc)
+    if HelpMarker then HelpMarker(desc) return end
+    ImGui.TextDisabled("(?)")
+    if ImGui.BeginItemTooltip() then
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35.0)
+        ImGui.TextUnformatted(desc)
+        ImGui.PopTextWrapPos()
+        ImGui.EndTooltip()
+    end
+end
+local function DemoMenuFile() if ShowExampleMenuFile then ShowExampleMenuFile() end end
+
+--- Minimal ImGuiTextFilter stand-in when the library one isn't available
+local function MakeTextFilter()
+    if ImGuiTextFilter then return ImGuiTextFilter() end
+    local f = { InputBuf = Buf("", 256) }
+    function f:Draw(label, width)
+        if width and width ~= 0 then ImGui.SetNextItemWidth(width) end
+        return ImGui.InputText(label or "Filter (inc,-exc)", self.InputBuf, 256)
+    end
+    function f:IsActive() return self.InputBuf[1] ~= 0 end
+    function f:Clear() self.InputBuf[1] = 0 end
+    function f:Build() end
+    function f:PassFilter(text, text_end)
+        if text_end then text = string.sub(text, 1, text_end - 1) end
+        local s = BufStr(self.InputBuf)
+        if s == "" then return true end
+        local any_inc, pass_inc = false, false
+        for tok in string.gmatch(s, "[^,]+") do
+            tok = string.match(tok, "^%s*(.-)%s*$")
+            if tok ~= "" then
+                if string.sub(tok, 1, 1) == "-" then
+                    if #tok > 1 and string.find(string.lower(text), string.lower(string.sub(tok, 2)), 1, true) then return false end
+                else
+                    any_inc = true
+                    if string.find(string.lower(text), string.lower(tok), 1, true) then pass_inc = true end
+                end
+            end
+        end
+        return (not any_inc) or pass_inc
+    end
+    return f
+end
+
+-- ImGuiInputTextCallbackData helpers (the port's callback data has no methods). Buf is a 1-based zero-terminated
+-- byte table, positions are 0-based like C++.
+local function CB_DeleteChars(data, pos, bytes_count)
+    local buf = data.Buf
+    local len = data.BufTextLen
+    for i = pos + 1, len - bytes_count + 1 do buf[i] = buf[i + bytes_count] end
+    for i = len - bytes_count + 2, len + 1 do buf[i] = 0 end
+    if data.CursorPos >= pos + bytes_count then data.CursorPos = data.CursorPos - bytes_count
+    elseif data.CursorPos >= pos then data.CursorPos = pos end
+    data.SelectionStart = data.CursorPos; data.SelectionEnd = data.CursorPos
+    data.BufDirty = true
+    data.BufTextLen = len - bytes_count
+end
+local function CB_InsertChars(data, pos, text)
+    local n = #text
+    if n == 0 then return end
+    if data.BufTextLen + n >= data.BufSize then return end
+    local buf = data.Buf
+    for i = data.BufTextLen + 1, pos + 1, -1 do buf[i + n] = buf[i] end
+    for i = 1, n do buf[pos + i] = string.byte(text, i) end
+    if data.CursorPos >= pos then data.CursorPos = data.CursorPos + n end
+    data.SelectionStart = data.CursorPos; data.SelectionEnd = data.CursorPos
+    data.BufDirty = true
+    data.BufTextLen = data.BufTextLen + n
+end
+local function CB_SelectAll(data) data.SelectionStart = 0; data.SelectionEnd = data.BufTextLen end
+
+--- ImGui::BeginChild() wrapper accepting upstream args
+local function BeginChild(id, size, child_flags, window_flags)
+    return ImGui.BeginChild(id, size or ImVec2(0, 0), child_flags or 0, window_flags or 0)
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowLayout()
+-------------------------------------------------------------------------------
+
+local SL = {
+    disable_mouse_wheel = false, disable_menu = false,
+    draw_lines = 3, max_height_in_lines = 10,
+    offset_x = 0, override_bg_color = true, child_flags = nil,
+    f = 0.0, show_indented_items = true,
+    c1 = false, c2 = false, c3 = false, c4 = false,
+    f0 = 1.0, f1 = 2.0, f2 = 3.0, item = -1, selection = { 0, 1, 2, 3 },
+    track_item = 50, enable_track = true, enable_extra_decorations = false, scroll_to_off_px = 0.0, scroll_to_pos_px = 200.0,
+    lines = 7, show_horizontal_contents_size_demo_window = false,
+    show_h_scrollbar = true, show_button = true, show_tree_nodes = true, show_text_wrapped = false, show_columns = true,
+    show_tab_bar = true, show_child = false, explicit_content_size = false, contents_size_x = 300.0,
+    clip_size = nil, clip_offset = nil,
+    enable_allow_overlap = true,
+}
+
+local function DemoWindowLayout_ChildWindows()
+    IMGUI_DEMO_MARKER("Layout/Child windows")
+    ImGui.SeparatorText("Child windows")
+
+    DemoHelpMarker("Use child windows to begin into a self-contained independent scrolling/clipping regions within a host window.")
+    _, SL.disable_mouse_wheel = ImGui.Checkbox("Disable Mouse Wheel", SL.disable_mouse_wheel)
+    _, SL.disable_menu = ImGui.Checkbox("Disable Menu", SL.disable_menu)
+
+    -- Child 1: no border, enable horizontal scrollbar
+    do
+        local window_flags = ImGuiWindowFlags.HorizontalScrollbar
+        if SL.disable_mouse_wheel then
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoScrollWithMouse)
+        end
+        BeginChild("ChildL", ImVec2(ImGui.GetContentRegionAvail().x * 0.5, 260), ImGuiChildFlags.None, window_flags)
+        for i = 0, 99 do
+            ImGui.Text("%04d: scrollable region", i)
+        end
+        ImGui.EndChild()
+    end
+
+    ImGui.SameLine()
+
+    -- Child 2: rounded border
+    do
+        local window_flags = ImGuiWindowFlags.None
+        if SL.disable_mouse_wheel then
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoScrollWithMouse)
+        end
+        if not SL.disable_menu then
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.MenuBar)
+        end
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 5.0)
+        BeginChild("ChildR", ImVec2(0, 260), ImGuiChildFlags.Borders, window_flags)
+        if not SL.disable_menu and ImGui.BeginMenuBar() then
+            if ImGui.BeginMenu("Menu") then
+                DemoMenuFile()
+                ImGui.EndMenu()
+            end
+            ImGui.EndMenuBar()
+        end
+        if ImGui.BeginTable("split", 2, bit32.bor(ImGuiTableFlags.Resizable, ImGuiTableFlags.NoSavedSettings)) then
+            for i = 0, 99 do
+                local buf = string.format("%03d", i)
+                ImGui.TableNextColumn()
+                ImGui.Button(buf, ImVec2(-FLT_MIN, 0.0))
+            end
+            ImGui.EndTable()
+        end
+        ImGui.EndChild()
+        ImGui.PopStyleVar()
+    end
+
+    -- Child 3: manual-resize
+    ImGui.SeparatorText("Manual-resize")
+    do
+        DemoHelpMarker("Drag bottom border to resize. Double-click bottom border to auto-fit to vertical contents.")
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, ImGui.GetStyleColorVec4(ImGuiCol.FrameBg))
+        if BeginChild("ResizableChild", ImVec2(-FLT_MIN, ImGui.GetTextLineHeightWithSpacing() * 8), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeY)) then
+            for n = 0, 9 do
+                ImGui.Text("Line %04d", n)
+            end
+        end
+        ImGui.PopStyleColor()
+        ImGui.EndChild()
+    end
+
+    -- Child 4: auto-resizing height with a limit
+    ImGui.SeparatorText("Auto-resize with constraints")
+    do
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        SL.draw_lines = ImGui.DragInt("Lines Count", SL.draw_lines, 0.2)
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        SL.max_height_in_lines = ImGui.DragInt("Max Height (in Lines)", SL.max_height_in_lines, 0.2)
+
+        ImGui.SetNextWindowSizeConstraints(ImVec2(0.0, ImGui.GetTextLineHeightWithSpacing() * 1), ImVec2(FLT_MAX, ImGui.GetTextLineHeightWithSpacing() * SL.max_height_in_lines))
+        if BeginChild("ConstrainedChild", ImVec2(-FLT_MIN, 0.0), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.AutoResizeY)) then
+            for n = 0, SL.draw_lines - 1 do
+                ImGui.Text("Line %04d", n)
+            end
+        end
+        ImGui.EndChild()
+    end
+
+    ImGui.SeparatorText("Misc/Advanced")
+
+    do
+        if SL.child_flags == nil then SL.child_flags = bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeX, ImGuiChildFlags.ResizeY) end
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        SL.offset_x = ImGui.DragInt("Offset X", SL.offset_x, 1.0, -1000, 1000)
+        _, SL.override_bg_color = ImGui.Checkbox("Override ChildBg color", SL.override_bg_color)
+        _, SL.child_flags = ImGui.CheckboxFlags("ImGuiChildFlags_Borders", SL.child_flags, ImGuiChildFlags.Borders)
+        _, SL.child_flags = ImGui.CheckboxFlags("ImGuiChildFlags_AlwaysUseWindowPadding", SL.child_flags, ImGuiChildFlags.AlwaysUseWindowPadding)
+        _, SL.child_flags = ImGui.CheckboxFlags("ImGuiChildFlags_ResizeX", SL.child_flags, ImGuiChildFlags.ResizeX)
+        _, SL.child_flags = ImGui.CheckboxFlags("ImGuiChildFlags_ResizeY", SL.child_flags, ImGuiChildFlags.ResizeY)
+        _, SL.child_flags = ImGui.CheckboxFlags("ImGuiChildFlags_FrameStyle", SL.child_flags, ImGuiChildFlags.FrameStyle)
+        ImGui.SameLine(); DemoHelpMarker("Style the child window like a framed item: use FrameBg, FrameRounding, FrameBorderSize, FramePadding instead of ChildBg, ChildRounding, ChildBorderSize, WindowPadding.")
+        if Has(SL.child_flags, ImGuiChildFlags.FrameStyle) then
+            SL.override_bg_color = false
+        end
+
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + SL.offset_x)
+        if SL.override_bg_color then
+            ImGui.PushStyleColor(ImGuiCol.ChildBg, IM_COL32(255, 0, 0, 100))
+        end
+        BeginChild("Red", ImVec2(200, 100), SL.child_flags, ImGuiWindowFlags.None)
+        if SL.override_bg_color then
+            ImGui.PopStyleColor()
+        end
+
+        for n = 0, 49 do
+            ImGui.Text("Some test %d", n)
+        end
+        ImGui.EndChild()
+        local child_is_hovered = ImGui.IsItemHovered()
+        local child_rect_min = ImGui.GetItemRectMin()
+        local child_rect_max = ImGui.GetItemRectMax()
+        ImGui.Text("Hovered: %d", B2I(child_is_hovered))
+        ImGui.Text("Rect of child window is: (%.0f,%.0f) (%.0f,%.0f)", child_rect_min.x, child_rect_min.y, child_rect_max.x, child_rect_max.y)
+    end
+end
+
+local function DemoWindowLayout_WidgetsWidth()
+    IMGUI_DEMO_MARKER("Layout/Widgets Width")
+    _, SL.show_indented_items = ImGui.Checkbox("Show indented items", SL.show_indented_items)
+
+    local function block(text, help, width, l1, l2)
+        ImGui.Text(text)
+        if help then ImGui.SameLine(); DemoHelpMarker(help) end
+        ImGui.PushItemWidth(width)
+        SL.f = ImGui.DragFloat(l1, SL.f)
+        if SL.show_indented_items then
+            ImGui.Indent()
+            SL.f = ImGui.DragFloat(l2, SL.f)
+            ImGui.Unindent()
+        end
+        ImGui.PopItemWidth()
+    end
+    block("SetNextItemWidth/PushItemWidth(100)", "Fixed width.", 100, "float##1b", "float (indented)##1b")
+    block("SetNextItemWidth/PushItemWidth(-100)", "Align to right edge minus 100", -100, "float##2a", "float (indented)##2b")
+    block("SetNextItemWidth/PushItemWidth(GetContentRegionAvail().x * 0.5f)", "Half of available width.\n(~ right-cursor_pos)\n(works within a column set)", ImGui.GetContentRegionAvail().x * 0.5, "float##3a", "float (indented)##3b")
+    block("SetNextItemWidth/PushItemWidth(-GetContentRegionAvail().x * 0.5f)", "Align to right edge minus half", -ImGui.GetContentRegionAvail().x * 0.5, "float##4a", "float (indented)##4b")
+    block("SetNextItemWidth/PushItemWidth(-Min(GetContentRegionAvail().x * 0.40f, GetFontSize() * 12))", nil, -IM_MIN(ImGui.GetFontSize() * 12, ImGui.GetContentRegionAvail().x * 0.40), "float##5a", "float (indented)##5b")
+    -- Demonstrate using PushItemWidth to surround three items.
+    block("SetNextItemWidth/PushItemWidth(-FLT_MIN)", "Align to right edge", -FLT_MIN, "##float6a", "float (indented)##6b")
+end
+
+local function DemoWindowLayout_BasicHorizontal()
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout")
+    ImGui.TextWrapped("(Use ImGui::SameLine() to keep adding items to the right of the preceding item)")
+
+    -- Text
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/SameLine")
+    ImGui.Text("Two items: Hello"); ImGui.SameLine()
+    ImGui.TextColored(ImVec4(1, 1, 0, 1), "Sailor")
+
+    -- Adjust spacing
+    ImGui.Text("More spacing: Hello"); ImGui.SameLine(0, 20)
+    ImGui.TextColored(ImVec4(1, 1, 0, 1), "Sailor")
+
+    -- Button
+    ImGui.AlignTextToFramePadding()
+    ImGui.Text("Normal buttons"); ImGui.SameLine()
+    ImGui.Button("Banana"); ImGui.SameLine()
+    ImGui.Button("Apple"); ImGui.SameLine()
+    ImGui.Button("Corniflower")
+
+    -- Button
+    ImGui.Text("Small buttons"); ImGui.SameLine()
+    ImGui.SmallButton("Like this one"); ImGui.SameLine()
+    ImGui.Text("can fit within a text block.")
+
+    -- Aligned to arbitrary position. Easy/cheap column.
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/SameLine (with offset)")
+    ImGui.Text("Aligned")
+    ImGui.SameLine(150); ImGui.Text("x=150")
+    ImGui.SameLine(300); ImGui.Text("x=300")
+    ImGui.Text("Aligned")
+    ImGui.SameLine(150); ImGui.SmallButton("x=150")
+    ImGui.SameLine(300); ImGui.SmallButton("x=300")
+
+    -- Checkbox
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/SameLine (more)")
+    _, SL.c1 = ImGui.Checkbox("My", SL.c1); ImGui.SameLine()
+    _, SL.c2 = ImGui.Checkbox("Tailor", SL.c2); ImGui.SameLine()
+    _, SL.c3 = ImGui.Checkbox("Is", SL.c3); ImGui.SameLine()
+    _, SL.c4 = ImGui.Checkbox("Rich", SL.c4)
+
+    -- Various
+    ImGui.PushItemWidth(ImGui.CalcTextSize("AAAAAAA").x)
+    local items = { "AAAA", "BBBB", "CCCC", "DDDD" }
+    if ImGui.Combo then
+        SL.item = ImGui.Combo("Combo", SL.item, items, #items)
+    else
+        NotPorted("Combo")
+    end
+    ImGui.SameLine()
+    SL.f0 = ImGui.SliderFloat("X", SL.f0, 0.0, 5.0); ImGui.SameLine()
+    SL.f1 = ImGui.SliderFloat("Y", SL.f1, 0.0, 5.0); ImGui.SameLine()
+    SL.f2 = ImGui.SliderFloat("Z", SL.f2, 0.0, 5.0)
+
+    ImGui.Text("Lists:")
+    for i = 1, 4 do
+        if i > 1 then ImGui.SameLine() end
+        ImGui.PushID(i - 1)
+        if ImGui.ListBox then
+            SL.selection[i] = ImGui.ListBox("", SL.selection[i], items, #items)
+        else
+            NotPorted("ListBox")
+        end
+        ImGui.PopID()
+    end
+    ImGui.PopItemWidth()
+
+    -- Dummy
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/Dummy")
+    local button_sz = ImVec2(40, 40)
+    ImGui.Button("A", button_sz); ImGui.SameLine()
+    ImGui.Dummy(button_sz); ImGui.SameLine()
+    ImGui.Button("B", button_sz)
+
+    -- Manually wrapping
+    IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/Manual wrapping")
+    ImGui.Text("Manual wrapping:")
+    local style = ImGui.GetStyle()
+    local buttons_count = 20
+    local window_visible_x2 = ImGui.GetCursorScreenPos().x + ImGui.GetContentRegionAvail().x
+    for n = 0, buttons_count - 1 do
+        ImGui.PushID(n)
+        ImGui.Button("Box", button_sz)
+        local last_button_x2 = ImGui.GetItemRectMax().x
+        local next_button_x2 = last_button_x2 + style.ItemSpacing.x + button_sz.x -- Expected position if next button was on same line
+        if n + 1 < buttons_count and next_button_x2 < window_visible_x2 then
+            ImGui.SameLine()
+        end
+        ImGui.PopID()
+    end
+end
+
+local function DemoWindowLayout_Groups()
+    IMGUI_DEMO_MARKER("Layout/Groups")
+    DemoHelpMarker(
+        "BeginGroup() basically locks the horizontal position for new line. " ..
+        "EndGroup() bundles the whole group so that you can use \"item\" functions such as " ..
+        "IsItemHovered()/IsItemActive() or SameLine() etc. on the whole group.")
+    ImGui.BeginGroup()
+    do
+        ImGui.BeginGroup()
+        ImGui.Button("AAA")
+        ImGui.SameLine()
+        ImGui.Button("BBB")
+        ImGui.SameLine()
+        ImGui.BeginGroup()
+        ImGui.Button("CCC")
+        ImGui.Button("DDD")
+        ImGui.EndGroup()
+        ImGui.SameLine()
+        ImGui.Button("EEE")
+        ImGui.EndGroup()
+        ImGui.SetItemTooltip("First group hovered")
+    end
+    -- Capture the group size and create widgets using the same size
+    local size = ImGui.GetItemRectSize()
+    local values = { 0.5, 0.20, 0.80, 0.60, 0.25 }
+    ImGui.PlotHistogram("##values", values, nil, #values, 0, nil, 0.0, 1.0, size)
+
+    ImGui.Button("ACTION", ImVec2((size.x - ImGui.GetStyle().ItemSpacing.x) * 0.5, size.y))
+    ImGui.SameLine()
+    ImGui.Button("REACTION", ImVec2((size.x - ImGui.GetStyle().ItemSpacing.x) * 0.5, size.y))
+    ImGui.EndGroup()
+    ImGui.SameLine()
+
+    ImGui.Button("LEVERAGE\nBUZZWORD", size)
+    ImGui.SameLine()
+
+    if ImGui.BeginListBox and ImGui.BeginListBox("List", size) then
+        ImGui.Selectable("Selected", true)
+        ImGui.Selectable("Not Selected", false)
+        ImGui.EndListBox()
+    end
+end
+
+local function DemoWindowLayout_TextBaseline()
+    IMGUI_DEMO_MARKER("Layout/Text Baseline Alignment")
+    do
+        ImGui.BulletText("Text baseline:")
+        ImGui.SameLine(); DemoHelpMarker(
+            "This is testing the vertical alignment that gets applied on text to keep it aligned with widgets. " ..
+            "Lines only composed of text or \"small\" widgets use less vertical space than lines with framed widgets.")
+        ImGui.Indent()
+
+        ImGui.Text("KO Blahblah"); ImGui.SameLine()
+        ImGui.Button("Some framed item"); ImGui.SameLine()
+        DemoHelpMarker("Baseline of button will look misaligned with text..")
+
+        ImGui.AlignTextToFramePadding()
+        ImGui.Text("OK Blahblah"); ImGui.SameLine()
+        ImGui.Button("Some framed item##2"); ImGui.SameLine()
+        DemoHelpMarker("We call AlignTextToFramePadding() to vertically align the text baseline by +FramePadding.y")
+
+        -- SmallButton() uses the same vertical padding as Text
+        ImGui.Button("TEST##1"); ImGui.SameLine()
+        ImGui.Text("TEST"); ImGui.SameLine()
+        ImGui.SmallButton("TEST##2")
+
+        ImGui.AlignTextToFramePadding()
+        ImGui.Text("Text aligned to framed item"); ImGui.SameLine()
+        ImGui.Button("Item##1"); ImGui.SameLine()
+        ImGui.Text("Item"); ImGui.SameLine()
+        ImGui.SmallButton("Item##2"); ImGui.SameLine()
+        ImGui.Button("Item##3")
+
+        ImGui.Unindent()
+    end
+
+    ImGui.Spacing()
+
+    do
+        ImGui.BulletText("Multi-line text:")
+        ImGui.Indent()
+        ImGui.Text("One\nTwo\nThree"); ImGui.SameLine()
+        ImGui.Text("Hello\nWorld"); ImGui.SameLine()
+        ImGui.Text("Banana")
+
+        ImGui.Text("Banana"); ImGui.SameLine()
+        ImGui.Text("Hello\nWorld"); ImGui.SameLine()
+        ImGui.Text("One\nTwo\nThree")
+
+        ImGui.Button("HOP##1"); ImGui.SameLine()
+        ImGui.Text("Banana"); ImGui.SameLine()
+        ImGui.Text("Hello\nWorld"); ImGui.SameLine()
+        ImGui.Text("Banana")
+
+        ImGui.Button("HOP##2"); ImGui.SameLine()
+        ImGui.Text("Hello\nWorld"); ImGui.SameLine()
+        ImGui.Text("Banana")
+        ImGui.Unindent()
+    end
+
+    ImGui.Spacing()
+
+    do
+        ImGui.BulletText("Misc items:")
+        ImGui.Indent()
+
+        ImGui.Button("80x80", ImVec2(80, 80))
+        ImGui.SameLine()
+        ImGui.Button("50x50", ImVec2(50, 50))
+        ImGui.SameLine()
+        ImGui.Button("Button()")
+        ImGui.SameLine()
+        ImGui.SmallButton("SmallButton()")
+
+        -- Tree
+        local spacing = ImGui.GetStyle().ItemInnerSpacing.x
+        ImGui.Button("Button##1") -- Will make line higher
+        ImGui.SameLine(0.0, spacing)
+        if ImGui.TreeNodeEx("Node##1", ImGuiTreeNodeFlags.DrawLinesNone) then
+            for i = 0, 5 do
+                ImGui.BulletText("Item %d..", i)
+            end
+            ImGui.TreePop()
+        end
+
+        local padding = math.floor(ImGui.GetFontSize() * 1.20) -- Large padding
+        ImGui.PushStyleVarY(ImGuiStyleVar.FramePadding, padding)
+        ImGui.Button("Button##2")
+        ImGui.PopStyleVar()
+        ImGui.SameLine(0.0, spacing)
+        if ImGui.TreeNodeEx("Node##2", ImGuiTreeNodeFlags.DrawLinesNone) then
+            ImGui.TreePop()
+        end
+
+        ImGui.AlignTextToFramePadding()
+
+        local node_open = ImGui.TreeNode("Node##3")
+        ImGui.SameLine(0.0, spacing); ImGui.Button("Button##3")
+        if node_open then
+            for i = 0, 5 do
+                ImGui.BulletText("Item %d..", i)
+            end
+            ImGui.TreePop()
+        end
+
+        -- Bullet
+        ImGui.Button("Button##4")
+        ImGui.SameLine(0.0, spacing)
+        ImGui.BulletText("Bullet text")
+
+        ImGui.AlignTextToFramePadding()
+        ImGui.BulletText("Node")
+        ImGui.SameLine(0.0, spacing); ImGui.Button("Button##5")
+        ImGui.Unindent()
+    end
+end
+
+local function DemoWindowLayout_HorizontalContentsSizeWindow()
+    if SL.explicit_content_size then
+        ImGui.SetNextWindowContentSize(ImVec2(SL.contents_size_x, 0.0))
+    end
+    SL.show_horizontal_contents_size_demo_window = ImGui.Begin("Horizontal contents size demo window", SL.show_horizontal_contents_size_demo_window, SL.show_h_scrollbar and ImGuiWindowFlags.HorizontalScrollbar or 0)
+    IMGUI_DEMO_MARKER("Layout/Scrolling/Horizontal contents size demo window")
+    ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(2, 0))
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(2, 0))
+    DemoHelpMarker(
+        "Test how different widgets react and impact the work rectangle growing when horizontal scrolling is enabled.\n\n" ..
+        "Use 'Metrics->Tools->Show windows rectangles' to visualize rectangles.")
+    _, SL.show_h_scrollbar = ImGui.Checkbox("H-scrollbar", SL.show_h_scrollbar)
+    _, SL.show_button = ImGui.Checkbox("Button", SL.show_button)
+    _, SL.show_tree_nodes = ImGui.Checkbox("Tree nodes", SL.show_tree_nodes)
+    _, SL.show_text_wrapped = ImGui.Checkbox("Text wrapped", SL.show_text_wrapped)
+    _, SL.show_columns = ImGui.Checkbox("Columns", SL.show_columns)
+    _, SL.show_tab_bar = ImGui.Checkbox("Tab bar", SL.show_tab_bar)
+    _, SL.show_child = ImGui.Checkbox("Child", SL.show_child)
+    _, SL.explicit_content_size = ImGui.Checkbox("Explicit content size", SL.explicit_content_size)
+    ImGui.Text("Scroll %.1f/%.1f %.1f/%.1f", ImGui.GetScrollX(), ImGui.GetScrollMaxX(), ImGui.GetScrollY(), ImGui.GetScrollMaxY())
+    if SL.explicit_content_size then
+        ImGui.SameLine()
+        ImGui.SetNextItemWidth(ImGui.CalcTextSize("123456").x)
+        SL.contents_size_x = ImGui.DragFloat("##csx", SL.contents_size_x)
+        local p = ImGui.GetCursorScreenPos()
+        ImGui.GetWindowDrawList():AddRectFilled(p, ImVec2(p.x + 10, p.y + 10), IM_COL32_WHITE)
+        ImGui.GetWindowDrawList():AddRectFilled(ImVec2(p.x + SL.contents_size_x - 10, p.y), ImVec2(p.x + SL.contents_size_x, p.y + 10), IM_COL32_WHITE)
+        ImGui.Dummy(ImVec2(0, 10))
+    end
+    ImGui.PopStyleVar(2)
+    ImGui.Separator()
+    if SL.show_button then
+        ImGui.Button("this is a 300-wide button", ImVec2(300, 0))
+    end
+    if SL.show_tree_nodes then
+        local open = true
+        if ImGui.TreeNode("this is a tree node") then
+            if ImGui.TreeNode("another one of those tree node...") then
+                ImGui.Text("Some tree contents")
+                ImGui.TreePop()
+            end
+            ImGui.TreePop()
+        end
+        ImGui.CollapsingHeader("CollapsingHeader", open)
+    end
+    if SL.show_text_wrapped then
+        ImGui.TextWrapped("This text should automatically wrap on the edge of the work rectangle.")
+    end
+    if SL.show_columns then
+        ImGui.Text("Tables:")
+        if ImGui.BeginTable("table", 4, ImGuiTableFlags.Borders) then
+            for n = 0, 3 do
+                ImGui.TableNextColumn()
+                ImGui.Text("Width %.2f", ImGui.GetContentRegionAvail().x)
+            end
+            ImGui.EndTable()
+        end
+        ImGui.Text("Columns:")
+        if ImGui.Columns then
+            ImGui.Columns(4)
+            for n = 0, 3 do
+                ImGui.Text("Width %.2f", ImGui.GetColumnWidth())
+                ImGui.NextColumn()
+            end
+            ImGui.Columns(1)
+        else
+            NotPorted("Columns")
+        end
+    end
+    if SL.show_tab_bar and ImGui.BeginTabBar and ImGui.BeginTabBar("Hello") then
+        if ImGui.BeginTabItem("OneOneOne") then ImGui.EndTabItem() end
+        if ImGui.BeginTabItem("TwoTwoTwo") then ImGui.EndTabItem() end
+        if ImGui.BeginTabItem("ThreeThreeThree") then ImGui.EndTabItem() end
+        if ImGui.BeginTabItem("FourFourFour") then ImGui.EndTabItem() end
+        ImGui.EndTabBar()
+    end
+    if SL.show_child then
+        BeginChild("child", ImVec2(0, 0), ImGuiChildFlags.Borders)
+        ImGui.EndChild()
+    end
+    ImGui.End()
+end
+
+local function DemoWindowLayout_Scrolling()
+    IMGUI_DEMO_MARKER("Layout/Scrolling/Vertical")
+    DemoHelpMarker("Use SetScrollHereY() or SetScrollFromPosY() to scroll to a given vertical position.")
+
+    _, SL.enable_extra_decorations = ImGui.Checkbox("Decoration", SL.enable_extra_decorations)
+
+    ImGui.PushItemWidth(ImGui.GetFontSize() * 10)
+    local changed
+    SL.track_item, changed = ImGui.DragInt("##item", SL.track_item, 0.25, 0, 99, "Item = %d")
+    SL.enable_track = SL.enable_track or changed
+    ImGui.SameLine()
+    _, SL.enable_track = ImGui.Checkbox("Track", SL.enable_track)
+
+    local scroll_to_off
+    SL.scroll_to_off_px, scroll_to_off = ImGui.DragFloat("##off", SL.scroll_to_off_px, 1.00, 0, FLT_MAX, "+%.0f px")
+    ImGui.SameLine()
+    scroll_to_off = ImGui.Button("Scroll Offset") or scroll_to_off
+
+    local scroll_to_pos
+    SL.scroll_to_pos_px, scroll_to_pos = ImGui.DragFloat("##pos", SL.scroll_to_pos_px, 1.00, -10, FLT_MAX, "X/Y = %.0f px")
+    ImGui.SameLine()
+    scroll_to_pos = ImGui.Button("Scroll To Pos") or scroll_to_pos
+    ImGui.PopItemWidth()
+
+    if scroll_to_off or scroll_to_pos then
+        SL.enable_track = false
+    end
+
+    local style = ImGui.GetStyle()
+    local child_w = (ImGui.GetContentRegionAvail().x - 4 * style.ItemSpacing.x) / 5
+    if child_w < 1.0 then
+        child_w = 1.0
+    end
+    ImGui.PushID("##VerticalScrolling")
+    local vnames = { "Top", "25%", "Center", "75%", "Bottom" }
+    for i = 0, 4 do
+        if i > 0 then ImGui.SameLine() end
+        ImGui.BeginGroup()
+        ImGui.TextUnformatted(vnames[i + 1])
+
+        local child_flags = SL.enable_extra_decorations and ImGuiWindowFlags.MenuBar or 0
+        local child_id = ImGui.GetID(i)
+        local child_is_visible = BeginChild(child_id, ImVec2(child_w, 200.0), ImGuiChildFlags.Borders, child_flags)
+        if ImGui.BeginMenuBar() then
+            ImGui.TextUnformatted("abc")
+            ImGui.EndMenuBar()
+        end
+        if scroll_to_off then
+            ImGui.SetScrollY(SL.scroll_to_off_px)
+        end
+        if scroll_to_pos then
+            ImGui.SetScrollFromPosY(ImGui.GetCursorStartPos().y + SL.scroll_to_pos_px, i * 0.25)
+        end
+        if child_is_visible then -- Avoid calling SetScrollHereY when running with culled items
+            for item = 0, 99 do
+                if SL.enable_track and item == SL.track_item then
+                    ImGui.TextColored(ImVec4(1, 1, 0, 1), "Item %d", item)
+                    ImGui.SetScrollHereY(i * 0.25) -- 0.0f:top, 0.5f:center, 1.0f:bottom
+                else
+                    ImGui.Text("Item %d", item)
+                end
+            end
+        end
+        local scroll_y = ImGui.GetScrollY()
+        local scroll_max_y = ImGui.GetScrollMaxY()
+        ImGui.EndChild()
+        ImGui.Text("%.0f/%.0f", scroll_y, scroll_max_y)
+        ImGui.EndGroup()
+    end
+    ImGui.PopID()
+
+    -- Horizontal scroll functions
+    IMGUI_DEMO_MARKER("Layout/Scrolling/Horizontal")
+    ImGui.Spacing()
+    DemoHelpMarker(
+        "Use SetScrollHereX() or SetScrollFromPosX() to scroll to a given horizontal position.\n\n" ..
+        "Because the clipping rectangle of most window hides half worth of WindowPadding on the " ..
+        "left/right, using SetScrollFromPosX(+1) will usually result in clipped text whereas the " ..
+        "equivalent SetScrollFromPosY(+1) wouldn't.")
+    ImGui.PushID("##HorizontalScrolling")
+    local hnames = { "Left", "25%", "Center", "75%", "Right" }
+    for i = 0, 4 do
+        local child_height = ImGui.GetTextLineHeight() + style.ScrollbarSize + style.WindowPadding.y * 2.0
+        local child_flags = bit32.bor(ImGuiWindowFlags.HorizontalScrollbar, SL.enable_extra_decorations and ImGuiWindowFlags.AlwaysVerticalScrollbar or 0)
+        local child_id = ImGui.GetID(i)
+        local child_is_visible = BeginChild(child_id, ImVec2(-100, child_height), ImGuiChildFlags.Borders, child_flags)
+        if scroll_to_off then
+            ImGui.SetScrollX(SL.scroll_to_off_px)
+        end
+        if scroll_to_pos then
+            ImGui.SetScrollFromPosX(ImGui.GetCursorStartPos().x + SL.scroll_to_pos_px, i * 0.25)
+        end
+        if child_is_visible then
+            for item = 0, 99 do
+                if item > 0 then
+                    ImGui.SameLine()
+                end
+                if SL.enable_track and item == SL.track_item then
+                    ImGui.TextColored(ImVec4(1, 1, 0, 1), "Item %d", item)
+                    ImGui.SetScrollHereX(i * 0.25) -- 0.0f:left, 0.5f:center, 1.0f:right
+                else
+                    ImGui.Text("Item %d", item)
+                end
+            end
+        end
+        local scroll_x = ImGui.GetScrollX()
+        local scroll_max_x = ImGui.GetScrollMaxX()
+        ImGui.EndChild()
+        ImGui.SameLine()
+        ImGui.Text("%s\n%.0f/%.0f", hnames[i + 1], scroll_x, scroll_max_x)
+        ImGui.Spacing()
+    end
+    ImGui.PopID()
+
+    -- Miscellaneous Horizontal Scrolling Demo
+    IMGUI_DEMO_MARKER("Layout/Scrolling/Horizontal (more)")
+    DemoHelpMarker(
+        "Horizontal scrolling for a window is enabled via the ImGuiWindowFlags_HorizontalScrollbar flag.\n\n" ..
+        "You may want to also explicitly specify content width by using SetNextWindowContentWidth() before Begin().")
+    SL.lines = ImGui.SliderInt("Lines", SL.lines, 1, 15)
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 3.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(2.0, 1.0))
+    local scrolling_child_size = ImVec2(0, ImGui.GetFrameHeightWithSpacing() * 7 + 30)
+    BeginChild("scrolling", scrolling_child_size, ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar)
+    for line = 0, SL.lines - 1 do
+        local num_buttons = 10 + ((line % 2 == 1) and line * 9 or line * 3)
+        local base_w = ImGui.GetFontSize() * 3
+        for n = 0, num_buttons - 1 do
+            if n > 0 then ImGui.SameLine() end
+            ImGui.PushID(n + line * 1000)
+            local label = (n % 15 == 0) and "FizzBuzz" or (n % 3 == 0) and "Fizz" or (n % 5 == 0) and "Buzz" or tostring(n)
+            local hue = n * 0.05
+            ImGui.PushStyleColor(ImGuiCol.Button, HSV(hue, 0.6, 0.6))
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, HSV(hue, 0.7, 0.7))
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, HSV(hue, 0.8, 0.8))
+            ImGui.Button(label, ImVec2(base_w + math.sin(line + n) * base_w * 0.5, 0.0))
+            ImGui.PopStyleColor(3)
+            ImGui.PopID()
+        end
+    end
+    local scroll_x = ImGui.GetScrollX()
+    local scroll_max_x = ImGui.GetScrollMaxX()
+    ImGui.EndChild()
+    ImGui.PopStyleVar(2)
+    local scroll_x_delta = 0.0
+    ImGui.SmallButton("<<")
+    if ImGui.IsItemActive() then
+        scroll_x_delta = -ImGui.GetIO().DeltaTime * 1000.0
+    end
+    ImGui.SameLine()
+    ImGui.Text("Scroll from code"); ImGui.SameLine()
+    ImGui.SmallButton(">>")
+    if ImGui.IsItemActive() then
+        scroll_x_delta = ImGui.GetIO().DeltaTime * 1000.0
+    end
+    ImGui.SameLine()
+    ImGui.Text("%.0f/%.0f", scroll_x, scroll_max_x)
+    if scroll_x_delta ~= 0.0 then
+        -- Demonstrate a trick: you can use Begin to set yourself in the context of another window
+        BeginChild("scrolling")
+        ImGui.SetScrollX(ImGui.GetScrollX() + scroll_x_delta)
+        ImGui.EndChild()
+    end
+    ImGui.Spacing()
+
+    _, SL.show_horizontal_contents_size_demo_window = ImGui.Checkbox("Show Horizontal contents size demo window", SL.show_horizontal_contents_size_demo_window)
+
+    if SL.show_horizontal_contents_size_demo_window then
+        DemoWindowLayout_HorizontalContentsSizeWindow()
+    end
+end
+
+local function DemoWindowLayout_TextClipping()
+    IMGUI_DEMO_MARKER("Layout/Text Clipping")
+    if SL.clip_size == nil then SL.clip_size = { 100.0, 100.0 }; SL.clip_offset = ImVec2(30.0, 30.0) end
+    ImGui.DragFloat2("size", SL.clip_size, 0.5, 1.0, 200.0, "%.0f")
+    ImGui.TextWrapped("(Click and drag to scroll)")
+
+    DemoHelpMarker(
+        "(Left) Using ImGui::PushClipRect():\n" ..
+        "Will alter ImGui hit-testing logic + ImDrawList rendering.\n" ..
+        "(use this if you want your clipping rectangle to affect interactions)\n\n" ..
+        "(Center) Using ImDrawList::PushClipRect():\n" ..
+        "Will alter ImDrawList rendering only.\n" ..
+        "(use this as a shortcut if you are only using ImDrawList calls)\n\n" ..
+        "(Right) Using ImDrawList::AddText() with a fine ClipRect:\n" ..
+        "Will alter only this specific ImDrawList::AddText() rendering.\n" ..
+        "This is often used internally to avoid altering the clipping rectangle and minimize draw calls.")
+
+    local size = ImVec2(SL.clip_size[1], SL.clip_size[2])
+    local offset = SL.clip_offset
+    for n = 0, 2 do repeat
+        if n > 0 then
+            ImGui.SameLine()
+        end
+
+        ImGui.PushID(n)
+        ImGui.InvisibleButton("##canvas", size)
+        if ImGui.IsItemActive() and ImGui.IsMouseDragging(ImGuiMouseButton.Left) then
+            offset.x = offset.x + ImGui.GetIO().MouseDelta.x
+            offset.y = offset.y + ImGui.GetIO().MouseDelta.y
+        end
+        ImGui.PopID()
+        if not ImGui.IsItemVisible() then -- Skip rendering as ImDrawList elements are not clipped.
+            break
+        end
+
+        local p0 = ImGui.GetItemRectMin()
+        local p1 = ImGui.GetItemRectMax()
+        local text_str = "Line 1 hello\nLine 2 clip me!"
+        local text_pos = ImVec2(p0.x + offset.x, p0.y + offset.y)
+        local draw_list = ImGui.GetWindowDrawList()
+        if n == 0 then
+            ImGui.PushClipRect(p0, p1, true)
+            draw_list:AddRectFilled(p0, p1, IM_COL32(90, 90, 120, 255))
+            draw_list:AddText(text_pos, IM_COL32_WHITE, text_str)
+            ImGui.PopClipRect()
+        elseif n == 1 then
+            draw_list:PushClipRect(p0, p1, true)
+            draw_list:AddRectFilled(p0, p1, IM_COL32(90, 90, 120, 255))
+            draw_list:AddText(text_pos, IM_COL32_WHITE, text_str)
+            draw_list:PopClipRect()
+        else
+            local clip_rect = ImVec4(p0.x, p0.y, p1.x, p1.y)
+            draw_list:AddRectFilled(p0, p1, IM_COL32(90, 90, 120, 255))
+            draw_list:AddText(ImGui.GetFont(), ImGui.GetFontSize(), text_pos, IM_COL32_WHITE, text_str, nil, 0.0, clip_rect)
+        end
+    until true end
+end
+
+local function DemoWindowLayout_OverlapMode()
+    IMGUI_DEMO_MARKER("Layout/Overlap Mode")
+    DemoHelpMarker(
+        "Hit-testing is by default performed in item submission order, which generally is perceived as 'back-to-front'.\n\n" ..
+        "By using SetNextItemAllowOverlap() you can notify that an item may be overlapped by another. " ..
+        "Doing so alters the hovering logic: items using AllowOverlap mode requires an extra frame to accept hovered state.")
+    _, SL.enable_allow_overlap = ImGui.Checkbox("Enable AllowOverlap", SL.enable_allow_overlap)
+
+    local button1_pos = ImGui.GetCursorScreenPos()
+    local button2_pos = ImVec2(button1_pos.x + 50.0, button1_pos.y + 50.0)
+    if SL.enable_allow_overlap then
+        ImGui.SetNextItemAllowOverlap()
+    end
+    ImGui.Button("Button 1", ImVec2(80, 80))
+    ImGui.SetCursorScreenPos(button2_pos)
+    ImGui.Button("Button 2", ImVec2(80, 80))
+
+    if SL.enable_allow_overlap then
+        ImGui.SetNextItemAllowOverlap()
+    end
+    ImGui.Selectable("Some Selectable", false)
+    ImGui.SameLine()
+    ImGui.SmallButton("++")
+end
+
+function DemoWindowLayout()
+    if not ImGui.CollapsingHeader("Layout & Scrolling") then
+        return
+    end
+    if ImGui.TreeNode("Child windows") then DemoWindowLayout_ChildWindows(); ImGui.TreePop() end
+    if ImGui.TreeNode("Widgets Width") then DemoWindowLayout_WidgetsWidth(); ImGui.TreePop() end
+    if ImGui.TreeNode("Basic Horizontal Layout") then DemoWindowLayout_BasicHorizontal(); ImGui.TreePop() end
+    if ImGui.TreeNode("Groups") then DemoWindowLayout_Groups(); ImGui.TreePop() end
+    if ImGui.TreeNode("Text Baseline Alignment") then DemoWindowLayout_TextBaseline(); ImGui.TreePop() end
+    if ImGui.TreeNode("Scrolling") then DemoWindowLayout_Scrolling(); ImGui.TreePop() end
+    if ImGui.TreeNode("Text Clipping") then DemoWindowLayout_TextClipping(); ImGui.TreePop() end
+    if ImGui.TreeNode("Overlap Mode") then DemoWindowLayout_OverlapMode(); ImGui.TreePop() end
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowPopups()
+-------------------------------------------------------------------------------
+
+local SP = {
+    selected_fish = -1, toggles = { true, false, false, false, false },
+    ctx_selected = -1, value = 0.5, name = nil,
+    dont_ask_me_next_time = false, item = 1, color = { 0.4, 0.7, 0.0, 0.5 },
+}
+
+local function DemoWindowPopups_Popups()
+    IMGUI_DEMO_MARKER("Popups/Popups")
+    ImGui.TextWrapped(
+        "When a popup is active, it inhibits interacting with windows that are behind the popup. " ..
+        "Clicking outside the popup closes it.")
+
+    local names = { "Bream", "Haddock", "Mackerel", "Pollock", "Tilefish" }
+    local toggles = SP.toggles
+
+    if ImGui.Button("Select..") then
+        ImGui.OpenPopup("my_select_popup")
+    end
+    ImGui.SameLine()
+    ImGui.TextUnformatted(SP.selected_fish == -1 and "<None>" or names[SP.selected_fish + 1])
+    if ImGui.BeginPopup("my_select_popup") then
+        ImGui.SeparatorText("Aquarium")
+        for i = 1, #names do
+            if ImGui.Selectable(names[i]) then
+                SP.selected_fish = i - 1
+            end
+        end
+        ImGui.EndPopup()
+    end
+
+    -- Showing a menu with toggles
+    if ImGui.Button("Toggle..") then
+        ImGui.OpenPopup("my_toggle_popup")
+    end
+    if ImGui.BeginPopup("my_toggle_popup") then
+        for i = 1, #names do
+            _, toggles[i] = ImGui.MenuItem(names[i], "", toggles[i])
+        end
+        if ImGui.BeginMenu("Sub-menu") then
+            ImGui.MenuItem("Click me")
+            ImGui.EndMenu()
+        end
+
+        ImGui.Separator()
+        ImGui.Text("Tooltip here")
+        ImGui.SetItemTooltip("I am a tooltip over a popup")
+
+        if ImGui.Button("Stacked Popup") then
+            ImGui.OpenPopup("another popup")
+        end
+        if ImGui.BeginPopup("another popup") then
+            for i = 1, #names do
+                _, toggles[i] = ImGui.MenuItem(names[i], "", toggles[i])
+            end
+            if ImGui.BeginMenu("Sub-menu") then
+                ImGui.MenuItem("Click me")
+                if ImGui.Button("Stacked Popup") then
+                    ImGui.OpenPopup("another popup")
+                end
+                if ImGui.BeginPopup("another popup") then
+                    ImGui.Text("I am the last one here.")
+                    ImGui.EndPopup()
+                end
+                ImGui.EndMenu()
+            end
+            ImGui.EndPopup()
+        end
+        ImGui.EndPopup()
+    end
+
+    -- Call the more complete ShowExampleMenuFile which we use in various places of this demo
+    if ImGui.Button("With a menu..") then
+        ImGui.OpenPopup("my_file_popup")
+    end
+    if ImGui.BeginPopup("my_file_popup", ImGuiWindowFlags.MenuBar) then
+        if ImGui.BeginMenuBar() then
+            if ImGui.BeginMenu("File") then
+                DemoMenuFile()
+                ImGui.EndMenu()
+            end
+            if ImGui.BeginMenu("Edit") then
+                ImGui.MenuItem("Dummy")
+                ImGui.EndMenu()
+            end
+            ImGui.EndMenuBar()
+        end
+        ImGui.Text("Hello from popup!")
+        ImGui.Button("This is a dummy button..")
+        ImGui.EndPopup()
+    end
+end
+
+local function DemoWindowPopups_ContextMenus()
+    IMGUI_DEMO_MARKER("Popups/Context menus")
+    DemoHelpMarker("\"Context\" functions are simple helpers to associate a Popup to a given Item or Window identifier.")
+
+    -- Example 1
+    do
+        local names = { "Label1", "Label2", "Label3", "Label4", "Label5" }
+        for n = 0, 4 do
+            if ImGui.Selectable(names[n + 1], SP.ctx_selected == n) then
+                SP.ctx_selected = n
+            end
+            if ImGui.BeginPopupContextItem() then -- <-- use last item id as popup id
+                SP.ctx_selected = n
+                ImGui.Text("This is a popup for \"%s\"!", names[n + 1])
+                if ImGui.Button("Close") then
+                    ImGui.CloseCurrentPopup()
+                end
+                ImGui.EndPopup()
+            end
+            ImGui.SetItemTooltip("Right-click to open popup")
+        end
+    end
+
+    -- Example 2
+    do
+        DemoHelpMarker("Text() elements don't have stable identifiers so we need to provide one.")
+        ImGui.Text("Value = %.3f <-- (1) right-click this text", SP.value)
+        if ImGui.BeginPopupContextItem("my popup") then
+            if ImGui.Selectable("Set to zero") then SP.value = 0.0 end
+            if ImGui.Selectable("Set to PI") then SP.value = 3.1415 end
+            ImGui.SetNextItemWidth(-FLT_MIN)
+            SP.value = ImGui.DragFloat("##Value", SP.value, 0.1, 0.0, 0.0)
+            ImGui.EndPopup()
+        end
+
+        ImGui.Text("(2) Or right-click this text")
+        ImGui.OpenPopupOnItemClick("my popup", ImGuiPopupFlags.MouseButtonRight)
+
+        if ImGui.Button("(3) Or click this button") then
+            ImGui.OpenPopup("my popup")
+        end
+    end
+
+    -- Example 3
+    do
+        DemoHelpMarker("Showcase using a popup ID linked to item ID, with the item having a changing label + stable ID using the ### operator.")
+        if SP.name == nil then SP.name = Buf("Label1", 32) end
+        local buf = string.format("Button: %s###Button", BufStr(SP.name)) -- ### operator override ID ignoring the preceding label
+        ImGui.Button(buf)
+        if ImGui.BeginPopupContextItem() then
+            ImGui.Text("Edit name:")
+            ImGui.InputText("##edit", SP.name, 32)
+            if ImGui.Button("Close") then
+                ImGui.CloseCurrentPopup()
+            end
+            ImGui.EndPopup()
+        end
+        ImGui.SameLine(); ImGui.Text("(<-- right-click here)")
+    end
+end
+
+local function DemoWindowPopups_Modals()
+    IMGUI_DEMO_MARKER("Popups/Modals")
+    ImGui.TextWrapped("Modal windows are like popups but the user cannot close them by clicking outside.")
+
+    if ImGui.Button("Delete..") then
+        ImGui.OpenPopup("Delete?")
+    end
+
+    -- Always center this window when appearing
+    local center = ImGui.GetMainViewport():GetCenter()
+    ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, ImVec2(0.5, 0.5))
+
+    if ImGui.BeginPopupModal("Delete?", nil, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.Text("All those beautiful files will be deleted.\nThis operation cannot be undone!")
+        ImGui.Separator()
+
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(0, 0))
+        _, SP.dont_ask_me_next_time = ImGui.Checkbox("Don't ask me next time", SP.dont_ask_me_next_time)
+        ImGui.PopStyleVar()
+
+        if ImGui.Button("OK", ImVec2(120, 0)) then ImGui.CloseCurrentPopup() end
+        ImGui.SetItemDefaultFocus()
+        ImGui.SameLine()
+        if ImGui.Button("Cancel", ImVec2(120, 0)) then ImGui.CloseCurrentPopup() end
+        ImGui.EndPopup()
+    end
+
+    if ImGui.Button("Stacked modals..") then
+        ImGui.OpenPopup("Stacked 1")
+    end
+    if ImGui.BeginPopupModal("Stacked 1", nil, ImGuiWindowFlags.MenuBar) then
+        if ImGui.BeginMenuBar() then
+            if ImGui.BeginMenu("File") then
+                if ImGui.MenuItem("Some menu item") then end
+                ImGui.EndMenu()
+            end
+            ImGui.EndMenuBar()
+        end
+        ImGui.Text("Hello from Stacked The First\nUsing style.Colors[ImGuiCol_ModalWindowDimBg] behind it.")
+
+        -- Testing behavior of widgets stacking their own regular popups over the modal.
+        if ImGui.Combo then
+            SP.item = ImGui.Combo("Combo", SP.item, { "aaaa", "bbbb", "cccc", "dddd", "eeee" }, 5)
+        else
+            NotPorted("Combo")
+        end
+        ImGui.ColorEdit4("Color", SP.color)
+
+        if ImGui.Button("Add another modal..") then
+            ImGui.OpenPopup("Stacked 2")
+        end
+
+        local unused_open = true
+        if ImGui.BeginPopupModal("Stacked 2", unused_open) then
+            ImGui.Text("Hello from Stacked The Second!")
+            ImGui.ColorEdit4("Color", SP.color) -- Allow opening another nested popup
+            if ImGui.Button("Close") then
+                ImGui.CloseCurrentPopup()
+            end
+            ImGui.EndPopup()
+        end
+
+        if ImGui.Button("Close") then
+            ImGui.CloseCurrentPopup()
+        end
+        ImGui.EndPopup()
+    end
+end
+
+function DemoWindowPopups()
+    if not ImGui.CollapsingHeader("Popups & Modal windows") then
+        return
+    end
+
+    if ImGui.TreeNode("Popups") then DemoWindowPopups_Popups(); ImGui.TreePop() end
+    if ImGui.TreeNode("Context menus") then DemoWindowPopups_ContextMenus(); ImGui.TreePop() end
+    if ImGui.TreeNode("Modals") then
+        if ImGui.BeginPopupModal then DemoWindowPopups_Modals() else NotPorted("BeginPopupModal") end
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNode("Menus inside a regular window") then
+        IMGUI_DEMO_MARKER("Popups/Menus inside a regular window")
+        ImGui.TextWrapped("Below we are testing adding menu items to a regular window. It's rather unusual but should work!")
+        ImGui.Separator()
+
+        ImGui.MenuItem("Menu item", "Ctrl+M")
+        if ImGui.BeginMenu("Menu inside a regular window") then
+            DemoMenuFile()
+            ImGui.EndMenu()
+        end
+        ImGui.Separator()
+        ImGui.TreePop()
+    end
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowTables()
+-------------------------------------------------------------------------------
+
+-- MyItemColumnID
+local MyItemColumnID_ID, MyItemColumnID_Name, MyItemColumnID_Action, MyItemColumnID_Quantity, MyItemColumnID_Description = 0, 1, 2, 3, 4
+
+local function MyItem(id, name, quantity) return { ID = id, Name = name, Quantity = quantity } end
+
+--- Sort a Lua array (1-based) of MyItem with ImGuiTableSortSpecs (Specs is 1-based array or ImVector)
+local function MyItem_SortWithSortSpecs(sort_specs, items, items_count)
+    if items_count <= 1 then return end
+    local specs = sort_specs.Specs
+    local function get_spec(n) -- n: 0-based
+        if specs.Data then return specs.Data[n + 1] end
+        return specs[n + 1]
+    end
+    local function cmp(a, b) -- returns <0, 0, >0
+        for n = 0, sort_specs.SpecsCount - 1 do
+            local sort_spec = get_spec(n)
+            local delta = 0
+            local uid = sort_spec.ColumnUserID
+            if uid == MyItemColumnID_ID then delta = a.ID - b.ID
+            elseif uid == MyItemColumnID_Name then delta = (a.Name < b.Name) and -1 or (a.Name > b.Name) and 1 or 0
+            elseif uid == MyItemColumnID_Quantity then delta = a.Quantity - b.Quantity
+            elseif uid == MyItemColumnID_Description then delta = (a.Name < b.Name) and -1 or (a.Name > b.Name) and 1 or 0
+            else IM_ASSERT(false) end
+            if delta > 0 then
+                return (sort_spec.SortDirection == ImGuiSortDirection.Ascending) and 1 or -1
+            end
+            if delta < 0 then
+                return (sort_spec.SortDirection == ImGuiSortDirection.Ascending) and -1 or 1
+            end
+        end
+        return a.ID - b.ID
+    end
+    local arr = items.Data or items
+    if items.Data then
+        -- ImVector: sort only the used range
+        local tmp = {}
+        for i = 1, items_count do tmp[i] = arr[i] end
+        table.sort(tmp, function(a, b) return cmp(a, b) < 0 end)
+        for i = 1, items_count do arr[i] = tmp[i] end
+    else
+        table.sort(arr, function(a, b) return cmp(a, b) < 0 end)
+    end
+end
+
+-- Make the UI compact because there are so many fields
+local function PushStyleCompact()
+    local style = ImGui.GetStyle()
+    ImGui.PushStyleVarY(ImGuiStyleVar.FramePadding, math.floor(style.FramePadding.y * 0.60))
+    ImGui.PushStyleVarY(ImGuiStyleVar.ItemSpacing, math.floor(style.ItemSpacing.y * 0.60))
+end
+
+local function PopStyleCompact()
+    ImGui.PopStyleVar(2)
+end
+
+local table_sizing_policies = nil
+-- Show a combo box with a choice of sizing policies
+local function EditTableSizingFlags(flags)
+    if table_sizing_policies == nil then
+        table_sizing_policies = {
+            { Value = ImGuiTableFlags.None,              Name = "Default",                           Tooltip = "Use default sizing policy:\n- ImGuiTableFlags_SizingFixedFit if ScrollX is on or if host window has ImGuiWindowFlags_AlwaysAutoResize.\n- ImGuiTableFlags_SizingStretchSame otherwise." },
+            { Value = ImGuiTableFlags.SizingFixedFit,    Name = "ImGuiTableFlags_SizingFixedFit",    Tooltip = "Columns default to _WidthFixed (if resizable) or _WidthAuto (if not resizable), matching contents width." },
+            { Value = ImGuiTableFlags.SizingFixedSame,   Name = "ImGuiTableFlags_SizingFixedSame",   Tooltip = "Columns are all the same width, matching the maximum contents width.\nImplicitly disable ImGuiTableFlags_Resizable and enable ImGuiTableFlags_NoKeepColumnsVisible." },
+            { Value = ImGuiTableFlags.SizingStretchProp, Name = "ImGuiTableFlags_SizingStretchProp", Tooltip = "Columns default to _WidthStretch with weights proportional to their widths." },
+            { Value = ImGuiTableFlags.SizingStretchSame, Name = "ImGuiTableFlags_SizingStretchSame", Tooltip = "Columns default to _WidthStretch with same weights." },
+        }
+    end
+    local policies = table_sizing_policies
+    local idx = 1
+    while idx <= #policies do
+        if policies[idx].Value == bit32.band(flags, ImGuiTableFlags.SizingMask_) then break end
+        idx = idx + 1
+    end
+    local preview_text = (idx <= #policies) and (idx > 1 and string.sub(policies[idx].Name, #"ImGuiTableFlags" + 1) or policies[idx].Name) or ""
+    if ImGui.BeginCombo("Sizing Policy", preview_text) then
+        for n = 1, #policies do
+            if ImGui.Selectable(policies[n].Name, idx == n) then
+                flags = bit32.bor(bit32.band(flags, bit32.bnot(ImGuiTableFlags.SizingMask_)), policies[n].Value)
+            end
+        end
+        ImGui.EndCombo()
+    end
+    ImGui.SameLine()
+    ImGui.TextDisabled("(?)")
+    if ImGui.BeginItemTooltip() then
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 50.0)
+        for m = 1, #policies do
+            ImGui.Separator()
+            ImGui.Text("%s:", policies[m].Name)
+            ImGui.Separator()
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + ImGui.GetStyle().IndentSpacing * 0.5)
+            ImGui.TextUnformatted(policies[m].Tooltip)
+        end
+        ImGui.PopTextWrapPos()
+        ImGui.EndTooltip()
+    end
+    return flags
+end
+
+local function EditTableColumnsFlags(f)
+    local p
+    local F = ImGuiTableColumnFlags
+    _, f = ImGui.CheckboxFlags("_Disabled", f, F.Disabled); ImGui.SameLine(); DemoHelpMarker("Master disable flag (also hide from context menu)")
+    _, f = ImGui.CheckboxFlags("_DefaultHide", f, F.DefaultHide)
+    _, f = ImGui.CheckboxFlags("_DefaultSort", f, F.DefaultSort)
+    p, f = ImGui.CheckboxFlags("_WidthStretch", f, F.WidthStretch)
+    if p then f = bit32.band(f, bit32.bnot(bit32.bxor(F.WidthMask_, F.WidthStretch))) end
+    p, f = ImGui.CheckboxFlags("_WidthFixed", f, F.WidthFixed)
+    if p then f = bit32.band(f, bit32.bnot(bit32.bxor(F.WidthMask_, F.WidthFixed))) end
+    _, f = ImGui.CheckboxFlags("_NoResize", f, F.NoResize)
+    _, f = ImGui.CheckboxFlags("_NoReorder", f, F.NoReorder)
+    _, f = ImGui.CheckboxFlags("_NoHide", f, F.NoHide)
+    _, f = ImGui.CheckboxFlags("_NoClip", f, F.NoClip)
+    _, f = ImGui.CheckboxFlags("_NoSort", f, F.NoSort)
+    _, f = ImGui.CheckboxFlags("_NoSortAscending", f, F.NoSortAscending)
+    _, f = ImGui.CheckboxFlags("_NoSortDescending", f, F.NoSortDescending)
+    _, f = ImGui.CheckboxFlags("_NoHeaderLabel", f, F.NoHeaderLabel)
+    _, f = ImGui.CheckboxFlags("_NoHeaderWidth", f, F.NoHeaderWidth)
+    _, f = ImGui.CheckboxFlags("_PreferSortAscending", f, F.PreferSortAscending)
+    _, f = ImGui.CheckboxFlags("_PreferSortDescending", f, F.PreferSortDescending)
+    _, f = ImGui.CheckboxFlags("_IndentEnable", f, F.IndentEnable); ImGui.SameLine(); DemoHelpMarker("Default for column 0")
+    _, f = ImGui.CheckboxFlags("_IndentDisable", f, F.IndentDisable); ImGui.SameLine(); DemoHelpMarker("Default for column >0")
+    _, f = ImGui.CheckboxFlags("_AngledHeader", f, F.AngledHeader)
+    return f
+end
+
+local function ShowTableColumnsStatusFlags(flags)
+    ImGui.CheckboxFlags("_IsEnabled", flags, ImGuiTableColumnFlags.IsEnabled)
+    ImGui.CheckboxFlags("_IsVisible", flags, ImGuiTableColumnFlags.IsVisible)
+    ImGui.CheckboxFlags("_IsSorted", flags, ImGuiTableColumnFlags.IsSorted)
+    ImGui.CheckboxFlags("_IsHovered", flags, ImGuiTableColumnFlags.IsHovered)
+end
+
+local function bor(...) return bit32.bor(...) end
+local TF = setmetatable({}, { __index = function(_, k) return ImGuiTableFlags[k] end })
+
+local ST = {} -- statics for DemoWindowTables (one sub-table per section)
+local TEXT_BASE_WIDTH, TEXT_BASE_HEIGHT = 0, 0
+
+local function Tables_Basic()
+    IMGUI_DEMO_MARKER("Tables/Basic")
+    -- [Method 1] Using TableNextRow() to create a new row, and TableSetColumnIndex() to select the column.
+    DemoHelpMarker("Using TableNextRow() + calling TableSetColumnIndex() _before_ each cell, in a loop.")
+    if ImGui.BeginTable("table1", 3) then
+        for row = 0, 3 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("Row %d Column %d", row, column)
+            end
+        end
+        ImGui.EndTable()
+    end
+
+    -- [Method 2] Using TableNextColumn() called multiple times, instead of using a for loop + TableSetColumnIndex().
+    DemoHelpMarker("Using TableNextRow() + calling TableNextColumn() _before_ each cell, manually.")
+    if ImGui.BeginTable("table2", 3) then
+        for row = 0, 3 do
+            ImGui.TableNextRow()
+            ImGui.TableNextColumn()
+            ImGui.Text("Row %d", row)
+            ImGui.TableNextColumn()
+            ImGui.Text("Some contents")
+            ImGui.TableNextColumn()
+            ImGui.Text("123.456")
+        end
+        ImGui.EndTable()
+    end
+
+    -- [Method 3] We call TableNextColumn() _before_ each cell. We never call TableNextRow(),
+    DemoHelpMarker(
+        "Only using TableNextColumn(), which tends to be convenient for tables where every cell contains " ..
+        "the same type of contents.\n This is also more similar to the old NextColumn() function of the " ..
+        "Columns API, and provided to facilitate the Columns->Tables API transition.")
+    if ImGui.BeginTable("table3", 3) then
+        for item = 0, 13 do
+            ImGui.TableNextColumn()
+            ImGui.Text("Item %d", item)
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_BordersBackground()
+    IMGUI_DEMO_MARKER("Tables/Borders, background")
+    local CT_Text, CT_FillButton = 0, 1
+    local s = ST.borders
+    if s == nil then s = { flags = bor(TF.Borders, TF.RowBg), display_headers = false, contents_type = CT_Text }; ST.borders = s end
+
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_RowBg", s.flags, TF.RowBg)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Borders", s.flags, TF.Borders)
+    ImGui.SameLine(); DemoHelpMarker("ImGuiTableFlags_Borders\n = ImGuiTableFlags_BordersInnerV\n | ImGuiTableFlags_BordersOuterV\n | ImGuiTableFlags_BordersInnerH\n | ImGuiTableFlags_BordersOuterH")
+    ImGui.Indent()
+
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersH", s.flags, TF.BordersH)
+    ImGui.Indent()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterH", s.flags, TF.BordersOuterH)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerH", s.flags, TF.BordersInnerH)
+    ImGui.Unindent()
+
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersV", s.flags, TF.BordersV)
+    ImGui.Indent()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterV", s.flags, TF.BordersOuterV)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerV", s.flags, TF.BordersInnerV)
+    ImGui.Unindent()
+
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuter", s.flags, TF.BordersOuter)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInner", s.flags, TF.BordersInner)
+    ImGui.Unindent()
+
+    ImGui.AlignTextToFramePadding(); ImGui.Text("Cell contents:")
+    ImGui.SameLine(); _, s.contents_type = ImGui.RadioButton("Text", s.contents_type, CT_Text)
+    ImGui.SameLine(); _, s.contents_type = ImGui.RadioButton("FillButton", s.contents_type, CT_FillButton)
+    _, s.display_headers = ImGui.Checkbox("Display headers", s.display_headers)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBody", s.flags, TF.NoBordersInBody); ImGui.SameLine(); DemoHelpMarker("Disable vertical borders in columns Body (borders will always appear in Headers)")
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table1", 3, s.flags) then
+        if s.display_headers then
+            ImGui.TableSetupColumn("One")
+            ImGui.TableSetupColumn("Two")
+            ImGui.TableSetupColumn("Three")
+            ImGui.TableHeadersRow()
+        end
+
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                local buf = string.format("Hello %d,%d", column, row)
+                if s.contents_type == CT_Text then
+                    ImGui.TextUnformatted(buf)
+                elseif s.contents_type == CT_FillButton then
+                    ImGui.Button(buf, ImVec2(-FLT_MIN, 0.0))
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_HelloGrid(id, flags, rows, cols, fmt)
+    if ImGui.BeginTable(id, cols, flags) then
+        for row = 0, rows - 1 do
+            ImGui.TableNextRow()
+            for column = 0, cols - 1 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text(fmt or "Hello %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_ResizableStretch()
+    IMGUI_DEMO_MARKER("Tables/Resizable, stretch")
+    local s = ST.rstretch
+    if s == nil then s = { flags = bor(TF.SizingStretchSame, TF.Resizable, TF.BordersOuter, TF.BordersV, TF.ContextMenuInBody) }; ST.rstretch = s end
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersV", s.flags, TF.BordersV)
+    ImGui.SameLine(); DemoHelpMarker(
+        "Using the _Resizable flag automatically enables the _BordersInnerV flag as well, " ..
+        "this is why the resize borders are still showing when unchecking this.")
+    PopStyleCompact()
+
+    Tables_HelloGrid("table1", s.flags, 5, 3)
+end
+
+local function Tables_ResizableFixed()
+    IMGUI_DEMO_MARKER("Tables/Resizable, fixed")
+    DemoHelpMarker(
+        "Using _Resizable + _SizingFixedFit flags.\n" ..
+        "Fixed-width columns generally makes more sense if you want to use horizontal scrolling.\n\n" ..
+        "Double-click a column border to auto-fit the column to its contents.")
+    PushStyleCompact()
+    local s = ST.rfixed
+    if s == nil then s = { flags = bor(TF.SizingFixedFit, TF.Resizable, TF.BordersOuter, TF.BordersV, TF.ContextMenuInBody) }; ST.rfixed = s end
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendX", s.flags, TF.NoHostExtendX)
+    PopStyleCompact()
+
+    Tables_HelloGrid("table1", s.flags, 5, 3)
+end
+
+local function Tables_ResizableMixed()
+    IMGUI_DEMO_MARKER("Tables/Resizable, mixed")
+    DemoHelpMarker(
+        "Using TableSetupColumn() to alter resizing policy on a per-column basis.\n\n" ..
+        "When combining Fixed and Stretch columns, generally you only want one, maybe two trailing columns to use _WidthStretch.")
+    local flags = bor(TF.SizingFixedFit, TF.RowBg, TF.Borders, TF.Resizable, TF.Reorderable, TF.Hideable)
+    local CF = ImGuiTableColumnFlags
+
+    if ImGui.BeginTable("table1", 3, flags) then
+        ImGui.TableSetupColumn("AAA", CF.WidthFixed)
+        ImGui.TableSetupColumn("BBB", CF.WidthFixed)
+        ImGui.TableSetupColumn("CCC", CF.WidthStretch)
+        ImGui.TableHeadersRow()
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("%s %d,%d", (column == 2) and "Stretch" or "Fixed", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+    if ImGui.BeginTable("table2", 6, flags) then
+        ImGui.TableSetupColumn("AAA", CF.WidthFixed)
+        ImGui.TableSetupColumn("BBB", CF.WidthFixed)
+        ImGui.TableSetupColumn("CCC", bor(CF.WidthFixed, CF.DefaultHide))
+        ImGui.TableSetupColumn("DDD", CF.WidthStretch)
+        ImGui.TableSetupColumn("EEE", CF.WidthStretch)
+        ImGui.TableSetupColumn("FFF", bor(CF.WidthStretch, CF.DefaultHide))
+        ImGui.TableHeadersRow()
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 5 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("%s %d,%d", (column >= 3) and "Stretch" or "Fixed", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_Reorderable()
+    IMGUI_DEMO_MARKER("Tables/Reorderable, hideable, with headers")
+    DemoHelpMarker(
+        "Click and drag column headers to reorder columns.\n\n" ..
+        "Right-click on a header to open a context menu.")
+    local s = ST.reorder
+    if s == nil then s = { flags = bor(TF.Resizable, TF.Reorderable, TF.Hideable, TF.BordersOuter, TF.BordersV) }; ST.reorder = s end
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Reorderable", s.flags, TF.Reorderable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Hideable", s.flags, TF.Hideable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBody", s.flags, TF.NoBordersInBody)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBodyUntilResize", s.flags, TF.NoBordersInBodyUntilResize); ImGui.SameLine(); DemoHelpMarker("Disable vertical borders in columns Body until hovered for resize (borders will always appear in Headers)")
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_HighlightHoveredColumn", s.flags, TF.HighlightHoveredColumn)
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table1", 3, s.flags) then
+        ImGui.TableSetupColumn("One")
+        ImGui.TableSetupColumn("Two")
+        ImGui.TableSetupColumn("Three")
+        ImGui.TableHeadersRow()
+        for row = 0, 5 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("Hello %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+
+    -- Use outer_size.x == 0.0f instead of default to make the table as tight as possible
+    if ImGui.BeginTable("table2", 3, bor(s.flags, TF.SizingFixedFit), ImVec2(0.0, 0.0)) then
+        ImGui.TableSetupColumn("One")
+        ImGui.TableSetupColumn("Two")
+        ImGui.TableSetupColumn("Three")
+        ImGui.TableHeadersRow()
+        for row = 0, 5 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("Fixed %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_Padding()
+    IMGUI_DEMO_MARKER("Tables/Padding")
+    DemoHelpMarker(
+        "We often want outer padding activated when any using features which makes the edges of a column visible:\n" ..
+        "e.g.:\n" ..
+        "- BorderOuterV\n" ..
+        "- any form of row selection\n" ..
+        "Because of this, activating BorderOuterV sets the default to PadOuterX. " ..
+        "Using PadOuterX or NoPadOuterX you can override the default.\n\n" ..
+        "Actual padding values are using style.CellPadding.\n\n" ..
+        "In this demo we don't show horizontal borders to emphasize how they don't affect default horizontal padding.")
+
+    local s = ST.padding
+    if s == nil then
+        s = { flags1 = TF.BordersV, show_headers = false, flags2 = bor(TF.Borders, TF.RowBg), cell_padding = ImVec2(0.0, 0.0),
+              show_widget_frame_bg = true, text_bufs = {}, init = true }
+        ST.padding = s
+    end
+    PushStyleCompact()
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_PadOuterX", s.flags1, TF.PadOuterX)
+    ImGui.SameLine(); DemoHelpMarker("Enable outer-most padding (default if ImGuiTableFlags_BordersOuterV is set)")
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_NoPadOuterX", s.flags1, TF.NoPadOuterX)
+    ImGui.SameLine(); DemoHelpMarker("Disable outer-most padding (default if ImGuiTableFlags_BordersOuterV is not set)")
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_NoPadInnerX", s.flags1, TF.NoPadInnerX)
+    ImGui.SameLine(); DemoHelpMarker("Disable inner padding between columns (double inner padding if BordersOuterV is on, single inner padding if BordersOuterV is off)")
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterV", s.flags1, TF.BordersOuterV)
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerV", s.flags1, TF.BordersInnerV)
+    _, s.show_headers = ImGui.Checkbox("show_headers", s.show_headers)
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table_padding", 3, s.flags1) then
+        if s.show_headers then
+            ImGui.TableSetupColumn("One")
+            ImGui.TableSetupColumn("Two")
+            ImGui.TableSetupColumn("Three")
+            ImGui.TableHeadersRow()
+        end
+
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                if row == 0 then
+                    ImGui.Text("Avail %.2f", ImGui.GetContentRegionAvail().x)
+                else
+                    local buf = string.format("Hello %d,%d", column, row)
+                    ImGui.Button(buf, ImVec2(-FLT_MIN, 0.0))
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+
+    -- Second example: set style.CellPadding to (0.0) or a custom value.
+    DemoHelpMarker("Setting style.CellPadding to (0,0) or a custom value.")
+
+    PushStyleCompact()
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_Borders", s.flags2, TF.Borders)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersH", s.flags2, TF.BordersH)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersV", s.flags2, TF.BordersV)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInner", s.flags2, TF.BordersInner)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuter", s.flags2, TF.BordersOuter)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_RowBg", s.flags2, TF.RowBg)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags2, TF.Resizable)
+    _, s.show_widget_frame_bg = ImGui.Checkbox("show_widget_frame_bg", s.show_widget_frame_bg)
+    ImGui.SliderFloat2("CellPadding", s.cell_padding, 0.0, 10.0, "%.0f")
+    PopStyleCompact()
+
+    ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, s.cell_padding)
+    if ImGui.BeginTable("table_padding_2", 3, s.flags2) then
+        if not s.show_widget_frame_bg then
+            ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
+        end
+        for cell = 0, 3 * 5 - 1 do
+            ImGui.TableNextColumn()
+            if s.init then
+                s.text_bufs[cell + 1] = Buf("edit me", 16)
+            end
+            ImGui.SetNextItemWidth(-FLT_MIN)
+            ImGui.PushID(cell)
+            ImGui.InputText("##cell", s.text_bufs[cell + 1], 16)
+            ImGui.PopID()
+        end
+        if not s.show_widget_frame_bg then
+            ImGui.PopStyleColor()
+        end
+        s.init = false
+        ImGui.EndTable()
+    end
+    ImGui.PopStyleVar()
+end
+
+local function Tables_SizingPolicies()
+    IMGUI_DEMO_MARKER("Tables/Explicit widths")
+    local s = ST.sizing
+    if s == nil then
+        s = { flags1 = bor(TF.BordersV, TF.BordersOuterH, TF.RowBg, TF.ContextMenuInBody),
+              sizing_policy_flags = { TF.SizingFixedFit, TF.SizingFixedSame, TF.SizingStretchProp, TF.SizingStretchSame },
+              flags = bor(TF.ScrollY, TF.Borders, TF.RowBg, TF.Resizable), contents_type = 0, column_count = 3, text_buf = Buf("", 32) }
+        ST.sizing = s
+    end
+    PushStyleCompact()
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags1, TF.Resizable)
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendX", s.flags1, TF.NoHostExtendX)
+    PopStyleCompact()
+
+    for table_n = 0, 3 do
+        ImGui.PushID(table_n)
+        ImGui.SetNextItemWidth(TEXT_BASE_WIDTH * 30)
+        s.sizing_policy_flags[table_n + 1] = EditTableSizingFlags(s.sizing_policy_flags[table_n + 1])
+
+        if ImGui.BeginTable("table1", 3, bor(s.sizing_policy_flags[table_n + 1], s.flags1)) then
+            for row = 0, 2 do
+                ImGui.TableNextRow()
+                ImGui.TableNextColumn(); ImGui.Text("Oh dear")
+                ImGui.TableNextColumn(); ImGui.Text("Oh dear")
+                ImGui.TableNextColumn(); ImGui.Text("Oh dear")
+            end
+            ImGui.EndTable()
+        end
+        if ImGui.BeginTable("table2", 3, bor(s.sizing_policy_flags[table_n + 1], s.flags1)) then
+            for row = 0, 2 do
+                ImGui.TableNextRow()
+                ImGui.TableNextColumn(); ImGui.Text("AAAA")
+                ImGui.TableNextColumn(); ImGui.Text("BBBBBBBB")
+                ImGui.TableNextColumn(); ImGui.Text("CCCCCCCCCCCC")
+            end
+            ImGui.EndTable()
+        end
+        ImGui.PopID()
+    end
+
+    ImGui.Spacing()
+    ImGui.TextUnformatted("Advanced")
+    ImGui.SameLine()
+    DemoHelpMarker(
+        "This section allows you to interact and see the effect of various sizing policies " ..
+        "depending on whether Scroll is enabled and the contents of your columns.")
+
+    local CT_ShowWidth, CT_ShortText, CT_LongText, CT_Button, CT_FillButton, CT_InputText = 0, 1, 2, 3, 4, 5
+
+    PushStyleCompact()
+    ImGui.PushID("Advanced")
+    ImGui.PushItemWidth(TEXT_BASE_WIDTH * 30)
+    s.flags = EditTableSizingFlags(s.flags)
+    if ImGui.Combo then
+        s.contents_type = ImGui.Combo("Contents", s.contents_type, { "Show width", "Short Text", "Long Text", "Button", "Fill Button", "InputText" }, 6)
+    else
+        NotPorted("Combo")
+    end
+    if s.contents_type == CT_FillButton then
+        ImGui.SameLine()
+        DemoHelpMarker(
+            "Be mindful that using right-alignment (e.g. size.x = -FLT_MIN) creates a feedback loop " ..
+            "where contents width can feed into auto-column width can feed into contents width.")
+    end
+    s.column_count = ImGui.DragInt("Columns", s.column_count, 0.1, 1, 64, "%d", ImGuiSliderFlags.AlwaysClamp)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_PreciseWidths", s.flags, TF.PreciseWidths)
+    ImGui.SameLine(); DemoHelpMarker("Disable distributing remainder width to stretched columns (width allocation on a 100-wide table with 3 columns: Without this flag: 33,33,34. With this flag: 33,33,33). With larger number of columns, resizing will appear to be less smooth.")
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollX", s.flags, TF.ScrollX)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoClip", s.flags, TF.NoClip)
+    ImGui.PopItemWidth()
+    ImGui.PopID()
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table2", s.column_count, s.flags, ImVec2(0.0, TEXT_BASE_HEIGHT * 7)) then
+        for cell = 0, 10 * s.column_count - 1 do
+            ImGui.TableNextColumn()
+            local column = ImGui.TableGetColumnIndex()
+            local row = ImGui.TableGetRowIndex()
+
+            ImGui.PushID(cell)
+            local label = string.format("Hello %d,%d", column, row)
+            local ct = s.contents_type
+            if ct == CT_ShortText then ImGui.TextUnformatted(label)
+            elseif ct == CT_LongText then ImGui.Text("Some %s text %d,%d\nOver two lines..", column == 0 and "long" or "longeeer", column, row)
+            elseif ct == CT_ShowWidth then ImGui.Text("W: %.1f", ImGui.GetContentRegionAvail().x)
+            elseif ct == CT_Button then ImGui.Button(label)
+            elseif ct == CT_FillButton then ImGui.Button(label, ImVec2(-FLT_MIN, 0.0))
+            elseif ct == CT_InputText then ImGui.SetNextItemWidth(-FLT_MIN); ImGui.InputText("##", s.text_buf, 32)
+            end
+            ImGui.PopID()
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_VerticalScrolling()
+    IMGUI_DEMO_MARKER("Tables/Vertical scrolling, with clipping")
+    DemoHelpMarker(
+        "Here we activate ScrollY, which will create a child window container to allow hosting scrollable contents.\n\n" ..
+        "We also demonstrate using ImGuiListClipper to virtualize the submission of many items.")
+    local s = ST.vscroll
+    if s == nil then s = { flags = bor(TF.ScrollY, TF.RowBg, TF.BordersOuter, TF.BordersV, TF.Resizable, TF.Reorderable, TF.Hideable) }; ST.vscroll = s end
+
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
+    PopStyleCompact()
+
+    local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 8)
+    if ImGui.BeginTable("table_scrolly", 3, s.flags, outer_size) then
+        ImGui.TableSetupScrollFreeze(0, 1) -- Make top row always visible
+        ImGui.TableSetupColumn("One", ImGuiTableColumnFlags.None)
+        ImGui.TableSetupColumn("Two", ImGuiTableColumnFlags.None)
+        ImGui.TableSetupColumn("Three", ImGuiTableColumnFlags.None)
+        ImGui.TableHeadersRow()
+
+        -- Demonstrate using clipper for large vertical lists
+        local clipper = ImGuiListClipper()
+        clipper:Begin(1000)
+        while clipper:Step() do
+            for row = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                ImGui.TableNextRow()
+                for column = 0, 2 do
+                    ImGui.TableSetColumnIndex(column)
+                    ImGui.Text("Hello %d,%d", column, row)
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_HorizontalScrolling()
+    IMGUI_DEMO_MARKER("Tables/Horizontal scrolling")
+    DemoHelpMarker(
+        "When ScrollX is enabled, the default sizing policy becomes ImGuiTableFlags_SizingFixedFit, " ..
+        "as automatically stretching columns doesn't make much sense with horizontal scrolling.\n\n" ..
+        "Also note that as of the current version, you will almost always want to enable ScrollY along with ScrollX, " ..
+        "because the container window won't automatically extend vertically to fix contents " ..
+        "(this may be improved in future versions).")
+    local s = ST.hscroll
+    if s == nil then
+        s = { flags = bor(TF.ScrollX, TF.ScrollY, TF.RowBg, TF.BordersOuter, TF.BordersV, TF.Resizable, TF.Reorderable, TF.Hideable),
+              freeze_cols = 1, freeze_rows = 1,
+              flags2 = bor(TF.SizingStretchSame, TF.ScrollX, TF.ScrollY, TF.BordersOuter, TF.RowBg, TF.ContextMenuInBody), inner_width = 1000.0 }
+        ST.hscroll = s
+    end
+
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollX", s.flags, TF.ScrollX)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
+    ImGui.SetNextItemWidth(ImGui.GetFrameHeight())
+    s.freeze_cols = ImGui.DragInt("freeze_cols", s.freeze_cols, 0.2, 0, 9, nil, ImGuiSliderFlags.NoInput)
+    ImGui.SetNextItemWidth(ImGui.GetFrameHeight())
+    s.freeze_rows = ImGui.DragInt("freeze_rows", s.freeze_rows, 0.2, 0, 9, nil, ImGuiSliderFlags.NoInput)
+    PopStyleCompact()
+
+    local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 8)
+    if ImGui.BeginTable("table_scrollx", 7, s.flags, outer_size) then
+        ImGui.TableSetupScrollFreeze(s.freeze_cols, s.freeze_rows)
+        ImGui.TableSetupColumn("Line #", ImGuiTableColumnFlags.NoHide) -- Make the first column not hideable to match our use of TableSetupScrollFreeze()
+        ImGui.TableSetupColumn("One")
+        ImGui.TableSetupColumn("Two")
+        ImGui.TableSetupColumn("Three")
+        ImGui.TableSetupColumn("Four")
+        ImGui.TableSetupColumn("Five")
+        ImGui.TableSetupColumn("Six")
+        ImGui.TableHeadersRow()
+        for row = 0, 19 do
+            ImGui.TableNextRow()
+            for column = 0, 6 do repeat
+                if not ImGui.TableSetColumnIndex(column) and column > 0 then
+                    break -- continue
+                end
+                if column == 0 then
+                    ImGui.Text("Line %d", row)
+                else
+                    ImGui.Text("Hello world %d,%d", column, row)
+                end
+            until true end
+        end
+        ImGui.EndTable()
+    end
+
+    ImGui.Spacing()
+    ImGui.TextUnformatted("Stretch + ScrollX")
+    ImGui.SameLine()
+    DemoHelpMarker(
+        "Showcase using Stretch columns + ScrollX together: " ..
+        "this is rather unusual and only makes sense when specifying an 'inner_width' for the table!\n" ..
+        "Without an explicit value, inner_width is == outer_size.x and therefore using Stretch columns " ..
+        "along with ScrollX doesn't make sense.")
+    PushStyleCompact()
+    ImGui.PushID("flags3")
+    ImGui.PushItemWidth(TEXT_BASE_WIDTH * 30)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollX", s.flags2, TF.ScrollX)
+    s.inner_width = ImGui.DragFloat("inner_width", s.inner_width, 1.0, 0.0, FLT_MAX, "%.1f")
+    ImGui.PopItemWidth()
+    ImGui.PopID()
+    PopStyleCompact()
+    if ImGui.BeginTable("table2", 7, s.flags2, outer_size, s.inner_width) then
+        for cell = 0, 20 * 7 - 1 do
+            ImGui.TableNextColumn()
+            ImGui.Text("Hello world %d,%d", ImGui.TableGetColumnIndex(), ImGui.TableGetRowIndex())
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_ColumnsFlags()
+    IMGUI_DEMO_MARKER("Tables/Columns flags")
+    local column_count = 3
+    local column_names = { "One", "Two", "Three" }
+    local s = ST.colflags
+    if s == nil then
+        s = { column_flags = { ImGuiTableColumnFlags.DefaultSort, ImGuiTableColumnFlags.None, ImGuiTableColumnFlags.DefaultHide }, column_flags_out = { 0, 0, 0 } }
+        ST.colflags = s
+    end
+
+    if ImGui.BeginTable("table_columns_flags_checkboxes", column_count, ImGuiTableFlags.None) then
+        PushStyleCompact()
+        for column = 1, column_count do
+            ImGui.TableNextColumn()
+            ImGui.PushID(column - 1)
+            ImGui.AlignTextToFramePadding() -- FIXME-TABLE: Workaround for wrong text baseline propagation across columns
+            ImGui.Text("'%s'", column_names[column])
+            ImGui.Spacing()
+            ImGui.Text("Input flags:")
+            s.column_flags[column] = EditTableColumnsFlags(s.column_flags[column])
+            ImGui.Spacing()
+            ImGui.Text("Output flags:")
+            ImGui.BeginDisabled()
+            ShowTableColumnsStatusFlags(s.column_flags_out[column])
+            ImGui.EndDisabled()
+            ImGui.PopID()
+        end
+        PopStyleCompact()
+        ImGui.EndTable()
+    end
+
+    local flags = bor(TF.SizingFixedFit, TF.ScrollX, TF.ScrollY, TF.RowBg, TF.BordersOuter, TF.BordersV, TF.Resizable, TF.Reorderable, TF.Hideable, TF.Sortable)
+    local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 9)
+    if ImGui.BeginTable("table_columns_flags", column_count, flags, outer_size) then
+        local has_angled_header = false
+        for column = 1, column_count do
+            has_angled_header = has_angled_header or Has(s.column_flags[column], ImGuiTableColumnFlags.AngledHeader)
+            ImGui.TableSetupColumn(column_names[column], s.column_flags[column])
+        end
+        if has_angled_header then
+            ImGui.TableAngledHeadersRow()
+        end
+        ImGui.TableHeadersRow()
+        for column = 1, column_count do
+            s.column_flags_out[column] = ImGui.TableGetColumnFlags(column - 1)
+        end
+        local indent_step = math.floor(math.floor(TEXT_BASE_WIDTH) / 2)
+        for row = 0, 7 do
+            -- Add some indentation to demonstrate usage of per-column IndentEnable/IndentDisable flags.
+            ImGui.Indent(indent_step)
+            ImGui.TableNextRow()
+            for column = 0, column_count - 1 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("%s %s", (column == 0) and "Indented" or "Hello", ImGui.TableGetColumnName(column))
+            end
+        end
+        ImGui.Unindent(indent_step * 8.0)
+
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_ColumnsWidths()
+    IMGUI_DEMO_MARKER("Tables/Columns widths")
+    DemoHelpMarker("Using TableSetupColumn() to setup default width.")
+    local s = ST.colwidths
+    if s == nil then s = { flags1 = bor(TF.Borders, TF.NoBordersInBodyUntilResize), flags2 = TF.None }; ST.colwidths = s end
+    local CF = ImGuiTableColumnFlags
+
+    PushStyleCompact()
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags1, TF.Resizable)
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBodyUntilResize", s.flags1, TF.NoBordersInBodyUntilResize)
+    PopStyleCompact()
+    if ImGui.BeginTable("table1", 3, s.flags1) then
+        ImGui.TableSetupColumn("one", CF.WidthFixed, 100.0) -- Default to 100.0f
+        ImGui.TableSetupColumn("two", CF.WidthFixed, 200.0) -- Default to 200.0f
+        ImGui.TableSetupColumn("three", CF.WidthFixed)      -- Default to auto
+        ImGui.TableHeadersRow()
+        for row = 0, 3 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableSetColumnIndex(column)
+                if row == 0 then
+                    ImGui.Text("(w: %5.1f)", ImGui.GetContentRegionAvail().x)
+                else
+                    ImGui.Text("Hello %d,%d", column, row)
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+
+    DemoHelpMarker(
+        "Using TableSetupColumn() to setup explicit width.\n\nUnless _NoKeepColumnsVisible is set, " ..
+        "fixed columns with set width may still be shrunk down if there's not enough space in the host.")
+
+    PushStyleCompact()
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_NoKeepColumnsVisible", s.flags2, TF.NoKeepColumnsVisible)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerV", s.flags2, TF.BordersInnerV)
+    _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterV", s.flags2, TF.BordersOuterV)
+    PopStyleCompact()
+    if ImGui.BeginTable("table2", 4, s.flags2) then
+        ImGui.TableSetupColumn("", CF.WidthFixed, 100.0)
+        ImGui.TableSetupColumn("", CF.WidthFixed, TEXT_BASE_WIDTH * 15.0)
+        ImGui.TableSetupColumn("", CF.WidthFixed, TEXT_BASE_WIDTH * 30.0)
+        ImGui.TableSetupColumn("", CF.WidthFixed, TEXT_BASE_WIDTH * 15.0)
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 3 do
+                ImGui.TableSetColumnIndex(column)
+                if row == 0 then
+                    ImGui.Text("(w: %5.1f)", ImGui.GetContentRegionAvail().x)
+                else
+                    ImGui.Text("Hello %d,%d", column, row)
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_Nested()
+    IMGUI_DEMO_MARKER("Tables/Nested tables")
+    DemoHelpMarker("This demonstrates embedding a table into another table cell.")
+
+    if ImGui.BeginTable("table_nested1", 2, bor(TF.Borders, TF.Resizable, TF.Reorderable, TF.Hideable)) then
+        ImGui.TableSetupColumn("A0")
+        ImGui.TableSetupColumn("A1")
+        ImGui.TableHeadersRow()
+
+        ImGui.TableNextColumn()
+        ImGui.Text("A0 Row 0")
+        do
+            local rows_height = (TEXT_BASE_HEIGHT * 2.0) + (ImGui.GetStyle().CellPadding.y * 2.0)
+            if ImGui.BeginTable("table_nested2", 2, bor(TF.Borders, TF.Resizable, TF.Reorderable, TF.Hideable)) then
+                ImGui.TableSetupColumn("B0")
+                ImGui.TableSetupColumn("B1")
+                ImGui.TableHeadersRow()
+
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, rows_height)
+                ImGui.TableNextColumn()
+                ImGui.Text("B0 Row 0")
+                ImGui.TableNextColumn()
+                ImGui.Text("B1 Row 0")
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, rows_height)
+                ImGui.TableNextColumn()
+                ImGui.Text("B0 Row 1")
+                ImGui.TableNextColumn()
+                ImGui.Text("B1 Row 1")
+
+                ImGui.EndTable()
+            end
+        end
+        ImGui.TableNextColumn(); ImGui.Text("A1 Row 0")
+        ImGui.TableNextColumn(); ImGui.Text("A0 Row 1")
+        ImGui.TableNextColumn(); ImGui.Text("A1 Row 1")
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_RowHeight()
+    IMGUI_DEMO_MARKER("Tables/Row height")
+    DemoHelpMarker(
+        "You can pass a 'min_row_height' to TableNextRow().\n\nRows are padded with 'style.CellPadding.y' on top and bottom, " ..
+        "so effectively the minimum row height will always be >= 'style.CellPadding.y * 2.0f'.\n\n" ..
+        "We cannot honor a _maximum_ row height as that would require a unique clipping rectangle per row.")
+    if ImGui.BeginTable("table_row_height", 1, TF.Borders) then
+        for row = 0, 7 do
+            local min_row_height = math.floor(TEXT_BASE_HEIGHT * 0.30 * row + ImGui.GetStyle().CellPadding.y * 2.0)
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, min_row_height)
+            ImGui.TableNextColumn()
+            ImGui.Text("min_row_height = %.2f", min_row_height)
+        end
+        ImGui.EndTable()
+    end
+
+    DemoHelpMarker(
+        "Showcase using SameLine(0,0) to share Current Line Height between cells.\n\n" ..
+        "Please note that Tables Row Height is not the same thing as Current Line Height, " ..
+        "as a table cell may contains multiple lines.")
+    if ImGui.BeginTable("table_share_lineheight", 2, TF.Borders) then
+        ImGui.TableNextRow()
+        ImGui.TableNextColumn()
+        ImGui.ColorButton("##1", ImVec4(0.13, 0.26, 0.40, 1.0), ImGuiColorEditFlags.None, ImVec2(40, 40))
+        ImGui.TableNextColumn()
+        ImGui.Text("Line 1")
+        ImGui.Text("Line 2")
+
+        ImGui.TableNextRow()
+        ImGui.TableNextColumn()
+        ImGui.ColorButton("##2", ImVec4(0.13, 0.26, 0.40, 1.0), ImGuiColorEditFlags.None, ImVec2(40, 40))
+        ImGui.TableNextColumn()
+        ImGui.SameLine(0.0, 0.0) -- Reuse line height from previous column
+        ImGui.Text("Line 1, with SameLine(0,0)")
+        ImGui.Text("Line 2")
+
+        ImGui.EndTable()
+    end
+
+    DemoHelpMarker("Showcase altering CellPadding.y between rows. Note that CellPadding.x is locked for the entire table.")
+    if ImGui.BeginTable("table_changing_cellpadding_y", 1, TF.Borders) then
+        local style = ImGui.GetStyle()
+        for row = 0, 7 do
+            if (row % 3) == 2 then
+                ImGui.PushStyleVarY(ImGuiStyleVar.CellPadding, 20.0)
+            end
+            ImGui.TableNextRow(ImGuiTableRowFlags.None)
+            ImGui.TableNextColumn()
+            ImGui.Text("CellPadding.y = %.2f", style.CellPadding.y)
+            if (row % 3) == 2 then
+                ImGui.PopStyleVar()
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_OuterSize()
+    IMGUI_DEMO_MARKER("Tables/Outer size")
+    ImGui.Text("Using NoHostExtendX and NoHostExtendY:")
+    PushStyleCompact()
+    local s = ST.outer
+    if s == nil then s = { flags = bor(TF.Borders, TF.Resizable, TF.ContextMenuInBody, TF.RowBg, TF.SizingFixedFit, TF.NoHostExtendX) }; ST.outer = s end
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendX", s.flags, TF.NoHostExtendX)
+    ImGui.SameLine(); DemoHelpMarker("Make outer width auto-fit to columns, overriding outer_size.x value.\n\nOnly available when ScrollX/ScrollY are disabled and Stretch columns are not used.")
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendY", s.flags, TF.NoHostExtendY)
+    ImGui.SameLine(); DemoHelpMarker("Make outer height stop exactly at outer_size.y (prevent auto-extending table past the limit).\n\nOnly available when ScrollX/ScrollY are disabled. Data below the limit will be clipped and not visible.")
+    PopStyleCompact()
+
+    local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 5.5)
+    if ImGui.BeginTable("table1", 3, s.flags, outer_size) then
+        for row = 0, 9 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableNextColumn()
+                ImGui.Text("Cell %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+    ImGui.SameLine()
+    ImGui.Text("Hello!")
+
+    ImGui.Spacing()
+
+    ImGui.Text("Using explicit size:")
+    if ImGui.BeginTable("table2", 3, bor(TF.Borders, TF.RowBg), ImVec2(TEXT_BASE_WIDTH * 30, 0.0)) then
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                ImGui.TableNextColumn()
+                ImGui.Text("Cell %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+    ImGui.SameLine()
+    if ImGui.BeginTable("table3", 3, bor(TF.Borders, TF.RowBg), ImVec2(TEXT_BASE_WIDTH * 30, 0.0)) then
+        local rows_height = TEXT_BASE_HEIGHT * 1.5 + ImGui.GetStyle().CellPadding.y * 2.0
+        for row = 0, 2 do
+            ImGui.TableNextRow(0, rows_height)
+            for column = 0, 2 do
+                ImGui.TableNextColumn()
+                ImGui.Text("Cell %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_BackgroundColor()
+    IMGUI_DEMO_MARKER("Tables/Background color")
+    local s = ST.bgcolor
+    if s == nil then s = { flags = TF.RowBg, row_bg_type = 1, row_bg_target = 1, cell_bg_type = 1 }; ST.bgcolor = s end
+
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Borders", s.flags, TF.Borders)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_RowBg", s.flags, TF.RowBg)
+    ImGui.SameLine(); DemoHelpMarker("ImGuiTableFlags_RowBg automatically sets RowBg0 to alternative colors pulled from the Style.")
+    if ImGui.Combo then
+        s.row_bg_type = ImGui.Combo("row bg type", s.row_bg_type, { "None", "Red", "Gradient" }, 3)
+        s.row_bg_target = ImGui.Combo("row bg target", s.row_bg_target, { "RowBg0", "RowBg1" }, 2); ImGui.SameLine(); DemoHelpMarker("Target RowBg0 to override the alternating odd/even colors,\nTarget RowBg1 to blend with them.")
+        s.cell_bg_type = ImGui.Combo("cell bg type", s.cell_bg_type, { "None", "Blue" }, 2); ImGui.SameLine(); DemoHelpMarker("We are colorizing cells to B1->C2 here.")
+    else
+        NotPorted("Combo")
+    end
+    IM_ASSERT(s.row_bg_type >= 0 and s.row_bg_type <= 2)
+    IM_ASSERT(s.row_bg_target >= 0 and s.row_bg_target <= 1)
+    IM_ASSERT(s.cell_bg_type >= 0 and s.cell_bg_type <= 1)
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table1", 5, s.flags) then
+        for row = 0, 5 do
+            ImGui.TableNextRow()
+
+            if s.row_bg_type ~= 0 then
+                local row_bg_color = ImGui.GetColorU32(s.row_bg_type == 1 and ImVec4(0.7, 0.3, 0.3, 0.65) or ImVec4(0.2 + row * 0.1, 0.2, 0.2, 0.65)) -- Flat or Gradient?
+                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0 + s.row_bg_target, row_bg_color)
+            end
+
+            -- Fill cells
+            for column = 0, 4 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("%s%s", string.char(65 + row), string.char(48 + column))
+
+                if row >= 1 and row <= 2 and column >= 1 and column <= 2 and s.cell_bg_type == 1 then
+                    local cell_bg_color = ImGui.GetColorU32(ImVec4(0.3, 0.3, 0.7, 0.65))
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, cell_bg_color)
+                end
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local tree_view_nodes = {
+    { Name = "Root with Long Name",           Type = "Folder",      Size = -1,     ChildIdx = 1,  ChildCount = 3  }, -- 0
+    { Name = "Music",                         Type = "Folder",      Size = -1,     ChildIdx = 4,  ChildCount = 2  }, -- 1
+    { Name = "Textures",                      Type = "Folder",      Size = -1,     ChildIdx = 6,  ChildCount = 3  }, -- 2
+    { Name = "desktop.ini",                   Type = "System file", Size = 1024,   ChildIdx = -1, ChildCount = -1 }, -- 3
+    { Name = "File1_a.wav",                   Type = "Audio file",  Size = 123000, ChildIdx = -1, ChildCount = -1 }, -- 4
+    { Name = "File1_b.wav",                   Type = "Audio file",  Size = 456000, ChildIdx = -1, ChildCount = -1 }, -- 5
+    { Name = "Image001.png",                  Type = "Image file",  Size = 203128, ChildIdx = -1, ChildCount = -1 }, -- 6
+    { Name = "Copy of Image001.png",          Type = "Image file",  Size = 203256, ChildIdx = -1, ChildCount = -1 }, -- 7
+    { Name = "Copy of Image001 (Final2).png", Type = "Image file",  Size = 203512, ChildIdx = -1, ChildCount = -1 }, -- 8
+}
+
+local function MyTreeNode_DisplayNode(node, all_nodes, tree_node_flags_base)
+    ImGui.TableNextRow()
+    ImGui.TableNextColumn()
+    local is_folder = (node.ChildCount > 0)
+
+    local node_flags = tree_node_flags_base
+    if node ~= all_nodes[1] then
+        node_flags = bit32.band(node_flags, bit32.bnot(ImGuiTreeNodeFlags.LabelSpanAllColumns)) -- Only demonstrate this on the root node.
+    end
+
+    if is_folder then
+        local open = ImGui.TreeNodeEx(node.Name, node_flags)
+        if bit32.band(node_flags, ImGuiTreeNodeFlags.LabelSpanAllColumns) == 0 then
+            ImGui.TableNextColumn()
+            ImGui.TextDisabled("--")
+            ImGui.TableNextColumn()
+            ImGui.TextUnformatted(node.Type)
+        end
+        if open then
+            for child_n = 0, node.ChildCount - 1 do
+                MyTreeNode_DisplayNode(all_nodes[node.ChildIdx + child_n + 1], all_nodes, tree_node_flags_base)
+            end
+            ImGui.TreePop()
+        end
+    else
+        ImGui.TreeNodeEx(node.Name, bor(node_flags, ImGuiTreeNodeFlags.Leaf, ImGuiTreeNodeFlags.Bullet, ImGuiTreeNodeFlags.NoTreePushOnOpen))
+        ImGui.TableNextColumn()
+        ImGui.Text("%d", node.Size)
+        ImGui.TableNextColumn()
+        ImGui.TextUnformatted(node.Type)
+    end
+end
+
+local function Tables_TreeView()
+    IMGUI_DEMO_MARKER("Tables/Tree view")
+    local s = ST.treeview
+    if s == nil then
+        s = { table_flags = bor(TF.BordersV, TF.BordersOuterH, TF.Resizable, TF.RowBg, TF.NoBordersInBody),
+              tree_node_flags_base = bor(ImGuiTreeNodeFlags.SpanAllColumns, ImGuiTreeNodeFlags.DefaultOpen, ImGuiTreeNodeFlags.DrawLinesFull) }
+        ST.treeview = s
+    end
+    _, s.tree_node_flags_base = ImGui.CheckboxFlags("ImGuiTreeNodeFlags_SpanFullWidth", s.tree_node_flags_base, ImGuiTreeNodeFlags.SpanFullWidth)
+    _, s.tree_node_flags_base = ImGui.CheckboxFlags("ImGuiTreeNodeFlags_SpanLabelWidth", s.tree_node_flags_base, ImGuiTreeNodeFlags.SpanLabelWidth)
+    _, s.tree_node_flags_base = ImGui.CheckboxFlags("ImGuiTreeNodeFlags_SpanAllColumns", s.tree_node_flags_base, ImGuiTreeNodeFlags.SpanAllColumns)
+    _, s.tree_node_flags_base = ImGui.CheckboxFlags("ImGuiTreeNodeFlags_LabelSpanAllColumns", s.tree_node_flags_base, ImGuiTreeNodeFlags.LabelSpanAllColumns)
+    ImGui.SameLine(); DemoHelpMarker("Useful if you know that you aren't displaying contents in other columns")
+
+    DemoHelpMarker("See \"Columns flags\" section to configure how indentation is applied to individual columns.")
+    if ImGui.BeginTable("3ways", 3, s.table_flags) then
+        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.NoHide)
+        ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, TEXT_BASE_WIDTH * 12.0)
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, TEXT_BASE_WIDTH * 18.0)
+        ImGui.TableHeadersRow()
+
+        MyTreeNode_DisplayNode(tree_view_nodes[1], tree_view_nodes, s.tree_node_flags_base)
+
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_ItemWidth()
+    IMGUI_DEMO_MARKER("Tables/Item width")
+    DemoHelpMarker(
+        "Showcase using PushItemWidth() and how it is preserved on a per-column basis.\n\n" ..
+        "Note that on auto-resizing non-resizable fixed columns, querying the content width for " ..
+        "e.g. right-alignment doesn't make sense.")
+    if ImGui.BeginTable("table_item_width", 3, TF.Borders) then
+        ImGui.TableSetupColumn("small")
+        ImGui.TableSetupColumn("half")
+        ImGui.TableSetupColumn("right-align")
+        ImGui.TableHeadersRow()
+
+        for row = 0, 2 do
+            ImGui.TableNextRow()
+            if row == 0 then
+                -- Setup ItemWidth once (instead of setting up every time, which is also possible but less efficient)
+                ImGui.TableSetColumnIndex(0)
+                ImGui.PushItemWidth(TEXT_BASE_WIDTH * 3.0) -- Small
+                ImGui.TableSetColumnIndex(1)
+                ImGui.PushItemWidth(-ImGui.GetContentRegionAvail().x * 0.5)
+                ImGui.TableSetColumnIndex(2)
+                ImGui.PushItemWidth(-FLT_MIN) -- Right-aligned
+            end
+
+            -- Draw our contents
+            ImGui.PushID(row)
+            ImGui.TableSetColumnIndex(0)
+            ST.dummy_f = ImGui.SliderFloat("float0", ST.dummy_f or 0.0, 0.0, 1.0)
+            ImGui.TableSetColumnIndex(1)
+            ST.dummy_f = ImGui.SliderFloat("float1", ST.dummy_f, 0.0, 1.0)
+            ImGui.TableSetColumnIndex(2)
+            ST.dummy_f = ImGui.SliderFloat("##float2", ST.dummy_f, 0.0, 1.0) -- No visible label since right-aligned
+            ImGui.PopID()
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_CustomHeaders()
+    IMGUI_DEMO_MARKER("Tables/Custom headers")
+    local COLUMNS_COUNT = 3
+    if ImGui.BeginTable("table_custom_headers", COLUMNS_COUNT, bor(TF.Borders, TF.Reorderable, TF.Hideable)) then
+        ImGui.TableSetupColumn("Apricot")
+        ImGui.TableSetupColumn("Banana")
+        ImGui.TableSetupColumn("Cherry")
+
+        -- Dummy entire-column selection storage
+        if ST.column_selected == nil then ST.column_selected = { false, false, false } end
+        local column_selected = ST.column_selected
+
+        ImGui.TableNextRow(ImGuiTableRowFlags.Headers)
+        for column = 0, COLUMNS_COUNT - 1 do
+            ImGui.TableSetColumnIndex(column)
+            local column_name = ImGui.TableGetColumnName(column) -- Retrieve name passed to TableSetupColumn()
+            ImGui.PushID(column)
+            ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(0, 0))
+            _, column_selected[column + 1] = ImGui.Checkbox("##checkall", column_selected[column + 1])
+            ImGui.PopStyleVar()
+            ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
+            ImGui.TableHeader(column_name)
+            ImGui.PopID()
+        end
+
+        -- Submit table contents
+        for row = 0, 4 do
+            ImGui.TableNextRow()
+            for column = 0, 2 do
+                local buf = string.format("Cell %d,%d", column, row)
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Selectable(buf, column_selected[column + 1])
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_AngledHeaders()
+    IMGUI_DEMO_MARKER("Tables/Angled headers")
+    local column_names = { "Track", "cabasa", "ride", "smash", "tom-hi", "tom-mid", "tom-low", "hihat-o", "hihat-c", "snare-s", "snare-c", "clap", "rim", "kick" }
+    local columns_count = #column_names
+    local rows_count = 12
+
+    local s = ST.angled
+    if s == nil then
+        s = { table_flags = bor(TF.SizingFixedFit, TF.ScrollX, TF.ScrollY, TF.BordersOuter, TF.BordersInnerH, TF.Hideable, TF.Resizable, TF.Reorderable, TF.HighlightHoveredColumn),
+              column_flags = bor(ImGuiTableColumnFlags.AngledHeader, ImGuiTableColumnFlags.WidthFixed),
+              bools = {}, frozen_cols = 1, frozen_rows = 2 }
+        for i = 1, columns_count * rows_count do s.bools[i] = false end
+        ST.angled = s
+    end
+    _, s.table_flags = ImGui.CheckboxFlags("_ScrollX", s.table_flags, TF.ScrollX)
+    _, s.table_flags = ImGui.CheckboxFlags("_ScrollY", s.table_flags, TF.ScrollY)
+    _, s.table_flags = ImGui.CheckboxFlags("_Resizable", s.table_flags, TF.Resizable)
+    _, s.table_flags = ImGui.CheckboxFlags("_Sortable", s.table_flags, TF.Sortable)
+    _, s.table_flags = ImGui.CheckboxFlags("_NoBordersInBody", s.table_flags, TF.NoBordersInBody)
+    _, s.table_flags = ImGui.CheckboxFlags("_HighlightHoveredColumn", s.table_flags, TF.HighlightHoveredColumn)
+    ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+    s.frozen_cols = ImGui.SliderInt("Frozen columns", s.frozen_cols, 0, 2)
+    ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+    s.frozen_rows = ImGui.SliderInt("Frozen rows", s.frozen_rows, 0, 2)
+    _, s.column_flags = ImGui.CheckboxFlags("Disable header contributing to column width", s.column_flags, ImGuiTableColumnFlags.NoHeaderWidth)
+
+    if ImGui.TreeNode("Style settings") then
+        ImGui.SameLine()
+        DemoHelpMarker("Giving access to some ImGuiStyle value in this demo for convenience.")
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        local style = ImGui.GetStyle()
+        style.TableAngledHeadersAngle = ImGui.SliderAngle("style.TableAngledHeadersAngle", style.TableAngledHeadersAngle, -50.0, 50.0)
+        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
+        ImGui.SliderFloat2("style.TableAngledHeadersTextAlign", style.TableAngledHeadersTextAlign, 0.0, 1.0, "%.2f")
+        ImGui.TreePop()
+    end
+
+    if ImGui.BeginTable("table_angled_headers", columns_count, s.table_flags, ImVec2(0.0, TEXT_BASE_HEIGHT * 12)) then
+        ImGui.TableSetupColumn(column_names[1], bor(ImGuiTableColumnFlags.NoHide, ImGuiTableColumnFlags.NoReorder))
+        for n = 2, columns_count do
+            ImGui.TableSetupColumn(column_names[n], s.column_flags)
+        end
+        ImGui.TableSetupScrollFreeze(s.frozen_cols, s.frozen_rows)
+
+        ImGui.TableAngledHeadersRow() -- Draw angled headers for all columns with the ImGuiTableColumnFlags_AngledHeader flag.
+        ImGui.TableHeadersRow()       -- Draw remaining headers and allow access to context-menu and other functions.
+        for row = 0, rows_count - 1 do
+            ImGui.PushID(row)
+            ImGui.TableNextRow()
+            ImGui.TableSetColumnIndex(0)
+            ImGui.AlignTextToFramePadding()
+            ImGui.Text("Track %d", row)
+            for column = 1, columns_count - 1 do
+                if ImGui.TableSetColumnIndex(column) then
+                    ImGui.PushID(column)
+                    local idx = row * columns_count + column + 1
+                    _, s.bools[idx] = ImGui.Checkbox("", s.bools[idx])
+                    ImGui.PopID()
+                end
+            end
+            ImGui.PopID()
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_ContextMenus()
+    IMGUI_DEMO_MARKER("Tables/Context menus")
+    DemoHelpMarker(
+        "By default, right-clicking over a TableHeadersRow()/TableHeader() line will open the default context-menu.\n" ..
+        "Using ImGuiTableFlags_ContextMenuInBody we also allow right-clicking over columns body.")
+    local s = ST.ctxmenu
+    if s == nil then s = { flags1 = bor(TF.Resizable, TF.Reorderable, TF.Hideable, TF.Borders, TF.ContextMenuInBody) }; ST.ctxmenu = s end
+
+    PushStyleCompact()
+    _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_ContextMenuInBody", s.flags1, TF.ContextMenuInBody)
+    PopStyleCompact()
+
+    local COLUMNS_COUNT = 3
+    if ImGui.BeginTable("table_context_menu", COLUMNS_COUNT, s.flags1) then
+        ImGui.TableSetupColumn("One")
+        ImGui.TableSetupColumn("Two")
+        ImGui.TableSetupColumn("Three")
+
+        -- [1.1]] Right-click on the TableHeadersRow() line to open the default table context menu.
+        ImGui.TableHeadersRow()
+
+        -- Submit dummy contents
+        for row = 0, 3 do
+            ImGui.TableNextRow()
+            for column = 0, COLUMNS_COUNT - 1 do
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("Cell %d,%d", column, row)
+            end
+        end
+        ImGui.EndTable()
+    end
+
+    DemoHelpMarker(
+        "Demonstrate mixing table context menu (over header), item context button (over button) " ..
+        "and custom per-column context menu (over column body).")
+    local flags2 = bor(TF.Resizable, TF.SizingFixedFit, TF.Reorderable, TF.Hideable, TF.Borders)
+    if ImGui.BeginTable("table_context_menu_2", COLUMNS_COUNT, flags2) then
+        ImGui.TableSetupColumn("One")
+        ImGui.TableSetupColumn("Two")
+        ImGui.TableSetupColumn("Three")
+
+        -- [2.1] Right-click on the TableHeadersRow() line to open the default table context menu.
+        ImGui.TableHeadersRow()
+        for row = 0, 3 do
+            ImGui.TableNextRow()
+            for column = 0, COLUMNS_COUNT - 1 do
+                -- Submit dummy contents
+                ImGui.TableSetColumnIndex(column)
+                ImGui.Text("Cell %d,%d", column, row)
+                ImGui.SameLine()
+
+                -- [2.2] Right-click on the ".." to open a custom popup
+                ImGui.PushID(row * COLUMNS_COUNT + column)
+                ImGui.SmallButton("..")
+                if ImGui.BeginPopupContextItem() then
+                    ImGui.Text("This is the popup for Button(\"..\") in Cell %d,%d", column, row)
+                    if ImGui.Button("Close") then
+                        ImGui.CloseCurrentPopup()
+                    end
+                    ImGui.EndPopup()
+                end
+                ImGui.PopID()
+            end
+        end
+
+        -- [2.3] Right-click anywhere in columns to open another custom popup
+        local hovered_column = -1
+        for column = 0, COLUMNS_COUNT do
+            ImGui.PushID(column)
+            if Has(ImGui.TableGetColumnFlags(column), ImGuiTableColumnFlags.IsHovered) then
+                hovered_column = column
+            end
+            if hovered_column == column and not ImGui.IsAnyItemHovered() and ImGui.IsMouseReleased(1) then
+                ImGui.OpenPopup("MyPopup")
+            end
+            if ImGui.BeginPopup("MyPopup") then
+                if column == COLUMNS_COUNT then
+                    ImGui.Text("This is a custom popup for unused space after the last column.")
+                else
+                    ImGui.Text("This is a custom popup for Column %d", column)
+                end
+                if ImGui.Button("Close") then
+                    ImGui.CloseCurrentPopup()
+                end
+                ImGui.EndPopup()
+            end
+            ImGui.PopID()
+        end
+
+        ImGui.EndTable()
+        ImGui.Text("Hovered column: %d", hovered_column)
+    end
+end
+
+local function Tables_SyncedInstances()
+    IMGUI_DEMO_MARKER("Tables/Synced instances")
+    DemoHelpMarker("Multiple tables with the same identifier will share their settings, width, visibility, order etc.")
+
+    local s = ST.synced
+    if s == nil then s = { flags = bor(TF.Resizable, TF.Reorderable, TF.Hideable, TF.Borders, TF.SizingFixedFit, TF.NoSavedSettings) }; ST.synced = s end
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SizingFixedFit", s.flags, TF.SizingFixedFit)
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_HighlightHoveredColumn", s.flags, TF.HighlightHoveredColumn)
+    for n = 0, 2 do
+        local buf = string.format("Synced Table %d", n)
+        local open = ImGui.CollapsingHeader(buf, ImGuiTreeNodeFlags.DefaultOpen)
+        if open and ImGui.BeginTable("Table", 3, s.flags, ImVec2(0.0, ImGui.GetTextLineHeightWithSpacing() * 5)) then
+            ImGui.TableSetupColumn("One")
+            ImGui.TableSetupColumn("Two")
+            ImGui.TableSetupColumn("Three")
+            ImGui.TableHeadersRow()
+            local cell_count = (n == 1) and 27 or 9 -- Make second table have a scrollbar to verify that additional decoration is not affecting column positions.
+            for cell = 0, cell_count - 1 do
+                ImGui.TableNextColumn()
+                ImGui.Text("this cell %d", cell)
+            end
+            ImGui.EndTable()
+        end
+    end
+end
+
+local template_items_names = {
+    "Banana", "Apple", "Cherry", "Watermelon", "Grapefruit", "Strawberry", "Mango",
+    "Kiwi", "Orange", "Pineapple", "Blueberry", "Plum", "Coconut", "Pear", "Apricot"
+}
+
+local function Tables_Sorting()
+    IMGUI_DEMO_MARKER("Tables/Sorting")
+    local s = ST.sorting
+    if s == nil then
+        s = { items = {},
+              flags = bor(TF.Resizable, TF.Reorderable, TF.Hideable, TF.Sortable, TF.SortMulti, TF.RowBg, TF.BordersOuter, TF.BordersV, TF.NoBordersInBody, TF.ScrollY) }
+        for n = 0, 49 do
+            local template_n = n % #template_items_names
+            s.items[n + 1] = MyItem(n, template_items_names[template_n + 1], (n * n - n) % 20) -- Assign default quantities
+        end
+        ST.sorting = s
+    end
+    local items = s.items
+
+    PushStyleCompact()
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SortMulti", s.flags, TF.SortMulti)
+    ImGui.SameLine(); DemoHelpMarker("When sorting is enabled: hold shift when clicking headers to sort on multiple column. TableGetSortSpecs() may return specs where (SpecsCount > 1).")
+    _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SortTristate", s.flags, TF.SortTristate)
+    ImGui.SameLine(); DemoHelpMarker("When sorting is enabled: allow no sorting, disable default sorting. TableGetSortSpecs() may return specs where (SpecsCount == 0).")
+    PopStyleCompact()
+
+    if ImGui.BeginTable("table_sorting", 4, s.flags, ImVec2(0.0, TEXT_BASE_HEIGHT * 15), 0.0) then
+        local CF = ImGuiTableColumnFlags
+        ImGui.TableSetupColumn("ID",       bor(CF.DefaultSort, CF.WidthFixed),            0.0, MyItemColumnID_ID)
+        ImGui.TableSetupColumn("Name",     CF.WidthFixed,                                 0.0, MyItemColumnID_Name)
+        ImGui.TableSetupColumn("Action",   bor(CF.NoSort, CF.WidthFixed),                 0.0, MyItemColumnID_Action)
+        ImGui.TableSetupColumn("Quantity", bor(CF.PreferSortDescending, CF.WidthStretch), 0.0, MyItemColumnID_Quantity)
+        ImGui.TableSetupScrollFreeze(0, 1) -- Make row always visible
+        ImGui.TableHeadersRow()
+
+        -- Sort our data if sort specs have been changed!
+        local sort_specs = ImGui.TableGetSortSpecs()
+        if sort_specs and sort_specs.SpecsDirty then
+            MyItem_SortWithSortSpecs(sort_specs, items, #items)
+            sort_specs.SpecsDirty = false
+        end
+
+        -- Demonstrate using clipper for large vertical lists
+        local clipper = ImGuiListClipper()
+        clipper:Begin(#items)
+        while clipper:Step() do
+            for row_n = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                -- Display a data item
+                local item = items[row_n + 1]
+                ImGui.PushID(item.ID)
+                ImGui.TableNextRow()
+                ImGui.TableNextColumn()
+                ImGui.Text("%04d", item.ID)
+                ImGui.TableNextColumn()
+                ImGui.TextUnformatted(item.Name)
+                ImGui.TableNextColumn()
+                ImGui.SmallButton("None")
+                ImGui.TableNextColumn()
+                ImGui.Text("%d", item.Quantity)
+                ImGui.PopID()
+            end
+        end
+        ImGui.EndTable()
+    end
+end
+
+local function Tables_AdvancedOptions(s)
+    -- Make the UI compact because there are so many fields
+    PushStyleCompact()
+    ImGui.PushItemWidth(TEXT_BASE_WIDTH * 28.0)
+
+    if ImGui.TreeNodeEx("Features:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Resizable", s.flags, TF.Resizable)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Reorderable", s.flags, TF.Reorderable)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Hideable", s.flags, TF.Hideable)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_Sortable", s.flags, TF.Sortable)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoSavedSettings", s.flags, TF.NoSavedSettings)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ContextMenuInBody", s.flags, TF.ContextMenuInBody)
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Decorations:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_RowBg", s.flags, TF.RowBg)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersV", s.flags, TF.BordersV)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterV", s.flags, TF.BordersOuterV)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerV", s.flags, TF.BordersInnerV)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersH", s.flags, TF.BordersH)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterH", s.flags, TF.BordersOuterH)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_BordersInnerH", s.flags, TF.BordersInnerH)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBody", s.flags, TF.NoBordersInBody); ImGui.SameLine(); DemoHelpMarker("Disable vertical borders in columns Body (borders will always appear in Headers)")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBodyUntilResize", s.flags, TF.NoBordersInBodyUntilResize); ImGui.SameLine(); DemoHelpMarker("Disable vertical borders in columns Body until hovered for resize (borders will always appear in Headers)")
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Sizing:", ImGuiTreeNodeFlags.DefaultOpen) then
+        s.flags = EditTableSizingFlags(s.flags)
+        ImGui.SameLine(); DemoHelpMarker("In the Advanced demo we override the policy of each column so those table-wide settings have less effect that typical.")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendX", s.flags, TF.NoHostExtendX)
+        ImGui.SameLine(); DemoHelpMarker("Make outer width auto-fit to columns, overriding outer_size.x value.\n\nOnly available when ScrollX/ScrollY are disabled and Stretch columns are not used.")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoHostExtendY", s.flags, TF.NoHostExtendY)
+        ImGui.SameLine(); DemoHelpMarker("Make outer height stop exactly at outer_size.y (prevent auto-extending table past the limit).\n\nOnly available when ScrollX/ScrollY are disabled. Data below the limit will be clipped and not visible.")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoKeepColumnsVisible", s.flags, TF.NoKeepColumnsVisible)
+        ImGui.SameLine(); DemoHelpMarker("Only available if ScrollX is disabled.")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_PreciseWidths", s.flags, TF.PreciseWidths)
+        ImGui.SameLine(); DemoHelpMarker("Disable distributing remainder width to stretched columns (width allocation on a 100-wide table with 3 columns: Without this flag: 33,33,34. With this flag: 33,33,33). With larger number of columns, resizing will appear to be less smooth.")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoClip", s.flags, TF.NoClip)
+        ImGui.SameLine(); DemoHelpMarker("Disable clipping rectangle for every individual columns (reduce draw command count, items will be able to overflow into other columns). Generally incompatible with ScrollFreeze options.")
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Padding:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_PadOuterX", s.flags, TF.PadOuterX)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoPadOuterX", s.flags, TF.NoPadOuterX)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_NoPadInnerX", s.flags, TF.NoPadInnerX)
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Scrolling:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollX", s.flags, TF.ScrollX)
+        ImGui.SameLine()
+        ImGui.SetNextItemWidth(ImGui.GetFrameHeight())
+        s.freeze_cols = ImGui.DragInt("freeze_cols", s.freeze_cols, 0.2, 0, 9, nil, ImGuiSliderFlags.NoInput)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
+        ImGui.SameLine()
+        ImGui.SetNextItemWidth(ImGui.GetFrameHeight())
+        s.freeze_rows = ImGui.DragInt("freeze_rows", s.freeze_rows, 0.2, 0, 9, nil, ImGuiSliderFlags.NoInput)
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Sorting:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SortMulti", s.flags, TF.SortMulti)
+        ImGui.SameLine(); DemoHelpMarker("When sorting is enabled: hold shift when clicking headers to sort on multiple column. TableGetSortSpecs() may return specs where (SpecsCount > 1).")
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SortTristate", s.flags, TF.SortTristate)
+        ImGui.SameLine(); DemoHelpMarker("When sorting is enabled: allow no sorting, disable default sorting. TableGetSortSpecs() may return specs where (SpecsCount == 0).")
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Headers:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.show_headers = ImGui.Checkbox("show_headers", s.show_headers)
+        _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_HighlightHoveredColumn", s.flags, TF.HighlightHoveredColumn)
+        _, s.columns_base_flags = ImGui.CheckboxFlags("ImGuiTableColumnFlags_AngledHeader", s.columns_base_flags, ImGuiTableColumnFlags.AngledHeader)
+        ImGui.SameLine(); DemoHelpMarker("Enable AngledHeader on all columns. Best enabled on selected narrow columns (see \"Angled headers\" section of the demo).")
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Other:", ImGuiTreeNodeFlags.DefaultOpen) then
+        _, s.show_wrapped_text = ImGui.Checkbox("show_wrapped_text", s.show_wrapped_text)
+
+        ImGui.DragFloat2("##OuterSize", s.outer_size_value)
+        ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
+        _, s.outer_size_enabled = ImGui.Checkbox("outer_size", s.outer_size_enabled)
+        ImGui.SameLine()
+        DemoHelpMarker("If scrolling is disabled (ScrollX and ScrollY not set):\n" ..
+            "- The table is output directly in the parent window.\n" ..
+            "- OuterSize.x < 0.0f will right-align the table.\n" ..
+            "- OuterSize.x = 0.0f will narrow fit the table unless there are any Stretch columns.\n" ..
+            "- OuterSize.y then becomes the minimum size for the table, which will extend vertically if there are more rows (unless NoHostExtendY is set).")
+
+        s.inner_width_with_scroll = ImGui.DragFloat("inner_width (when ScrollX active)", s.inner_width_with_scroll, 1.0, 0.0, FLT_MAX)
+
+        s.row_min_height = ImGui.DragFloat("row_min_height", s.row_min_height, 1.0, 0.0, FLT_MAX)
+        ImGui.SameLine(); DemoHelpMarker("Specify height of the Selectable item.")
+
+        s.items_count = ImGui.DragInt("items_count", s.items_count, 0.1, 0, 9999)
+        local contents_type_names = { "Text", "Button", "SmallButton", "FillButton", "Selectable", "Selectable (span row)" }
+        if ImGui.Combo then
+            s.contents_type = ImGui.Combo("items_type (first column)", s.contents_type, contents_type_names, #contents_type_names)
+        else
+            NotPorted("Combo")
+        end
+        ImGui.TreePop()
+    end
+
+    ImGui.PopItemWidth()
+    PopStyleCompact()
+    ImGui.Spacing()
+end
+
+local function Tables_Advanced()
+    IMGUI_DEMO_MARKER("Tables/Advanced")
+    local CT_Text, CT_Button, CT_SmallButton, CT_FillButton, CT_Selectable, CT_SelectableSpanRow = 0, 1, 2, 3, 4, 5
+    local s = ST.advanced
+    if s == nil then
+        s = { flags = bor(TF.Resizable, TF.Reorderable, TF.Hideable, TF.Sortable, TF.SortMulti, TF.RowBg, TF.Borders, TF.NoBordersInBody, TF.ScrollX, TF.ScrollY, TF.SizingFixedFit),
+              columns_base_flags = ImGuiTableColumnFlags.None, contents_type = CT_SelectableSpanRow,
+              freeze_cols = 1, freeze_rows = 1, items_count = #template_items_names * 2,
+              outer_size_value = ImVec2(0.0, TEXT_BASE_HEIGHT * 12), row_min_height = 0.0, inner_width_with_scroll = 0.0,
+              outer_size_enabled = true, show_headers = true, show_wrapped_text = false,
+              items = {}, selection = {}, items_need_sort = false, show_debug_details = false }
+        ST.advanced = s
+    end
+    if ImGui.TreeNode("Options") then
+        Tables_AdvancedOptions(s)
+        ImGui.TreePop()
+    end
+
+    -- Update item list if we changed the number of items
+    local items = s.items
+    local selection = s.selection
+    if #items ~= s.items_count then
+        for n = #items, s.items_count + 1, -1 do items[n] = nil end
+        for n = 0, s.items_count - 1 do
+            local template_n = n % #template_items_names
+            items[n + 1] = MyItem(n, template_items_names[template_n + 1], (template_n == 3) and 10 or (template_n == 4) and 20 or 0) -- Assign default quantities
+        end
+    end
+
+    local parent_draw_list = ImGui.GetWindowDrawList()
+    local parent_draw_list_draw_cmd_count = parent_draw_list.CmdBuffer.Size
+    local table_scroll_cur, table_scroll_max -- For debug display
+    local table_draw_list = nil
+
+    -- Submit table
+    local flags = s.flags
+    local columns_base_flags = s.columns_base_flags
+    local inner_width_to_use = Has(flags, TF.ScrollX) and s.inner_width_with_scroll or 0.0
+    local CF = ImGuiTableColumnFlags
+    if ImGui.BeginTable("table_advanced", 6, flags, s.outer_size_enabled and s.outer_size_value or ImVec2(0, 0), inner_width_to_use) then
+        ImGui.TableSetupColumn("ID",          bor(columns_base_flags, CF.DefaultSort, CF.WidthFixed, CF.NoHide), 0.0, MyItemColumnID_ID)
+        ImGui.TableSetupColumn("Name",        bor(columns_base_flags, CF.WidthFixed), 0.0, MyItemColumnID_Name)
+        ImGui.TableSetupColumn("Action",      bor(columns_base_flags, CF.NoSort, CF.WidthFixed), 0.0, MyItemColumnID_Action)
+        ImGui.TableSetupColumn("Quantity",    bor(columns_base_flags, CF.PreferSortDescending), 0.0, MyItemColumnID_Quantity)
+        ImGui.TableSetupColumn("Description", bor(columns_base_flags, Has(flags, TF.NoHostExtendX) and 0 or CF.WidthStretch), 0.0, MyItemColumnID_Description)
+        ImGui.TableSetupColumn("Hidden",      bor(columns_base_flags, CF.DefaultHide, CF.NoSort))
+        ImGui.TableSetupScrollFreeze(s.freeze_cols, s.freeze_rows)
+
+        -- Sort our data if sort specs have been changed!
+        local sort_specs = ImGui.TableGetSortSpecs()
+        if sort_specs and sort_specs.SpecsDirty then
+            s.items_need_sort = true
+        end
+        if sort_specs and s.items_need_sort and #items > 1 then
+            MyItem_SortWithSortSpecs(sort_specs, items, #items)
+            sort_specs.SpecsDirty = false
+        end
+        s.items_need_sort = false
+
+        local sorts_specs_using_quantity = Has(ImGui.TableGetColumnFlags(3), CF.IsSorted)
+
+        -- Show headers
+        if s.show_headers and Has(columns_base_flags, CF.AngledHeader) then
+            ImGui.TableAngledHeadersRow()
+        end
+        if s.show_headers then
+            ImGui.TableHeadersRow()
+        end
+
+        -- Demonstrate using clipper for large vertical lists
+        local clipper = ImGuiListClipper()
+        clipper:Begin(#items)
+        while clipper:Step() do
+            for row_n = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                local item = items[row_n + 1]
+
+                local item_is_selected = table.find(selection, item.ID) ~= nil
+                ImGui.PushID(item.ID)
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, s.row_min_height)
+
+                -- For the demo purpose we can select among different type of items submitted in the first column
+                ImGui.TableSetColumnIndex(0)
+                local label = string.format("%04d", item.ID)
+                local ct = s.contents_type
+                if ct == CT_Text then
+                    ImGui.TextUnformatted(label)
+                elseif ct == CT_Button then
+                    ImGui.Button(label)
+                elseif ct == CT_SmallButton then
+                    ImGui.SmallButton(label)
+                elseif ct == CT_FillButton then
+                    ImGui.Button(label, ImVec2(-FLT_MIN, 0.0))
+                elseif ct == CT_Selectable or ct == CT_SelectableSpanRow then
+                    local selectable_flags = (ct == CT_SelectableSpanRow) and bor(ImGuiSelectableFlags.SpanAllColumns, ImGuiSelectableFlags.AllowOverlap) or ImGuiSelectableFlags.None
+                    if ImGui.Selectable(label, item_is_selected, selectable_flags, ImVec2(0, s.row_min_height)) then
+                        if ImGui.GetIO().KeyCtrl then
+                            if item_is_selected then
+                                table.remove(selection, table.find(selection, item.ID))
+                            else
+                                table.insert(selection, item.ID)
+                            end
+                        else
+                            table.clear(selection)
+                            table.insert(selection, item.ID)
+                        end
+                    end
+                end
+
+                if ImGui.TableSetColumnIndex(1) then
+                    ImGui.TextUnformatted(item.Name)
+                end
+
+                if ImGui.TableSetColumnIndex(2) then
+                    if ImGui.SmallButton("Chop") then item.Quantity = item.Quantity + 1 end
+                    if sorts_specs_using_quantity and ImGui.IsItemDeactivated() then s.items_need_sort = true end
+                    ImGui.SameLine()
+                    if ImGui.SmallButton("Eat") then item.Quantity = item.Quantity - 1 end
+                    if sorts_specs_using_quantity and ImGui.IsItemDeactivated() then s.items_need_sort = true end
+                end
+
+                if ImGui.TableSetColumnIndex(3) then
+                    ImGui.Text("%d", item.Quantity)
+                end
+
+                ImGui.TableSetColumnIndex(4)
+                if s.show_wrapped_text then
+                    ImGui.TextWrapped("Lorem ipsum dolor sit amet")
+                else
+                    ImGui.Text("Lorem ipsum dolor sit amet")
+                end
+
+                if ImGui.TableSetColumnIndex(5) then
+                    ImGui.Text("1234")
+                end
+
+                ImGui.PopID()
+            end
+        end
+
+        -- Store some info to display debug details below
+        table_scroll_cur = ImVec2(ImGui.GetScrollX(), ImGui.GetScrollY())
+        table_scroll_max = ImVec2(ImGui.GetScrollMaxX(), ImGui.GetScrollMaxY())
+        table_draw_list = ImGui.GetWindowDrawList()
+        ImGui.EndTable()
+    end
+    _, s.show_debug_details = ImGui.Checkbox("Debug details", s.show_debug_details)
+    if s.show_debug_details and table_draw_list then
+        ImGui.SameLine(0.0, 0.0)
+        local table_draw_list_draw_cmd_count = table_draw_list.CmdBuffer.Size
+        if table_draw_list == parent_draw_list then
+            ImGui.Text(": DrawCmd: +%d (in same window)",
+                table_draw_list_draw_cmd_count - parent_draw_list_draw_cmd_count)
+        else
+            ImGui.Text(": DrawCmd: +%d (in child window), Scroll: (%.f/%.f) (%.f/%.f)",
+                table_draw_list_draw_cmd_count - 1, table_scroll_cur.x, table_scroll_max.x, table_scroll_cur.y, table_scroll_max.y)
+        end
+    end
+end
+
+local tables_sections = {
+    { "Basic", Tables_Basic },
+    { "Borders, background", Tables_BordersBackground },
+    { "Resizable, stretch", Tables_ResizableStretch },
+    { "Resizable, fixed", Tables_ResizableFixed },
+    { "Resizable, mixed", Tables_ResizableMixed },
+    { "Reorderable, hideable, with headers", Tables_Reorderable },
+    { "Padding", Tables_Padding },
+    { "Sizing policies", Tables_SizingPolicies },
+    { "Vertical scrolling, with clipping", Tables_VerticalScrolling },
+    { "Horizontal scrolling", Tables_HorizontalScrolling },
+    { "Columns flags", Tables_ColumnsFlags },
+    { "Columns widths", Tables_ColumnsWidths },
+    { "Nested tables", Tables_Nested },
+    { "Row height", Tables_RowHeight },
+    { "Outer size", Tables_OuterSize },
+    { "Background color", Tables_BackgroundColor },
+    { "Tree view", Tables_TreeView },
+    { "Item width", Tables_ItemWidth },
+    { "Custom headers", Tables_CustomHeaders },
+    { "Angled headers", Tables_AngledHeaders },
+    { "Context menus", Tables_ContextMenus },
+    { "Synced instances", Tables_SyncedInstances },
+    { "Sorting", Tables_Sorting },
+    { "Advanced", Tables_Advanced },
+}
+
+function DemoWindowTables()
+    if not ImGui.CollapsingHeader("Tables & Columns") then
+        return
+    end
+
+    -- Using those as a base value to create width/height that are factor of the size of our font
+    TEXT_BASE_WIDTH = ImGui.CalcTextSize("A").x
+    TEXT_BASE_HEIGHT = ImGui.GetTextLineHeightWithSpacing()
+
+    ImGui.PushID("Tables")
+
+    local open_action = -1
+    if ImGui.Button("Expand all") then
+        open_action = 1
+    end
+    ImGui.SameLine()
+    if ImGui.Button("Collapse all") then
+        open_action = 0
+    end
+    ImGui.SameLine()
+
+    -- Options
+    _, ST.disable_indent = ImGui.Checkbox("Disable tree indentation", ST.disable_indent or false)
+    ImGui.SameLine()
+    DemoHelpMarker("Disable the indenting of tree nodes so demo tables can use the full window width.")
+    ImGui.Separator()
+    local disable_indent = ST.disable_indent
+    if disable_indent then
+        ImGui.PushStyleVar(ImGuiStyleVar.IndentSpacing, 0.0)
+    end
+
+    -- Demos
+    for _, sec in ipairs(tables_sections) do
+        if open_action ~= -1 then
+            ImGui.SetNextItemOpen(open_action ~= 0)
+        end
+        if ImGui.TreeNode(sec[1]) then
+            sec[2]()
+            ImGui.TreePop()
+        end
+    end
+
+    ImGui.PopID()
+
+    DemoWindowColumns()
+
+    if disable_indent then
+        ImGui.PopStyleVar()
+    end
+end
+
+--@@COLUMNS@@
+end
+
+__FILES['imgui_docking.lua'] = function()
+--- ImGui Sincerely
+-- Docking: 1:1 port of imgui.cpp [SECTION] DOCKING (docking branch, 1.93 WIP)
+--
+-- Port notes:
+-- - Main viewport only (no multi-viewports on Roblox): viewport creation/merging code paths are kept where cheap, but
+--   windows always live in the main viewport.
+-- - ImGuiDockContext.Nodes (ImGuiStorage in C++) is a Lua table ID -> node. Iterations that upstream does over the
+--   sorted storage are done over a sorted snapshot of the IDs (DockContextNodesSorted) for deterministic order.
+-- - node.ChildNodes is a table indexed [0] and [1] like upstream.
+-- - ImGuiDockPreviewData.DropRectsDraw is indexed [dir + 1] with dir in -1..3 (so keys 0..4), like upstream.
+
+local MT = ImGui.GetMetatables()
+
+IMGUI_PAYLOAD_TYPE_WINDOW = "_IMWINDOW"
+
+local DOCKING_HOST_DRAW_CHANNEL_BG = 0 -- Dock host: background fill
+local DOCKING_HOST_DRAW_CHANNEL_FG = 1 -- Dock host: decorations and contents
+
+local DOCKING_SPLITTER_SIZE = 2.0
+
+---------------------------------------------------------------------------------------
+-- Docking: flags & enums
+---------------------------------------------------------------------------------------
+
+ImGuiDockNodeFlags = {
+    None                         = 0,
+    KeepAliveOnly                = bit32.lshift(1, 0),
+    NoDockingOverCentralNode     = bit32.lshift(1, 2),
+    PassthruCentralNode          = bit32.lshift(1, 3),
+    NoDockingSplit               = bit32.lshift(1, 4),
+    NoResize                     = bit32.lshift(1, 5),
+    AutoHideTabBar               = bit32.lshift(1, 6),
+    NoUndocking                  = bit32.lshift(1, 7),
+    -- [Internal]
+    DockSpace                    = bit32.lshift(1, 10),
+    CentralNode                  = bit32.lshift(1, 11),
+    NoTabBar                     = bit32.lshift(1, 12),
+    HiddenTabBar                 = bit32.lshift(1, 13),
+    NoWindowMenuButton           = bit32.lshift(1, 14),
+    NoCloseButton                = bit32.lshift(1, 15),
+    NoResizeX                    = bit32.lshift(1, 16),
+    NoResizeY                    = bit32.lshift(1, 17),
+    DockedWindowsInFocusRoute    = bit32.lshift(1, 18),
+    NoDockingSplitOther          = bit32.lshift(1, 19),
+    NoDockingOverMe              = bit32.lshift(1, 20),
+    NoDockingOverOther           = bit32.lshift(1, 21),
+    NoDockingOverEmpty           = bit32.lshift(1, 22),
+}
+do
+    local F = ImGuiDockNodeFlags
+    F.NoSplit = F.NoDockingSplit
+    F.NoDockingInCentralNode = F.NoDockingOverCentralNode
+    F.NoDocking = bit32.bor(F.NoDockingOverMe, F.NoDockingOverOther, F.NoDockingOverEmpty, F.NoDockingSplit, F.NoDockingSplitOther)
+    F.SharedFlagsInheritMask_ = 0xFFFFFFFF
+    F.NoResizeFlagsMask_ = bit32.bor(F.NoResize, F.NoResizeX, F.NoResizeY)
+    F.LocalFlagsTransferMask_ = bit32.bor(F.NoDockingSplit, F.NoResizeFlagsMask_, F.AutoHideTabBar, F.CentralNode, F.NoTabBar, F.HiddenTabBar, F.NoWindowMenuButton, F.NoCloseButton)
+    F.SavedFlagsMask_ = bit32.bor(F.NoResizeFlagsMask_, F.DockSpace, F.CentralNode, F.NoTabBar, F.HiddenTabBar, F.NoWindowMenuButton, F.NoCloseButton)
+end
+
+ImGuiDataAuthority = { Auto = 0, DockNode = 1, Window = 2 }
+
+ImGuiDockNodeState = {
+    Unknown = 0,
+    HostWindowHiddenBecauseSingleWindow = 1,
+    HostWindowHiddenBecauseWindowsAreResizing = 2,
+    HostWindowVisible = 3,
+}
+
+ImGuiWindowDockStyleCol = {
+    Text = 0, TabHovered = 1, TabFocused = 2, TabSelected = 3, TabSelectedOverline = 4,
+    TabDimmed = 5, TabDimmedSelected = 6, TabDimmedSelectedOverline = 7, UnsavedMarker = 8, COUNT = 9,
+}
+
+local ImGuiDockRequestType = { None = 0, Dock = 1, Undock = 2, Split = 3 }
+
+---------------------------------------------------------------------------------------
+-- Docking: Internal Types
+---------------------------------------------------------------------------------------
+
+local function ImGuiDockRequest()
+    return {
+        Type = ImGuiDockRequestType.None,
+        DockTargetWindow = nil, DockTargetNode = nil, DockPayload = nil,
+        DockSplitDir = ImGuiDir.None, DockSplitRatio = 0.5, DockSplitOuter = false,
+        UndockTargetWindow = nil, UndockTargetNode = nil,
+    }
+end
+
+local function ImGuiDockNodeSettings()
+    return {
+        ID = 0, ParentNodeId = 0, ParentWindowId = 0, SelectedTabId = 0,
+        SplitAxis = ImGuiAxis.None, Depth = 0, Flags = 0,
+        Pos = ImVec2(0, 0), Size = ImVec2(0, 0), SizeRef = ImVec2(0, 0),
+    }
+end
+
+function ImGuiDockContext()
+    return { Nodes = {}, Requests = ImVector(), NodesSettings = ImVector(), WantFullRebuild = false }
+end
+
+MT.ImGuiDockNode = {}
+MT.ImGuiDockNode.__index = MT.ImGuiDockNode
+local DN = MT.ImGuiDockNode
+
+function ImGuiDockNode(id)
+    return setmetatable({
+        ID = id,
+        SharedFlags = 0, LocalFlags = 0, LocalFlagsInWindows = 0, MergedFlags = 0,
+        State = ImGuiDockNodeState.Unknown,
+        ParentNode = nil,
+        ChildNodes = { [0] = nil, [1] = nil },
+        Windows = ImVector(),
+        TabBar = nil,
+        Pos = ImVec2(0, 0), Size = ImVec2(0, 0), SizeRef = ImVec2(0, 0),
+        SplitAxis = ImGuiAxis.None,
+        LastBgColor = IM_COL32_WHITE,
+        WindowClass = ImGuiWindowClass(),
+        HostWindow = nil, VisibleWindow = nil,
+        CentralNode = nil, OnlyNodeWithWindows = nil,
+        CountNodeWithWindows = 0,
+        LastFrameAlive = -1, LastFrameActive = -1, LastFrameFocused = -1,
+        LastFocusedNodeId = 0, SelectedTabId = 0, WantCloseTabId = 0, RefViewportId = 0,
+        AuthorityForPos = ImGuiDataAuthority.DockNode, AuthorityForSize = ImGuiDataAuthority.DockNode,
+        AuthorityForViewport = ImGuiDataAuthority.Auto,
+        IsVisible = true, IsFocused = false, IsBgDrawnThisFrame = false,
+        HasCloseButton = false, HasWindowMenuButton = false, HasCentralNodeChild = false,
+        WantCloseAll = false, WantLockSizeOnce = false, WantMouseMove = false,
+        WantHiddenTabBarUpdate = false, WantHiddenTabBarToggle = false,
+    }, DN)
+end
+
+function DN:IsRootNode()     return self.ParentNode == nil end
+function DN:IsDockSpace()    return bit32.band(self.MergedFlags, ImGuiDockNodeFlags.DockSpace) ~= 0 end
+function DN:IsFloatingNode() return self.ParentNode == nil and bit32.band(self.MergedFlags, ImGuiDockNodeFlags.DockSpace) == 0 end
+function DN:IsCentralNode()  return bit32.band(self.MergedFlags, ImGuiDockNodeFlags.CentralNode) ~= 0 end
+function DN:IsHiddenTabBar() return bit32.band(self.MergedFlags, ImGuiDockNodeFlags.HiddenTabBar) ~= 0 end
+function DN:IsNoTabBar()     return bit32.band(self.MergedFlags, ImGuiDockNodeFlags.NoTabBar) ~= 0 end
+function DN:IsSplitNode()    return self.ChildNodes[0] ~= nil end
+function DN:IsLeafNode()     return self.ChildNodes[0] == nil end
+function DN:IsEmpty()        return self.ChildNodes[0] == nil and self.Windows.Size == 0 end
+function DN:Rect()           return ImRect(self.Pos.x, self.Pos.y, self.Pos.x + self.Size.x, self.Pos.y + self.Size.y) end
+function DN:SetLocalFlags(flags) self.LocalFlags = flags; self:UpdateMergedFlags() end
+function DN:UpdateMergedFlags() self.MergedFlags = bit32.bor(self.SharedFlags, self.LocalFlags, self.LocalFlagsInWindows) end
+
+local function ImGuiDockPreviewData()
+    local d = {
+        FutureNode = ImGuiDockNode(0),
+        IsDropAllowed = false, IsCenterAvailable = false, IsSidesAvailable = false, IsSplitDirExplicit = false,
+        SplitNode = nil, SplitDir = ImGuiDir.None, SplitRatio = 0.0,
+        DropRectsDraw = {},
+    }
+    for n = 0, 4 do d.DropRectsDraw[n] = ImRect(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX) end
+    return d
+end
+
+local function DockNodeGetHostWindowTitle(node)
+    return string.format("##DockNode_%02X", node.ID)
+end
+
+local function IsRectInverted(r) return r.Min.x > r.Max.x or r.Min.y > r.Max.y end
+
+--- Sorted snapshot of node IDs (upstream iterates ImGuiStorage which is sorted by key)
+local function DockContextNodesSorted(ctx)
+    local ids = {}
+    for id in pairs(ctx.DockContext.Nodes) do ids[#ids + 1] = id end
+    table.sort(ids)
+    return ids
+end
+ImGui.DockContextNodesSorted = DockContextNodesSorted
+
+---------------------------------------------------------------------------------------
+-- Docking: ImGuiDockContext
+---------------------------------------------------------------------------------------
+
+local DockSettingsHandler_ClearAll, DockSettingsHandler_ApplyAll, DockSettingsHandler_ReadOpen, DockSettingsHandler_ReadLine, DockSettingsHandler_WriteAll
+local DockSettingsRenameNodeReferences, DockSettingsRemoveNodeReferences, DockSettingsFindNodeSettings
+
+function ImGui.DockContextInitialize(ctx)
+    local g = ctx
+    local ini_handler = ImGuiSettingsHandler()
+    ini_handler.TypeName = "Docking"
+    ini_handler.TypeHash = ImHashStr("Docking")
+    ini_handler.ClearAllFn = DockSettingsHandler_ClearAll
+    ini_handler.ReadInitFn = DockSettingsHandler_ClearAll
+    ini_handler.ReadOpenFn = DockSettingsHandler_ReadOpen
+    ini_handler.ReadLineFn = DockSettingsHandler_ReadLine
+    ini_handler.ApplyAllFn = DockSettingsHandler_ApplyAll
+    ini_handler.WriteAllFn = DockSettingsHandler_WriteAll
+    g.SettingsHandlers:push_back(ini_handler)
+
+    g.DockNodeWindowMenuHandler = ImGui.DockNodeWindowMenuHandler_Default
+end
+
+function ImGui.DockContextShutdown(ctx)
+    for _, id in ipairs(DockContextNodesSorted(ctx)) do
+        local node = ctx.DockContext.Nodes[id]
+        if node then ImGui.DockContextDeleteNode(ctx, node) end
+    end
+end
+
+function ImGui.DockContextClearNodes(ctx, root_id, clear_settings_refs)
+    ImGui.DockBuilderRemoveNodeDockedWindows(root_id, clear_settings_refs)
+    ImGui.DockBuilderRemoveNodeChildNodes(root_id)
+end
+
+function ImGui.DockContextRebuildNodes(ctx)
+    local dc = ctx.DockContext
+    ImGui.SaveIniSettingsToMemory()
+    local root_id = 0
+    ImGui.DockContextClearNodes(ctx, root_id, false)
+    ImGui.DockContextBuildNodesFromSettings(ctx, dc.NodesSettings.Data, dc.NodesSettings.Size)
+    ImGui.DockContextBuildAddWindowsToNodes(ctx, root_id)
+end
+
+function ImGui.DockContextNewFrameUpdateUndocking(ctx)
+    local g = ctx
+    local dc = ctx.DockContext
+    if bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then
+        if next(dc.Nodes) ~= nil or dc.Requests.Size > 0 then
+            ImGui.DockContextClearNodes(ctx, 0, true)
+        end
+        return
+    end
+
+    if g.IO.ConfigDockingNoSplit then
+        for _, id in ipairs(DockContextNodesSorted(ctx)) do
+            local node = dc.Nodes[id]
+            if node and node:IsRootNode() and node:IsSplitNode() then
+                ImGui.DockBuilderRemoveNodeChildNodes(node.ID)
+            end
+        end
+    end
+
+    if dc.WantFullRebuild then
+        ImGui.DockContextRebuildNodes(ctx)
+        dc.WantFullRebuild = false
+    end
+
+    for _, req in dc.Requests:iter() do
+        if req.Type == ImGuiDockRequestType.Undock and req.UndockTargetWindow then
+            ImGui.DockContextProcessUndockWindow(ctx, req.UndockTargetWindow)
+        elseif req.Type == ImGuiDockRequestType.Undock and req.UndockTargetNode then
+            ImGui.DockContextProcessUndockNode(ctx, req.UndockTargetNode)
+        end
+    end
+end
+
+function ImGui.DockContextNewFrameUpdateDocking(ctx)
+    local g = ctx
+    local dc = ctx.DockContext
+    if bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then return end
+
+    g.DebugHoveredDockNode = nil
+    local hovered_window = g.HoveredWindowUnderMovingWindow
+    if hovered_window then
+        if hovered_window.DockNodeAsHost then
+            g.DebugHoveredDockNode = ImGui.DockNodeTreeFindVisibleNodeByPos(hovered_window.DockNodeAsHost, g.IO.MousePos)
+        elseif hovered_window.RootWindow.DockNode then
+            g.DebugHoveredDockNode = hovered_window.RootWindow.DockNode
+        end
+    end
+
+    for _, req in dc.Requests:iter() do
+        if req.Type == ImGuiDockRequestType.Dock then
+            ImGui.DockContextProcessDock(ctx, req)
+        end
+    end
+    dc.Requests:resize(0)
+
+    for _, id in ipairs(DockContextNodesSorted(ctx)) do
+        local node = dc.Nodes[id]
+        if node and node:IsFloatingNode() then
+            ImGui.DockNodeUpdate(node)
+        end
+    end
+end
+
+function ImGui.DockContextEndFrame(ctx)
+    local g = ctx
+    local dc = g.DockContext
+    for _, id in ipairs(DockContextNodesSorted(ctx)) do
+        local node = dc.Nodes[id]
+        if node and node.LastFrameActive == g.FrameCount and node.IsVisible and node.HostWindow and node:IsLeafNode() and not node.IsBgDrawnThisFrame then
+            local bg_rect = ImRect(node.Pos + ImVec2(0.0, ImGui.GetFrameHeight()), node.Pos + node.Size)
+            local bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, node.HostWindow:Rect(), g.Style.DockingSeparatorSize)
+            node.HostWindow.DrawList:ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG)
+            node.HostWindow.DrawList:AddRectFilled(bg_rect.Min, bg_rect.Max, node.LastBgColor, node.HostWindow.WindowRounding, bg_rounding_flags)
+        end
+    end
+end
+
+function ImGui.DockContextFindNodeByID(ctx, id)
+    return ctx.DockContext.Nodes[id]
+end
+
+function ImGui.DockContextGenNodeID(ctx)
+    local id = 0x0001
+    while ImGui.DockContextFindNodeByID(ctx, id) ~= nil do id = id + 1 end
+    return id
+end
+
+function ImGui.DockContextAddNode(ctx, id)
+    if id == 0 then
+        id = ImGui.DockContextGenNodeID(ctx)
+    else
+        IM_ASSERT(ImGui.DockContextFindNodeByID(ctx, id) == nil)
+    end
+    local node = ImGuiDockNode(id)
+    ctx.DockContext.Nodes[node.ID] = node
+    return node
+end
+
+function ImGui.DockContextRemoveNode(ctx, node, merge_sibling_into_parent_node)
+    IM_ASSERT(ImGui.DockContextFindNodeByID(ctx, node.ID) == node)
+    IM_ASSERT(node.ChildNodes[0] == nil and node.ChildNodes[1] == nil)
+    IM_ASSERT(node.Windows.Size == 0)
+
+    if node.HostWindow then node.HostWindow.DockNodeAsHost = nil end
+
+    local parent_node = node.ParentNode
+    local merge = (merge_sibling_into_parent_node and parent_node ~= nil)
+    if merge then
+        IM_ASSERT(parent_node.ChildNodes[0] == node or parent_node.ChildNodes[1] == node)
+        local sibling_node = (parent_node.ChildNodes[0] == node) and parent_node.ChildNodes[1] or parent_node.ChildNodes[0]
+        ImGui.DockNodeTreeMerge(ctx, parent_node, sibling_node)
+    else
+        if parent_node then
+            for n = 0, 1 do
+                if parent_node.ChildNodes[n] == node then node.ParentNode.ChildNodes[n] = nil end
+            end
+        end
+        ImGui.DockContextDeleteNode(ctx, node)
+    end
+end
+
+function ImGui.DockContextDeleteNode(ctx, node)
+    local dc = ctx.DockContext
+    node.TabBar = nil
+    dc.Nodes[node.ID] = nil
+end
+
+function ImGui.DockContextPruneUnusedSettingsNodes(ctx)
+    local g = ctx
+    local dc = ctx.DockContext
+    IM_ASSERT(g.Windows.Size == 0)
+
+    local pool = {}
+    local function GetOrAdd(id)
+        local d = pool[id]
+        if not d then d = { CountWindows = 0, CountChildWindows = 0, CountChildNodes = 0, RootId = 0 }; pool[id] = d end
+        return d
+    end
+
+    for _, settings in dc.NodesSettings:iter() do
+        if pool[settings.ID] ~= nil then
+            settings.ID = 0
+        else
+            local parent_data = (settings.ParentNodeId ~= 0) and pool[settings.ParentNodeId] or nil
+            GetOrAdd(settings.ID).RootId = parent_data and parent_data.RootId or settings.ID
+            if settings.ParentNodeId ~= 0 then
+                local p = GetOrAdd(settings.ParentNodeId)
+                p.CountChildNodes = p.CountChildNodes + 1
+            end
+        end
+    end
+
+    for _, settings in dc.NodesSettings:iter() do
+        if settings.ParentWindowId ~= 0 then
+            local window_settings = ImGui.FindWindowSettingsByID(settings.ParentWindowId)
+            if window_settings and window_settings.DockId ~= 0 then
+                local data = pool[window_settings.DockId]
+                if data then data.CountChildNodes = data.CountChildNodes + 1 end
+            end
+        end
+    end
+
+    for _, settings in g.SettingsWindows:iter() do
+        local dock_id = settings.DockId
+        if dock_id and dock_id ~= 0 then
+            local data = pool[dock_id]
+            if data then
+                data.CountWindows = data.CountWindows + 1
+                local data_root = (data.RootId == dock_id) and data or pool[data.RootId]
+                if data_root then data_root.CountChildWindows = data_root.CountChildWindows + 1 end
+            end
+        end
+    end
+
+    for _, settings in dc.NodesSettings:iter() do
+        local data = pool[settings.ID]
+        if data ~= nil and data.CountWindows <= 1 then
+            local data_root = (settings.ID == data.RootId) and data or pool[data.RootId]
+            local data_parent = (settings.ParentNodeId ~= 0) and pool[settings.ParentNodeId] or nil
+
+            local remove = false
+            remove = remove or (data.CountWindows == 1 and settings.ParentNodeId == 0 and data.CountChildNodes == 0 and bit32.band(settings.Flags, ImGuiDockNodeFlags.CentralNode) == 0)
+            remove = remove or (data.CountWindows == 0 and settings.ParentNodeId == 0 and data.CountChildNodes == 0)
+            remove = remove or (data_root == nil or data_root.CountChildWindows == 0)
+            if remove then
+                DockSettingsRemoveNodeReferences({ settings.ID }, 1)
+                settings.ID = 0
+            elseif data_parent and data_parent.CountChildNodes == 1 then
+                DockSettingsRenameNodeReferences(settings.ID, settings.ParentNodeId)
+                settings.ID = 0
+            end
+        end
+    end
+end
+
+--- @param node_settings_array table # 1-based array
+function ImGui.DockContextBuildNodesFromSettings(ctx, node_settings_array, node_settings_count)
+    for node_n = 1, node_settings_count do
+        local settings = node_settings_array[node_n]
+        if settings.ID ~= 0 and ImGui.DockContextFindNodeByID(ctx, settings.ID) == nil then
+            local node = ImGui.DockContextAddNode(ctx, settings.ID)
+            node.ParentNode = (settings.ParentNodeId ~= 0) and ImGui.DockContextFindNodeByID(ctx, settings.ParentNodeId) or nil
+            node.Pos = ImVec2(settings.Pos.x, settings.Pos.y)
+            node.Size = ImVec2(settings.Size.x, settings.Size.y)
+            node.SizeRef = ImVec2(settings.SizeRef.x, settings.SizeRef.y)
+            node.AuthorityForPos = ImGuiDataAuthority.DockNode
+            node.AuthorityForSize = ImGuiDataAuthority.DockNode
+            node.AuthorityForViewport = ImGuiDataAuthority.DockNode
+            if node.ParentNode and node.ParentNode.ChildNodes[0] == nil then
+                node.ParentNode.ChildNodes[0] = node
+            elseif node.ParentNode and node.ParentNode.ChildNodes[1] == nil then
+                node.ParentNode.ChildNodes[1] = node
+            end
+            node.SelectedTabId = settings.SelectedTabId
+            node.SplitAxis = settings.SplitAxis
+            node:SetLocalFlags(bit32.band(settings.Flags, ImGuiDockNodeFlags.SavedFlagsMask_))
+
+            local root_node = ImGui.DockNodeGetRootNode(node)
+            node.HostWindow = ImGui.FindWindowByName(DockNodeGetHostWindowTitle(root_node))
+        end
+    end
+end
+
+function ImGui.DockContextBuildAddWindowsToNodes(ctx, root_id)
+    local g = ctx
+    for _, window in g.Windows:iter() do
+        if window.DockId ~= 0 and window.LastFrameActive >= g.FrameCount - 1 and window.DockNode == nil then
+            local node = ImGui.DockContextFindNodeByID(ctx, window.DockId)
+            IM_ASSERT(node ~= nil)
+            if root_id == 0 or ImGui.DockNodeGetRootNode(node).ID == root_id then
+                ImGui.DockNodeAddWindow(node, window, true)
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: ImGuiDockContext Docking/Undocking functions
+---------------------------------------------------------------------------------------
+
+function ImGui.DockContextQueueDock(ctx, target, target_node, payload, split_dir, split_ratio, split_outer)
+    IM_ASSERT(target ~= payload)
+    local req = ImGuiDockRequest()
+    req.Type = ImGuiDockRequestType.Dock
+    req.DockTargetWindow = target
+    req.DockTargetNode = target_node
+    req.DockPayload = payload
+    req.DockSplitDir = split_dir
+    req.DockSplitRatio = split_ratio
+    req.DockSplitOuter = split_outer
+    ctx.DockContext.Requests:push_back(req)
+end
+
+function ImGui.DockContextQueueUndockWindow(ctx, window)
+    local req = ImGuiDockRequest()
+    req.Type = ImGuiDockRequestType.Undock
+    req.UndockTargetWindow = window
+    ctx.DockContext.Requests:push_back(req)
+end
+
+function ImGui.DockContextQueueUndockNode(ctx, node)
+    local req = ImGuiDockRequest()
+    req.Type = ImGuiDockRequestType.Undock
+    req.UndockTargetNode = node
+    ctx.DockContext.Requests:push_back(req)
+end
+
+function ImGui.DockContextQueueNotifyRemovedNode(ctx, node)
+    for _, req in ctx.DockContext.Requests:iter() do
+        if req.DockTargetNode == node then req.Type = ImGuiDockRequestType.None end
+    end
+end
+
+function ImGui.DockContextProcessDock(ctx, req)
+    IM_ASSERT((req.Type == ImGuiDockRequestType.Dock and req.DockPayload ~= nil) or (req.Type == ImGuiDockRequestType.Split and req.DockPayload == nil))
+    IM_ASSERT(req.DockTargetWindow ~= nil or req.DockTargetNode ~= nil)
+    local g = ctx
+
+    local payload_window = req.DockPayload
+    local target_window = req.DockTargetWindow
+    local node = req.DockTargetNode
+
+    local next_selected_id = 0
+    local payload_node = nil
+    if payload_window then
+        payload_node = payload_window.DockNodeAsHost
+        payload_window.DockNodeAsHost = nil
+        if payload_node and payload_node:IsLeafNode() then
+            next_selected_id = (payload_node.TabBar.NextSelectedTabId ~= 0) and payload_node.TabBar.NextSelectedTabId or payload_node.TabBar.SelectedTabId
+        end
+        if payload_node == nil then next_selected_id = payload_window.TabId end
+    end
+
+    if node then IM_ASSERT(node.LastFrameAlive <= g.FrameCount) end
+    if node and target_window and node == target_window.DockNodeAsHost then
+        IM_ASSERT(node.Windows.Size > 0 or node:IsSplitNode() or node:IsCentralNode())
+    end
+
+    if node == nil then
+        node = ImGui.DockContextAddNode(ctx, 0)
+        node.Pos = ImVec2(target_window.Pos.x, target_window.Pos.y)
+        node.Size = ImVec2(target_window.Size.x, target_window.Size.y)
+        if target_window.DockNodeAsHost == nil then
+            ImGui.DockNodeAddWindow(node, target_window, true)
+            local t0 = node.TabBar.Tabs.Data[1]
+            t0.Flags = bit32.band(t0.Flags, bit32.bnot(ImGuiTabItemFlags.Unsorted))
+            target_window.DockIsActive = true
+        end
+    end
+
+    local split_dir = req.DockSplitDir
+    if split_dir ~= ImGuiDir.None then
+        local split_axis = (split_dir == ImGuiDir.Left or split_dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
+        local split_inheritor_child_idx = (split_dir == ImGuiDir.Left or split_dir == ImGuiDir.Up) and 1 or 0
+        local split_ratio = req.DockSplitRatio
+        ImGui.DockNodeTreeSplit(ctx, node, split_axis, split_inheritor_child_idx, split_ratio, payload_node)
+        local new_node = node.ChildNodes[bit32.bxor(split_inheritor_child_idx, 1)]
+        new_node.HostWindow = node.HostWindow
+        node = new_node
+    end
+    node:SetLocalFlags(bit32.band(node.LocalFlags, bit32.bnot(ImGuiDockNodeFlags.HiddenTabBar)))
+
+    if node ~= payload_node then
+        if node.Windows.Size > 0 and node.TabBar == nil then
+            ImGui.DockNodeAddTabBar(node)
+            for n = 1, node.Windows.Size do
+                ImGui.TabBarAddTab(node.TabBar, ImGuiTabItemFlags.None, node.Windows.Data[n])
+            end
+        end
+
+        if payload_node ~= nil then
+            if payload_node:IsSplitNode() then
+                if node.Windows.Size > 0 then
+                    IM_ASSERT(payload_node.OnlyNodeWithWindows ~= nil)
+                    local visible_node = payload_node.OnlyNodeWithWindows
+                    if visible_node.TabBar then IM_ASSERT(visible_node.TabBar.Tabs.Size > 0) end
+                    ImGui.DockNodeMoveWindows(node, visible_node)
+                    ImGui.DockNodeMoveWindows(visible_node, node)
+                    DockSettingsRenameNodeReferences(node.ID, visible_node.ID)
+                end
+                if node:IsCentralNode() then
+                    local last_focused_node = ImGui.DockContextFindNodeByID(ctx, payload_node.LastFocusedNodeId)
+                    IM_ASSERT(last_focused_node ~= nil)
+                    local last_focused_root_node = ImGui.DockNodeGetRootNode(last_focused_node)
+                    IM_ASSERT(last_focused_root_node == ImGui.DockNodeGetRootNode(payload_node))
+                    last_focused_node:SetLocalFlags(bit32.bor(last_focused_node.LocalFlags, ImGuiDockNodeFlags.CentralNode))
+                    node:SetLocalFlags(bit32.band(node.LocalFlags, bit32.bnot(ImGuiDockNodeFlags.CentralNode)))
+                    last_focused_root_node.CentralNode = last_focused_node
+                end
+
+                IM_ASSERT(node.Windows.Size == 0)
+                ImGui.DockNodeMoveChildNodes(node, payload_node)
+            else
+                local payload_dock_id = payload_node.ID
+                ImGui.DockNodeMoveWindows(node, payload_node)
+                DockSettingsRenameNodeReferences(payload_dock_id, node.ID)
+            end
+            ImGui.DockContextRemoveNode(ctx, payload_node, true)
+        elseif payload_window then
+            local payload_dock_id = payload_window.DockId
+            node.VisibleWindow = payload_window
+            ImGui.DockNodeAddWindow(node, payload_window, true)
+            if payload_dock_id ~= 0 then
+                DockSettingsRenameNodeReferences(payload_dock_id, node.ID)
+            end
+        end
+    else
+        node.WantHiddenTabBarUpdate = true
+    end
+
+    local tab_bar = node.TabBar
+    if tab_bar then tab_bar.NextSelectedTabId = next_selected_id end
+    ImGui.MarkIniSettingsDirty()
+end
+
+local function FixLargeWindowsWhenUndocking(size, ref_viewport)
+    if ref_viewport == nil then return size end
+    local max_size = ImTrunc(ref_viewport.WorkSize * 0.90)
+    return ImVec2(ImMin(size.x, max_size.x), ImMin(size.y, max_size.y))
+end
+
+function ImGui.DockContextProcessUndockWindow(ctx, window, clear_persistent_docking_ref)
+    if window.DockNode then
+        ImGui.DockNodeRemoveWindow(window.DockNode, window, clear_persistent_docking_ref and 0 or window.DockId)
+    else
+        window.DockId = 0
+    end
+    window.Collapsed = false
+    window.DockIsActive = false
+    window.DockNodeIsVisible = false
+    window.DockTabIsVisible = false
+    local sz = FixLargeWindowsWhenUndocking(window.SizeFull, window.Viewport)
+    ImVec2_Copy(window.Size, sz)
+    ImVec2_Copy(window.SizeFull, sz)
+    ImGui.MarkIniSettingsDirty()
+end
+
+function ImGui.DockContextProcessUndockNode(ctx, node)
+    IM_ASSERT(node:IsLeafNode())
+    IM_ASSERT(node.Windows.Size >= 1)
+
+    if node:IsRootNode() or node:IsCentralNode() then
+        local new_node = ImGui.DockContextAddNode(ctx, 0)
+        new_node.Pos = ImVec2(node.Pos.x, node.Pos.y)
+        new_node.Size = ImVec2(node.Size.x, node.Size.y)
+        new_node.SizeRef = ImVec2(node.SizeRef.x, node.SizeRef.y)
+        ImGui.DockNodeMoveWindows(new_node, node)
+        DockSettingsRenameNodeReferences(node.ID, new_node.ID)
+        node = new_node
+    else
+        IM_ASSERT(node.ParentNode.ChildNodes[0] == node or node.ParentNode.ChildNodes[1] == node)
+        local index_in_parent = (node.ParentNode.ChildNodes[0] == node) and 0 or 1
+        node.ParentNode.ChildNodes[index_in_parent] = nil
+        ImGui.DockNodeTreeMerge(ctx, node.ParentNode, node.ParentNode.ChildNodes[bit32.bxor(index_in_parent, 1)])
+        node.ParentNode.AuthorityForViewport = ImGuiDataAuthority.Window
+        node.ParentNode = nil
+    end
+    for _, window in node.Windows:iter() do
+        window.Flags = bit32.band(window.Flags, bit32.bnot(ImGuiWindowFlags.ChildWindow))
+        if window.ParentWindow then window.ParentWindow.DC.ChildWindows:find_erase(window) end
+        ImGui.UpdateWindowParentAndRootLinks(window, window.Flags, nil)
+    end
+    node.AuthorityForPos = ImGuiDataAuthority.DockNode
+    node.AuthorityForSize = ImGuiDataAuthority.DockNode
+    node.Size = FixLargeWindowsWhenUndocking(node.Size, node.Windows.Data[1].Viewport)
+    node.WantMouseMove = true
+    ImGui.MarkIniSettingsDirty()
+end
+
+--- @return bool ok, ImVec2? out_pos
+function ImGui.DockContextCalcDropPosForDocking(target, target_node, payload_window, payload_node, split_dir, split_outer)
+    if target ~= nil and target_node == nil then target_node = target.DockNode end
+    if target_node and target_node.ParentNode == nil and target_node:IsCentralNode() and split_dir ~= ImGuiDir.None then
+        split_outer = true
+    end
+    local split_data = ImGuiDockPreviewData()
+    ImGui.DockNodePreviewDockSetup(target, target_node, payload_window, payload_node, split_data, false, split_outer)
+    local r = split_data.DropRectsDraw[split_dir + 1]
+    if IsRectInverted(r) then return false, nil end
+    return true, r:GetCenter()
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: ImGuiDockNode
+---------------------------------------------------------------------------------------
+
+function ImGui.DockNodeGetTabOrder(window)
+    local tab_bar = window.DockNode.TabBar
+    if tab_bar == nil then return -1 end
+    local tab = ImGui.TabBarFindTabByID(tab_bar, window.TabId)
+    return tab and ImGui.TabBarGetTabOrder(tab_bar, tab) or -1
+end
+
+local function DockNodeHideWindowDuringHostWindowCreation(window)
+    window.Hidden = true
+    window.HiddenFramesCanSkipItems = window.Active and 1 or 2
+end
+
+function ImGui.DockNodeAddWindow(node, window, add_to_tab_bar)
+    if window.DockNode then
+        IM_ASSERT(window.DockNode.ID ~= node.ID)
+        ImGui.DockNodeRemoveWindow(window.DockNode, window, 0)
+    end
+    IM_ASSERT(window.DockNode == nil or window.DockNodeAsHost == nil)
+
+    if node.HostWindow == nil and node.Windows.Size == 1 and node.Windows.Data[1].WasActive == false then
+        DockNodeHideWindowDuringHostWindowCreation(node.Windows.Data[1])
+    end
+
+    node.Windows:push_back(window)
+    node.WantHiddenTabBarUpdate = true
+    window.DockNode = node
+    window.DockId = node.ID
+    window.DockIsActive = (node.Windows.Size > 1)
+    window.DockTabWantClose = false
+
+    if node.HostWindow == nil and node:IsFloatingNode() then
+        if node.AuthorityForPos == ImGuiDataAuthority.Auto then node.AuthorityForPos = ImGuiDataAuthority.Window end
+        if node.AuthorityForSize == ImGuiDataAuthority.Auto then node.AuthorityForSize = ImGuiDataAuthority.Window end
+        if node.AuthorityForViewport == ImGuiDataAuthority.Auto then node.AuthorityForViewport = ImGuiDataAuthority.Window end
+    end
+
+    if add_to_tab_bar then
+        if node.TabBar == nil then
+            ImGui.DockNodeAddTabBar(node)
+            node.TabBar.SelectedTabId = node.SelectedTabId
+            node.TabBar.NextSelectedTabId = node.SelectedTabId
+            for n = 1, node.Windows.Size - 1 do
+                ImGui.TabBarAddTab(node.TabBar, ImGuiTabItemFlags.None, node.Windows.Data[n])
+            end
+        end
+        ImGui.TabBarAddTab(node.TabBar, ImGuiTabItemFlags.Unsorted, window)
+    end
+
+    ImGui.DockNodeUpdateVisibleFlag(node)
+
+    if node.HostWindow then
+        ImGui.UpdateWindowParentAndRootLinks(window, bit32.bor(window.Flags, ImGuiWindowFlags.ChildWindow), node.HostWindow)
+    end
+end
+
+function ImGui.DockNodeRemoveWindow(node, window, save_dock_id)
+    IM_ASSERT(window.DockNode == node)
+    IM_ASSERT(save_dock_id == 0 or save_dock_id == node.ID)
+
+    window.DockNode = nil
+    window.DockIsActive = false
+    window.DockTabWantClose = false
+    window.DockId = save_dock_id
+    window.Flags = bit32.band(window.Flags, bit32.bnot(ImGuiWindowFlags.ChildWindow))
+    if window.ParentWindow then window.ParentWindow.DC.ChildWindows:find_erase(window) end
+    ImGui.UpdateWindowParentAndRootLinks(window, window.Flags, nil)
+
+    if node.HostWindow and node.HostWindow.ViewportOwned then
+        window.Viewport = nil
+        window.ViewportId = 0
+        window.ViewportOwned = false
+        window.Hidden = true
+    end
+
+    local idx = node.Windows:find_index(window)
+    IM_ASSERT(idx ~= nil)
+    node.Windows:erase(idx)
+    if node.VisibleWindow == window then node.VisibleWindow = nil end
+
+    node.WantHiddenTabBarUpdate = true
+    if node.TabBar then
+        ImGui.TabBarRemoveTab(node.TabBar, window.TabId)
+        local tab_count_threshold_for_tab_bar = node:IsCentralNode() and 1 or 2
+        if node.Windows.Size < tab_count_threshold_for_tab_bar then
+            ImGui.DockNodeRemoveTabBar(node)
+        end
+    end
+    if node.Windows.Size == 0 and not node:IsCentralNode() and not node:IsDockSpace() and window.DockId ~= node.ID then
+        ImGui.DockContextRemoveNode(ImGui.GetCurrentContext(), node, true)
+        return
+    end
+
+    if node.Windows.Size == 1 and not node:IsCentralNode() and node.HostWindow then
+        local remaining_window = node.Windows.Data[1]
+        remaining_window.Collapsed = node.HostWindow.Collapsed
+    end
+
+    ImGui.DockNodeUpdateVisibleFlag(node)
+end
+
+function ImGui.DockNodeMoveChildNodes(dst_node, src_node)
+    IM_ASSERT(dst_node.Windows.Size == 0)
+    dst_node.ChildNodes[0] = src_node.ChildNodes[0]
+    dst_node.ChildNodes[1] = src_node.ChildNodes[1]
+    if dst_node.ChildNodes[0] then dst_node.ChildNodes[0].ParentNode = dst_node end
+    if dst_node.ChildNodes[1] then dst_node.ChildNodes[1].ParentNode = dst_node end
+    dst_node.SplitAxis = src_node.SplitAxis
+    dst_node.SizeRef = ImVec2(src_node.SizeRef.x, src_node.SizeRef.y)
+    src_node.ChildNodes[0] = nil
+    src_node.ChildNodes[1] = nil
+end
+
+function ImGui.DockNodeMoveWindows(dst_node, src_node)
+    IM_ASSERT(src_node and dst_node and dst_node ~= src_node)
+    local src_tab_bar = src_node.TabBar
+    if src_tab_bar ~= nil then IM_ASSERT(src_node.Windows.Size <= src_node.TabBar.Tabs.Size) end
+
+    local move_tab_bar = (src_tab_bar ~= nil) and (dst_node.TabBar == nil)
+    if move_tab_bar then
+        dst_node.TabBar = src_node.TabBar
+        src_node.TabBar = nil
+    end
+
+    -- Snapshot: DockNodeAddWindow() won't touch src_node.Windows since window.DockNode is cleared first
+    local windows = {}
+    for i = 1, src_node.Windows.Size do windows[i] = src_node.Windows.Data[i] end
+    for _, window in ipairs(windows) do
+        window.DockNode = nil
+        window.DockIsActive = false
+        ImGui.DockNodeAddWindow(dst_node, window, not move_tab_bar)
+    end
+    src_node.Windows:clear()
+
+    if not move_tab_bar and src_node.TabBar then
+        if dst_node.TabBar then dst_node.TabBar.SelectedTabId = src_node.TabBar.SelectedTabId end
+        ImGui.DockNodeRemoveTabBar(src_node)
+    end
+end
+
+function ImGui.DockNodeApplyPosSizeToWindows(node)
+    for _, window in node.Windows:iter() do
+        ImGui.SetWindowPos(window, node.Pos, ImGuiCond.Always)
+        ImGui.SetWindowSize(window, node.Size, ImGuiCond.Always)
+    end
+end
+
+function ImGui.DockNodeHideHostWindow(node)
+    if node.HostWindow then
+        if node.HostWindow.DockNodeAsHost == node then node.HostWindow.DockNodeAsHost = nil end
+        node.HostWindow = nil
+    end
+    if node.Windows.Size == 1 then
+        node.VisibleWindow = node.Windows.Data[1]
+        node.Windows.Data[1].DockIsActive = false
+    end
+    if node.TabBar then ImGui.DockNodeRemoveTabBar(node) end
+end
+
+local function DockNodeFindInfo(node, info)
+    if node.Windows.Size > 0 then
+        if info.FirstNodeWithWindows == nil then info.FirstNodeWithWindows = node end
+        info.CountNodesWithWindows = info.CountNodesWithWindows + 1
+    end
+    if node:IsCentralNode() then
+        IM_ASSERT(info.CentralNode == nil)
+        IM_ASSERT(node:IsLeafNode(), "If you get this assert: please submit .ini file + repro of actions leading to this.")
+        info.CentralNode = node
+    end
+    if info.CountNodesWithWindows > 1 and info.CentralNode ~= nil then return end
+    if node.ChildNodes[0] then DockNodeFindInfo(node.ChildNodes[0], info) end
+    if node.ChildNodes[1] then DockNodeFindInfo(node.ChildNodes[1], info) end
+end
+
+function ImGui.DockNodeFindWindowByID(node, id)
+    IM_ASSERT(id ~= 0)
+    for _, window in node.Windows:iter() do
+        if window.ID == id then return window end
+    end
+    return nil
+end
+
+function ImGui.DockNodeUpdateFlagsAndCollapse(node)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(node.ParentNode == nil or node.ParentNode.ChildNodes[0] == node or node.ParentNode.ChildNodes[1] == node)
+
+    if node.ParentNode then
+        node.SharedFlags = bit32.band(node.ParentNode.SharedFlags, ImGuiDockNodeFlags.SharedFlagsInheritMask_)
+    end
+
+    node.HasCentralNodeChild = false
+    if node.ChildNodes[0] then ImGui.DockNodeUpdateFlagsAndCollapse(node.ChildNodes[0]) end
+    if node.ChildNodes[1] then ImGui.DockNodeUpdateFlagsAndCollapse(node.ChildNodes[1]) end
+
+    node.LocalFlagsInWindows = ImGuiDockNodeFlags.None
+    local window_n = 1
+    while window_n <= node.Windows.Size do
+        local window = node.Windows.Data[window_n]
+        IM_ASSERT(window.DockNode == node)
+
+        local node_was_active = (node.LastFrameActive + 1 == g.FrameCount)
+        local remove = false
+        remove = remove or (node_was_active and (window.WasActive == false))
+        remove = remove or (node_was_active and (node.WantCloseAll or node.WantCloseTabId == window.TabId) and window.HasCloseButton and bit32.band(window.Flags, ImGuiWindowFlags.UnsavedDocument) == 0)
+        remove = remove or window.DockTabWantClose
+        if remove then
+            window.DockTabWantClose = false
+            if node.Windows.Size == 1 and not node:IsCentralNode() then
+                ImGui.DockNodeHideHostWindow(node)
+                node.State = ImGuiDockNodeState.HostWindowHiddenBecauseSingleWindow
+                ImGui.DockNodeRemoveWindow(node, window, node.ID)
+                return
+            end
+            ImGui.DockNodeRemoveWindow(node, window, node.ID)
+        else
+            node.LocalFlagsInWindows = bit32.bor(node.LocalFlagsInWindows, window.WindowClass.DockNodeFlagsOverrideSet)
+            window_n = window_n + 1
+        end
+    end
+    node:UpdateMergedFlags()
+
+    local node_flags = node.MergedFlags
+    if node.WantHiddenTabBarUpdate and node.Windows.Size == 1 and bit32.band(node_flags, ImGuiDockNodeFlags.AutoHideTabBar) ~= 0 and not node:IsHiddenTabBar() then
+        node.WantHiddenTabBarToggle = true
+    end
+    node.WantHiddenTabBarUpdate = false
+
+    if node.WantHiddenTabBarToggle and node.VisibleWindow and bit32.band(node.VisibleWindow.WindowClass.DockNodeFlagsOverrideSet, ImGuiDockNodeFlags.HiddenTabBar) ~= 0 then
+        node.WantHiddenTabBarToggle = false
+    end
+
+    local prev_local_flags = node.LocalFlags
+    if node.Windows.Size > 1 then
+        node:SetLocalFlags(bit32.band(node.LocalFlags, bit32.bnot(ImGuiDockNodeFlags.HiddenTabBar)))
+    elseif node.WantHiddenTabBarToggle then
+        node:SetLocalFlags(bit32.bxor(node.LocalFlags, ImGuiDockNodeFlags.HiddenTabBar))
+    end
+    if bit32.band(bit32.bxor(node.LocalFlags, prev_local_flags), ImGuiDockNodeFlags.SavedFlagsMask_) ~= 0 then
+        ImGui.MarkIniSettingsDirty()
+    end
+    node.WantHiddenTabBarToggle = false
+
+    ImGui.DockNodeUpdateVisibleFlag(node)
+end
+
+function ImGui.DockNodeUpdateHasCentralNodeChild(node)
+    node.HasCentralNodeChild = false
+    if node.ChildNodes[0] then ImGui.DockNodeUpdateHasCentralNodeChild(node.ChildNodes[0]) end
+    if node.ChildNodes[1] then ImGui.DockNodeUpdateHasCentralNodeChild(node.ChildNodes[1]) end
+    if node:IsRootNode() then
+        local mark_node = node.CentralNode
+        while mark_node do
+            mark_node.HasCentralNodeChild = true
+            mark_node = mark_node.ParentNode
+        end
+    end
+end
+
+function ImGui.DockNodeUpdateVisibleFlag(node)
+    local is_visible = (node.ParentNode == nil) and node:IsDockSpace() or node:IsCentralNode()
+    is_visible = is_visible or (node.Windows.Size > 0)
+    is_visible = is_visible or (node.ChildNodes[0] ~= nil and node.ChildNodes[0].IsVisible)
+    is_visible = is_visible or (node.ChildNodes[1] ~= nil and node.ChildNodes[1].IsVisible)
+    node.IsVisible = is_visible and true or false
+end
+
+function ImGui.DockNodeStartMouseMovingWindow(node, window)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(node.WantMouseMove == true)
+    ImGui.StartMouseMovingWindow(window)
+    ImVec2_Copy(g.ActiveIdClickOffset, g.IO.MouseClickedPos[0] - node.Pos)
+    g.MovingWindow = window
+    node.WantMouseMove = false
+end
+
+function ImGui.DockNodeUpdateForRootNode(node)
+    ImGui.DockNodeUpdateFlagsAndCollapse(node)
+
+    local info = { CentralNode = nil, FirstNodeWithWindows = nil, CountNodesWithWindows = 0 }
+    DockNodeFindInfo(node, info)
+    node.CentralNode = info.CentralNode
+    node.OnlyNodeWithWindows = (info.CountNodesWithWindows == 1) and info.FirstNodeWithWindows or nil
+    node.CountNodeWithWindows = info.CountNodesWithWindows
+    if node.LastFocusedNodeId == 0 and info.FirstNodeWithWindows ~= nil then
+        node.LastFocusedNodeId = info.FirstNodeWithWindows.ID
+    end
+
+    local first_node_with_windows = info.FirstNodeWithWindows
+    if first_node_with_windows then
+        node.WindowClass = first_node_with_windows.Windows.Data[1].WindowClass
+        for n = 2, first_node_with_windows.Windows.Size do
+            if first_node_with_windows.Windows.Data[n].WindowClass.DockingAllowUnclassed == false then
+                node.WindowClass = first_node_with_windows.Windows.Data[n].WindowClass
+                break
+            end
+        end
+    end
+
+    local mark_node = node.CentralNode
+    while mark_node do
+        mark_node.HasCentralNodeChild = true
+        mark_node = mark_node.ParentNode
+    end
+end
+
+local function DockNodeSetupHostWindow(node, host_window)
+    if node.HostWindow and node.HostWindow ~= host_window and node.HostWindow.DockNodeAsHost == node then
+        node.HostWindow.DockNodeAsHost = nil
+    end
+    host_window.DockNodeAsHost = node
+    node.HostWindow = host_window
+end
+
+function ImGui.DockNodeUpdate(node)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(node.LastFrameActive ~= g.FrameCount)
+    node.LastFrameAlive = g.FrameCount
+    node.IsBgDrawnThisFrame = false
+
+    node.CentralNode = nil
+    node.OnlyNodeWithWindows = nil
+    if node:IsRootNode() then ImGui.DockNodeUpdateForRootNode(node) end
+
+    if node.TabBar and node:IsNoTabBar() then ImGui.DockNodeRemoveTabBar(node) end
+
+    local want_to_hide_host_window = false
+    if node:IsFloatingNode() then
+        if node.Windows.Size <= 1 and node:IsLeafNode() then
+            if not g.IO.ConfigDockingAlwaysTabBar and (node.Windows.Size == 0 or not node.Windows.Data[1].WindowClass.DockingAlwaysTabBar) then
+                want_to_hide_host_window = true
+            end
+        end
+        if node.CountNodeWithWindows == 0 then want_to_hide_host_window = true end
+    end
+    if want_to_hide_host_window then
+        if node.Windows.Size == 1 then
+            local single_window = node.Windows.Data[1]
+            node.Pos = ImVec2(single_window.Pos.x, single_window.Pos.y)
+            node.Size = ImVec2(single_window.SizeFull.x, single_window.SizeFull.y)
+            node.AuthorityForPos = ImGuiDataAuthority.Window
+            node.AuthorityForSize = ImGuiDataAuthority.Window
+            node.AuthorityForViewport = ImGuiDataAuthority.Window
+
+            if node.HostWindow and g.NavWindow == node.HostWindow then
+                ImGui.FocusWindow(single_window)
+            end
+            if node.HostWindow then
+                single_window.Viewport = node.HostWindow.Viewport
+                single_window.ViewportId = node.HostWindow.ViewportId
+            end
+            node.RefViewportId = single_window.ViewportId or 0
+        end
+
+        ImGui.DockNodeHideHostWindow(node)
+        node.State = ImGuiDockNodeState.HostWindowHiddenBecauseSingleWindow
+        node.WantCloseAll = false
+        node.WantCloseTabId = 0
+        node.HasCloseButton = false
+        node.HasWindowMenuButton = false
+        node.LastFrameActive = g.FrameCount
+
+        if node.WantMouseMove and node.Windows.Size == 1 then
+            ImGui.DockNodeStartMouseMovingWindow(node, node.Windows.Data[1])
+        end
+        return
+    end
+
+    if node.IsVisible and node.HostWindow == nil and node:IsFloatingNode() and node:IsLeafNode() then
+        IM_ASSERT(node.Windows.Size > 0)
+        local ref_window = nil
+        if node.SelectedTabId ~= 0 then ref_window = ImGui.DockNodeFindWindowByID(node, node.SelectedTabId) end
+        if ref_window == nil then ref_window = node.Windows.Data[1] end
+        if ref_window.AutoFitFramesX > 0 or ref_window.AutoFitFramesY > 0 then
+            node.State = ImGuiDockNodeState.HostWindowHiddenBecauseWindowsAreResizing
+            return
+        end
+    end
+
+    local node_flags = node.MergedFlags
+
+    node.HasWindowMenuButton = (node.Windows.Size > 0) and bit32.band(node_flags, ImGuiDockNodeFlags.NoWindowMenuButton) == 0
+    node.HasCloseButton = false
+    for _, window in node.Windows:iter() do
+        node.HasCloseButton = node.HasCloseButton or window.HasCloseButton
+        window.DockIsActive = (node.Windows.Size > 1)
+    end
+    if bit32.band(node_flags, ImGuiDockNodeFlags.NoCloseButton) ~= 0 or not g.Style.DockingNodeHasCloseButton then
+        node.HasCloseButton = false
+    end
+
+    local host_window = nil
+    local beginned_into_host_window = false
+    if node:IsDockSpace() then
+        IM_ASSERT(node.HostWindow)
+        host_window = node.HostWindow
+    else
+        if node:IsRootNode() and node.IsVisible then
+            local ref_window = (node.Windows.Size > 0) and node.Windows.Data[1] or nil
+
+            if node.AuthorityForPos == ImGuiDataAuthority.Window and ref_window then
+                ImGui.SetNextWindowPos(ref_window.Pos)
+            elseif node.AuthorityForPos == ImGuiDataAuthority.DockNode then
+                ImGui.SetNextWindowPos(node.Pos)
+            end
+
+            if node.AuthorityForSize == ImGuiDataAuthority.Window and ref_window then
+                ImGui.SetNextWindowSize(ref_window.SizeFull)
+            elseif node.AuthorityForSize == ImGuiDataAuthority.DockNode then
+                ImGui.SetNextWindowSize(node.Size)
+            end
+
+            if node.AuthorityForSize == ImGuiDataAuthority.Window and ref_window then
+                ImGui.SetNextWindowCollapsed(ref_window.Collapsed)
+            end
+
+            ImGui.SetNextWindowClass(node.WindowClass)
+
+            local window_label = DockNodeGetHostWindowTitle(node)
+            local window_flags = bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse, ImGuiWindowFlags.DockNodeHost)
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoFocusOnAppearing)
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.NoNavFocus, ImGuiWindowFlags.NoCollapse)
+            window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoTitleBar)
+
+            ImGui.SetNextWindowBgAlpha(0.0)
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0, 0))
+            ImGui.Begin(window_label, nil, window_flags)
+            ImGui.PopStyleVar()
+            beginned_into_host_window = true
+
+            host_window = g.CurrentWindow
+            DockNodeSetupHostWindow(node, host_window)
+            ImVec2_Copy(host_window.DC.CursorPos, host_window.Pos)
+            node.Pos = ImVec2(host_window.Pos.x, host_window.Pos.y)
+            node.Size = ImVec2(host_window.Size.x, host_window.Size.y)
+
+            if node.HostWindow.Appearing then ImGui.BringWindowToDisplayFront(node.HostWindow) end
+
+            node.AuthorityForPos = ImGuiDataAuthority.Auto
+            node.AuthorityForSize = ImGuiDataAuthority.Auto
+            node.AuthorityForViewport = ImGuiDataAuthority.Auto
+        elseif node.ParentNode then
+            host_window = node.ParentNode.HostWindow
+            node.HostWindow = host_window
+            node.AuthorityForPos = ImGuiDataAuthority.Auto
+            node.AuthorityForSize = ImGuiDataAuthority.Auto
+            node.AuthorityForViewport = ImGuiDataAuthority.Auto
+        end
+        if node.WantMouseMove and node.HostWindow then
+            ImGui.DockNodeStartMouseMovingWindow(node, node.HostWindow)
+        end
+    end
+    node.RefViewportId = 0
+
+    if node:IsSplitNode() then IM_ASSERT(node.TabBar == nil) end
+    if node:IsRootNode() then
+        local p_window = g.NavWindow and g.NavWindow.RootWindow or nil
+        while p_window ~= nil and p_window.DockNode ~= nil do
+            local p_node = ImGui.DockNodeGetRootNode(p_window.DockNode)
+            if p_node == node then
+                node.LastFocusedNodeId = p_window.DockNode.ID
+                break
+            end
+            p_window = p_node.HostWindow and p_node.HostWindow.RootWindow or nil
+        end
+    end
+
+    local central_node = node.CentralNode
+    local central_node_hole = node:IsRootNode() and host_window ~= nil and bit32.band(node_flags, ImGuiDockNodeFlags.PassthruCentralNode) ~= 0 and central_node ~= nil and central_node:IsEmpty()
+    local central_node_hole_register_hit_test_hole = central_node_hole
+    if central_node_hole then
+        local payload = ImGui.GetDragDropPayload()
+        if payload and ImGuiPayload_IsDataType(payload, IMGUI_PAYLOAD_TYPE_WINDOW) and ImGui.DockNodeIsDropAllowed(host_window, payload.Data) then
+            central_node_hole_register_hit_test_hole = false
+        end
+    end
+    if central_node_hole_register_hit_test_hole then
+        IM_ASSERT(node:IsDockSpace())
+        local root_node = ImGui.DockNodeGetRootNode(central_node)
+        local root_rect = ImRect(root_node.Pos, root_node.Pos + root_node.Size)
+        local hole_rect = ImRect(central_node.Pos, central_node.Pos + central_node.Size)
+        if hole_rect.Min.x > root_rect.Min.x then hole_rect.Min.x = hole_rect.Min.x + g.WindowsBorderHoverPadding end
+        if hole_rect.Max.x < root_rect.Max.x then hole_rect.Max.x = hole_rect.Max.x - g.WindowsBorderHoverPadding end
+        if hole_rect.Min.y > root_rect.Min.y then hole_rect.Min.y = hole_rect.Min.y + g.WindowsBorderHoverPadding end
+        if hole_rect.Max.y < root_rect.Max.y then hole_rect.Max.y = hole_rect.Max.y - g.WindowsBorderHoverPadding end
+        if central_node_hole and not IsRectInverted(hole_rect) then
+            ImGui.SetWindowHitTestHole(host_window, hole_rect.Min, hole_rect.Max - hole_rect.Min)
+            if host_window.ParentWindow then
+                ImGui.SetWindowHitTestHole(host_window.ParentWindow, hole_rect.Min, hole_rect.Max - hole_rect.Min)
+            end
+        end
+    end
+
+    if node:IsRootNode() and host_window then
+        ImGui.DockNodeTreeUpdatePosSize(node, host_window.Pos, host_window.Size)
+        ImGui.PushStyleColor(ImGuiCol.Separator, g.Style.Colors[ImGuiCol.Border])
+        ImGui.PushStyleColor(ImGuiCol.SeparatorActive, g.Style.Colors[ImGuiCol.ResizeGripActive])
+        ImGui.PushStyleColor(ImGuiCol.SeparatorHovered, g.Style.Colors[ImGuiCol.ResizeGripHovered])
+        ImGui.DockNodeTreeUpdateSplitter(node)
+        ImGui.PopStyleColor(3)
+    end
+
+    if host_window and node:IsEmpty() and node.IsVisible then
+        host_window.DrawList:ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG)
+        node.LastBgColor = (bit32.band(node_flags, ImGuiDockNodeFlags.PassthruCentralNode) ~= 0) and 0 or ImGui.GetColorU32(ImGuiCol.DockingEmptyBg)
+        if node.LastBgColor ~= 0 then
+            host_window.DrawList:AddRectFilled(node.Pos, node.Pos + node.Size, node.LastBgColor)
+        end
+        node.IsBgDrawnThisFrame = true
+    end
+
+    local render_dockspace_bg = node:IsRootNode() and host_window ~= nil and bit32.band(node_flags, ImGuiDockNodeFlags.PassthruCentralNode) ~= 0
+    if render_dockspace_bg and node.IsVisible then
+        host_window.DrawList:ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG)
+        if central_node_hole then
+            ImGui.RenderRectFilledWithHole(host_window.DrawList, node:Rect(), central_node:Rect(), ImGui.GetColorU32(ImGuiCol.WindowBg), 0.0)
+        else
+            host_window.DrawList:AddRectFilled(node.Pos, node.Pos + node.Size, ImGui.GetColorU32(ImGuiCol.WindowBg), 0.0)
+        end
+    end
+
+    if host_window then host_window.DrawList:ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_FG) end
+    if host_window and node.Windows.Size > 0 then
+        ImGui.DockNodeUpdateTabBar(node, host_window)
+    else
+        node.WantCloseAll = false
+        node.WantCloseTabId = 0
+        node.IsFocused = false
+    end
+    if node.TabBar and node.TabBar.SelectedTabId ~= 0 then
+        node.SelectedTabId = node.TabBar.SelectedTabId
+    elseif node.Windows.Size > 0 then
+        node.SelectedTabId = node.Windows.Data[1].TabId
+    end
+
+    if host_window and node.IsVisible then
+        if node:IsRootNode() and (g.MovingWindow == nil or g.MovingWindow.RootWindowDockTree ~= host_window) then
+            ImGui.BeginDockableDragDropTarget(host_window)
+        end
+    end
+
+    node.LastFrameActive = g.FrameCount
+
+    if host_window then
+        if node.ChildNodes[0] then ImGui.DockNodeUpdate(node.ChildNodes[0]) end
+        if node.ChildNodes[1] then ImGui.DockNodeUpdate(node.ChildNodes[1]) end
+        if node:IsRootNode() then ImGui.RenderWindowOuterBorders(host_window) end
+    end
+
+    if beginned_into_host_window then ImGui.End() end
+end
+
+local GWindowDockStyleColors = {
+    [0] = ImGuiCol.Text, ImGuiCol.TabHovered, ImGuiCol.Tab, ImGuiCol.TabSelected, ImGuiCol.TabSelectedOverline,
+    ImGuiCol.TabDimmed, ImGuiCol.TabDimmedSelected, ImGuiCol.TabDimmedSelectedOverline, ImGuiCol.UnsavedMarker,
+}
+ImGui.GWindowDockStyleColors = GWindowDockStyleColors
+
+local function TabItemComparerByDockOrder(ta, tb)
+    local a, b = ta.Window, tb.Window
+    local ao = (a.DockOrder == -1) and INT_MAX or a.DockOrder
+    local bo = (b.DockOrder == -1) and INT_MAX or b.DockOrder
+    if ao ~= bo then return ao < bo end
+    return a.BeginOrderWithinContext < b.BeginOrderWithinContext
+end
+
+function ImGui.DockNodeWindowMenuHandler_Default(ctx, node, tab_bar)
+    if tab_bar.Tabs.Size == 1 then
+        if ImGui.MenuItem(ImGui.LocalizeGetMsg(ImGuiLocKey.DockingHideTabBar), nil, node:IsHiddenTabBar()) then
+            node.WantHiddenTabBarToggle = true
+        end
+    else
+        for tab_n = 1, tab_bar.Tabs.Size do
+            local tab = tab_bar.Tabs.Data[tab_n]
+            if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) == 0 then
+                if ImGui.Selectable(ImGui.TabBarGetTabName(tab_bar, tab), tab.ID == tab_bar.SelectedTabId) then
+                    ImGui.TabBarQueueFocus(tab_bar, tab)
+                end
+                ImGui.SameLine()
+                ImGui.Text("   ")
+            end
+        end
+    end
+end
+
+function ImGui.DockNodeWindowMenuUpdate(node, tab_bar)
+    local g = ImGui.GetCurrentContext()
+    if g.Style.WindowMenuButtonPosition == ImGuiDir.Left then
+        ImGui.SetNextWindowPos(ImVec2(node.Pos.x, node.Pos.y + ImGui.GetFrameHeight()), ImGuiCond.Always, ImVec2(0.0, 0.0))
+    else
+        ImGui.SetNextWindowPos(ImVec2(node.Pos.x + node.Size.x, node.Pos.y + ImGui.GetFrameHeight()), ImGuiCond.Always, ImVec2(1.0, 0.0))
+    end
+    if ImGui.BeginPopup("#WindowMenu") then
+        node.IsFocused = true
+        g.DockNodeWindowMenuHandler(g, node, tab_bar)
+        ImGui.EndPopup()
+    end
+end
+
+function ImGui.DockNodeBeginAmendTabBar(node)
+    if node.TabBar == nil or node.HostWindow == nil then return false end
+    if bit32.band(node.MergedFlags, ImGuiDockNodeFlags.KeepAliveOnly) ~= 0 then return false end
+    if node.TabBar.ID == 0 then return false end
+    ImGui.Begin(node.HostWindow.Name)
+    ImGui.PushOverrideID(node.ID)
+    local ret = ImGui.BeginTabBarEx(node.TabBar, node.TabBar.BarRect, node.TabBar.Flags)
+    IM_ASSERT(ret)
+    return true
+end
+
+function ImGui.DockNodeEndAmendTabBar()
+    ImGui.EndTabBar()
+    ImGui.PopID()
+    ImGui.End()
+end
+
+local function IsDockNodeTitleBarHighlighted(node, root_node)
+    local g = ImGui.GetCurrentContext()
+    if g.NavWindowingTarget then
+        return g.NavWindowingTarget.DockNode == node
+    end
+    if g.NavWindow and root_node.LastFocusedNodeId == node.ID then
+        local parent_window = g.NavWindow.RootWindow
+        while bit32.band(parent_window.Flags, ImGuiWindowFlags.ChildMenu) ~= 0 do
+            parent_window = parent_window.ParentWindow.RootWindow
+        end
+        local parent_node = parent_window.DockNodeAsHost or parent_window.DockNode
+        while parent_node ~= nil do
+            parent_node = ImGui.DockNodeGetRootNode(parent_node)
+            if parent_node == root_node then return true end
+            parent_node = parent_node.HostWindow and parent_node.HostWindow.RootWindow.DockNode or nil
+        end
+    end
+    return false
+end
+
+function ImGui.DockNodeUpdateTabBar(node, host_window)
+    local g = ImGui.GetCurrentContext()
+    local style = g.Style
+
+    local node_was_active = (node.LastFrameActive + 1 == g.FrameCount)
+    node.WantCloseAll = false
+    node.WantCloseTabId = 0
+
+    local is_focused = false
+    local root_node = ImGui.DockNodeGetRootNode(node)
+    if IsDockNodeTitleBarHighlighted(node, root_node) then is_focused = true end
+
+    if node:IsHiddenTabBar() or node:IsNoTabBar() then
+        node.VisibleWindow = (node.Windows.Size > 0) and node.Windows.Data[1] or nil
+        node.IsFocused = is_focused
+        if is_focused then node.LastFrameFocused = g.FrameCount end
+        if node.VisibleWindow then
+            if is_focused or root_node.VisibleWindow == nil then root_node.VisibleWindow = node.VisibleWindow end
+            if node.TabBar then node.TabBar.VisibleTabId = node.VisibleWindow.TabId end
+        end
+        return
+    end
+
+    local backup_skip_item = host_window.SkipItems
+    if not node:IsDockSpace() then
+        host_window.SkipItems = false
+        host_window.DC.NavLayerCurrent = ImGuiNavLayer.Menu
+    end
+
+    ImGui.PushOverrideID(node.ID)
+    local tab_bar = node.TabBar
+    local tab_bar_is_recreated = (tab_bar == nil)
+    if tab_bar == nil then
+        ImGui.DockNodeAddTabBar(node)
+        tab_bar = node.TabBar
+    end
+
+    local focus_tab_id = 0
+    node.IsFocused = is_focused
+
+    local node_flags = node.MergedFlags
+    local has_window_menu_button = bit32.band(node_flags, ImGuiDockNodeFlags.NoWindowMenuButton) == 0 and (style.WindowMenuButtonPosition ~= ImGuiDir.None)
+
+    if has_window_menu_button and ImGui.IsPopupOpen("#WindowMenu") then
+        local next_selected_tab_id = tab_bar.NextSelectedTabId
+        ImGui.DockNodeWindowMenuUpdate(node, tab_bar)
+        if tab_bar.NextSelectedTabId ~= 0 and tab_bar.NextSelectedTabId ~= next_selected_tab_id then
+            focus_tab_id = tab_bar.NextSelectedTabId
+        end
+        is_focused = is_focused or node.IsFocused
+    end
+
+    local title_bar_rect, tab_bar_rect, window_menu_button_pos, close_button_pos = ImGui.DockNodeCalcTabBarLayout(node)
+
+    local tabs_count_old = tab_bar.Tabs.Size
+    for window_n = 1, node.Windows.Size do
+        local window = node.Windows.Data[window_n]
+        if ImGui.TabBarFindTabByID(tab_bar, window.TabId) == nil then
+            ImGui.TabBarAddTab(tab_bar, ImGuiTabItemFlags.Unsorted, window)
+        end
+    end
+
+    if is_focused then node.LastFrameFocused = g.FrameCount end
+    local title_bar_col = ImGui.GetColorU32(host_window.Collapsed and ImGuiCol.TitleBgCollapsed or (is_focused and ImGuiCol.TitleBgActive or ImGuiCol.TitleBg))
+    local rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(title_bar_rect, host_window:Rect(), g.Style.DockingSeparatorSize)
+    host_window.DrawList:AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, host_window.WindowRounding, rounding_flags)
+
+    if has_window_menu_button then
+        if ImGui.CollapseButton(host_window:GetID("#COLLAPSE"), window_menu_button_pos, node) then
+            ImGui.OpenPopup("#WindowMenu")
+        end
+        if ImGui.IsItemActive() then focus_tab_id = tab_bar.SelectedTabId end
+        if ImGui.IsItemHovered(bit32.bor(ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.DelayNormal)) and g.HoveredIdTimer > 0.5 then
+            ImGui.SetTooltip("%s", ImGui.LocalizeGetMsg(ImGuiLocKey.DockingDragToUndockOrMoveNode))
+        end
+    end
+
+    local tabs_unsorted_start = tab_bar.Tabs.Size -- 0-based
+    local tab_n = tab_bar.Tabs.Size - 1
+    while tab_n >= 0 and bit32.band(tab_bar.Tabs.Data[tab_n + 1].Flags, ImGuiTabItemFlags.Unsorted) ~= 0 do
+        local t = tab_bar.Tabs.Data[tab_n + 1]
+        t.Flags = bit32.band(t.Flags, bit32.bnot(ImGuiTabItemFlags.Unsorted))
+        tabs_unsorted_start = tab_n
+        tab_n = tab_n - 1
+    end
+    if tab_bar.Tabs.Size > tabs_unsorted_start + 1 then
+        local slice = {}
+        for i = tabs_unsorted_start + 1, tab_bar.Tabs.Size do slice[#slice + 1] = tab_bar.Tabs.Data[i] end
+        table.sort(slice, TabItemComparerByDockOrder)
+        for i, t in ipairs(slice) do tab_bar.Tabs.Data[tabs_unsorted_start + i] = t end
+    end
+
+    if g.NavWindow and g.NavWindow.RootWindow.DockNode == node then
+        tab_bar.SelectedTabId = g.NavWindow.RootWindow.TabId
+    end
+
+    if tab_bar_is_recreated and ImGui.TabBarFindTabByID(tab_bar, node.SelectedTabId) ~= nil then
+        tab_bar.SelectedTabId = node.SelectedTabId
+        tab_bar.NextSelectedTabId = node.SelectedTabId
+    elseif tab_bar.Tabs.Size > tabs_count_old then
+        tab_bar.SelectedTabId = tab_bar.Tabs.Data[tab_bar.Tabs.Size].Window.TabId
+        tab_bar.NextSelectedTabId = tab_bar.SelectedTabId
+    end
+
+    local tab_bar_flags = bit32.bor(ImGuiTabBarFlags.Reorderable, ImGuiTabBarFlags.AutoSelectNewTabs)
+    tab_bar_flags = bit32.bor(tab_bar_flags, ImGuiTabBarFlags.SaveSettings, ImGuiTabBarFlags.DockNode)
+    tab_bar_flags = bit32.bor(tab_bar_flags, ImGuiTabBarFlags.FittingPolicyMixed)
+    tab_bar_flags = bit32.bor(tab_bar_flags, ImGuiTabBarFlags.DrawSelectedOverline)
+    if not host_window.Collapsed and is_focused then
+        tab_bar_flags = bit32.bor(tab_bar_flags, ImGuiTabBarFlags.IsFocused)
+    end
+    tab_bar.ID = node.ID
+    tab_bar.SeparatorMinX = node.Pos.x + host_window.WindowBorderSize
+    tab_bar.SeparatorMaxX = node.Pos.x + node.Size.x - host_window.WindowBorderSize
+    ImGui.BeginTabBarEx(tab_bar, tab_bar_rect, tab_bar_flags)
+
+    local backup_style_cols = {}
+    for color_n = 0, ImGuiWindowDockStyleCol.COUNT - 1 do
+        local c = g.Style.Colors[GWindowDockStyleColors[color_n]]
+        backup_style_cols[color_n] = ImVec4(c.x, c.y, c.z, c.w)
+    end
+
+    node.VisibleWindow = nil
+    for window_n = 1, node.Windows.Size do
+        local window = node.Windows.Data[window_n]
+        if not (window.LastFrameActive + 1 < g.FrameCount and node_was_active) then
+            local tab_item_flags = 0
+            tab_item_flags = bit32.bor(tab_item_flags, window.WindowClass.TabItemFlagsOverrideSet or 0)
+            if bit32.band(window.Flags, ImGuiWindowFlags.UnsavedDocument) ~= 0 then
+                tab_item_flags = bit32.bor(tab_item_flags, ImGuiTabItemFlags.UnsavedDocument)
+            end
+            if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.NoCloseWithMiddleMouseButton) ~= 0 then
+                tab_item_flags = bit32.bor(tab_item_flags, ImGuiTabItemFlags.NoCloseWithMiddleMouseButton)
+            end
+
+            for color_n = 0, ImGuiWindowDockStyleCol.COUNT - 1 do
+                ImVec4_Copy(g.Style.Colors[GWindowDockStyleColors[color_n]], ImGui.ColorConvertU32ToFloat4(window.DockStyle.Colors[color_n]))
+            end
+
+            local _, tab_open = ImGui.TabItemEx(tab_bar, window.Name, window.HasCloseButton and true or nil, tab_item_flags, window)
+            if tab_open == false then node.WantCloseTabId = window.TabId end
+            if tab_bar.VisibleTabId == window.TabId then node.VisibleWindow = window end
+
+            window.DC.DockTabItemStatusFlags = g.LastItemData.StatusFlags
+            window.DC.DockTabItemRect = ImRect(g.LastItemData.Rect.Min, g.LastItemData.Rect.Max)
+
+            if g.NavWindow and g.NavWindow.RootWindow == window and bit32.band(window.DC.NavLayersActiveMask, bit32.lshift(1, ImGuiNavLayer.Menu)) == 0 then
+                host_window.NavLastIds[1] = window.TabId
+            end
+        end
+    end
+
+    for color_n = 0, ImGuiWindowDockStyleCol.COUNT - 1 do
+        ImVec4_Copy(g.Style.Colors[GWindowDockStyleColors[color_n]], backup_style_cols[color_n])
+    end
+
+    if node.VisibleWindow then
+        if is_focused or root_node.VisibleWindow == nil then root_node.VisibleWindow = node.VisibleWindow end
+    end
+
+    local close_button_is_enabled = node.HasCloseButton and node.VisibleWindow and node.VisibleWindow.HasCloseButton
+    local close_button_is_visible = node.HasCloseButton
+    if close_button_is_visible then
+        if not close_button_is_enabled then
+            ImGui.PushItemFlag(ImGuiItemFlags.Disabled, true)
+            local tc = style.Colors[ImGuiCol.Text]
+            ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(tc.x, tc.y, tc.z, tc.w * 0.4))
+        end
+        if ImGui.CloseButton(host_window:GetID("#CLOSE"), close_button_pos) then
+            node.WantCloseAll = true
+            for n = 1, tab_bar.Tabs.Size do ImGui.TabBarCloseTab(tab_bar, tab_bar.Tabs.Data[n]) end
+        end
+        if not close_button_is_enabled then
+            ImGui.PopStyleColor()
+            ImGui.PopItemFlag()
+        end
+    end
+
+    local title_bar_id = host_window:GetID("#TITLEBAR")
+    if g.HoveredId == 0 or g.HoveredId == title_bar_id or g.ActiveId == title_bar_id then
+        ImGui.KeepAliveID(title_bar_id)
+        local _, _, held = ImGui.ButtonBehavior(title_bar_rect, title_bar_id, ImGuiButtonFlags.AllowOverlap)
+        if g.HoveredId == title_bar_id then g.LastItemData.ID = title_bar_id end
+        if held then
+            if ImGui.IsMouseClicked(0) then focus_tab_id = tab_bar.SelectedTabId end
+            local tab = ImGui.TabBarFindTabByID(tab_bar, tab_bar.SelectedTabId)
+            if tab then
+                ImGui.StartMouseMovingWindowOrNode(tab.Window or node.HostWindow, node, false)
+            end
+        end
+    end
+
+    if tab_bar.NextSelectedTabId ~= 0 then focus_tab_id = tab_bar.NextSelectedTabId end
+
+    if focus_tab_id ~= 0 then
+        local tab = ImGui.TabBarFindTabByID(tab_bar, focus_tab_id)
+        if tab and tab.Window then
+            ImGui.FocusWindow(tab.Window)
+            if g.NavId == 0 then ImGui.NavInitWindow(tab.Window, false) end
+        end
+    end
+
+    ImGui.EndTabBar()
+    ImGui.PopID()
+
+    if not node:IsDockSpace() then
+        host_window.DC.NavLayerCurrent = ImGuiNavLayer.Main
+        host_window.SkipItems = backup_skip_item
+    end
+end
+
+function ImGui.DockNodeAddTabBar(node)
+    IM_ASSERT(node.TabBar == nil)
+    node.TabBar = ImGuiTabBar()
+end
+
+function ImGui.DockNodeRemoveTabBar(node)
+    if node.TabBar == nil then return end
+    node.TabBar = nil
+end
+local function DockNodeIsDropAllowedOne(payload, host_window)
+    if host_window.DockNodeAsHost and host_window.DockNodeAsHost:IsDockSpace() and payload.BeginOrderWithinContext < host_window.BeginOrderWithinContext then
+        return false
+    end
+
+    local host_class = host_window.DockNodeAsHost and host_window.DockNodeAsHost.WindowClass or host_window.WindowClass
+    local payload_class = payload.WindowClass
+    if host_class.ClassId ~= payload_class.ClassId then
+        local pass = false
+        if host_class.ClassId ~= 0 and host_class.DockingAllowUnclassed and payload_class.ClassId == 0 then pass = true end
+        if payload_class.ClassId ~= 0 and payload_class.DockingAllowUnclassed and host_class.ClassId == 0 then pass = true end
+        if not pass then return false end
+    end
+
+    local g = ImGui.GetCurrentContext()
+    for i = g.OpenPopupStack.Size, 1, -1 do
+        local popup_window = g.OpenPopupStack.Data[i].Window
+        if popup_window and ImGui.IsWindowWithinBeginStackOf(payload, popup_window) then
+            return false
+        end
+    end
+    return true
+end
+
+function ImGui.DockNodeIsDropAllowed(host_window, root_payload)
+    if root_payload.DockNodeAsHost and root_payload.DockNodeAsHost:IsSplitNode() then return true end
+    local payload_count = root_payload.DockNodeAsHost and root_payload.DockNodeAsHost.Windows.Size or 1
+    for payload_n = 1, payload_count do
+        local payload = root_payload.DockNodeAsHost and root_payload.DockNodeAsHost.Windows.Data[payload_n] or root_payload
+        if DockNodeIsDropAllowedOne(payload, host_window) then return true end
+    end
+    return false
+end
+
+--- @return ImRect title_rect, ImRect tab_bar_rect, ImVec2 window_menu_button_pos, ImVec2? close_button_pos
+function ImGui.DockNodeCalcTabBarLayout(node)
+    local g = ImGui.GetCurrentContext()
+    local style = g.Style
+
+    local r = ImRect(node.Pos.x, node.Pos.y, node.Pos.x + node.Size.x, node.Pos.y + g.FontSize + g.Style.FramePadding.y * 2.0)
+    local out_title_rect = ImRect(r.Min, r.Max)
+
+    r.Min.x = r.Min.x + style.WindowBorderSize
+    r.Max.x = r.Max.x - style.WindowBorderSize
+
+    local button_sz = g.FontSize
+    r.Min.x = r.Min.x + style.FramePadding.x
+    r.Max.x = r.Max.x - style.FramePadding.x
+    local window_menu_button_pos = ImVec2(r.Min.x, r.Min.y + style.FramePadding.y)
+    local out_close_button_pos = nil
+    if node.HasCloseButton then
+        out_close_button_pos = ImVec2(r.Max.x - button_sz, r.Min.y + style.FramePadding.y)
+        r.Max.x = r.Max.x - (button_sz + style.ItemInnerSpacing.x)
+    end
+    if node.HasWindowMenuButton and style.WindowMenuButtonPosition == ImGuiDir.Left then
+        r.Min.x = r.Min.x + button_sz + style.ItemInnerSpacing.x
+    elseif node.HasWindowMenuButton and style.WindowMenuButtonPosition == ImGuiDir.Right then
+        window_menu_button_pos = ImVec2(r.Max.x - button_sz, r.Min.y + style.FramePadding.y)
+        r.Max.x = r.Max.x - (button_sz + style.ItemInnerSpacing.x)
+    end
+    return out_title_rect, r, window_menu_button_pos, out_close_button_pos
+end
+
+--- Modifies pos_old/size_old/pos_new/size_new in place (ImVec2 tables)
+function ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, dir, size_new_desired)
+    local g = ImGui.GetCurrentContext()
+    local dock_spacing = g.Style.ItemInnerSpacing.x
+    local axis = (dir == ImGuiDir.Left or dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
+    local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+    pos_new[o] = pos_old[o]
+    size_new[o] = size_old[o]
+
+    local w_avail = size_old[a] - dock_spacing
+    if size_new_desired[a] > 0.0 and size_new_desired[a] <= w_avail * 0.5 then
+        size_new[a] = size_new_desired[a]
+        size_old[a] = IM_TRUNC(w_avail - size_new[a])
+    else
+        size_new[a] = IM_TRUNC(w_avail * 0.5)
+        size_old[a] = IM_TRUNC(w_avail - size_new[a])
+    end
+
+    if dir == ImGuiDir.Right or dir == ImGuiDir.Down then
+        pos_new[a] = pos_old[a] + size_old[a] + dock_spacing
+    elseif dir == ImGuiDir.Left or dir == ImGuiDir.Up then
+        pos_new[a] = pos_old[a]
+        pos_old[a] = pos_new[a] + size_new[a] + dock_spacing
+    end
+end
+
+local function ImGetDirQuadrantFromDeltaLocal(dx, dy)
+    if math.abs(dx) > math.abs(dy) then
+        return (dx > 0.0) and ImGuiDir.Right or ImGuiDir.Left
+    end
+    return (dy > 0.0) and ImGuiDir.Down or ImGuiDir.Up
+end
+
+--- @return bool hit, ImRect out_r
+function ImGui.DockNodeCalcDropRectsAndTestMousePos(parent, dir, outer_docking, test_mouse_pos)
+    local g = ImGui.GetCurrentContext()
+
+    local parent_smaller_axis = ImMin(parent:GetWidth(), parent:GetHeight())
+    local hs_for_central_nodes = ImMin(g.FontSize * 1.5, ImMax(g.FontSize * 0.5, parent_smaller_axis / 8.0))
+    local hs_w, hs_h, off
+    if outer_docking then
+        hs_w = ImTrunc(hs_for_central_nodes * 1.50)
+        hs_h = ImTrunc(hs_for_central_nodes * 0.80)
+        off = ImVec2(ImTrunc(parent:GetWidth() * 0.5 - hs_h), ImTrunc(parent:GetHeight() * 0.5 - hs_h))
+    else
+        hs_w = ImTrunc(hs_for_central_nodes)
+        hs_h = ImTrunc(hs_for_central_nodes * 0.90)
+        off = ImVec2(ImTrunc(hs_w * 2.40), ImTrunc(hs_w * 2.40))
+    end
+
+    local pc = parent:GetCenter()
+    local c = ImVec2(ImTrunc(pc.x), ImTrunc(pc.y))
+    local out_r
+    if dir == ImGuiDir.None then out_r = ImRect(c.x - hs_w, c.y - hs_w, c.x + hs_w, c.y + hs_w)
+    elseif dir == ImGuiDir.Up then out_r = ImRect(c.x - hs_w, c.y - off.y - hs_h, c.x + hs_w, c.y - off.y + hs_h)
+    elseif dir == ImGuiDir.Down then out_r = ImRect(c.x - hs_w, c.y + off.y - hs_h, c.x + hs_w, c.y + off.y + hs_h)
+    elseif dir == ImGuiDir.Left then out_r = ImRect(c.x - off.x - hs_h, c.y - hs_w, c.x - off.x + hs_h, c.y + hs_w)
+    elseif dir == ImGuiDir.Right then out_r = ImRect(c.x + off.x - hs_h, c.y - hs_w, c.x + off.x + hs_h, c.y + hs_w) end
+
+    if test_mouse_pos == nil then return false, out_r end
+
+    local hit_r = ImRect(out_r.Min, out_r.Max)
+    if not outer_docking then
+        hit_r:Expand(ImTrunc(hs_w * 0.30))
+        local mdx, mdy = test_mouse_pos.x - c.x, test_mouse_pos.y - c.y
+        local mouse_delta_len2 = mdx * mdx + mdy * mdy
+        local r_threshold_center = hs_w * 1.4
+        local r_threshold_sides = hs_w * (1.4 + 1.2)
+        if mouse_delta_len2 < r_threshold_center * r_threshold_center then
+            return (dir == ImGuiDir.None), out_r
+        end
+        if mouse_delta_len2 < r_threshold_sides * r_threshold_sides then
+            return (dir == ImGetDirQuadrantFromDeltaLocal(mdx, mdy)), out_r
+        end
+    end
+    return hit_r:Contains(test_mouse_pos), out_r
+end
+
+function ImGui.DockNodePreviewDockSetup(host_window, host_node, payload_window, payload_node, data, is_explicit_target, is_outer_docking)
+    local g = ImGui.GetCurrentContext()
+
+    if payload_node == nil then payload_node = payload_window.DockNodeAsHost end
+    local ref_node_for_rect = (host_node and not host_node.IsVisible) and ImGui.DockNodeGetRootNode(host_node) or host_node
+    if ref_node_for_rect then IM_ASSERT(ref_node_for_rect.IsVisible == true) end
+
+    local src_node_flags = payload_node and payload_node.MergedFlags or payload_window.WindowClass.DockNodeFlagsOverrideSet
+    local dst_node_flags = host_node and host_node.MergedFlags or host_window.WindowClass.DockNodeFlagsOverrideSet
+    data.IsCenterAvailable = true
+    if is_outer_docking then
+        data.IsCenterAvailable = false
+    elseif g.IO.ConfigDockingNoDockingOver then
+        data.IsCenterAvailable = false
+    elseif bit32.band(dst_node_flags, ImGuiDockNodeFlags.NoDockingOverMe) ~= 0 then
+        data.IsCenterAvailable = false
+    elseif host_node and bit32.band(dst_node_flags, ImGuiDockNodeFlags.NoDockingOverCentralNode) ~= 0 and host_node:IsCentralNode() then
+        data.IsCenterAvailable = false
+    elseif (not host_node or not host_node:IsEmpty()) and payload_node and payload_node:IsSplitNode() and (payload_node.OnlyNodeWithWindows == nil) then
+        data.IsCenterAvailable = false
+    elseif bit32.band(src_node_flags, ImGuiDockNodeFlags.NoDockingOverOther) ~= 0 and (not host_node or not host_node:IsEmpty()) then
+        data.IsCenterAvailable = false
+    elseif bit32.band(src_node_flags, ImGuiDockNodeFlags.NoDockingOverEmpty) ~= 0 and host_node and host_node:IsEmpty() then
+        data.IsCenterAvailable = false
+    end
+
+    data.IsSidesAvailable = true
+    if bit32.band(dst_node_flags, ImGuiDockNodeFlags.NoDockingSplit) ~= 0 or g.IO.ConfigDockingNoSplit then
+        data.IsSidesAvailable = false
+    elseif not is_outer_docking and host_node and host_node.ParentNode == nil and host_node:IsCentralNode() then
+        data.IsSidesAvailable = false
+    elseif bit32.band(src_node_flags, ImGuiDockNodeFlags.NoDockingSplitOther) ~= 0 then
+        data.IsSidesAvailable = false
+    end
+
+    data.FutureNode.HasCloseButton = (host_node and host_node.HasCloseButton or (not host_node and host_window.HasCloseButton)) or payload_window.HasCloseButton
+    data.FutureNode.HasWindowMenuButton = host_node and true or (bit32.band(host_window.Flags, ImGuiWindowFlags.NoCollapse) == 0)
+    local rp = ref_node_for_rect and ref_node_for_rect.Pos or host_window.Pos
+    local rs = ref_node_for_rect and ref_node_for_rect.Size or host_window.Size
+    data.FutureNode.Pos = ImVec2(rp.x, rp.y)
+    data.FutureNode.Size = ImVec2(rs.x, rs.y)
+
+    data.SplitNode = host_node
+    data.SplitDir = ImGuiDir.None
+    data.IsSplitDirExplicit = false
+    if not host_window.Collapsed then
+        for dir = ImGuiDir.None, ImGuiDir.COUNT - 1 do
+            if not ((dir == ImGuiDir.None and not data.IsCenterAvailable) or (dir ~= ImGuiDir.None and not data.IsSidesAvailable)) then
+                local hit, r = ImGui.DockNodeCalcDropRectsAndTestMousePos(data.FutureNode:Rect(), dir, is_outer_docking, g.IO.MousePos)
+                data.DropRectsDraw[dir + 1] = r
+                if hit then
+                    data.SplitDir = dir
+                    data.IsSplitDirExplicit = true
+                end
+            end
+        end
+    end
+
+    data.IsDropAllowed = (data.SplitDir ~= ImGuiDir.None) or data.IsCenterAvailable
+    if not is_explicit_target and not data.IsSplitDirExplicit and not g.IO.ConfigDockingWithShift then
+        data.IsDropAllowed = false
+    end
+
+    data.SplitRatio = 0.0
+    if data.SplitDir ~= ImGuiDir.None then
+        local split_dir = data.SplitDir
+        local split_axis = (split_dir == ImGuiDir.Left or split_dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
+        local pos_new, pos_old = ImVec2(0, 0), ImVec2(data.FutureNode.Pos.x, data.FutureNode.Pos.y)
+        local size_new, size_old = ImVec2(0, 0), ImVec2(data.FutureNode.Size.x, data.FutureNode.Size.y)
+        ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, split_dir, payload_window.Size)
+
+        local split_ratio = ImSaturate(size_new[split_axis + 1] / data.FutureNode.Size[split_axis + 1])
+        data.FutureNode.Pos = pos_new
+        data.FutureNode.Size = size_new
+        data.SplitRatio = (split_dir == ImGuiDir.Right or split_dir == ImGuiDir.Down) and (1.0 - split_ratio) or split_ratio
+    end
+end
+
+function ImGui.DockNodePreviewDockRender(host_window, host_node, root_payload, data)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(g.CurrentWindow == host_window)
+
+    local is_transparent_payload = g.IO.ConfigDockingTransparentPayload
+
+    local overlay_draw_lists = { ImGui.GetForegroundDrawList(host_window.Viewport) }
+
+    local overlay_col_main = ImGui.GetColorU32(ImGuiCol.DockingPreview, is_transparent_payload and 0.60 or 0.40)
+    local overlay_col_drop = ImGui.GetColorU32(ImGuiCol.DockingPreview, is_transparent_payload and 0.90 or 0.70)
+    local overlay_col_drop_hovered = ImGui.GetColorU32(ImGuiCol.DockingPreview, is_transparent_payload and 1.20 or 1.00)
+    local overlay_col_lines = ImGui.GetColorU32(ImGuiCol.NavWindowingHighlight, is_transparent_payload and 0.80 or 0.60)
+
+    local can_preview_tabs = (root_payload.DockNodeAsHost == nil or root_payload.DockNodeAsHost.Windows.Size > 0)
+    if data.IsDropAllowed then
+        local overlay_rect = data.FutureNode:Rect()
+        if data.SplitDir == ImGuiDir.None and can_preview_tabs then
+            overlay_rect.Min.y = overlay_rect.Min.y + ImGui.GetFrameHeight()
+        end
+        if data.SplitDir ~= ImGuiDir.None or data.IsCenterAvailable then
+            for _, dl in ipairs(overlay_draw_lists) do
+                dl:AddRectFilled(overlay_rect.Min, overlay_rect.Max, overlay_col_main, host_window.WindowRounding, ImGui.CalcRoundingFlagsForRectInRect(overlay_rect, host_window:Rect(), g.Style.DockingSeparatorSize))
+            end
+        end
+    end
+
+    if data.IsDropAllowed and can_preview_tabs and data.SplitDir == ImGuiDir.None and data.IsCenterAvailable then
+        local _, tab_bar_rect = ImGui.DockNodeCalcTabBarLayout(data.FutureNode)
+        local tab_pos = ImVec2(tab_bar_rect.Min.x, tab_bar_rect.Min.y)
+        if host_node and host_node.TabBar then
+            if not host_node:IsHiddenTabBar() and not host_node:IsNoTabBar() then
+                tab_pos.x = tab_pos.x + host_node.TabBar.WidthAllTabs + g.Style.ItemInnerSpacing.x
+            else
+                tab_pos.x = tab_pos.x + g.Style.ItemInnerSpacing.x + ImGui.TabItemCalcSize(host_node.Windows.Data[1]).x
+            end
+        elseif bit32.band(host_window.Flags, ImGuiWindowFlags.DockNodeHost) == 0 then
+            tab_pos.x = tab_pos.x + g.Style.ItemInnerSpacing.x + ImGui.TabItemCalcSize(host_window).x
+        end
+
+        if root_payload.DockNodeAsHost then
+            IM_ASSERT(root_payload.DockNodeAsHost.Windows.Size <= root_payload.DockNodeAsHost.TabBar.Tabs.Size)
+        end
+        local tab_bar_with_payload = root_payload.DockNodeAsHost and root_payload.DockNodeAsHost.TabBar or nil
+        local payload_count = tab_bar_with_payload and tab_bar_with_payload.Tabs.Size or 1
+        for payload_n = 1, payload_count do
+            local payload_window = tab_bar_with_payload and tab_bar_with_payload.Tabs.Data[payload_n].Window or root_payload
+            if not (tab_bar_with_payload and payload_window == nil) and DockNodeIsDropAllowedOne(payload_window, host_window) then
+                local tab_size = ImGui.TabItemCalcSize(payload_window)
+                local tab_bb = ImRect(tab_pos.x, tab_pos.y, tab_pos.x + tab_size.x, tab_pos.y + tab_size.y)
+                tab_pos.x = tab_pos.x + tab_size.x + g.Style.ItemInnerSpacing.x
+                local overlay_col_text = ImGui.GetColorU32(payload_window.DockStyle.Colors[ImGuiWindowDockStyleCol.Text], 1.0, true)
+                local overlay_col_tabs = ImGui.GetColorU32(payload_window.DockStyle.Colors[ImGuiWindowDockStyleCol.TabSelected], 1.0, true)
+                local overlay_col_unsaved_marker = ImGui.GetColorU32(payload_window.DockStyle.Colors[ImGuiWindowDockStyleCol.UnsavedMarker], 1.0, true)
+                ImGui.PushStyleColor(ImGuiCol.Text, ImGui.ColorConvertU32ToFloat4(overlay_col_text))
+                ImGui.PushStyleColor(ImGuiCol.UnsavedMarker, ImGui.ColorConvertU32ToFloat4(overlay_col_unsaved_marker))
+                for _, dl in ipairs(overlay_draw_lists) do
+                    local tab_flags = bit32.band(payload_window.Flags, ImGuiWindowFlags.UnsavedDocument) ~= 0 and ImGuiTabItemFlags.UnsavedDocument or 0
+                    local contains = tab_bar_rect:Contains(tab_bb)
+                    if not contains then dl:PushClipRect(tab_bar_rect.Min, tab_bar_rect.Max) end
+                    ImGui.TabItemBackground(dl, tab_bb, tab_flags, overlay_col_tabs)
+                    ImGui.TabItemLabelAndCloseButton(dl, tab_bb, tab_flags, g.Style.FramePadding, payload_window.Name, 0, 0, false)
+                    if not contains then dl:PopClipRect() end
+                end
+                ImGui.PopStyleColor(2)
+            end
+        end
+    end
+
+    local scale = g.Style._MainScale or 1.0
+    local overlay_rounding = ImMax(math.floor(3.0 * scale), g.Style.FrameRounding)
+    for dir = ImGuiDir.None, ImGuiDir.COUNT - 1 do
+        local draw_r = data.DropRectsDraw[dir + 1]
+        if not IsRectInverted(draw_r) then
+            local draw_r_in = ImRect(draw_r.Min, draw_r.Max)
+            draw_r_in:Expand(math.floor(-2.0 * scale))
+            local overlay_col = (data.SplitDir == dir and data.IsSplitDirExplicit) and overlay_col_drop_hovered or overlay_col_drop
+            local thickness = math.floor(1.0 * scale)
+            for _, dl in ipairs(overlay_draw_lists) do
+                local cc = draw_r_in:GetCenter()
+                local center = ImVec2(math.floor(cc.x), math.floor(cc.y))
+                dl:AddRectFilled(draw_r.Min, draw_r.Max, overlay_col, overlay_rounding)
+                dl:AddRect(draw_r_in.Min, draw_r_in.Max, overlay_col_lines, overlay_rounding, 0, thickness)
+                if dir == ImGuiDir.Left or dir == ImGuiDir.Right then
+                    dl:AddLineV(center.x, draw_r_in.Min.y, draw_r_in.Max.y, overlay_col_lines, thickness)
+                end
+                if dir == ImGuiDir.Up or dir == ImGuiDir.Down then
+                    dl:AddLineH(draw_r_in.Min.x, draw_r_in.Max.x, center.y, overlay_col_lines, thickness)
+                end
+            end
+        end
+        if (host_node and bit32.band(host_node.MergedFlags, ImGuiDockNodeFlags.NoDockingSplit) ~= 0) or g.IO.ConfigDockingNoSplit then
+            return
+        end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: ImGuiDockNode Tree manipulation functions
+---------------------------------------------------------------------------------------
+
+function ImGui.DockNodeTreeSplit(ctx, parent_node, split_axis, split_inheritor_child_idx, split_ratio, new_node)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(split_axis ~= ImGuiAxis.None)
+
+    local child_0 = (new_node and split_inheritor_child_idx ~= 0) and new_node or ImGui.DockContextAddNode(ctx, 0)
+    child_0.ParentNode = parent_node
+
+    local child_1 = (new_node and split_inheritor_child_idx ~= 1) and new_node or ImGui.DockContextAddNode(ctx, 0)
+    child_1.ParentNode = parent_node
+
+    local child_inheritor = (split_inheritor_child_idx == 0) and child_0 or child_1
+    ImGui.DockNodeMoveChildNodes(child_inheritor, parent_node)
+    parent_node.ChildNodes[0] = child_0
+    parent_node.ChildNodes[1] = child_1
+    parent_node.ChildNodes[split_inheritor_child_idx].VisibleWindow = parent_node.VisibleWindow
+    parent_node.SplitAxis = split_axis
+    parent_node.VisibleWindow = nil
+    parent_node.AuthorityForPos = ImGuiDataAuthority.DockNode
+    parent_node.AuthorityForSize = ImGuiDataAuthority.DockNode
+
+    local a = split_axis + 1
+    local size_avail = parent_node.Size[a] - g.Style.DockingSeparatorSize
+    size_avail = ImMax(size_avail, g.Style.WindowMinSize[a] * 2.0)
+    IM_ASSERT(size_avail > 0.0)
+    child_0.SizeRef = ImVec2(parent_node.Size.x, parent_node.Size.y)
+    child_1.SizeRef = ImVec2(parent_node.Size.x, parent_node.Size.y)
+    child_0.SizeRef[a] = ImTrunc(size_avail * split_ratio)
+    child_1.SizeRef[a] = ImTrunc(size_avail - child_0.SizeRef[a])
+
+    ImGui.DockNodeMoveWindows(parent_node.ChildNodes[split_inheritor_child_idx], parent_node)
+    DockSettingsRenameNodeReferences(parent_node.ID, parent_node.ChildNodes[split_inheritor_child_idx].ID)
+    ImGui.DockNodeUpdateHasCentralNodeChild(ImGui.DockNodeGetRootNode(parent_node))
+    ImGui.DockNodeTreeUpdatePosSize(parent_node, parent_node.Pos, parent_node.Size)
+
+    child_0.SharedFlags = bit32.band(parent_node.SharedFlags, ImGuiDockNodeFlags.SharedFlagsInheritMask_)
+    child_1.SharedFlags = bit32.band(parent_node.SharedFlags, ImGuiDockNodeFlags.SharedFlagsInheritMask_)
+    child_inheritor.LocalFlags = bit32.band(parent_node.LocalFlags, ImGuiDockNodeFlags.LocalFlagsTransferMask_)
+    parent_node.LocalFlags = bit32.band(parent_node.LocalFlags, bit32.bnot(ImGuiDockNodeFlags.LocalFlagsTransferMask_))
+    child_0:UpdateMergedFlags()
+    child_1:UpdateMergedFlags()
+    parent_node:UpdateMergedFlags()
+    if child_inheritor:IsCentralNode() then
+        ImGui.DockNodeGetRootNode(parent_node).CentralNode = child_inheritor
+    end
+end
+
+function ImGui.DockNodeTreeMerge(ctx, parent_node, merge_lead_child)
+    local child_0 = parent_node.ChildNodes[0]
+    local child_1 = parent_node.ChildNodes[1]
+    IM_ASSERT(child_0 or child_1)
+    IM_ASSERT(merge_lead_child == child_0 or merge_lead_child == child_1)
+    if (child_0 and child_0.Windows.Size > 0) or (child_1 and child_1.Windows.Size > 0) then
+        IM_ASSERT(parent_node.TabBar == nil)
+        IM_ASSERT(parent_node.Windows.Size == 0)
+    end
+
+    local backup_last_explicit_size = ImVec2(parent_node.SizeRef.x, parent_node.SizeRef.y)
+    ImGui.DockNodeMoveChildNodes(parent_node, merge_lead_child)
+    if child_0 then
+        ImGui.DockNodeMoveWindows(parent_node, child_0)
+        DockSettingsRenameNodeReferences(child_0.ID, parent_node.ID)
+    end
+    if child_1 then
+        ImGui.DockNodeMoveWindows(parent_node, child_1)
+        DockSettingsRenameNodeReferences(child_1.ID, parent_node.ID)
+    end
+    ImGui.DockNodeApplyPosSizeToWindows(parent_node)
+    parent_node.AuthorityForPos = ImGuiDataAuthority.Auto
+    parent_node.AuthorityForSize = ImGuiDataAuthority.Auto
+    parent_node.AuthorityForViewport = ImGuiDataAuthority.Auto
+    parent_node.VisibleWindow = merge_lead_child.VisibleWindow
+    parent_node.SizeRef = backup_last_explicit_size
+
+    local M = ImGuiDockNodeFlags.LocalFlagsTransferMask_
+    parent_node.LocalFlags = bit32.band(parent_node.LocalFlags, bit32.bnot(M))
+    parent_node.LocalFlags = bit32.bor(parent_node.LocalFlags, bit32.band(child_0 and child_0.LocalFlags or 0, M))
+    parent_node.LocalFlags = bit32.bor(parent_node.LocalFlags, bit32.band(child_1 and child_1.LocalFlags or 0, M))
+    parent_node.LocalFlagsInWindows = bit32.bor(child_0 and child_0.LocalFlagsInWindows or 0, child_1 and child_1.LocalFlagsInWindows or 0)
+    parent_node:UpdateMergedFlags()
+
+    if child_0 then ImGui.DockContextDeleteNode(ctx, child_0) end
+    if child_1 then ImGui.DockContextDeleteNode(ctx, child_1) end
+end
+
+function ImGui.DockNodeTreeUpdatePosSize(node, pos, size, only_write_to_single_node)
+    local g = ImGui.GetCurrentContext()
+    local write_to_node = only_write_to_single_node == nil or only_write_to_single_node == node
+    if write_to_node then
+        node.Pos = ImVec2(pos.x, pos.y)
+        node.Size = ImVec2(size.x, size.y)
+    end
+
+    if node:IsLeafNode() then return end
+
+    local child_0 = node.ChildNodes[0]
+    local child_1 = node.ChildNodes[1]
+    local child_0_pos, child_1_pos = ImVec2(pos.x, pos.y), ImVec2(pos.x, pos.y)
+    local child_0_size, child_1_size = ImVec2(size.x, size.y), ImVec2(size.x, size.y)
+
+    local child_0_is_toward_single_node = (only_write_to_single_node ~= nil and ImGui.DockNodeIsInHierarchyOf(only_write_to_single_node, child_0))
+    local child_1_is_toward_single_node = (only_write_to_single_node ~= nil and ImGui.DockNodeIsInHierarchyOf(only_write_to_single_node, child_1))
+    local child_0_is_or_will_be_visible = child_0.IsVisible or child_0_is_toward_single_node
+    local child_1_is_or_will_be_visible = child_1.IsVisible or child_1_is_toward_single_node
+
+    if child_0_is_or_will_be_visible and child_1_is_or_will_be_visible then
+        local spacing = g.Style.DockingSeparatorSize
+        local a = node.SplitAxis + 1
+        local size_avail = ImMax(size[a] - spacing, 0.0)
+
+        local size_min_each = ImTrunc(ImMin(size_avail, g.Style.WindowMinSize[a] * 2.0) * 0.5)
+
+        if child_0.WantLockSizeOnce and not child_1.WantLockSizeOnce then
+            child_0_size[a] = ImMin(size_avail - 1.0, child_0.Size[a]); child_0.SizeRef[a] = child_0_size[a]
+            child_1_size[a] = size_avail - child_0_size[a]; child_1.SizeRef[a] = child_1_size[a]
+        elseif child_1.WantLockSizeOnce and not child_0.WantLockSizeOnce then
+            child_1_size[a] = ImMin(size_avail - 1.0, child_1.Size[a]); child_1.SizeRef[a] = child_1_size[a]
+            child_0_size[a] = size_avail - child_1_size[a]; child_0.SizeRef[a] = child_0_size[a]
+        elseif child_0.WantLockSizeOnce and child_1.WantLockSizeOnce then
+            local split_ratio = child_0_size[a] / (child_0_size[a] + child_1_size[a])
+            child_0_size[a] = ImTrunc(size_avail * split_ratio); child_0.SizeRef[a] = child_0_size[a]
+            child_1_size[a] = size_avail - child_0_size[a]; child_1.SizeRef[a] = child_1_size[a]
+        elseif child_0.SizeRef[a] ~= 0.0 and child_1.HasCentralNodeChild then
+            child_0_size[a] = ImMin(size_avail - size_min_each, child_0.SizeRef[a])
+            child_1_size[a] = size_avail - child_0_size[a]
+        elseif child_1.SizeRef[a] ~= 0.0 and child_0.HasCentralNodeChild then
+            child_1_size[a] = ImMin(size_avail - size_min_each, child_1.SizeRef[a])
+            child_0_size[a] = size_avail - child_1_size[a]
+        else
+            local split_ratio = child_0.SizeRef[a] / (child_0.SizeRef[a] + child_1.SizeRef[a])
+            child_0_size[a] = ImMax(size_min_each, ImTrunc(size_avail * split_ratio + 0.5))
+            child_1_size[a] = size_avail - child_0_size[a]
+        end
+
+        child_1_pos[a] = child_1_pos[a] + spacing + child_0_size[a]
+    end
+
+    if only_write_to_single_node == nil then
+        child_0.WantLockSizeOnce = false
+        child_1.WantLockSizeOnce = false
+    end
+    local child_0_recurse = only_write_to_single_node and child_0_is_toward_single_node or (not only_write_to_single_node and child_0.IsVisible)
+    local child_1_recurse = only_write_to_single_node and child_1_is_toward_single_node or (not only_write_to_single_node and child_1.IsVisible)
+    if child_0_recurse then ImGui.DockNodeTreeUpdatePosSize(child_0, child_0_pos, child_0_size) end
+    if child_1_recurse then ImGui.DockNodeTreeUpdatePosSize(child_1, child_1_pos, child_1_size) end
+end
+
+local function DockNodeTreeUpdateSplitterFindTouchingNode(node, axis, side, touching_nodes)
+    if node:IsLeafNode() then
+        table.insert(touching_nodes, node)
+        return
+    end
+    if node.ChildNodes[0].IsVisible then
+        if node.SplitAxis ~= axis or side == 0 or not node.ChildNodes[1].IsVisible then
+            DockNodeTreeUpdateSplitterFindTouchingNode(node.ChildNodes[0], axis, side, touching_nodes)
+        end
+    end
+    if node.ChildNodes[1].IsVisible then
+        if node.SplitAxis ~= axis or side == 1 or not node.ChildNodes[0].IsVisible then
+            DockNodeTreeUpdateSplitterFindTouchingNode(node.ChildNodes[1], axis, side, touching_nodes)
+        end
+    end
+end
+
+local WINDOWS_RESIZE_FROM_EDGES_FEEDBACK_TIMER = 0.04
+
+function ImGui.DockNodeTreeUpdateSplitter(node)
+    if node:IsLeafNode() then return end
+
+    local g = ImGui.GetCurrentContext()
+
+    local child_0 = node.ChildNodes[0]
+    local child_1 = node.ChildNodes[1]
+    if child_0.IsVisible and child_1.IsVisible then
+        local axis = node.SplitAxis
+        IM_ASSERT(axis ~= ImGuiAxis.None)
+        local a, o = axis + 1, bit32.bxor(axis, 1) + 1
+        local bb = ImRect(ImVec2(child_0.Pos.x, child_0.Pos.y), ImVec2(child_1.Pos.x, child_1.Pos.y))
+        bb.Min[a] = bb.Min[a] + child_0.Size[a]
+        bb.Max[o] = bb.Max[o] + child_1.Size[o]
+
+        local merged_flags = bit32.bor(child_0.MergedFlags, child_1.MergedFlags)
+        local no_resize_axis_flag = (axis == ImGuiAxis.X) and ImGuiDockNodeFlags.NoResizeX or ImGuiDockNodeFlags.NoResizeY
+        if bit32.band(merged_flags, ImGuiDockNodeFlags.NoResize) ~= 0 or bit32.band(merged_flags, no_resize_axis_flag) ~= 0 then
+            local window = g.CurrentWindow
+            window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.Separator), g.Style.FrameRounding)
+        else
+            ImGui.PushID(node.ID)
+
+            local touching_nodes = { [0] = {}, [1] = {} }
+            local min_size = g.Style.WindowMinSize[a]
+            local resize_limits = { [0] = node.ChildNodes[0].Pos[a] + min_size, [1] = node.ChildNodes[1].Pos[a] + node.ChildNodes[1].Size[a] - min_size }
+
+            local splitter_id = ImGui.GetID("##Splitter")
+            if g.ActiveId == splitter_id then
+                DockNodeTreeUpdateSplitterFindTouchingNode(child_0, axis, 1, touching_nodes[0])
+                DockNodeTreeUpdateSplitterFindTouchingNode(child_1, axis, 0, touching_nodes[1])
+                for _, tn in ipairs(touching_nodes[0]) do
+                    resize_limits[0] = ImMax(resize_limits[0], tn:Rect().Min[a] + min_size)
+                end
+                for _, tn in ipairs(touching_nodes[1]) do
+                    resize_limits[1] = ImMin(resize_limits[1], tn:Rect().Max[a] - min_size)
+                end
+            end
+
+            local cur_size_0 = child_0.Size[a]
+            local cur_size_1 = child_1.Size[a]
+            local min_size_0 = resize_limits[0] - child_0.Pos[a]
+            local min_size_1 = child_1.Pos[a] + child_1.Size[a] - resize_limits[1]
+            local bg_col = ImGui.GetColorU32(ImGuiCol.WindowBg)
+            local changed
+            changed, cur_size_0, cur_size_1 = ImGui.SplitterBehavior(bb, ImGui.GetID("##Splitter"), axis, cur_size_0, cur_size_1, min_size_0, min_size_1, g.WindowsBorderHoverPadding, WINDOWS_RESIZE_FROM_EDGES_FEEDBACK_TIMER, bg_col)
+            if changed then
+                if #touching_nodes[0] > 0 and #touching_nodes[1] > 0 then
+                    child_0.Size[a] = cur_size_0; child_0.SizeRef[a] = cur_size_0
+                    child_1.Pos[a] = child_1.Pos[a] - (cur_size_1 - child_1.Size[a])
+                    child_1.Size[a] = cur_size_1; child_1.SizeRef[a] = cur_size_1
+
+                    for side_n = 0, 1 do
+                        for _, touching_node in ipairs(touching_nodes[side_n]) do
+                            while touching_node.ParentNode ~= node do
+                                if touching_node.ParentNode.SplitAxis == axis then
+                                    local node_to_preserve = touching_node.ParentNode.ChildNodes[side_n]
+                                    node_to_preserve.WantLockSizeOnce = true
+                                end
+                                touching_node = touching_node.ParentNode
+                            end
+                        end
+                    end
+
+                    ImGui.DockNodeTreeUpdatePosSize(child_0, child_0.Pos, child_0.Size)
+                    ImGui.DockNodeTreeUpdatePosSize(child_1, child_1.Pos, child_1.Size)
+                    ImGui.MarkIniSettingsDirty()
+                end
+            end
+            ImGui.PopID()
+        end
+    end
+
+    if child_0.IsVisible then ImGui.DockNodeTreeUpdateSplitter(child_0) end
+    if child_1.IsVisible then ImGui.DockNodeTreeUpdateSplitter(child_1) end
+end
+
+function ImGui.DockNodeTreeFindFallbackLeafNode(node)
+    if node:IsLeafNode() then return node end
+    local leaf_node = ImGui.DockNodeTreeFindFallbackLeafNode(node.ChildNodes[0])
+    if leaf_node then return leaf_node end
+    leaf_node = ImGui.DockNodeTreeFindFallbackLeafNode(node.ChildNodes[1])
+    if leaf_node then return leaf_node end
+    return nil
+end
+
+function ImGui.DockNodeTreeFindVisibleNodeByPos(node, pos)
+    if not node.IsVisible then return nil end
+    local r = ImRect(node.Pos, node.Pos + node.Size)
+    if not r:Contains(pos) then return nil end
+    if node:IsLeafNode() then return node end
+    local hovered_node = ImGui.DockNodeTreeFindVisibleNodeByPos(node.ChildNodes[0], pos)
+    if hovered_node then return hovered_node end
+    hovered_node = ImGui.DockNodeTreeFindVisibleNodeByPos(node.ChildNodes[1], pos)
+    if hovered_node then return hovered_node end
+    return node
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: Public Functions (SetWindowDock, DockSpace, DockSpaceOverViewport)
+---------------------------------------------------------------------------------------
+
+function ImGui.SetWindowDock(window, dock_id, cond)
+    if cond and cond ~= 0 and bit32.band(window.SetWindowDockAllowFlags, cond) == 0 then return end
+    window.SetWindowDockAllowFlags = bit32.band(window.SetWindowDockAllowFlags, bit32.bnot(bit32.bor(ImGuiCond.Once, ImGuiCond.FirstUseEver, ImGuiCond.Appearing)))
+
+    if window.DockId == dock_id then return end
+
+    local g = ImGui.GetCurrentContext()
+    local new_node = ImGui.DockContextFindNodeByID(g, dock_id)
+    if new_node and new_node:IsSplitNode() then
+        new_node = ImGui.DockNodeGetRootNode(new_node)
+        if new_node.CentralNode then
+            IM_ASSERT(new_node.CentralNode:IsCentralNode())
+            dock_id = new_node.CentralNode.ID
+        else
+            dock_id = new_node.LastFocusedNodeId
+        end
+    end
+
+    if window.DockId == dock_id then return end
+
+    if window.DockNode then ImGui.DockNodeRemoveWindow(window.DockNode, window, 0) end
+    window.DockId = dock_id
+end
+
+function ImGui.DockSpace(dockspace_id, size_arg, flags, window_class)
+    if size_arg == nil then size_arg = ImVec2(0, 0) end
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    local window = ImGui.GetCurrentWindowRead()
+    if bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then return 0 end
+
+    if window.SkipItems then flags = bit32.bor(flags, ImGuiDockNodeFlags.KeepAliveOnly) end
+    if bit32.band(flags, ImGuiDockNodeFlags.KeepAliveOnly) == 0 then window = ImGui.GetCurrentWindow() end
+
+    IM_ASSERT(bit32.band(flags, ImGuiDockNodeFlags.DockSpace) == 0)
+    IM_ASSERT(bit32.band(flags, ImGuiDockNodeFlags.CentralNode) == 0)
+
+    IM_ASSERT(dockspace_id ~= 0)
+    local node = ImGui.DockContextFindNodeByID(g, dockspace_id)
+    if node == nil then
+        node = ImGui.DockContextAddNode(g, dockspace_id)
+        node:SetLocalFlags(ImGuiDockNodeFlags.CentralNode)
+    end
+    node.SharedFlags = flags
+    node.WindowClass = window_class or ImGuiWindowClass()
+
+    if node.LastFrameActive == g.FrameCount and bit32.band(flags, ImGuiDockNodeFlags.KeepAliveOnly) == 0 then
+        IM_ASSERT(node:IsDockSpace() == false, "Cannot call DockSpace() twice a frame with the same ID")
+        node:SetLocalFlags(bit32.bor(node.LocalFlags, ImGuiDockNodeFlags.DockSpace))
+        return dockspace_id
+    end
+    node:SetLocalFlags(bit32.bor(node.LocalFlags, ImGuiDockNodeFlags.DockSpace))
+
+    if bit32.band(flags, ImGuiDockNodeFlags.KeepAliveOnly) ~= 0 then
+        node.LastFrameAlive = g.FrameCount
+        return dockspace_id
+    end
+
+    local content_avail = ImGui.GetContentRegionAvail()
+    local size = ImVec2(ImTrunc(size_arg.x), ImTrunc(size_arg.y))
+    if size.x <= 0.0 then size.x = ImMax(content_avail.x + size.x, 4.0) end
+    if size.y <= 0.0 then size.y = ImMax(content_avail.y + size.y, 4.0) end
+    IM_ASSERT(size.x > 0.0 and size.y > 0.0)
+
+    node.Pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+    node.Size = ImVec2(size.x, size.y)
+    node.SizeRef = ImVec2(size.x, size.y)
+    ImGui.SetNextWindowPos(node.Pos)
+    ImGui.SetNextWindowSize(node.Size)
+    g.NextWindowData.PosUndock = false
+
+    local window_flags = bit32.bor(ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.DockNodeHost)
+    window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoCollapse, ImGuiWindowFlags.NoTitleBar)
+    window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)
+    window_flags = bit32.bor(window_flags, ImGuiWindowFlags.NoBackground)
+
+    local title = string.format("%s/DockSpace_%08X", window.Name, dockspace_id)
+
+    ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 0.0)
+    ImGui.Begin(title, nil, window_flags)
+    ImGui.PopStyleVar()
+
+    local host_window = g.CurrentWindow
+    DockNodeSetupHostWindow(node, host_window)
+    host_window.ChildId = window:GetID(title)
+    node.OnlyNodeWithWindows = nil
+
+    IM_ASSERT(node:IsRootNode())
+
+    if node:IsLeafNode() and not node:IsCentralNode() then
+        node:SetLocalFlags(bit32.bor(node.LocalFlags, ImGuiDockNodeFlags.CentralNode))
+    end
+
+    ImGui.DockNodeUpdate(node)
 
     ImGui.End()
 
-    return open
+    local bb = ImRect(node.Pos, node.Pos + size)
+    ImGui.ItemSize(size)
+    ImGui.ItemAdd(bb, dockspace_id, nil, ImGuiItemFlags.NoNav)
+    if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect) ~= 0 and ImGui.IsWindowChildOf(g.HoveredWindow, host_window, false, true) then
+        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredWindow)
+    end
+
+    return dockspace_id
 end
 
+function ImGui.DockSpaceOverViewport(dockspace_id, viewport, dockspace_flags, window_class)
+    if dockspace_id == nil then dockspace_id = 0 end
+    if dockspace_flags == nil then dockspace_flags = 0 end
+    if viewport == nil then viewport = ImGui.GetMainViewport() end
+
+    ImGui.SetNextWindowPos(viewport.WorkPos)
+    ImGui.SetNextWindowSize(viewport.WorkSize)
+    ImGui.SetNextWindowViewport(viewport.ID)
+
+    local host_window_flags = 0
+    host_window_flags = bit32.bor(host_window_flags, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoCollapse, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoDocking)
+    host_window_flags = bit32.bor(host_window_flags, ImGuiWindowFlags.NoBringToFrontOnFocus, ImGuiWindowFlags.NoNavFocus)
+    if bit32.band(dockspace_flags, ImGuiDockNodeFlags.PassthruCentralNode) ~= 0 then
+        host_window_flags = bit32.bor(host_window_flags, ImGuiWindowFlags.NoBackground)
+    end
+    if bit32.band(dockspace_flags, ImGuiDockNodeFlags.KeepAliveOnly) ~= 0 then
+        host_window_flags = bit32.bor(host_window_flags, ImGuiWindowFlags.NoMouseInputs)
+    end
+
+    local label = string.format("WindowOverViewport_%08X", viewport.ID)
+
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0.0, 0.0))
+    ImGui.Begin(label, nil, host_window_flags)
+    ImGui.PopStyleVar(3)
+
+    if dockspace_id == 0 then dockspace_id = ImGui.GetID("DockSpace") end
+    ImGui.DockSpace(dockspace_id, ImVec2(0.0, 0.0), dockspace_flags, window_class)
+
+    ImGui.End()
+
+    return dockspace_id
 end
 
+---------------------------------------------------------------------------------------
+-- Docking: Builder Functions
+---------------------------------------------------------------------------------------
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+function ImGui.DockBuilderDockWindow(window_name, node_id)
+    local window_id = ImHashStr(window_name)
+    local window = ImGui.FindWindowByID(window_id)
+    if window then
+        local prev_node_id = window.DockId
+        ImGui.SetWindowDock(window, node_id, ImGuiCond.Always)
+        if window.DockId ~= prev_node_id then window.DockOrder = -1 end
+    else
+        local settings = ImGui.FindWindowSettingsByID(window_id)
+        if settings == nil then settings = ImGui.CreateNewWindowSettings(window_name) end
+        if settings.DockId ~= node_id then settings.DockOrder = -1 end
+        settings.DockId = node_id
+    end
+end
+
+function ImGui.DockBuilderGetNode(node_id)
+    return ImGui.DockContextFindNodeByID(ImGui.GetCurrentContext(), node_id)
+end
+
+function ImGui.DockBuilderGetCentralNode(node_id)
+    local node = ImGui.DockBuilderGetNode(node_id)
+    if not node then return nil end
+    return ImGui.DockNodeGetRootNode(node).CentralNode
+end
+
+function ImGui.DockBuilderSetNodePos(node_id, pos)
+    local node = ImGui.DockContextFindNodeByID(ImGui.GetCurrentContext(), node_id)
+    if node == nil then return end
+    node.Pos = ImVec2(pos.x, pos.y)
+    node.AuthorityForPos = ImGuiDataAuthority.DockNode
+end
+
+function ImGui.DockBuilderSetNodeSize(node_id, size)
+    local node = ImGui.DockContextFindNodeByID(ImGui.GetCurrentContext(), node_id)
+    if node == nil then return end
+    IM_ASSERT(size.x > 0.0 and size.y > 0.0)
+    node.Size = ImVec2(size.x, size.y)
+    node.SizeRef = ImVec2(size.x, size.y)
+    node.AuthorityForSize = ImGuiDataAuthority.DockNode
+end
+
+function ImGui.DockBuilderAddNode(node_id, flags)
+    if node_id == nil then node_id = 0 end
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    if node_id ~= 0 then ImGui.DockBuilderRemoveNode(node_id) end
+
+    local node
+    if bit32.band(flags, ImGuiDockNodeFlags.DockSpace) ~= 0 then
+        ImGui.DockSpace(node_id, ImVec2(0, 0), bit32.bor(bit32.band(flags, bit32.bnot(ImGuiDockNodeFlags.DockSpace)), ImGuiDockNodeFlags.KeepAliveOnly))
+        node = ImGui.DockContextFindNodeByID(g, node_id)
+    else
+        node = ImGui.DockContextAddNode(g, node_id)
+        node:SetLocalFlags(flags)
+    end
+    node.LastFrameAlive = g.FrameCount
+    return node.ID
+end
+
+function ImGui.DockBuilderRemoveNode(node_id)
+    local g = ImGui.GetCurrentContext()
+    local node = ImGui.DockContextFindNodeByID(g, node_id)
+    if node == nil then return end
+    ImGui.DockBuilderRemoveNodeDockedWindows(node_id, true)
+    ImGui.DockBuilderRemoveNodeChildNodes(node_id)
+    node = ImGui.DockContextFindNodeByID(g, node_id)
+    if node == nil then return end
+    if node:IsCentralNode() and node.ParentNode then
+        node.ParentNode:SetLocalFlags(bit32.bor(node.ParentNode.LocalFlags, ImGuiDockNodeFlags.CentralNode))
+    end
+    ImGui.DockContextRemoveNode(g, node, true)
+end
+
+function ImGui.DockBuilderRemoveNodeChildNodes(root_id)
+    local g = ImGui.GetCurrentContext()
+    local dc = g.DockContext
+
+    local root_node = (root_id ~= 0) and ImGui.DockContextFindNodeByID(g, root_id) or nil
+    if root_id ~= 0 and root_node == nil then return end
+    local has_central_node = false
+
+    local backup_root_node_authority_for_pos = root_node and root_node.AuthorityForPos or ImGuiDataAuthority.Auto
+    local backup_root_node_authority_for_size = root_node and root_node.AuthorityForSize or ImGuiDataAuthority.Auto
+
+    local nodes_to_remove = {}
+    for _, id in ipairs(DockContextNodesSorted(g)) do
+        local node = dc.Nodes[id]
+        if node then
+            local want_removal = (root_id == 0) or (node.ID ~= root_id and ImGui.DockNodeGetRootNode(node).ID == root_id)
+            if want_removal then
+                if node:IsCentralNode() then has_central_node = true end
+                if root_id ~= 0 then ImGui.DockContextQueueNotifyRemovedNode(g, node) end
+                if root_node then
+                    ImGui.DockNodeMoveWindows(root_node, node)
+                    DockSettingsRenameNodeReferences(node.ID, root_node.ID)
+                end
+                table.insert(nodes_to_remove, node)
+            end
+        end
+    end
+
+    if root_node then
+        root_node.AuthorityForPos = backup_root_node_authority_for_pos
+        root_node.AuthorityForSize = backup_root_node_authority_for_size
+    end
+
+    for _, settings in g.SettingsWindows:iter() do
+        local window_settings_dock_id = settings.DockId
+        if window_settings_dock_id and window_settings_dock_id ~= 0 then
+            for _, n in ipairs(nodes_to_remove) do
+                if n.ID == window_settings_dock_id then
+                    settings.DockId = root_id
+                    break
+                end
+            end
+        end
+    end
+
+    if #nodes_to_remove > 1 then
+        local depth = {}
+        for _, n in ipairs(nodes_to_remove) do depth[n] = ImGui.DockNodeGetDepth(n) end
+        table.sort(nodes_to_remove, function(a, b) return depth[a] > depth[b] end)
+    end
+    for _, n in ipairs(nodes_to_remove) do
+        ImGui.DockContextRemoveNode(g, n, false)
+    end
+
+    if root_id == 0 then
+        dc.Nodes = {}
+        dc.Requests:clear()
+    elseif has_central_node then
+        root_node.CentralNode = root_node
+        root_node:SetLocalFlags(bit32.bor(root_node.LocalFlags, ImGuiDockNodeFlags.CentralNode))
+    end
+end
+
+function ImGui.DockBuilderRemoveNodeDockedWindows(root_id, clear_settings_refs)
+    if clear_settings_refs == nil then clear_settings_refs = true end
+    local g = ImGui.GetCurrentContext()
+    if clear_settings_refs then
+        for _, settings in g.SettingsWindows:iter() do
+            local want_removal = (root_id == 0) or (settings.DockId == root_id)
+            if not want_removal and settings.DockId ~= 0 then
+                local node = ImGui.DockContextFindNodeByID(g, settings.DockId)
+                if node and ImGui.DockNodeGetRootNode(node).ID == root_id then want_removal = true end
+            end
+            if want_removal then settings.DockId = 0 end
+        end
+    end
+
+    for n = 1, g.Windows.Size do
+        local window = g.Windows.Data[n]
+        local want_removal = (root_id == 0) or (window.DockNode and ImGui.DockNodeGetRootNode(window.DockNode).ID == root_id) or (window.DockNodeAsHost and window.DockNodeAsHost.ID == root_id)
+        if want_removal then
+            local backup_dock_id = window.DockId
+            ImGui.DockContextProcessUndockWindow(g, window, clear_settings_refs)
+            if not clear_settings_refs then IM_ASSERT(window.DockId == backup_dock_id) end
+        end
+    end
+end
+
+--- @return ImGuiID id_at_dir, ImGuiID id_at_opposite_dir
+function ImGui.DockBuilderSplitNode(id, split_dir, size_ratio_for_node_at_dir)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(split_dir ~= ImGuiDir.None)
+
+    local node = ImGui.DockContextFindNodeByID(g, id)
+    if node == nil then
+        IM_ASSERT(node ~= nil)
+        return 0, 0
+    end
+
+    local req = ImGuiDockRequest()
+    req.Type = ImGuiDockRequestType.Split
+    req.DockTargetWindow = nil
+    req.DockTargetNode = node
+    req.DockPayload = nil
+    req.DockSplitDir = split_dir
+    req.DockSplitRatio = ImSaturate((split_dir == ImGuiDir.Left or split_dir == ImGuiDir.Up) and size_ratio_for_node_at_dir or (1.0 - size_ratio_for_node_at_dir))
+    req.DockSplitOuter = false
+    ImGui.DockContextProcessDock(g, req)
+
+    local first = (split_dir == ImGuiDir.Left or split_dir == ImGuiDir.Up)
+    local id_at_dir = node.ChildNodes[first and 0 or 1].ID
+    local id_at_opposite_dir = node.ChildNodes[first and 1 or 0].ID
+    return id_at_dir, id_at_opposite_dir
+end
+
+local function DockBuilderCopyNodeRec(src_node, dst_node_id_if_known, out_node_remap_pairs)
+    local g = ImGui.GetCurrentContext()
+    local dst_node = ImGui.DockContextAddNode(g, dst_node_id_if_known)
+    dst_node.SharedFlags = src_node.SharedFlags
+    dst_node.LocalFlags = src_node.LocalFlags
+    dst_node.LocalFlagsInWindows = ImGuiDockNodeFlags.None
+    dst_node.Pos = ImVec2(src_node.Pos.x, src_node.Pos.y)
+    dst_node.Size = ImVec2(src_node.Size.x, src_node.Size.y)
+    dst_node.SizeRef = ImVec2(src_node.SizeRef.x, src_node.SizeRef.y)
+    dst_node.SplitAxis = src_node.SplitAxis
+    dst_node:UpdateMergedFlags()
+
+    table.insert(out_node_remap_pairs, src_node.ID)
+    table.insert(out_node_remap_pairs, dst_node.ID)
+
+    for child_n = 0, 1 do
+        if src_node.ChildNodes[child_n] then
+            dst_node.ChildNodes[child_n] = DockBuilderCopyNodeRec(src_node.ChildNodes[child_n], 0, out_node_remap_pairs)
+            dst_node.ChildNodes[child_n].ParentNode = dst_node
+        end
+    end
+    return dst_node
+end
+
+--- @param out_node_remap_pairs table # 1-based array, cleared and filled with (src_id, dst_id) pairs
+function ImGui.DockBuilderCopyNode(src_node_id, dst_node_id, out_node_remap_pairs)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(src_node_id ~= 0)
+    IM_ASSERT(dst_node_id ~= 0)
+    IM_ASSERT(out_node_remap_pairs ~= nil)
+
+    ImGui.DockBuilderRemoveNode(dst_node_id)
+
+    local src_node = ImGui.DockContextFindNodeByID(g, src_node_id)
+    IM_ASSERT(src_node ~= nil)
+
+    for k in pairs(out_node_remap_pairs) do out_node_remap_pairs[k] = nil end
+    DockBuilderCopyNodeRec(src_node, dst_node_id, out_node_remap_pairs)
+    IM_ASSERT((#out_node_remap_pairs % 2) == 0)
+end
+
+function ImGui.DockBuilderCopyWindowSettings(src_name, dst_name)
+    local src_window = ImGui.FindWindowByName(src_name)
+    if src_window == nil then return end
+    local dst_window = ImGui.FindWindowByName(dst_name)
+    if dst_window then
+        ImVec2_Copy(dst_window.Pos, src_window.Pos)
+        ImVec2_Copy(dst_window.Size, src_window.Size)
+        ImVec2_Copy(dst_window.SizeFull, src_window.SizeFull)
+        dst_window.Collapsed = src_window.Collapsed
+    else
+        local dst_settings = ImGui.FindWindowSettingsByID(ImHashStr(dst_name))
+        if not dst_settings then dst_settings = ImGui.CreateNewWindowSettings(dst_name) end
+        local wx, wy = ImTrunc(src_window.Pos.x), ImTrunc(src_window.Pos.y)
+        if src_window.ViewportId ~= 0 and src_window.ViewportId ~= 0x11111111 then
+            ImVec2_CopyV(dst_settings.ViewportPos, wx, wy)
+            dst_settings.ViewportId = src_window.ViewportId
+            ImVec2_CopyV(dst_settings.Pos, 0, 0)
+        else
+            ImVec2_CopyV(dst_settings.Pos, wx, wy)
+        end
+        ImVec2_CopyV(dst_settings.Size, ImTrunc(src_window.SizeFull.x), ImTrunc(src_window.SizeFull.y))
+        dst_settings.Collapsed = src_window.Collapsed
+    end
+end
+
+--- @param in_window_remap_pairs table # 1-based array of window names: src0, dst0, src1, dst1, ...
+function ImGui.DockBuilderCopyDockSpace(src_dockspace_id, dst_dockspace_id, in_window_remap_pairs)
+    IM_ASSERT(src_dockspace_id ~= 0)
+    IM_ASSERT(dst_dockspace_id ~= 0)
+    IM_ASSERT(in_window_remap_pairs ~= nil)
+    IM_ASSERT((#in_window_remap_pairs % 2) == 0)
+
+    local node_remap_pairs = {}
+    ImGui.DockBuilderCopyNode(src_dockspace_id, dst_dockspace_id, node_remap_pairs)
+
+    local src_windows = {}
+    for remap_window_n = 1, #in_window_remap_pairs, 2 do
+        local src_window_name = in_window_remap_pairs[remap_window_n]
+        local dst_window_name = in_window_remap_pairs[remap_window_n + 1]
+        local src_window_id = ImHashStr(src_window_name)
+        src_windows[src_window_id] = true
+
+        local src_dock_id = 0
+        local src_window = ImGui.FindWindowByID(src_window_id)
+        if src_window then
+            src_dock_id = src_window.DockId
+        else
+            local src_window_settings = ImGui.FindWindowSettingsByID(src_window_id)
+            if src_window_settings then src_dock_id = src_window_settings.DockId end
+        end
+        local dst_dock_id = 0
+        for dock_remap_n = 1, #node_remap_pairs, 2 do
+            if node_remap_pairs[dock_remap_n] == src_dock_id then
+                dst_dock_id = node_remap_pairs[dock_remap_n + 1]
+                break
+            end
+        end
+
+        if dst_dock_id ~= 0 then
+            ImGui.DockBuilderDockWindow(dst_window_name, dst_dock_id)
+        else
+            ImGui.DockBuilderCopyWindowSettings(src_window_name, dst_window_name)
+        end
+    end
+
+    local dock_remaining_windows = {}
+    for dock_remap_n = 1, #node_remap_pairs, 2 do
+        local src_dock_id = node_remap_pairs[dock_remap_n]
+        if src_dock_id ~= 0 then
+            local dst_dock_id = node_remap_pairs[dock_remap_n + 1]
+            local node = ImGui.DockBuilderGetNode(src_dock_id)
+            for _, window in node.Windows:iter() do
+                if not src_windows[window.ID] then
+                    table.insert(dock_remaining_windows, { Window = window, DockId = dst_dock_id })
+                end
+            end
+        end
+    end
+    for _, task in ipairs(dock_remaining_windows) do
+        ImGui.DockBuilderDockWindow(task.Window.Name, task.DockId)
+    end
+end
+
+function ImGui.DockBuilderFinish(root_id)
+    ImGui.DockContextBuildAddWindowsToNodes(ImGui.GetCurrentContext(), root_id)
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: Begin/End Support Functions (called from Begin/End)
+---------------------------------------------------------------------------------------
+
+function ImGui.GetWindowAlwaysWantOwnTabBar(window)
+    local g = ImGui.GetCurrentContext()
+    if g.IO.ConfigDockingAlwaysTabBar or window.WindowClass.DockingAlwaysTabBar then
+        if bit32.band(window.Flags, bit32.bor(ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoDocking)) == 0 then
+            if not window.IsFallbackWindow then return true end
+        end
+    end
+    return false
+end
+
+function ImGui.DockContextBindNodeToWindow(ctx, window)
+    local g = ctx
+    local node = ImGui.DockContextFindNodeByID(ctx, window.DockId)
+    IM_ASSERT(window.DockNode == nil)
+
+    if node and node:IsSplitNode() then
+        ImGui.DockContextProcessUndockWindow(ctx, window)
+        return nil
+    end
+
+    if node == nil then
+        node = ImGui.DockContextAddNode(ctx, window.DockId)
+        node.AuthorityForPos = ImGuiDataAuthority.Window
+        node.AuthorityForSize = ImGuiDataAuthority.Window
+        node.AuthorityForViewport = ImGuiDataAuthority.Window
+        node.LastFrameAlive = g.FrameCount
+    end
+
+    if not node.IsVisible then
+        local ancestor_node = node
+        while not ancestor_node.IsVisible and ancestor_node.ParentNode do
+            ancestor_node = ancestor_node.ParentNode
+        end
+        IM_ASSERT(ancestor_node.Size.x > 0.0 and ancestor_node.Size.y > 0.0)
+        ImGui.DockNodeUpdateHasCentralNodeChild(ImGui.DockNodeGetRootNode(ancestor_node))
+        ImGui.DockNodeTreeUpdatePosSize(ancestor_node, ancestor_node.Pos, ancestor_node.Size, node)
+    end
+
+    local node_was_visible = node.IsVisible
+    ImGui.DockNodeAddWindow(node, window, true)
+    node.IsVisible = node_was_visible
+    IM_ASSERT(node == window.DockNode)
+    return node
+end
+
+local function StoreDockStyleForWindow(window)
+    local g = ImGui.GetCurrentContext()
+    for color_n = 0, ImGuiWindowDockStyleCol.COUNT - 1 do
+        window.DockStyle.Colors[color_n] = ImGui.ColorConvertFloat4ToU32(g.Style.Colors[GWindowDockStyleColors[color_n]])
+    end
+end
+ImGui.StoreDockStyleForWindow = StoreDockStyleForWindow
+
+--- @return bool? p_open
+function ImGui.BeginDocked(window, p_open)
+    local g = ImGui.GetCurrentContext()
+
+    if window.IsFallbackWindow and not window.WasActive then
+        DockNodeHideWindowDuringHostWindowCreation(window)
+        return p_open
+    end
+
+    local auto_dock_node = ImGui.GetWindowAlwaysWantOwnTabBar(window)
+    if auto_dock_node then
+        if window.DockId == 0 then
+            IM_ASSERT(window.DockNode == nil)
+            window.DockId = ImGui.DockContextGenNodeID(g)
+        end
+    else
+        local want_undock = false
+        want_undock = want_undock or bit32.band(window.Flags, ImGuiWindowFlags.NoDocking) ~= 0
+        want_undock = want_undock or (bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasPos) ~= 0 and bit32.band(window.SetWindowPosAllowFlags, g.NextWindowData.PosCond) ~= 0 and g.NextWindowData.PosUndock)
+        if want_undock then
+            ImGui.DockContextProcessUndockWindow(g, window)
+            return p_open
+        end
+    end
+
+    local node = window.DockNode
+    if node ~= nil then IM_ASSERT(window.DockId == node.ID) end
+    if window.DockId ~= 0 and node == nil then
+        node = ImGui.DockContextBindNodeToWindow(g, window)
+        if node == nil then return p_open end
+    end
+
+    if node.LastFrameAlive < g.FrameCount then
+        local root_node = ImGui.DockNodeGetRootNode(node)
+        if root_node.LastFrameAlive < g.FrameCount then
+            ImGui.DockContextProcessUndockWindow(g, window)
+        else
+            window.DockIsActive = true
+        end
+        return p_open
+    end
+
+    StoreDockStyleForWindow(window)
+
+    if node.HostWindow == nil then
+        if node.State == ImGuiDockNodeState.HostWindowHiddenBecauseWindowsAreResizing then
+            window.DockIsActive = true
+        end
+        if node.Windows.Size > 1 and window.Appearing then
+            DockNodeHideWindowDuringHostWindowCreation(window)
+        end
+        return p_open
+    end
+
+    IM_ASSERT(node.HostWindow)
+    IM_ASSERT(node:IsLeafNode())
+    IM_ASSERT(node.Size.x >= 0.0 and node.Size.y >= 0.0)
+    node.State = ImGuiDockNodeState.HostWindowVisible
+
+    if bit32.band(node.MergedFlags, ImGuiDockNodeFlags.KeepAliveOnly) == 0 and window.BeginOrderWithinContext < node.HostWindow.BeginOrderWithinContext then
+        ImGui.DockContextProcessUndockWindow(g, window)
+        return p_open
+    end
+
+    ImGui.SetNextWindowPos(node.Pos)
+    ImGui.SetNextWindowSize(node.Size)
+    g.NextWindowData.PosUndock = false
+    window.DockIsActive = true
+    window.DockNodeIsVisible = true
+    window.DockTabIsVisible = false
+    if bit32.band(node.MergedFlags, ImGuiDockNodeFlags.KeepAliveOnly) ~= 0 then return p_open end
+
+    if node.VisibleWindow == window then window.DockTabIsVisible = true end
+
+    IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) == 0)
+    window.Flags = bit32.bor(window.Flags, ImGuiWindowFlags.ChildWindow, ImGuiWindowFlags.NoResize)
+    window.ChildFlags = bit32.bor(window.ChildFlags, ImGuiChildFlags.AlwaysUseWindowPadding)
+    if node:IsHiddenTabBar() or node:IsNoTabBar() then
+        window.Flags = bit32.bor(window.Flags, ImGuiWindowFlags.NoTitleBar)
+    else
+        window.Flags = bit32.band(window.Flags, bit32.bnot(ImGuiWindowFlags.NoTitleBar))
+    end
+
+    if node.TabBar and window.WasActive then
+        window.DockOrder = ImGui.DockNodeGetTabOrder(window)
+    end
+
+    if (node.WantCloseAll or node.WantCloseTabId == window.TabId) and p_open ~= nil then
+        p_open = false
+    end
+
+    local parent_window = window.DockNode.HostWindow
+    window.ChildId = parent_window:GetID(window.Name)
+    return p_open
+end
+
+function ImGui.BeginDockableDragDropSource(window)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(g.ActiveId == window.MoveId)
+    IM_ASSERT(g.MovingWindow == window)
+    IM_ASSERT(g.CurrentWindow == window)
+
+    if g.IO.ConfigDockingWithShift ~= g.IO.KeyShift then
+        if g.IO.ConfigDockingWithShift and g.MouseStationaryTimer >= 1.0 and g.ActiveId >= 1 then
+            ImGui.SetTooltip("%s", ImGui.LocalizeGetMsg(ImGuiLocKey.DockingHoldShiftToDock))
+        end
+        return
+    end
+
+    g.LastItemData.ID = window.MoveId
+    window = window.RootWindowDockTree
+    IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.NoDocking) == 0)
+    local is_drag_docking = g.IO.ConfigDockingWithShift or ImRect(0, 0, window.SizeFull.x, ImGui.GetFrameHeight()):Contains(g.ActiveIdClickOffset)
+    local drag_drop_flags = bit32.bor(ImGuiDragDropFlags.SourceNoPreviewTooltip, ImGuiDragDropFlags.SourceNoHoldToOpenOthers, ImGuiDragDropFlags.PayloadAutoExpire, ImGuiDragDropFlags.PayloadNoCrossContext, ImGuiDragDropFlags.PayloadNoCrossProcess)
+    if is_drag_docking and ImGui.BeginDragDropSource(drag_drop_flags) then
+        ImGui.SetDragDropPayload(IMGUI_PAYLOAD_TYPE_WINDOW, window)
+        ImGui.EndDragDropSource()
+        StoreDockStyleForWindow(window)
+    end
+end
+
+function ImGui.BeginDockableDragDropTarget(window)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.NoDocking) == 0)
+    if not g.DragDropActive then return end
+    if not ImGui.BeginDragDropTargetCustom(window:Rect(), window.ID) then return end
+
+    local payload = g.DragDropPayload
+    if not ImGuiPayload_IsDataType(payload, IMGUI_PAYLOAD_TYPE_WINDOW) or not ImGui.DockNodeIsDropAllowed(window, payload.Data) then
+        ImGui.EndDragDropTarget()
+        return
+    end
+
+    local payload_window = payload.Data
+    if ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_WINDOW, bit32.bor(ImGuiDragDropFlags.AcceptBeforeDelivery, ImGuiDragDropFlags.AcceptNoDrawDefaultRect)) then
+        local dock_into_floating_window = false
+        local node = nil
+        if window.DockNodeAsHost then
+            node = ImGui.DockNodeTreeFindVisibleNodeByPos(window.DockNodeAsHost, g.IO.MousePos)
+            if node and node:IsDockSpace() and node:IsRootNode() then
+                node = (node.CentralNode and node:IsLeafNode()) and node.CentralNode or ImGui.DockNodeTreeFindFallbackLeafNode(node)
+            end
+        else
+            if window.DockNode then
+                node = window.DockNode
+            else
+                dock_into_floating_window = true
+            end
+        end
+
+        local explicit_target_rect
+        if node and node.TabBar and not node:IsHiddenTabBar() and not node:IsNoTabBar() then
+            explicit_target_rect = node.TabBar.BarRect
+        else
+            explicit_target_rect = ImRect(window.Pos, window.Pos + ImVec2(window.Size.x, ImGui.GetFrameHeight()))
+        end
+        local is_explicit_target = g.IO.ConfigDockingWithShift or ImGui.IsMouseHoveringRect(explicit_target_rect.Min, explicit_target_rect.Max)
+
+        local do_preview = ImGuiPayload_IsPreview(payload) or ImGuiPayload_IsDelivery(payload)
+        if do_preview and (node ~= nil or dock_into_floating_window) then
+            local split_inner = ImGuiDockPreviewData()
+            local split_outer = ImGuiDockPreviewData()
+            local split_data = split_inner
+            if node and (node.ParentNode or node:IsCentralNode() or not node:IsLeafNode()) then
+                local root_node = ImGui.DockNodeGetRootNode(node)
+                if root_node then
+                    ImGui.DockNodePreviewDockSetup(window, root_node, payload_window, nil, split_outer, is_explicit_target, true)
+                    if split_outer.IsSplitDirExplicit then split_data = split_outer end
+                end
+            end
+            if not node or node:IsLeafNode() then
+                ImGui.DockNodePreviewDockSetup(window, node, payload_window, nil, split_inner, is_explicit_target, false)
+            end
+            if split_data == split_outer then split_inner.IsDropAllowed = false end
+
+            ImGui.DockNodePreviewDockRender(window, node, payload_window, split_inner)
+            ImGui.DockNodePreviewDockRender(window, node, payload_window, split_outer)
+
+            if split_data.IsDropAllowed and ImGuiPayload_IsDelivery(payload) then
+                ImGui.DockContextQueueDock(g, window, split_data.SplitNode, payload_window, split_data.SplitDir, split_data.SplitRatio, split_data == split_outer)
+            end
+        end
+    end
+    ImGui.EndDragDropTarget()
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: Settings
+---------------------------------------------------------------------------------------
+
+DockSettingsRenameNodeReferences = function(old_node_id, new_node_id)
+    local g = ImGui.GetCurrentContext()
+    for _, window in g.Windows:iter() do
+        if window.DockId == old_node_id and window.DockNode == nil then window.DockId = new_node_id end
+    end
+    for _, settings in g.SettingsWindows:iter() do
+        if settings.DockId == old_node_id then settings.DockId = new_node_id end
+    end
+end
+
+--- @param node_ids table # 1-based array
+DockSettingsRemoveNodeReferences = function(node_ids, node_ids_count)
+    local g = ImGui.GetCurrentContext()
+    local found = 0
+    for _, settings in g.SettingsWindows:iter() do
+        for node_n = 1, node_ids_count do
+            if settings.DockId == node_ids[node_n] then
+                settings.DockId = 0
+                settings.DockOrder = -1
+                found = found + 1
+                if found < node_ids_count then break end
+                return
+            end
+        end
+    end
+end
+
+DockSettingsFindNodeSettings = function(ctx, id)
+    for _, s in ctx.DockContext.NodesSettings:iter() do
+        if s.ID == id then return s end
+    end
+    return nil
+end
+
+DockSettingsHandler_ClearAll = function(ctx, handler)
+    local dc = ctx.DockContext
+    dc.NodesSettings:clear()
+    ImGui.DockContextClearNodes(ctx, 0, true)
+end
+
+DockSettingsHandler_ApplyAll = function(ctx, handler)
+    local dc = ctx.DockContext
+    if ctx.Windows.Size == 0 then ImGui.DockContextPruneUnusedSettingsNodes(ctx) end
+    ImGui.DockContextBuildNodesFromSettings(ctx, dc.NodesSettings.Data or {}, dc.NodesSettings.Size)
+    ImGui.DockContextBuildAddWindowsToNodes(ctx, 0)
+end
+
+DockSettingsHandler_ReadOpen = function(ctx, handler, name)
+    if name ~= "Data" then return nil end
+    return true
+end
+
+DockSettingsHandler_ReadLine = function(ctx, handler, entry, line)
+    local node = ImGuiDockNodeSettings()
+    line = line:gsub("^[ \t]+", "")
+    if line:sub(1, 8) == "DockNode" then
+        line = line:sub(9)
+    elseif line:sub(1, 9) == "DockSpace" then
+        line = line:sub(10)
+        node.Flags = bit32.bor(node.Flags, ImGuiDockNodeFlags.DockSpace)
+    else
+        return
+    end
+    line = line:gsub("^[ \t]+", "")
+    local function take(pattern)
+        local caps = { line:match("^" .. pattern .. "()") }
+        if #caps == 0 then return nil end
+        line = line:sub(caps[#caps])
+        caps[#caps] = nil
+        return table.unpack(caps)
+    end
+    local v = take("ID=0x(%x+)")
+    if not v then return end
+    node.ID = tonumber(v, 16)
+    v = take(" Parent=0x(%x+)")
+    if v then node.ParentNodeId = tonumber(v, 16); if node.ParentNodeId == 0 then return end end
+    v = take(" Window=0x(%x+)")
+    if v then node.ParentWindowId = tonumber(v, 16); if node.ParentWindowId == 0 then return end end
+    if node.ParentNodeId == 0 then
+        local x, y = take(" Pos=(%-?%d+),(%-?%d+)")
+        if not x then return end
+        node.Pos = ImVec2(tonumber(x), tonumber(y))
+        x, y = take(" Size=(%-?%d+),(%-?%d+)")
+        if not x then return end
+        node.Size = ImVec2(tonumber(x), tonumber(y))
+    else
+        local x, y = take(" SizeRef=(%-?%d+),(%-?%d+)")
+        if x then node.SizeRef = ImVec2(tonumber(x), tonumber(y)) end
+    end
+    local c = take(" Split=(%a)")
+    if c then
+        if c == "X" then node.SplitAxis = ImGuiAxis.X elseif c == "Y" then node.SplitAxis = ImGuiAxis.Y end
+    end
+    local function flag(name, f)
+        local x = take(" " .. name .. "=(%-?%d+)")
+        if x and tonumber(x) ~= 0 then node.Flags = bit32.bor(node.Flags, f) end
+    end
+    flag("NoResize", ImGuiDockNodeFlags.NoResize)
+    flag("CentralNode", ImGuiDockNodeFlags.CentralNode)
+    flag("NoTabBar", ImGuiDockNodeFlags.NoTabBar)
+    flag("HiddenTabBar", ImGuiDockNodeFlags.HiddenTabBar)
+    flag("NoWindowMenuButton", ImGuiDockNodeFlags.NoWindowMenuButton)
+    flag("NoCloseButton", ImGuiDockNodeFlags.NoCloseButton)
+    v = take(" Selected=0x(%x+)")
+    if v then node.SelectedTabId = tonumber(v, 16) end
+    if node.ParentNodeId ~= 0 then
+        local parent_settings = DockSettingsFindNodeSettings(ctx, node.ParentNodeId)
+        if parent_settings then node.Depth = parent_settings.Depth + 1 end
+    end
+    ctx.DockContext.NodesSettings:push_back(node)
+end
+
+local function DockSettingsHandler_DockNodeToSettings(dc, node, depth)
+    local node_settings = ImGuiDockNodeSettings()
+    node_settings.ID = node.ID
+    node_settings.ParentNodeId = node.ParentNode and node.ParentNode.ID or 0
+    node_settings.ParentWindowId = (node:IsDockSpace() and node.HostWindow and node.HostWindow.ParentWindow) and node.HostWindow.ParentWindow.ID or 0
+    node_settings.SelectedTabId = node.SelectedTabId
+    node_settings.SplitAxis = node:IsSplitNode() and node.SplitAxis or ImGuiAxis.None
+    node_settings.Depth = depth
+    node_settings.Flags = bit32.band(node.LocalFlags, ImGuiDockNodeFlags.SavedFlagsMask_)
+    node_settings.Pos = ImVec2(ImTrunc(node.Pos.x), ImTrunc(node.Pos.y))
+    node_settings.Size = ImVec2(ImTrunc(node.Size.x), ImTrunc(node.Size.y))
+    node_settings.SizeRef = ImVec2(ImTrunc(node.SizeRef.x), ImTrunc(node.SizeRef.y))
+    dc.NodesSettings:push_back(node_settings)
+    if node.ChildNodes[0] then DockSettingsHandler_DockNodeToSettings(dc, node.ChildNodes[0], depth + 1) end
+    if node.ChildNodes[1] then DockSettingsHandler_DockNodeToSettings(dc, node.ChildNodes[1], depth + 1) end
+end
+
+DockSettingsHandler_WriteAll = function(ctx, handler, buf)
+    local g = ctx
+    local dc = ctx.DockContext
+    if bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then return end
+
+    dc.NodesSettings:resize(0)
+    for _, id in ipairs(DockContextNodesSorted(ctx)) do
+        local node = dc.Nodes[id]
+        if node and node:IsRootNode() then
+            DockSettingsHandler_DockNodeToSettings(dc, node, 0)
+        end
+    end
+
+    local max_depth = 0
+    for _, s in dc.NodesSettings:iter() do max_depth = ImMax(s.Depth, max_depth) end
+
+    buf:appendf("[%s][Data]\n", handler.TypeName)
+    for _, s in dc.NodesSettings:iter() do
+        buf:append(string.rep(" ", s.Depth * 2) .. ((bit32.band(s.Flags, ImGuiDockNodeFlags.DockSpace) ~= 0) and "DockSpace" or "DockNode ") .. string.rep(" ", (max_depth - s.Depth) * 2))
+        buf:appendf(" ID=0x%08X", s.ID)
+        if s.ParentNodeId ~= 0 then
+            buf:appendf(" Parent=0x%08X SizeRef=%d,%d", s.ParentNodeId, s.SizeRef.x, s.SizeRef.y)
+        else
+            if s.ParentWindowId ~= 0 then buf:appendf(" Window=0x%08X", s.ParentWindowId) end
+            buf:appendf(" Pos=%d,%d Size=%d,%d", s.Pos.x, s.Pos.y, s.Size.x, s.Size.y)
+        end
+        if s.SplitAxis ~= ImGuiAxis.None then buf:appendf(" Split=%s", (s.SplitAxis == ImGuiAxis.X) and "X" or "Y") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.NoResize) ~= 0 then buf:append(" NoResize=1") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.CentralNode) ~= 0 then buf:append(" CentralNode=1") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.NoTabBar) ~= 0 then buf:append(" NoTabBar=1") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.HiddenTabBar) ~= 0 then buf:append(" HiddenTabBar=1") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.NoWindowMenuButton) ~= 0 then buf:append(" NoWindowMenuButton=1") end
+        if bit32.band(s.Flags, ImGuiDockNodeFlags.NoCloseButton) ~= 0 then buf:append(" NoCloseButton=1") end
+        if s.SelectedTabId ~= 0 then buf:appendf(" Selected=0x%08X", s.SelectedTabId) end
+        buf:append("\n")
+    end
+    buf:append("\n")
+end
+
+---------------------------------------------------------------------------------------
+-- Docking: helpers (imgui_internal.h inlines) + widgets used by docking
+---------------------------------------------------------------------------------------
+
+function ImGui.DockNodeGetRootNode(node)
+    while node.ParentNode do node = node.ParentNode end
+    return node
+end
+
+function ImGui.DockNodeIsInHierarchyOf(node, parent)
+    while node do
+        if node == parent then return true end
+        node = node.ParentNode
+    end
+    return false
+end
+
+function ImGui.DockNodeGetDepth(node)
+    local depth = 0
+    while node.ParentNode do node = node.ParentNode; depth = depth + 1 end
+    return depth
+end
+
+function ImGui.DockNodeGetWindowMenuButtonId(node)
+    return ImHashStr("#COLLAPSE", nil, node.ID)
+end
+
+function ImGui.GetWindowDockID()
+    return ImGui.GetCurrentContext().CurrentWindow.DockId
+end
+
+function ImGui.IsWindowDocked()
+    return ImGui.GetCurrentContext().CurrentWindow.DockIsActive
+end
+
+function ImGui.SetNextWindowDockID(id, cond)
+    local g = ImGui.GetCurrentContext()
+    g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasDock)
+    g.NextWindowData.DockCond = (cond and cond ~= 0) and cond or ImGuiCond.Always
+    g.NextWindowData.DockId = id
+end
+
+function ImGui.StartMouseMovingWindowOrNode(window, node, undock)
+    local g = ImGui.GetCurrentContext()
+    local can_undock_node = false
+    if undock and node ~= nil and node.VisibleWindow and bit32.band(node.VisibleWindow.Flags, ImGuiWindowFlags.NoMove) == 0 and bit32.band(node.MergedFlags, ImGuiDockNodeFlags.NoUndocking) == 0 then
+        local root_node = ImGui.DockNodeGetRootNode(node)
+        if root_node.OnlyNodeWithWindows ~= node or root_node.CentralNode ~= nil then
+            can_undock_node = true
+        end
+    end
+
+    local clicked = ImGui.IsMouseClicked(0)
+    local dragging = ImGui.IsMouseDragging(0)
+    if can_undock_node and dragging then
+        ImGui.DockContextQueueUndockNode(g, node)
+    elseif not can_undock_node and (clicked or dragging) and g.MovingWindow ~= window then
+        ImGui.StartMouseMovingWindow(window)
+    end
+end
+
+function ImGui.RenderArrowDockMenu(draw_list, p_min, sz, col)
+    draw_list:AddRectFilled(p_min + ImVec2(sz * 0.20, sz * 0.15), p_min + ImVec2(sz * 0.80, sz * 0.30), col)
+    ImGui.RenderArrowPointingAt(draw_list, p_min + ImVec2(sz * 0.50, sz * 0.85), ImVec2(sz * 0.30, sz * 0.40), ImGuiDir.Down, col)
+end
+
+-- Upstream CollapseButton (docking branch): replaces the port's simpler version
+function ImGui.CollapseButton(id, pos, dock_node)
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+
+    local bb = ImRect(pos, pos + ImVec2(g.FontSize, g.FontSize))
+    local is_clipped = not ImGui.ItemAdd(bb, id)
+    local pressed, hovered, held = ImGui.ButtonBehavior(bb, id, ImGuiButtonFlags.None)
+    if is_clipped then return pressed end
+
+    local bg_col = ImGui.GetColorU32((held and hovered) and ImGuiCol.ButtonActive or (hovered and ImGuiCol.ButtonHovered or ImGuiCol.Button))
+    local text_col = ImGui.GetColorU32(ImGuiCol.Text)
+    if hovered or held then
+        window.DrawList:AddRectFilled(bb.Min, bb.Max, bg_col)
+    end
+    ImGui.RenderNavCursor(bb, id, ImGuiNavRenderCursorFlags and ImGuiNavRenderCursorFlags.Compact or nil)
+
+    if dock_node then
+        ImGui.RenderArrowDockMenu(window.DrawList, bb.Min, g.FontSize, text_col)
+    else
+        ImGui.RenderArrow(window.DrawList, bb.Min, text_col, window.Collapsed and ImGuiDir.Right or ImGuiDir.Down, 1.0)
+    end
+
+    if ImGui.IsItemActive() and ImGui.IsMouseDragging(0) then
+        ImGui.StartMouseMovingWindowOrNode(window, dock_node, true)
+    end
+
+    return pressed
+end
+
+--- @return bool held, float size1, float size2
+function ImGui.SplitterBehavior(bb, id, axis, size1, size2, min_size1, min_size2, hover_extend, hover_visibility_delay, bg_col)
+    hover_extend = hover_extend or 0.0
+    hover_visibility_delay = hover_visibility_delay or 0.0
+    bg_col = bg_col or 0
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+
+    if not ImGui.ItemAdd(bb, id, nil, ImGuiItemFlags.NoNav) then return false, size1, size2 end
+
+    local button_flags = bit32.bor(ImGuiButtonFlags.FlattenChildren, ImGuiButtonFlags.AllowOverlap)
+
+    local bb_interact = ImRect(bb.Min, bb.Max)
+    bb_interact:Expand(axis == ImGuiAxis.Y and ImVec2(0.0, hover_extend) or ImVec2(hover_extend, 0.0))
+    local _, hovered, held = ImGui.ButtonBehavior(bb_interact, id, button_flags)
+    if hovered then
+        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect)
+    end
+
+    if held or (hovered and g.HoveredIdPreviousFrame == id and g.HoveredIdTimer >= hover_visibility_delay) then
+        ImGui.SetMouseCursor(axis == ImGuiAxis.Y and ImGuiMouseCursor.ResizeNS or ImGuiMouseCursor.ResizeEW)
+    end
+
+    local bb_render = ImRect(bb.Min, bb.Max)
+    if held then
+        local d = g.IO.MousePos - g.ActiveIdClickOffset - bb_interact.Min
+        local mouse_delta = d[axis + 1]
+
+        local size_1_maximum_delta = ImMax(0.0, size1 - min_size1)
+        local size_2_maximum_delta = ImMax(0.0, size2 - min_size2)
+        if mouse_delta < -size_1_maximum_delta then mouse_delta = -size_1_maximum_delta end
+        if mouse_delta > size_2_maximum_delta then mouse_delta = size_2_maximum_delta end
+
+        if mouse_delta ~= 0.0 then
+            size1 = ImMax(size1 + mouse_delta, min_size1)
+            size2 = ImMax(size2 - mouse_delta, min_size2)
+            bb_render:Translate(axis == ImGuiAxis.X and ImVec2(mouse_delta, 0.0) or ImVec2(0.0, mouse_delta))
+            ImGui.MarkItemEdited(id)
+        end
+    end
+
+    if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
+        window.DrawList:AddRectFilled(bb_render.Min, bb_render.Max, bg_col, 0.0)
+    end
+    local col = ImGui.GetColorU32(held and ImGuiCol.SeparatorActive or ((hovered and g.HoveredIdTimer >= hover_visibility_delay) and ImGuiCol.SeparatorHovered or ImGuiCol.Separator))
+    window.DrawList:AddRectFilled(bb_render.Min, bb_render.Max, col, 0.0)
+
+    return held, size1, size2
+end
+
+return true
+end
+
+__FILES['imgui_dragdrop.lua'] = function()
+--- ImGui Sincerely
+-- Drag and drop: 1:1 port of imgui.cpp [SECTION] DRAG AND DROP (docking branch)
+-- Payload `Data` is any Lua value (no copy is made). `data_size` is optional and only kept for API parity.
+
+function ImGui.IsDragDropActive()
+    return ImGui.GetCurrentContext().DragDropActive
+end
+
+function ImGui.ClearDragDrop()
+    local g = ImGui.GetCurrentContext()
+    g.DragDropActive = false
+    ImGuiPayload_Clear(g.DragDropPayload)
+    g.DragDropAcceptFlagsCurr = ImGuiDragDropFlags.None
+    g.DragDropAcceptIdCurr = 0
+    g.DragDropAcceptIdPrev = 0
+    g.DragDropAcceptIdCurrRectSurface = FLT_MAX
+    g.DragDropAcceptFrameCount = -1
+end
+
+function ImGui.BeginDragDropSource(flags)
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+
+    local mouse_button = ImGuiMouseButton.Left
+
+    local source_drag_active = false
+    local source_id = 0
+    local source_parent_id = 0
+    if bit32.band(flags, ImGuiDragDropFlags.SourceExtern) == 0 then
+        source_id = g.LastItemData.ID
+        if source_id ~= 0 then
+            if g.ActiveId ~= source_id then return false end
+            if g.ActiveIdMouseButton ~= -1 then mouse_button = g.ActiveIdMouseButton end
+            if g.IO.MouseDown[mouse_button] == false or window.SkipItems then return false end
+            g.ActiveIdAllowOverlap = false
+        else
+            if g.IO.MouseDown[mouse_button] == false or window.SkipItems then return false end
+            if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect) == 0 and (g.ActiveId == 0 or g.ActiveIdWindow ~= window) then
+                return false
+            end
+            if bit32.band(flags, ImGuiDragDropFlags.SourceAllowNullID) == 0 then
+                IM_ASSERT(false, "Use ImGuiDragDropFlags.SourceAllowNullID for items without an ID")
+                return false
+            end
+            source_id = window:GetIDFromRectangle(g.LastItemData.Rect)
+            g.LastItemData.ID = source_id
+            ImGui.KeepAliveID(source_id)
+            local is_hovered = ImGui.ItemHoverable(g.LastItemData.Rect, source_id, g.LastItemData.ItemFlags)
+            if is_hovered and g.IO.MouseClicked[mouse_button] then
+                ImGui.SetActiveID(source_id, window)
+                ImGui.FocusWindow(window)
+            end
+            if g.ActiveId == source_id then g.ActiveIdAllowOverlap = is_hovered end
+        end
+        if g.ActiveId ~= source_id then return false end
+        source_parent_id = window.IDStack.Data[window.IDStack.Size]
+        source_drag_active = ImGui.IsMouseDragging(mouse_button)
+
+        ImGui.SetActiveIdUsingAllKeyboardKeys()
+    else
+        window = nil
+        source_id = ImHashStr("#SourceExtern")
+        source_drag_active = true
+        mouse_button = g.IO.MouseDown[0] and 0 or -1
+        ImGui.KeepAliveID(source_id)
+        ImGui.SetActiveID(source_id, nil)
+    end
+
+    IM_ASSERT(g.DragDropWithinTarget == false)
+    if not source_drag_active then return false end
+
+    if not g.DragDropActive then
+        IM_ASSERT(source_id ~= 0)
+        ImGui.ClearDragDrop()
+        local payload = g.DragDropPayload
+        payload.SourceId = source_id
+        payload.SourceParentId = source_parent_id
+        g.DragDropActive = true
+        g.DragDropSourceFlags = flags
+        g.DragDropMouseButton = mouse_button
+        if payload.SourceId == g.ActiveId then g.ActiveIdNoClearOnFocusLoss = true end
+    end
+    g.DragDropSourceFrameCount = g.FrameCount
+    g.DragDropWithinSource = true
+
+    if bit32.band(flags, ImGuiDragDropFlags.SourceNoPreviewTooltip) == 0 then
+        local ret
+        if g.DragDropAcceptIdPrev ~= 0 and bit32.band(g.DragDropAcceptFlagsPrev, ImGuiDragDropFlags.AcceptNoPreviewTooltip) ~= 0 then
+            ret = ImGui.BeginTooltipHidden()
+        else
+            ret = ImGui.BeginTooltip()
+        end
+        IM_ASSERT(ret)
+    end
+
+    if bit32.band(flags, ImGuiDragDropFlags.SourceNoDisableHover) == 0 and bit32.band(flags, ImGuiDragDropFlags.SourceExtern) == 0 then
+        g.LastItemData.StatusFlags = bit32.band(g.LastItemData.StatusFlags, bit32.bnot(ImGuiItemStatusFlags.HoveredRect))
+    end
+    return true
+end
+
+function ImGui.EndDragDropSource()
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(g.DragDropActive)
+    IM_ASSERT(g.DragDropWithinSource, "Not after a BeginDragDropSource()?")
+
+    if bit32.band(g.DragDropSourceFlags, ImGuiDragDropFlags.SourceNoPreviewTooltip) == 0 then
+        ImGui.EndTooltip()
+    end
+
+    if g.DragDropPayload.DataFrameCount == -1 then ImGui.ClearDragDrop() end
+    g.DragDropWithinSource = false
+end
+
+--- @param data any # any Lua value
+--- @return bool accepted
+function ImGui.SetDragDropPayload(type, data, data_size, cond)
+    local g = ImGui.GetCurrentContext()
+    local payload = g.DragDropPayload
+    if cond == nil or cond == 0 then cond = ImGuiCond.Always end
+
+    IM_ASSERT(type ~= nil)
+    IM_ASSERT(#type < 32, "Payload type can be at most 32 characters long")
+    IM_ASSERT(cond == ImGuiCond.Always or cond == ImGuiCond.Once)
+    IM_ASSERT(payload.SourceId ~= 0)
+
+    if cond == ImGuiCond.Always or payload.DataFrameCount == -1 then
+        payload.DataType = type
+        payload.Data = data
+        payload.DataSize = data_size or ((data ~= nil) and 1 or 0)
+    end
+    payload.DataFrameCount = g.FrameCount
+
+    return (g.DragDropAcceptFrameCount == g.FrameCount) or (g.DragDropAcceptFrameCount == g.FrameCount - 1)
+end
+
+function ImGui.BeginDragDropTargetCustom(bb, id)
+    local g = ImGui.GetCurrentContext()
+    if not g.DragDropActive then return false end
+
+    local window = g.CurrentWindow
+    local hovered_window = g.HoveredWindowUnderMovingWindow
+    if hovered_window == nil or window.RootWindowDockTree ~= hovered_window.RootWindowDockTree then return false end
+    IM_ASSERT(id ~= 0)
+    if not ImGui.IsMouseHoveringRect(bb.Min, bb.Max) or (id == g.DragDropPayload.SourceId) then return false end
+    if window.SkipItems then return false end
+
+    IM_ASSERT(g.DragDropWithinTarget == false and g.DragDropWithinSource == false)
+    g.DragDropTargetRect = ImRect(bb.Min, bb.Max)
+    g.DragDropTargetClipRect = ImRect(window.ClipRect.Min, window.ClipRect.Max)
+    g.DragDropTargetId = id
+    g.DragDropTargetFullViewport = 0
+    g.DragDropWithinTarget = true
+    return true
+end
+
+function ImGui.BeginDragDropTargetViewport(viewport, p_bb)
+    local g = ImGui.GetCurrentContext()
+    if not g.DragDropActive then return false end
+
+    local bb = p_bb or viewport:GetWorkRect()
+    local id = viewport.ID
+    if g.MouseViewport ~= viewport or not ImGui.IsMouseHoveringRect(bb.Min, bb.Max, false) or (id == g.DragDropPayload.SourceId) then
+        return false
+    end
+
+    IM_ASSERT(g.DragDropWithinTarget == false and g.DragDropWithinSource == false)
+    g.DragDropTargetRect = ImRect(bb.Min, bb.Max)
+    g.DragDropTargetClipRect = ImRect(bb.Min, bb.Max)
+    g.DragDropTargetId = id
+    g.DragDropTargetFullViewport = id
+    g.DragDropWithinTarget = true
+    return true
+end
+
+function ImGui.BeginDragDropTarget()
+    local g = ImGui.GetCurrentContext()
+    if not g.DragDropActive then return false end
+
+    local window = g.CurrentWindow
+    if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect) == 0 then return false end
+    local hovered_window = g.HoveredWindowUnderMovingWindow
+    if hovered_window == nil or window.RootWindowDockTree ~= hovered_window.RootWindowDockTree or window.SkipItems then return false end
+
+    local display_rect = (bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HasDisplayRect) ~= 0) and g.LastItemData.DisplayRect or g.LastItemData.Rect
+    local id = g.LastItemData.ID
+    if id == 0 then
+        id = window:GetIDFromRectangle(display_rect)
+        ImGui.KeepAliveID(id)
+    end
+    if g.DragDropPayload.SourceId == id then return false end
+
+    IM_ASSERT(g.DragDropWithinTarget == false and g.DragDropWithinSource == false)
+    g.DragDropTargetRect = ImRect(display_rect.Min, display_rect.Max)
+    local clip = (bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HasClipRect) ~= 0) and g.LastItemData.ClipRect or window.ClipRect
+    g.DragDropTargetClipRect = ImRect(clip.Min, clip.Max)
+    g.DragDropTargetId = id
+    g.DragDropWithinTarget = true
+    return true
+end
+
+function ImGui.IsDragDropPayloadBeingAccepted()
+    local g = ImGui.GetCurrentContext()
+    return g.DragDropActive and g.DragDropAcceptIdPrev ~= 0
+end
+
+--- @return ImGuiPayload?
+function ImGui.AcceptDragDropPayload(type, flags)
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    local payload = g.DragDropPayload
+    IM_ASSERT(g.DragDropActive)
+    IM_ASSERT(payload.DataFrameCount ~= -1)
+    if type ~= nil and not ImGuiPayload_IsDataType(payload, type) then return nil end
+
+    local was_accepted_previously = (g.DragDropAcceptIdPrev == g.DragDropTargetId)
+    local r = g.DragDropTargetRect
+    local r_surface = r:GetWidth() * r:GetHeight()
+    if r_surface > g.DragDropAcceptIdCurrRectSurface then return nil end
+
+    g.DragDropAcceptFlagsCurr = flags
+    g.DragDropAcceptIdCurr = g.DragDropTargetId
+    g.DragDropAcceptIdCurrRectSurface = r_surface
+
+    payload.Preview = was_accepted_previously
+    flags = bit32.bor(flags, bit32.band(g.DragDropSourceFlags, ImGuiDragDropFlags.AcceptNoDrawDefaultRect))
+    local draw_target_rect = payload.Preview and bit32.band(flags, ImGuiDragDropFlags.AcceptNoDrawDefaultRect) == 0
+    if draw_target_rect and g.DragDropTargetFullViewport ~= 0 then
+        ImGui.RenderDragDropTargetRectForViewport(g.DragDropTargetFullViewport, g.DragDropTargetRect)
+    elseif draw_target_rect then
+        ImGui.RenderDragDropTargetRectForItem(r)
+    end
+
+    g.DragDropAcceptFrameCount = g.FrameCount
+    if bit32.band(g.DragDropSourceFlags, ImGuiDragDropFlags.SourceExtern) ~= 0 and g.DragDropMouseButton == -1 then
+        payload.Delivery = was_accepted_previously and (g.DragDropSourceFrameCount < g.FrameCount)
+    else
+        payload.Delivery = was_accepted_previously and not ImGui.IsMouseDown(g.DragDropMouseButton)
+    end
+    if not payload.Delivery and bit32.band(flags, ImGuiDragDropFlags.AcceptBeforeDelivery) == 0 then return nil end
+    return payload
+end
+
+function ImGui.RenderDragDropTargetRectForItem(bb)
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+    local bb_display = ImRect(bb.Min, bb.Max)
+    bb_display:ClipWith(g.DragDropTargetClipRect)
+    bb_display:Expand(g.Style.DragDropTargetPadding)
+    local push_clip_rect = not window.ClipRect:Contains(bb_display)
+    if push_clip_rect then window.DrawList:PushClipRectFullScreen() end
+    ImGui.RenderDragDropTargetRectEx(window.DrawList, bb_display, g.Style.DragDropTargetRounding)
+    if push_clip_rect then window.DrawList:PopClipRect() end
+end
+
+function ImGui.RenderDragDropTargetRectForViewport(viewport_id, bb)
+    local g = ImGui.GetCurrentContext()
+    local viewport = ImGui.FindViewportByID(viewport_id)
+    IM_ASSERT(viewport ~= nil)
+    local bb_padded = ImRect(bb.Min, bb.Max)
+    bb_padded:Expand(-g.Style.DragDropTargetPadding)
+    ImGui.RenderDragDropTargetRectEx(ImGui.GetForegroundDrawList(viewport), bb_padded, g.Style.DragDropTargetRounding)
+end
+
+function ImGui.RenderDragDropTargetRectEx(draw_list, bb, rounding)
+    local g = ImGui.GetCurrentContext()
+    draw_list:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTargetBg), rounding, 0)
+    draw_list:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.DragDropTarget), rounding, 0, g.Style.DragDropTargetBorderSize)
+end
+
+--- @return ImGuiPayload?
+function ImGui.GetDragDropPayload()
+    local g = ImGui.GetCurrentContext()
+    return (g.DragDropActive and g.DragDropPayload.DataFrameCount ~= -1) and g.DragDropPayload or nil
+end
+
+function ImGui.EndDragDropTarget()
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(g.DragDropActive)
+    IM_ASSERT(g.DragDropWithinTarget)
+    g.DragDropWithinTarget = false
+    if g.DragDropPayload.Delivery then ImGui.ClearDragDrop() end
+end
+
+-- Payload methods (C++ ImGuiPayload members): payload:IsDataType(t) etc. also work through these globals
+function ImGui.PayloadIsDataType(payload, t) return ImGuiPayload_IsDataType(payload, t) end
+
+return true
 end
 
 __FILES['imgui_draw.lua'] = function()
@@ -12368,6 +20267,8 @@ function ImGui.StyleColorsDark(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.50, 0.50, 0.50, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.HeaderActive].x, colors[ImGuiCol.HeaderActive].y, colors[ImGuiCol.HeaderActive].z, colors[ImGuiCol.HeaderActive].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.20, 0.20, 0.20, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(0.61, 0.61, 0.61, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(1.00, 0.43, 0.35, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -12436,6 +20337,8 @@ function ImGui.StyleColorsClassic(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.53, 0.53, 0.87, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.Header].x, colors[ImGuiCol.Header].y, colors[ImGuiCol.Header].z, colors[ImGuiCol.Header].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.20, 0.20, 0.20, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(1.00, 1.00, 1.00, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(0.90, 0.70, 0.00, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -12505,6 +20408,8 @@ function ImGui.StyleColorsLight(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.26, 0.59, 1.00, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.Header].x, colors[ImGuiCol.Header].y, colors[ImGuiCol.Header].z, colors[ImGuiCol.Header].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.68, 0.69, 0.73, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(0.39, 0.39, 0.39, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(1.00, 0.43, 0.35, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -12556,6 +20461,18 @@ function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx,
         local b = math.floor(col0_b + col_delta_b * t)
 
         vert[3] = bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(vert[3], IM_COL32_A_MASK))
+    end
+end
+
+-- Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
+function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, pivot_in, cos_a, sin_a, pivot_out)
+    local data = draw_list.VtxBuffer.Data
+    local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
+    for i = vert_start_idx, vert_end_idx - 1 do
+        local pos = data[i][1]
+        local x, y = pos[1] - pix, pos[2] - piy
+        pos[1] = x * cos_a - y * sin_a + pox
+        pos[2] = x * sin_a + y * cos_a + poy
     end
 end
 
@@ -15376,7 +23293,7 @@ function MT.ImDrawList:_ClearFreeMemory()
     self._TextureStack:clear()
     -- self._CallbacksDataBuf:clear()
     self._Path:clear()
-    -- self._Splitter.ClearFreeMemory()
+    self._Splitter:ClearFreeMemory()
 end
 
 function MT.ImDrawList:AddDrawCmd()
@@ -15542,6 +23459,184 @@ function MT.ImDrawList:_OnChangedVtxOffset()
     IM_ASSERT(curr_cmd.UserCallback == nil)
     curr_cmd.VtxOffset = self._CmdHeader.VtxOffset
 end
+
+----------------------------------------------------------------
+-- [SECTION] ImDrawListSplitter
+----------------------------------------------------------------
+-- Lua: channels swap ImVector objects with the draw list (C++ memcpy of the vector headers).
+-- Channel 0 holds nothing while it is the current channel (its buffers live in the draw list).
+
+-- Copy ClipRect, TexRef, VtxOffset (TexRef is assigned by reference, never mutated)
+local function ImDrawCmd_HeaderCopyRef(dst, src)
+    ImVec4_Copy(dst.ClipRect, src.ClipRect)
+    dst.TexRef = src.TexRef
+    dst.VtxOffset = src.VtxOffset
+end
+
+function MT.ImDrawListSplitter:Clear()
+    self._Current = 0
+    self._Count = 1
+end
+
+function MT.ImDrawListSplitter:ClearFreeMemory()
+    for i = 1, self._Channels.Size do
+        local ch = self._Channels.Data[i]
+        if i - 1 == self._Current then
+            -- Current channel is a copy of CmdBuffer/IdxBuffer, don't destruct again
+            self._Channels.Data[i] = ImDrawChannel()
+        else
+            ch._CmdBuffer:clear()
+            ch._IdxBuffer:clear()
+        end
+    end
+    self._Current = 0
+    self._Count = 1
+    self._Channels:clear()
+end
+
+--- @param draw_list      ImDrawList
+--- @param channels_count int
+function MT.ImDrawListSplitter:Split(draw_list, channels_count)
+    IM_ASSERT(self._Current == 0 and self._Count <= 1, "Nested channel splitting is not supported. Please use separate instances of ImDrawListSplitter.")
+    local old_channels_count = self._Channels.Size
+    if old_channels_count < channels_count then
+        self._Channels:reserve(channels_count)
+        self._Channels:resize(channels_count)
+    end
+    self._Count = channels_count
+
+    -- Channel 0 is the draw list itself (memset to 0 in C++)
+    local channels = self._Channels.Data
+    channels[1] = { _CmdBuffer = nil, _IdxBuffer = nil }
+    for i = 2, channels_count do
+        if i > old_channels_count or channels[i] == nil then
+            channels[i] = ImDrawChannel()
+        else
+            channels[i]._CmdBuffer:resize(0)
+            channels[i]._IdxBuffer:resize(0)
+        end
+    end
+end
+
+--- @param draw_list ImDrawList
+function MT.ImDrawListSplitter:Merge(draw_list)
+    -- Note that we never use or rely on _Channels.Size because it is merely a buffer that we never shrink back to 0 to keep all sub-buffers ready for use.
+    if self._Count <= 1 then
+        return
+    end
+
+    self:SetCurrentChannel(draw_list, 0)
+    draw_list:_PopUnusedDrawCmd()
+
+    -- Calculate our final buffer sizes. Also fix the incorrect IdxOffset values in each command.
+    local new_cmd_buffer_count = 0
+    local new_idx_buffer_count = 0
+    local last_cmd = (self._Count > 0 and draw_list.CmdBuffer.Size > 0) and draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] or nil
+    local idx_offset = last_cmd and (last_cmd.IdxOffset + last_cmd.ElemCount) or 0
+    local channels = self._Channels.Data
+    for i = 2, self._Count do
+        local ch = channels[i]
+        local cmds = ch._CmdBuffer
+        if cmds.Size > 0 and cmds.Data[cmds.Size].ElemCount == 0 and cmds.Data[cmds.Size].UserCallback == nil then -- Equivalent of PopUnusedDrawCmd()
+            cmds:pop_back()
+        end
+
+        if cmds.Size > 0 and last_cmd ~= nil then
+            -- Do not include ImDrawCmd_AreSequentialIdxOffset() in the compare as we rebuild IdxOffset values ourselves.
+            -- Manipulating IdxOffset (e.g. by reordering draw commands like done by RenderDimmedBackgroundBehindWindow()) is not supported within a splitter.
+            local next_cmd = cmds.Data[1]
+            if ImDrawCmd_HeaderCompare(last_cmd, next_cmd) and last_cmd.UserCallback == nil and next_cmd.UserCallback == nil then
+                -- Merge previous channel last draw command with current channel first draw command if matching.
+                last_cmd.ElemCount = last_cmd.ElemCount + next_cmd.ElemCount
+                idx_offset = idx_offset + next_cmd.ElemCount
+                cmds:erase(1) -- FIXME-OPT: Improve for multiple merges.
+            end
+        end
+        if cmds.Size > 0 then
+            last_cmd = cmds.Data[cmds.Size]
+        end
+        new_cmd_buffer_count = new_cmd_buffer_count + cmds.Size
+        new_idx_buffer_count = new_idx_buffer_count + ch._IdxBuffer.Size
+        for cmd_n = 1, cmds.Size do
+            cmds.Data[cmd_n].IdxOffset = idx_offset
+            idx_offset = idx_offset + cmds.Data[cmd_n].ElemCount
+        end
+    end
+    local cmd_write = draw_list.CmdBuffer.Size + 1
+    local idx_write = draw_list.IdxBuffer.Size + 1
+    draw_list.CmdBuffer:resize(draw_list.CmdBuffer.Size + new_cmd_buffer_count)
+    draw_list.IdxBuffer:resize(draw_list.IdxBuffer.Size + new_idx_buffer_count)
+
+    -- Write commands and indices in order (they are fairly small structures, we don't copy vertices only indices)
+    local dst_cmds = draw_list.CmdBuffer.Data
+    local dst_idx = draw_list.IdxBuffer.Data
+    for i = 2, self._Count do
+        local ch = channels[i]
+        local src_cmds = ch._CmdBuffer.Data
+        for n = 1, ch._CmdBuffer.Size do
+            dst_cmds[cmd_write] = src_cmds[n]
+            src_cmds[n] = nil -- ownership moved to the draw list
+            cmd_write = cmd_write + 1
+        end
+        local src_idx = ch._IdxBuffer.Data
+        for n = 1, ch._IdxBuffer.Size do
+            dst_idx[idx_write] = src_idx[n]
+            idx_write = idx_write + 1
+        end
+    end
+    draw_list._IdxWritePtr = idx_write
+
+    -- Ensure there's always a non-callback draw command trailing the command-buffer
+    if draw_list.CmdBuffer.Size == 0 or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size].UserCallback ~= nil then
+        draw_list:AddDrawCmd()
+    end
+
+    -- If current command is used with different settings we need to add a new command
+    local curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    if curr_cmd.ElemCount == 0 then
+        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
+    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        draw_list:AddDrawCmd()
+    end
+
+    self._Count = 1
+end
+
+--- @param draw_list ImDrawList
+--- @param idx       int # 0-based channel index
+function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
+    IM_ASSERT(idx >= 0 and idx < self._Count)
+    if self._Current == idx then
+        return
+    end
+
+    -- Overwrite ImVector (12/16 bytes), four times. This is merely a silly optimization instead of doing .swap()
+    local channels = self._Channels.Data
+    local cur = channels[self._Current + 1]
+    cur._CmdBuffer = draw_list.CmdBuffer
+    cur._IdxBuffer = draw_list.IdxBuffer
+    self._Current = idx
+    local ch = channels[idx + 1]
+    draw_list.CmdBuffer = ch._CmdBuffer
+    draw_list.IdxBuffer = ch._IdxBuffer
+    draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
+
+    -- If current command is used with different settings we need to add a new command
+    local curr_cmd = (draw_list.CmdBuffer.Size == 0) and nil or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    if curr_cmd == nil then
+        draw_list:AddDrawCmd()
+    elseif curr_cmd.ElemCount == 0 then
+        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
+    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        draw_list:AddDrawCmd()
+    end
+end
+
+--- @param count int
+function MT.ImDrawList:ChannelsSplit(count) self._Splitter:Split(self, count) end
+function MT.ImDrawList:ChannelsMerge() self._Splitter:Merge(self) end
+--- @param n int # 0-based
+function MT.ImDrawList:ChannelsSetCurrent(n) self._Splitter:SetCurrentChannel(self, n) end
 
 --- @param points       ImVec2[]
 --- @param points_count int
@@ -16141,6 +24236,27 @@ function MT.ImDrawList:AddTriangle(p1, p2, p3, col, thickness)
     self:PathLineTo(p2)
     self:PathLineTo(p3)
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddQuad(p1, p2, p3, p4, col, thickness)
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+
+    self:PathLineTo(p1)
+    self:PathLineTo(p2)
+    self:PathLineTo(p3)
+    self:PathLineTo(p4)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddQuadFilled(p1, p2, p3, p4, col)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+
+    self:PathLineTo(p1)
+    self:PathLineTo(p2)
+    self:PathLineTo(p3)
+    self:PathLineTo(p4)
+    self:PathFillConvex(col)
 end
 
 function MT.ImDrawList:AddTriangleFilled(p1, p2, p3, col)
@@ -17502,7 +25618,9 @@ function ImDrawChannel() return { _CmdBuffer = ImVector(), _IdxBuffer = ImVector
 
 --- @return ImDrawListSplitter
 --- @nodiscard
-function ImDrawListSplitter() return { _Current = 0, _Count = 0, _Channels = ImVector() } end
+MT.ImDrawListSplitter = {} -- methods in imgui_draw.lua
+MT.ImDrawListSplitter.__index = MT.ImDrawListSplitter
+function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _Channels = ImVector() }, MT.ImDrawListSplitter) end
 
 --- @class ImDrawList
 --- @field CmdBuffer         ImVector<ImDrawCmd>
@@ -17989,6 +26107,7 @@ ImGuiConfigFlags = {
     NoMouse             = bitLShift(1, 4),
     NoMouseCursorChange = bitLShift(1, 5),
     NoKeyboard          = bitLShift(1, 6),
+    DockingEnable       = bitLShift(1, 7),
     ViewportsEnable     = bitLShift(1, 10),
     IsSRGB              = bitLShift(1, 20),
     IsTouchScreen       = bitLShift(1, 21)
@@ -18043,7 +26162,25 @@ function ImGuiIO()
         ConfigWindowsResizeFromEdges = true,
 
         ConfigDebugIniSettings = false,
+        ConfigWindowsCopyContentsWithCtrlC = false,
+        ConfigWindowsMoveFromTitleBarOnly = false,
+        ConfigErrorRecovery = true,
+        ConfigErrorRecoveryEnableAssert = true,
+        ConfigErrorRecoveryEnableDebugLog = true,
+        ConfigErrorRecoveryEnableTooltip = true,
+        ConfigDebugHighlightIdConflicts = false,
+        ConfigDebugHighlightIdConflictsShowItemPicker = true,
 
+        IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
+        IniSavingRate = 5.0,
+        LogFilename = "imgui_log.txt",
+        WantSaveIniSettings = false,
+
+        ConfigDockingNoSplit = false,
+        ConfigDockingNoDockingOver = false,
+        ConfigDockingWithShift = false,
+        ConfigDockingAlwaysTabBar = false,
+        ConfigDockingTransparentPayload = false,
         ConfigViewportsNoAutoMerge = false,
         ConfigViewportsNoTaskBarIcon = false,
         ConfigViewportsNoDecoration = true,
@@ -18073,6 +26210,7 @@ function ImGuiIO()
         MouseDoubleClicked = {[0] = false, [1] = false, [2] = false},
 
         MouseDoubleClickTime    = 0.30,
+        MouseSingleClickDelay   = 0.50,
         MouseDoubleClickMaxDist = 6.0,
         MouseDragThreshold      = 6.0,
         KeyRepeatDelay          = 0.275,
@@ -18535,6 +26673,7 @@ ImGuiHoveredFlags = {
     RootWindow                   = bitLShift(1, 1),
     AnyWindow                    = bitLShift(1, 2),
     NoPopupHierarchy             = bitLShift(1, 3),
+    DockHierarchy                = bitLShift(1, 4),
     AllowWhenBlockedByPopup      = bitLShift(1, 5),
     AllowWhenBlockedByActiveItem = bitLShift(1, 7),
     AllowWhenOverlappedByItem    = bitLShift(1, 8),
@@ -18549,11 +26688,22 @@ ImGuiHoveredFlags = {
     NoSharedDelay                = bitLShift(1, 17)
 }
 
+--- @enum ImGuiFocusedFlags
+ImGuiFocusedFlags = {
+    None             = 0,
+    ChildWindows     = bitLShift(1, 0), -- Return true if any children of the window is focused
+    RootWindow       = bitLShift(1, 1), -- Test from root window (top most parent of the current hierarchy)
+    AnyWindow        = bitLShift(1, 2), -- Return true if any window is focused
+    NoPopupHierarchy = bitLShift(1, 3), -- Do not consider popup hierarchy
+    DockHierarchy    = bitLShift(1, 4), -- Consider docking hierarchy
+}
+ImGuiFocusedFlags.RootAndChildWindows = bitOr(ImGuiFocusedFlags.RootWindow, ImGuiFocusedFlags.ChildWindows)
+
 ImGuiHoveredFlags.AllowWhenOverlapped = bitOr(ImGuiHoveredFlags.AllowWhenOverlappedByItem, ImGuiHoveredFlags.AllowWhenOverlappedByWindow)
 ImGuiHoveredFlags.RectOnly            = bitOr(ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.AllowWhenOverlapped)
 ImGuiHoveredFlags.RootAndChildWindows = bitOr(ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.ChildWindows)
 ImGuiHoveredFlags.DelayMask_ = bitOr(ImGuiHoveredFlags.DelayNone, ImGuiHoveredFlags.DelayShort, ImGuiHoveredFlags.DelayNormal, ImGuiHoveredFlags.NoSharedDelay)
-ImGuiHoveredFlags.AllowedMaskForIsWindowHovered = bitOr(ImGuiHoveredFlags.ChildWindows, ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.AnyWindow, ImGuiHoveredFlags.NoPopupHierarchy, ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary)
+ImGuiHoveredFlags.AllowedMaskForIsWindowHovered = bitOr(ImGuiHoveredFlags.ChildWindows, ImGuiHoveredFlags.RootWindow, ImGuiHoveredFlags.AnyWindow, ImGuiHoveredFlags.NoPopupHierarchy, ImGuiHoveredFlags.DockHierarchy, ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary)
 ImGuiHoveredFlags.AllowedMaskForIsItemHovered = bitOr(ImGuiHoveredFlags.AllowWhenBlockedByPopup, ImGuiHoveredFlags.AllowWhenBlockedByActiveItem, ImGuiHoveredFlags.AllowWhenOverlapped, ImGuiHoveredFlags.AllowWhenDisabled, ImGuiHoveredFlags.NoNavOverride, ImGuiHoveredFlags.ForTooltip, ImGuiHoveredFlags.Stationary, ImGuiHoveredFlags.DelayMask_)
 
 --- @enum ImGuiKey
@@ -18672,26 +26822,28 @@ ImGuiCol = {
     TabDimmed                 = 39,
     TabDimmedSelected         = 40,
     TabDimmedSelectedOverline = 41,
-    PlotLines                 = 42,
-    PlotLinesHovered          = 43,
-    PlotHistogram             = 44,
-    PlotHistogramHovered      = 45,
-    TableHeaderBg             = 46,
-    TableBorderStrong         = 47,
-    TableBorderLight          = 48,
-    TableRowBg                = 49,
-    TableRowBgAlt             = 50,
-    TextLink                  = 51,
-    TextSelectedBg            = 52,
-    TreeLines                 = 53,
-    DragDropTarget            = 54,
-    DragDropTargetBg          = 55,
-    UnsavedMarker             = 56,
-    NavCursor                 = 57,
-    NavWindowingHighlight     = 58,
-    NavWindowingDimBg         = 59,
-    ModalWindowDimBg          = 60,
-    COUNT                     = 61
+    DockingPreview            = 42,
+    DockingEmptyBg            = 43,
+    PlotLines                 = 44,
+    PlotLinesHovered          = 45,
+    PlotHistogram             = 46,
+    PlotHistogramHovered      = 47,
+    TableHeaderBg             = 48,
+    TableBorderStrong         = 49,
+    TableBorderLight          = 50,
+    TableRowBg                = 51,
+    TableRowBgAlt             = 52,
+    TextLink                  = 53,
+    TextSelectedBg            = 54,
+    TreeLines                 = 55,
+    DragDropTarget            = 56,
+    DragDropTargetBg          = 57,
+    UnsavedMarker             = 58,
+    NavCursor                 = 59,
+    NavWindowingHighlight     = 60,
+    NavWindowingDimBg         = 61,
+    ModalWindowDimBg          = 62,
+    COUNT = 63
 }
 
 --- @enum ImGuiBackendFlags
@@ -18981,9 +27133,125 @@ ImGuiTreeNodeFlags.DrawLinesMask_ = bitOr(ImGuiTreeNodeFlags.DrawLinesNone, ImGu
 --- @enum ImGuiTableFlags
 ImGuiTableFlags =
 {
-    None = 0,
+    None                       = 0,
+    Resizable                  = bitLShift(1, 0),
+    Reorderable                = bitLShift(1, 1),
+    Hideable                   = bitLShift(1, 2),
+    Sortable                   = bitLShift(1, 3),
+    NoSavedSettings            = bitLShift(1, 4),
+    ContextMenuInBody          = bitLShift(1, 5),
+    RowBg                      = bitLShift(1, 6),
+    BordersInnerH              = bitLShift(1, 7),
+    BordersOuterH              = bitLShift(1, 8),
+    BordersInnerV              = bitLShift(1, 9),
+    BordersOuterV              = bitLShift(1, 10),
+    NoBordersInBody            = bitLShift(1, 11),
+    NoBordersInBodyUntilResize = bitLShift(1, 12),
+    SizingFixedFit             = bitLShift(1, 13),
+    SizingFixedSame            = bitLShift(2, 13),
+    SizingStretchProp          = bitLShift(3, 13),
+    SizingStretchSame          = bitLShift(4, 13),
+    NoHostExtendX              = bitLShift(1, 16),
+    NoHostExtendY              = bitLShift(1, 17),
+    NoKeepColumnsVisible       = bitLShift(1, 18),
+    PreciseWidths              = bitLShift(1, 19),
+    NoClip                     = bitLShift(1, 20),
+    PadOuterX                  = bitLShift(1, 21),
+    NoPadOuterX                = bitLShift(1, 22),
+    NoPadInnerX                = bitLShift(1, 23),
+    ScrollX                    = bitLShift(1, 24),
+    ScrollY                    = bitLShift(1, 25),
+    SortMulti                  = bitLShift(1, 26),
+    SortTristate               = bitLShift(1, 27),
+    HighlightHoveredColumn     = bitLShift(1, 28),
 }
+ImGuiTableFlags.BordersH     = bitOr(ImGuiTableFlags.BordersInnerH, ImGuiTableFlags.BordersOuterH)
+ImGuiTableFlags.BordersV     = bitOr(ImGuiTableFlags.BordersInnerV, ImGuiTableFlags.BordersOuterV)
+ImGuiTableFlags.BordersInner = bitOr(ImGuiTableFlags.BordersInnerV, ImGuiTableFlags.BordersInnerH)
+ImGuiTableFlags.BordersOuter = bitOr(ImGuiTableFlags.BordersOuterV, ImGuiTableFlags.BordersOuterH)
+ImGuiTableFlags.Borders      = bitOr(ImGuiTableFlags.BordersInner, ImGuiTableFlags.BordersOuter)
+ImGuiTableFlags.SizingMask_  = bitOr(ImGuiTableFlags.SizingFixedFit, ImGuiTableFlags.SizingFixedSame, ImGuiTableFlags.SizingStretchProp, ImGuiTableFlags.SizingStretchSame)
 
+--- @enum ImGuiTableColumnFlags
+ImGuiTableColumnFlags =
+{
+    None                 = 0,
+    Disabled             = bitLShift(1, 0),
+    DefaultHide          = bitLShift(1, 1),
+    DefaultSort          = bitLShift(1, 2),
+    WidthStretch         = bitLShift(1, 3),
+    WidthFixed           = bitLShift(1, 4),
+    NoResize             = bitLShift(1, 5),
+    NoReorder            = bitLShift(1, 6),
+    NoHide               = bitLShift(1, 7),
+    NoClip               = bitLShift(1, 8),
+    NoSort               = bitLShift(1, 9),
+    NoSortAscending      = bitLShift(1, 10),
+    NoSortDescending     = bitLShift(1, 11),
+    NoHeaderLabel        = bitLShift(1, 12),
+    NoHeaderWidth        = bitLShift(1, 13),
+    PreferSortAscending  = bitLShift(1, 14),
+    PreferSortDescending = bitLShift(1, 15),
+    IndentEnable         = bitLShift(1, 16),
+    IndentDisable        = bitLShift(1, 17),
+    AngledHeader         = bitLShift(1, 18),
+
+    IsEnabled            = bitLShift(1, 24),
+    IsVisible            = bitLShift(1, 25),
+    IsSorted             = bitLShift(1, 26),
+    IsHovered            = bitLShift(1, 27),
+
+    NoDirectResize_      = bitLShift(1, 30),
+}
+ImGuiTableColumnFlags.WidthMask_  = bitOr(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.WidthFixed)
+ImGuiTableColumnFlags.IndentMask_ = bitOr(ImGuiTableColumnFlags.IndentEnable, ImGuiTableColumnFlags.IndentDisable)
+ImGuiTableColumnFlags.StatusMask_ = bitOr(ImGuiTableColumnFlags.IsEnabled, ImGuiTableColumnFlags.IsVisible, ImGuiTableColumnFlags.IsSorted, ImGuiTableColumnFlags.IsHovered)
+
+--- @enum ImGuiTableRowFlags
+ImGuiTableRowFlags = { None = 0, Headers = bitLShift(1, 0) }
+
+--- @enum ImGuiTableBgTarget
+ImGuiTableBgTarget = { None = 0, RowBg0 = 1, RowBg1 = 2, CellBg = 3 }
+
+--- @enum ImGuiSortDirection
+ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
+
+
+
+--- @class ImGuiPayload
+--- Drag and drop payload. `Data` is any Lua value (C++ stores raw bytes); `DataSize` kept for API parity.
+local IM_PAYLOAD = {}
+IM_PAYLOAD.__index = IM_PAYLOAD
+function IM_PAYLOAD:Clear() ImGuiPayload_Clear(self) end
+function IM_PAYLOAD:IsDataType(t) return ImGuiPayload_IsDataType(self, t) end
+function IM_PAYLOAD:IsPreview() return self.Preview end
+function IM_PAYLOAD:IsDelivery() return self.Delivery end
+function ImGuiPayload()
+    return setmetatable({ Data = nil, DataSize = 0, SourceId = 0, SourceParentId = 0, DataFrameCount = -1, DataType = "", Preview = false, Delivery = false }, IM_PAYLOAD)
+end
+function ImGuiPayload_Clear(p) p.SourceId = 0; p.SourceParentId = 0; p.Data = nil; p.DataSize = 0; p.DataType = ""; p.DataFrameCount = -1; p.Preview = false; p.Delivery = false end
+function ImGuiPayload_IsDataType(p, t) return p.DataFrameCount ~= -1 and p.DataType == t end
+function ImGuiPayload_IsPreview(p) return p.Preview end
+function ImGuiPayload_IsDelivery(p) return p.Delivery end
+
+--- @class ImGuiTextBuffer  # string builder: Buf is a list of string chunks
+local ImGuiTextBufferMT = {}
+ImGuiTextBufferMT.__index = ImGuiTextBufferMT
+function ImGuiTextBuffer() return setmetatable({ Buf = {} }, ImGuiTextBufferMT) end
+function ImGuiTextBufferMT:clear() self.Buf = {} end
+function ImGuiTextBufferMT:empty() return #self.Buf == 0 end
+function ImGuiTextBufferMT:append(str) self.Buf[#self.Buf + 1] = str end
+function ImGuiTextBufferMT:appendf(fmt, ...) self.Buf[#self.Buf + 1] = string.format(fmt, ...) end
+function ImGuiTextBufferMT:c_str() return table.concat(self.Buf) end
+function ImGuiTextBufferMT:size() return #self:c_str() end
+
+--- @class ImGuiSettingsHandler
+--- Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
+--- WriteAllFn(ctx, handler, buf: ImGuiTextBuffer)
+function ImGuiSettingsHandler()
+    return { TypeName = nil, TypeHash = 0, ClearAllFn = nil, ReadInitFn = nil, ReadOpenFn = nil, ReadLineFn = nil,
+             ApplyAllFn = nil, WriteAllFn = nil, CleanupFn = nil, UserData = nil }
+end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
 end
@@ -20558,6 +28826,44 @@ function ImGui._ByteArrayToString(buf, buf_begin, buf_end)
     return table.concat(str)
 end
 
+
+--- ImPool<T>: pool of objects keyed by ID. Public indices are 0-based like upstream (Buf is stored 1-based).
+--- `ctor` creates a new element. Removed slots are recycled via FreeIdx (-1 = none; free slots chain through `_NextFree`).
+local IM_POOL = {}
+IM_POOL.__index = IM_POOL
+function ImPool(ctor) return setmetatable({ Buf = {}, Map = {}, FreeIdx = 0, AliveCount = 0, BufSize = 0, _Ctor = ctor }, IM_POOL) end
+function IM_POOL:GetByKey(key) local i = self.Map[key]; return i and self.Buf[i + 1] or nil end
+function IM_POOL:GetByIndex(n) return self.Buf[n + 1] end
+function IM_POOL:GetIndex(p) return p._PoolIdx end
+function IM_POOL:Contains(p) return p ~= nil and self.Buf[(p._PoolIdx or -1) + 1] == p end
+function IM_POOL:GetMapSize() return self.BufSize end
+function IM_POOL:Clear() self.Buf = {}; self.Map = {}; self.FreeIdx = 0; self.AliveCount = 0; self.BufSize = 0 end
+function IM_POOL:Add()
+    local idx
+    if self._Free and #self._Free > 0 then idx = table.remove(self._Free) else idx = self.BufSize; self.BufSize = self.BufSize + 1 end
+    local p = self._Ctor and self._Ctor() or {}
+    p._PoolIdx = idx
+    self.Buf[idx + 1] = p
+    self.AliveCount = self.AliveCount + 1
+    return p
+end
+function IM_POOL:GetOrAddByKey(key)
+    local i = self.Map[key]
+    if i then return self.Buf[i + 1] end
+    local p = self:Add(); self.Map[key] = p._PoolIdx; return p
+end
+function IM_POOL:Remove(key, p)
+    if type(key) == "table" then p = key; key = nil end
+    if key == nil then for k, i in pairs(self.Map) do if i == p._PoolIdx then key = k break end end end
+    if key ~= nil then self.Map[key] = nil end
+    self.Buf[p._PoolIdx + 1] = false
+    self._Free = self._Free or {}
+    table.insert(self._Free, p._PoolIdx)
+    self.AliveCount = self.AliveCount - 1
+end
+function IM_POOL:Reserve(n) end
+-- NOTE: removed slots hold `false`; iterate with `for i = 0, pool:GetMapSize() - 1 do local t = pool:GetByIndex(i) if t then ... end end`
+
 --- @type ImGuiContext?
 local GImGui
 
@@ -21687,6 +29993,15 @@ function ImGuiNextWindowData()
         ScrollVal            = ImVec2(),
         WindowFlags          = nil,
         ChildFlags           = nil,
+        WindowFlagsSet       = 0,
+        WindowFlagsClear     = 0,
+        ChildFlagsSet        = 0,
+        ChildFlagsClear      = 0,
+        ViewportId           = 0,
+        DockId               = 0,
+        DockCond             = 0,
+        PosUndock            = false,
+        WindowClass          = nil,
         CollapsedVal         = nil,
         SizeConstraintRect   = nil,
         SizeCallback         = nil,
@@ -21818,6 +30133,7 @@ function ImGuiStyle()
         PopupBorderSize = 1.0,
 
         DockingSeparatorSize = 2.0,
+        DockingNodeHasCloseButton = true,
         MouseCursorScale = 1.0,
 
         ItemSpacing = ImVec2(8, 4),
@@ -22180,6 +30496,91 @@ end
 --- @field DebugAllocInfo                     ImGuiDebugAllocInfo
 --- @field TempBuffer                         ImVector<char>
 
+----------------------------------------------------------------
+-- [SECTION] Tab bar, Tab item support (public flags from imgui.h + private extensions)
+----------------------------------------------------------------
+
+--- @enum ImGuiTabBarFlags
+ImGuiTabBarFlags = {
+    None                         = 0,
+    Reorderable                  = bitLShift(1, 0),
+    AutoSelectNewTabs            = bitLShift(1, 1),
+    TabListPopupButton           = bitLShift(1, 2),
+    NoCloseWithMiddleMouseButton = bitLShift(1, 3),
+    NoTabListScrollingButtons    = bitLShift(1, 4),
+    NoTooltip                    = bitLShift(1, 5),
+    DrawSelectedOverline         = bitLShift(1, 6),
+    FittingPolicyMixed           = bitLShift(1, 7),
+    FittingPolicyShrink          = bitLShift(1, 8),
+    FittingPolicyScroll          = bitLShift(1, 9),
+    -- Private
+    DockNode                     = bitLShift(1, 20),
+    IsFocused                    = bitLShift(1, 21),
+    SaveSettings                 = bitLShift(1, 22),
+}
+ImGuiTabBarFlags.FittingPolicyMask_       = bitOr(ImGuiTabBarFlags.FittingPolicyMixed, ImGuiTabBarFlags.FittingPolicyShrink, ImGuiTabBarFlags.FittingPolicyScroll)
+ImGuiTabBarFlags.FittingPolicyDefault_    = ImGuiTabBarFlags.FittingPolicyMixed
+ImGuiTabBarFlags.FittingPolicyResizeDown  = ImGuiTabBarFlags.FittingPolicyShrink
+
+--- @enum ImGuiTabItemFlags
+ImGuiTabItemFlags = {
+    None                         = 0,
+    UnsavedDocument              = bitLShift(1, 0),
+    SetSelected                  = bitLShift(1, 1),
+    NoCloseWithMiddleMouseButton = bitLShift(1, 2),
+    NoPushId                     = bitLShift(1, 3),
+    NoTooltip                    = bitLShift(1, 4),
+    NoReorder                    = bitLShift(1, 5),
+    Leading                      = bitLShift(1, 6),
+    Trailing                     = bitLShift(1, 7),
+    NoAssumedClosure             = bitLShift(1, 8),
+    -- Private
+    NoCloseButton                = bitLShift(1, 20),
+    Button                       = bitLShift(1, 21),
+    Invisible                    = bitLShift(1, 22),
+    Unsorted                     = bitLShift(1, 23),
+}
+ImGuiTabItemFlags.SectionMask_ = bitOr(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)
+
+-- Storage for one active tab item. In this port the label is stored in `Name` (C++ uses NameOffset into TabBar.TabsNames)
+--- @class ImGuiTabItem
+--- @return ImGuiTabItem
+function ImGuiTabItem()
+    return {
+        ID = 0, Flags = 0, Window = nil,
+        LastFrameVisible = -1, LastFrameSelected = -1,
+        Offset = 0.0, Width = 0.0, ContentWidth = 0.0, RequestedWidth = -1.0,
+        NameOffset = -1, Name = nil,
+        BeginOrder = -1,        -- 0-based
+        IndexDuringLayout = -1, -- 0-based
+        WantClose = false,
+    }
+end
+
+-- Storage for a tab bar. Tabs: ImVector of ImGuiTabItem tables (references; "pointers" stay valid across reorders)
+--- @class ImGuiTabBar
+--- @return ImGuiTabBar
+function ImGuiTabBar()
+    return {
+        Window = nil, Tabs = ImVector(), Flags = 0, ID = 0,
+        SelectedTabId = 0, NextSelectedTabId = 0, NextScrollToTabId = 0, VisibleTabId = 0,
+        CurrFrameVisible = -1, PrevFrameVisible = -1,
+        BarRect = ImRect(), BarRectPrevWidth = 0.0,
+        CurrTabsContentsHeight = 0.0, PrevTabsContentsHeight = 0.0,
+        WidthAllTabs = 0.0, WidthAllTabsIdeal = 0.0,
+        ScrollingAnim = 0.0, ScrollingTarget = 0.0, ScrollingTargetDistToVisibility = 0.0, ScrollingSpeed = 0.0,
+        ScrollingRectMinX = 0.0, ScrollingRectMaxX = 0.0, SeparatorMinX = 0.0, SeparatorMaxX = 0.0,
+        ReorderRequestTabId = 0, ReorderRequestOffset = 0, BeginCount = 0,
+        WantLayout = false, VisibleTabWasSubmitted = false, TabsAddedNew = false, ScrollButtonEnabled = false,
+        TabsActiveCount = 0,
+        LastTabItemIdx = -1, -- 0-based
+        ItemSpacingY = 0.0, FramePadding = ImVec2(), BackupCursorPos = ImVec2(),
+    }
+end
+
+--- @class ImGuiShrinkWidthItem
+function ImGuiShrinkWidthItem() return { Index = 0, Width = 0.0, InitialWidth = 0.0 } end
+
 --- @param shared_font_atlas? ImFontAtlas
 --- @return ImGuiContext
 --- @nodiscard
@@ -22406,6 +30807,15 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         ComboPreviewData = ImGuiComboPreviewData(),
 
+        CurrentTabBar = nil,
+        TabBars = ImPool(ImGuiTabBar),   -- ImPool<ImGuiTabBar>
+        -- Docking
+        DockContext = ImGuiDockContext(),
+        DockNodeWindowMenuHandler = nil,
+        DebugHoveredDockNode = nil,
+        CurrentTabBarStack = ImVector(), -- holds ImGuiTabBar references directly (no ImGuiPtrOrIndex needed in Lua)
+        ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
+
         WindowResizeBorderExpectedRect = ImRect(),
         WindowResizeRelativeMode = false,
 
@@ -22439,15 +30849,60 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         UserTextures = ImVector(),
 
         -- Settings
+        SettingsLoaded = false,
+        SettingsDirtyTimer = 0.0,
+        SettingsIniData = "",          -- In memory .ini settings (string)
+        SettingsHandlers = ImVector(), -- List of .ini settings handlers
         SettingsWindows = ImVector(),
+        SettingsTables = ImVector(),
+
+        -- Hooks
+        Hooks = ImVector(),
+        HookIdNext = 0,
 
         -- Drag and Drop
         DragDropActive = false,
         DragDropWithinSource = false,
         DragDropWithinTarget = false,
         DragDropSourceFlags = 0,
+        DragDropSourceFrameCount = -1,
+        DragDropMouseButton = -1,
+        DragDropPayload = ImGuiPayload(),
+        DragDropTargetRect = ImRect(),
+        DragDropTargetClipRect = ImRect(),
+        DragDropTargetId = 0,
+        DragDropTargetFullViewport = 0,
+        DragDropAcceptFlagsCurr = 0, DragDropAcceptFlagsPrev = 0,
+        DragDropAcceptIdCurrRectSurface = 0.0,
+        DragDropAcceptFrameCount = -1,
+        DragDropHoldJustPressedId = 0,
 
         DragDropAcceptIdPrev = 0, DragDropAcceptIdCurr = 0,
+
+        -- Clipper
+        ClipperTempDataStacked = 0,
+        ClipperTempData = ImVector(),
+
+        -- Logging
+        LogEnabled = false,
+        LogLineFirstItem = false,
+        LogFlags = 0,
+        LogWindow = nil,
+        LogFile = nil,
+        LogBuffer = ImGuiTextBuffer(),
+        LogNextPrefix = nil, LogNextSuffix = nil,
+        LogLinePosY = FLT_MAX,
+        LogDepthRef = 0,
+        LogDepthToExpand = 2, LogDepthToExpandDefault = 2,
+
+        -- Error handling
+        ErrorCallback = nil, ErrorCallbackUserData = nil,
+        ErrorTooltipLockedPos = ImVec2(),
+        ErrorFirst = true,
+        ErrorCountCurrentFrame = 0,
+        StackSizesInNewFrame = nil,
+        ContextName = "",
+        DebugBreakInWindow = 0,
 
         LocalizationTable = {},
 
@@ -22467,6 +30922,16 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         WantCaptureKeyboardNextFrame = -1,
         WantTextInputNextFrame = -1,
         TempBuffer = ImVector(),
+
+        -- Tables (imgui_tables.lua)
+        CurrentTable = nil,
+        DebugBreakInTable = 0,
+        TablesTempDataStacked = 0,
+        TablesTempData = ImVector(),
+        Tables = ImPool(),                 -- ImPool<ImGuiTable>, 0-based indices (imgui_tables.lua)
+        TablesLastTimeActive = ImVector(), -- [table_idx + 1] = float
+        DrawChannelsTempMergeBuffer = ImVector(),
+        SettingsTables = ImVector(),       -- ImChunkStream<ImGuiTableSettings>: plain vector, SettingsOffset = 1-based index
     }
 
     for i = 0, 59 do this.FramerateSecPerFrame[i] = 0 end
@@ -22514,6 +30979,12 @@ function ImGuiWindowSettings()
         WantApply    = false,
         WantDelete   = false,
         Name         = "",
+        ViewportId   = 0,
+        ViewportPos  = ImVec2(0, 0),
+        DockId       = 0,
+        DockOrder    = -1,
+        ClassId      = 0,
+        LastUsedDate = 0,
     }, IMGUI_WINDOW_SETTINGS)
 end
 
@@ -22574,6 +31045,8 @@ end
 --- @nodiscard
 local function ImGuiWindowTempData()
     return {
+        DockTabItemStatusFlags = 0,
+        DockTabItemRect = ImRect(),
         CursorPos         = ImVec2(),
         CursorPosPrevLine = ImVec2(),
         CursorStartPos    = ImVec2(),
@@ -22607,6 +31080,8 @@ local function ImGuiWindowTempData()
         TreeRecordsClippedNodesY2Mask = nil,
 
         ChildWindows = ImVector(),
+        CurrentTableIdx = -1,  -- 0-based index into g.Tables, -1 if none
+        CurrentColumns = nil,  -- ImGuiOldColumns (legacy Columns API)
         StateStorage = nil,
 
         LayoutType = nil
@@ -22799,6 +31274,7 @@ function ImGuiWindow(ctx, name)
         LastTimeActive = -1.0,
 
         StateStorage = {},
+        ColumnsStorage = ImVector(), -- ImVector<ImGuiOldColumns>
 
         WriteAccessed = false,
 
@@ -22822,6 +31298,21 @@ function ImGuiWindow(ctx, name)
     this.ID = ImHashStr(name)
     this.IDStack:push_back(this.ID)
     this.MoveId = this:GetID("#MOVE")
+    this.TabId = this:GetID("#TAB")
+    -- Docking
+    this.ChildId = this.ChildId or 0
+    this.SetWindowDockAllowFlags = 0
+    this.ParentWindowForFocusRoute = nil
+    this.DockIsActive = false
+    this.DockNodeIsVisible = false
+    this.DockTabIsVisible = false
+    this.DockTabWantClose = false
+    this.DockOrder = -1
+    this.DockStyle = { Colors = {} }
+    for i = 0, 8 do this.DockStyle.Colors[i] = 0 end
+    this.DockNode = nil
+    this.DockNodeAsHost = nil
+    this.DockId = 0
 
     return this
 end
@@ -23495,6 +31986,1173 @@ end
 return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
+__FILES['imgui_tabs.lua'] = function()
+--- ImGui Sincerely
+-- Tab bars & tab items: 1:1 port of imgui_widgets.cpp [SECTION] Widgets: BeginTabBar/BeginTabItem (docking branch)
+--
+-- Port notes:
+-- - tab_bar.Tabs is an ImVector of ImGuiTabItem tables (references). C++ pointer arithmetic on the array is replaced by
+--   index lookups. tab_bar.LastTabItemIdx and tab orders are 0-based like upstream.
+-- - Tab names are stored on the tab itself (tab.Name) instead of tab_bar.TabsNames.
+-- - ImGui.BeginTabItem(label, p_open, flags) returns `visible, p_open`.
+
+local MT = ImGui.GetMetatables()
+
+local GImGui
+local function SyncContext() GImGui = ImGui.GetCurrentContext() end
+
+local function ImLinearSweep(current, target, speed)
+    if current < target then return ImMin(current + speed, target) end
+    if current > target then return ImMax(current - speed, target) end
+    return current
+end
+
+local function TabItemGetSectionIdx(tab)
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.Leading) ~= 0 then return 0 end
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.Trailing) ~= 0 then return 2 end
+    return 1
+end
+
+-- Stable sorts (C++ ImQsort is not stable, but the comparers are total orders in practice)
+local function SortTabsBySection(tab_bar)
+    table.sort(tab_bar.Tabs.Data, function(a, b)
+        if a == nil or b == nil then return false end
+        local sa, sb = TabItemGetSectionIdx(a), TabItemGetSectionIdx(b)
+        if sa ~= sb then return sa < sb end
+        return a.IndexDuringLayout < b.IndexDuringLayout
+    end)
+end
+
+local function SortTabsByBeginOrder(tab_bar)
+    local data = tab_bar.Tabs.Data
+    if not data then return end
+    local arr = {}
+    for i = 1, tab_bar.Tabs.Size do arr[i] = data[i] end
+    table.sort(arr, function(a, b) return a.BeginOrder < b.BeginOrder end)
+    for i = 1, tab_bar.Tabs.Size do data[i] = arr[i] end
+end
+
+local function TabBarCalcScrollableWidth(tab_bar, sections)
+    return tab_bar.BarRect:GetWidth() - sections[1].Width - sections[3].Width - sections[2].Spacing
+end
+
+local function ImGuiTabBarSection() return { TabCount = 0, Width = 0.0, WidthAfterShrinkMinWidth = 0.0, Spacing = 0.0 } end
+
+-- items: 1-based array of ImGuiShrinkWidthItem, `first` = 1-based index of first item, `count` items
+function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
+    if count <= 0 then return end
+    if count == 1 then
+        local it = items[first]
+        if it.Width >= 0.0 then it.Width = ImMax(it.Width - width_excess, width_min) end
+        return
+    end
+    local slice = {}
+    for n = 1, count do slice[n] = items[first + n - 1] end
+    table.sort(slice, function(a, b)
+        if a.Width ~= b.Width then return a.Width > b.Width end
+        return a.Index < b.Index
+    end)
+    for n = 1, count do items[first + n - 1] = slice[n] end
+    local it = slice
+    local count_same_width = 1
+    while width_excess > 0.001 and count_same_width < count do
+        while count_same_width < count and it[1].Width <= it[count_same_width + 1].Width do
+            count_same_width = count_same_width + 1
+        end
+        local max_width_to_remove_per_item = (count_same_width < count and it[count_same_width + 1].Width >= 0.0)
+            and (it[1].Width - it[count_same_width + 1].Width) or (it[1].Width - 1.0)
+        max_width_to_remove_per_item = ImMin(it[1].Width - width_min, max_width_to_remove_per_item)
+        if max_width_to_remove_per_item <= 0.0 then break end
+        local base_width_to_remove_per_item = ImMin(width_excess / count_same_width, max_width_to_remove_per_item)
+        for item_n = 1, count_same_width do
+            local w = ImMin(base_width_to_remove_per_item, it[item_n].Width - width_min)
+            it[item_n].Width = it[item_n].Width - w
+            width_excess = width_excess - w
+        end
+    end
+    width_excess = 0.0
+    for n = 1, count do
+        local width_rounded = ImTrunc(it[n].Width)
+        width_excess = width_excess + it[n].Width - width_rounded
+        it[n].Width = width_rounded
+    end
+    local guard = 0
+    while width_excess > 0.0 and guard < 10000 do
+        guard = guard + 1
+        local progressed = false
+        for n = 1, count do
+            if width_excess <= 0.0 then break end
+            local width_to_add = ImMin(it[n].InitialWidth - it[n].Width, 1.0)
+            if width_to_add > 0 then progressed = true end
+            it[n].Width = it[n].Width + width_to_add
+            width_excess = width_excess - width_to_add
+        end
+        if not progressed then break end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- [SECTION] Widgets: BeginTabBar, EndTabBar, etc.
+---------------------------------------------------------------------------------------
+
+function ImGui.TabBarFindByID(id)
+    SyncContext()
+    return GImGui.TabBars:GetByKey(id)
+end
+
+function ImGui.TabBarRemove(tab_bar)
+    SyncContext()
+    GImGui.TabBars:Remove(tab_bar.ID, tab_bar)
+end
+
+function ImGui.BeginTabBar(str_id, flags)
+    if flags == nil then flags = 0 end
+    SyncContext()
+    local g = GImGui
+    local window = g.CurrentWindow
+    if window.SkipItems then return false end
+
+    local id = window:GetID(str_id)
+    local tab_bar = g.TabBars:GetOrAddByKey(id)
+    local tab_bar_bb = ImRect(window.DC.CursorPos.x, window.DC.CursorPos.y, window.WorkRect.Max.x, window.DC.CursorPos.y + g.FontSize + g.Style.FramePadding.y * 2)
+    tab_bar.ID = id
+    tab_bar.SeparatorMinX = tab_bar_bb.Min.x - IM_TRUNC(window.WindowPadding.x * 0.5)
+    tab_bar.SeparatorMaxX = tab_bar_bb.Max.x + IM_TRUNC(window.WindowPadding.x * 0.5)
+    flags = bit32.bor(flags, ImGuiTabBarFlags.IsFocused)
+    return ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
+end
+
+function ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
+    SyncContext()
+    local g = GImGui
+    local window = g.CurrentWindow
+    if window.SkipItems then return false end
+
+    IM_ASSERT(tab_bar.ID ~= 0)
+    if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then
+        ImGui.PushOverrideID(tab_bar.ID)
+    end
+
+    g.CurrentTabBarStack:push_back(tab_bar)
+    g.CurrentTabBar = tab_bar
+    tab_bar.Window = window
+
+    ImVec2_Copy(tab_bar.BackupCursorPos, window.DC.CursorPos)
+    if tab_bar.CurrFrameVisible == g.FrameCount then
+        ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x, tab_bar.BarRect.Max.y + tab_bar.ItemSpacingY)
+        tab_bar.BeginCount = tab_bar.BeginCount + 1
+        return true
+    end
+
+    if bit32.band(flags, ImGuiTabBarFlags.Reorderable) ~= bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable)
+        or (tab_bar.TabsAddedNew and bit32.band(flags, ImGuiTabBarFlags.Reorderable) == 0) then
+        if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then
+            SortTabsByBeginOrder(tab_bar)
+        end
+    end
+    tab_bar.TabsAddedNew = false
+
+    if bit32.band(flags, ImGuiTabBarFlags.FittingPolicyMask_) == 0 then
+        flags = bit32.bor(flags, ImGuiTabBarFlags.FittingPolicyDefault_)
+    end
+
+    tab_bar.Flags = flags
+    tab_bar.BarRect = ImRect(tab_bar_bb.Min, tab_bar_bb.Max)
+    tab_bar.WantLayout = true
+    tab_bar.PrevFrameVisible = tab_bar.CurrFrameVisible
+    tab_bar.CurrFrameVisible = g.FrameCount
+    tab_bar.PrevTabsContentsHeight = tab_bar.CurrTabsContentsHeight
+    tab_bar.CurrTabsContentsHeight = 0.0
+    tab_bar.ItemSpacingY = g.Style.ItemSpacing.y
+    ImVec2_Copy(tab_bar.FramePadding, g.Style.FramePadding)
+    tab_bar.TabsActiveCount = 0
+    tab_bar.LastTabItemIdx = -1
+    tab_bar.BeginCount = 1
+
+    ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x, tab_bar.BarRect.Max.y + tab_bar.ItemSpacingY)
+
+    local col = ImGui.GetColorU32(bit32.band(flags, ImGuiTabBarFlags.IsFocused) ~= 0 and ImGuiCol.TabSelected or ImGuiCol.TabDimmedSelected)
+    if g.Style.TabBarBorderSize > 0.0 then
+        local y = tab_bar.BarRect.Max.y
+        window.DrawList:AddRectFilled(ImVec2(tab_bar.SeparatorMinX, y - g.Style.TabBarBorderSize), ImVec2(tab_bar.SeparatorMaxX, y), col)
+    end
+    return true
+end
+
+function ImGui.EndTabBar()
+    SyncContext()
+    local g = GImGui
+    local window = g.CurrentWindow
+    if window.SkipItems then return end
+
+    local tab_bar = g.CurrentTabBar
+    IM_ASSERT(tab_bar ~= nil, "Mismatched BeginTabBar()/EndTabBar()!")
+
+    if tab_bar.WantLayout then ImGui.TabBarLayout(tab_bar) end
+
+    local tab_bar_appearing = (tab_bar.PrevFrameVisible + 1 < g.FrameCount)
+    if tab_bar.VisibleTabWasSubmitted or tab_bar.VisibleTabId == 0 or tab_bar_appearing then
+        tab_bar.CurrTabsContentsHeight = ImMax(window.DC.CursorPos.y - tab_bar.BarRect.Max.y, tab_bar.CurrTabsContentsHeight)
+        window.DC.CursorPos.y = tab_bar.BarRect.Max.y + tab_bar.CurrTabsContentsHeight
+    else
+        window.DC.CursorPos.y = tab_bar.BarRect.Max.y + tab_bar.PrevTabsContentsHeight
+    end
+    if tab_bar.BeginCount > 1 then
+        ImVec2_Copy(window.DC.CursorPos, tab_bar.BackupCursorPos)
+    end
+
+    tab_bar.LastTabItemIdx = -1
+    if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0 then
+        ImGui.PopID()
+    end
+
+    g.CurrentTabBarStack:pop_back()
+    g.CurrentTabBar = (g.CurrentTabBarStack.Size == 0) and nil or g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size]
+end
+
+function ImGui.TabBarLayout(tab_bar)
+    SyncContext()
+    local g = GImGui
+    tab_bar.WantLayout = false
+
+    local scroll_to_selected_tab = (tab_bar.BarRectPrevWidth > tab_bar.BarRect:GetWidth())
+    tab_bar.BarRectPrevWidth = tab_bar.BarRect:GetWidth()
+
+    -- Garbage collect by compacting list
+    local tabs = tab_bar.Tabs
+    local tab_dst_n = 0
+    local need_sort_by_section = false
+    local sections = { ImGuiTabBarSection(), ImGuiTabBarSection(), ImGuiTabBarSection() } -- 1-based: [1]=Leading,[2]=Central,[3]=Trailing
+    for tab_src_n = 0, tabs.Size - 1 do
+        local tab = tabs.Data[tab_src_n + 1]
+        if tab.LastFrameVisible < tab_bar.PrevFrameVisible or tab.WantClose then
+            if tab_bar.VisibleTabId == tab.ID then tab_bar.VisibleTabId = 0 end
+            if tab_bar.SelectedTabId == tab.ID then tab_bar.SelectedTabId = 0 end
+            if tab_bar.NextSelectedTabId == tab.ID then tab_bar.NextSelectedTabId = 0 end
+        else
+            if tab_dst_n ~= tab_src_n then tabs.Data[tab_dst_n + 1] = tab end
+            tab.IndexDuringLayout = tab_dst_n
+
+            local curr_tab_section_n = TabItemGetSectionIdx(tab)
+            if tab_dst_n > 0 then
+                local prev_tab = tabs.Data[tab_dst_n]
+                local prev_tab_section_n = TabItemGetSectionIdx(prev_tab)
+                if curr_tab_section_n == 0 and prev_tab_section_n ~= 0 then need_sort_by_section = true end
+                if prev_tab_section_n == 2 and curr_tab_section_n ~= 2 then need_sort_by_section = true end
+            end
+            sections[curr_tab_section_n + 1].TabCount = sections[curr_tab_section_n + 1].TabCount + 1
+            tab_dst_n = tab_dst_n + 1
+        end
+    end
+    if tabs.Size ~= tab_dst_n then
+        for i = tab_dst_n + 1, tabs.Size do tabs.Data[i] = nil end
+        tabs.Size = tab_dst_n
+    end
+
+    if need_sort_by_section then SortTabsBySection(tab_bar) end
+
+    local tab_spacing = g.Style.ItemInnerSpacing.x
+    sections[1].Spacing = (sections[1].TabCount > 0 and (sections[2].TabCount + sections[3].TabCount) > 0) and tab_spacing or 0.0
+    sections[2].Spacing = (sections[2].TabCount > 0 and sections[3].TabCount > 0) and tab_spacing or 0.0
+
+    local scroll_to_tab_id = 0
+    if tab_bar.NextScrollToTabId ~= 0 then
+        scroll_to_tab_id = tab_bar.NextScrollToTabId
+        tab_bar.NextScrollToTabId = 0
+    end
+    if tab_bar.NextSelectedTabId ~= 0 then
+        tab_bar.SelectedTabId = tab_bar.NextSelectedTabId
+        tab_bar.NextSelectedTabId = 0
+        scroll_to_tab_id = tab_bar.SelectedTabId
+    end
+
+    if tab_bar.ReorderRequestTabId ~= 0 then
+        if ImGui.TabBarProcessReorder(tab_bar) then
+            if tab_bar.ReorderRequestTabId == tab_bar.SelectedTabId then
+                scroll_to_tab_id = tab_bar.ReorderRequestTabId
+            end
+        end
+        tab_bar.ReorderRequestTabId = 0
+    end
+
+    local tab_list_popup_button = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.TabListPopupButton) ~= 0
+    if tab_list_popup_button then
+        local tab_to_select = ImGui.TabBarTabListPopupButton(tab_bar)
+        if tab_to_select then
+            tab_bar.SelectedTabId = tab_to_select.ID
+            scroll_to_tab_id = tab_to_select.ID
+        end
+    end
+
+    -- shrink buffer layout: leading, trailing, central (0-based offsets)
+    local shrink_buffer_indexes = { 0, sections[1].TabCount + sections[3].TabCount, sections[1].TabCount }
+    local swb = g.ShrinkWidthBuffer
+    swb:resize(tabs.Size)
+    for i = 1, tabs.Size do if swb.Data[i] == nil then swb.Data[i] = ImGuiShrinkWidthItem() end end
+
+    local shrink_min_width = (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0) and g.Style.TabMinWidthShrink or 1.0
+
+    local most_recently_selected_tab = nil
+    local curr_section_n = -1
+    local found_selected_tab_id = false
+    for tab_n = 0, tabs.Size - 1 do
+        local tab = tabs.Data[tab_n + 1]
+        IM_ASSERT(tab.LastFrameVisible >= tab_bar.PrevFrameVisible)
+
+        if (most_recently_selected_tab == nil or most_recently_selected_tab.LastFrameSelected < tab.LastFrameSelected) and bit32.band(tab.Flags, ImGuiTabItemFlags.Button) == 0 then
+            most_recently_selected_tab = tab
+        end
+        if tab.ID == tab_bar.SelectedTabId then found_selected_tab_id = true end
+        if scroll_to_tab_id == 0 and g.NavJustMovedToId == tab.ID then scroll_to_tab_id = tab.ID end
+
+        local tab_name = ImGui.TabBarGetTabName(tab_bar, tab)
+        local has_close_button_or_unsaved_marker = bit32.band(tab.Flags, ImGuiTabItemFlags.NoCloseButton) == 0 or bit32.band(tab.Flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0
+        tab.ContentWidth = (tab.RequestedWidth >= 0.0) and tab.RequestedWidth or ImGui.TabItemCalcSize(tab_name, has_close_button_or_unsaved_marker).x
+        if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) == 0 then
+            tab.ContentWidth = ImMax(tab.ContentWidth, g.Style.TabMinWidthBase)
+        end
+
+        local section_n = TabItemGetSectionIdx(tab)
+        local section = sections[section_n + 1]
+        section.Width = section.Width + tab.ContentWidth + ((section_n == curr_section_n) and tab_spacing or 0.0)
+        section.WidthAfterShrinkMinWidth = section.WidthAfterShrinkMinWidth + ImMin(tab.ContentWidth, shrink_min_width) + ((section_n == curr_section_n) and tab_spacing or 0.0)
+        curr_section_n = section_n
+
+        local item = swb.Data[shrink_buffer_indexes[section_n + 1] + 1]
+        shrink_buffer_indexes[section_n + 1] = shrink_buffer_indexes[section_n + 1] + 1
+        item.Index = tab_n
+        item.Width = tab.ContentWidth
+        item.InitialWidth = tab.ContentWidth
+        tab.Width = ImMax(tab.ContentWidth, 1.0)
+    end
+
+    local width_all_tabs_after_min_width_shrink = 0.0
+    tab_bar.WidthAllTabsIdeal = 0.0
+    for section_n = 1, 3 do
+        tab_bar.WidthAllTabsIdeal = tab_bar.WidthAllTabsIdeal + sections[section_n].Width + sections[section_n].Spacing
+        width_all_tabs_after_min_width_shrink = width_all_tabs_after_min_width_shrink + sections[section_n].WidthAfterShrinkMinWidth + sections[section_n].Spacing
+    end
+
+    local can_scroll = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyScroll) ~= 0 or bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0
+    local width_all_tabs_to_use_for_scroll = (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyScroll) ~= 0) and tab_bar.WidthAllTabs or width_all_tabs_after_min_width_shrink
+    tab_bar.ScrollButtonEnabled = (width_all_tabs_to_use_for_scroll > tab_bar.BarRect:GetWidth() and tabs.Size > 1)
+        and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.NoTabListScrollingButtons) == 0 and can_scroll
+    if tab_bar.ScrollButtonEnabled then
+        local scroll_and_select_tab = ImGui.TabBarScrollingButtons(tab_bar)
+        if scroll_and_select_tab then
+            if bit32.band(scroll_and_select_tab.Flags, ImGuiTabItemFlags.Button) == 0 then
+                tab_bar.SelectedTabId = scroll_and_select_tab.ID
+            end
+            scroll_to_tab_id = scroll_and_select_tab.ID
+        end
+    end
+    if scroll_to_tab_id == 0 and scroll_to_selected_tab then
+        scroll_to_tab_id = tab_bar.SelectedTabId
+    end
+
+    local section_0_w = sections[1].Width + sections[1].Spacing
+    local section_1_w = sections[2].Width + sections[2].Spacing
+    local section_2_w = sections[3].Width + sections[3].Spacing
+    local central_section_is_visible = (section_0_w + section_2_w) < tab_bar.BarRect:GetWidth()
+    local width_excess
+    if central_section_is_visible then
+        width_excess = ImMax(section_1_w - (tab_bar.BarRect:GetWidth() - section_0_w - section_2_w), 0.0)
+    else
+        width_excess = (section_0_w + section_2_w) - tab_bar.BarRect:GetWidth()
+    end
+
+    local can_shrink = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyShrink) ~= 0 or bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0
+    if width_excess >= 1.0 and (can_shrink or not central_section_is_visible) then
+        local shrink_data_count = central_section_is_visible and sections[2].TabCount or (sections[1].TabCount + sections[3].TabCount)
+        local shrink_data_offset = central_section_is_visible and (sections[1].TabCount + sections[3].TabCount) or 0
+        ImGui.ShrinkWidths(swb.Data, shrink_data_offset + 1, shrink_data_count, width_excess, shrink_min_width)
+
+        for tab_n = shrink_data_offset, shrink_data_offset + shrink_data_count - 1 do
+            local item = swb.Data[tab_n + 1]
+            local tab = tabs.Data[item.Index + 1]
+            local shrinked_width = IM_TRUNC(item.Width)
+            if shrinked_width >= 0.0 then
+                shrinked_width = ImMax(1.0, shrinked_width)
+                local section_n = TabItemGetSectionIdx(tab)
+                sections[section_n + 1].Width = sections[section_n + 1].Width - (tab.Width - shrinked_width)
+                tab.Width = shrinked_width
+            end
+        end
+    end
+
+    -- Layout all active tabs
+    local section_tab_index = 0
+    local tab_offset = 0.0
+    tab_bar.WidthAllTabs = 0.0
+    for section_n = 0, 2 do
+        local section = sections[section_n + 1]
+        if section_n == 2 then
+            tab_offset = ImMin(ImMax(0.0, tab_bar.BarRect:GetWidth() - section.Width), tab_offset)
+        end
+        for tab_n = 0, section.TabCount - 1 do
+            local tab = tabs.Data[section_tab_index + tab_n + 1]
+            tab.Offset = tab_offset
+            tab.NameOffset = -1
+            tab_offset = tab_offset + tab.Width + ((tab_n < section.TabCount - 1) and g.Style.ItemInnerSpacing.x or 0.0)
+        end
+        tab_bar.WidthAllTabs = tab_bar.WidthAllTabs + ImMax(section.Width + section.Spacing, 0.0)
+        tab_offset = tab_offset + section.Spacing
+        section_tab_index = section_tab_index + section.TabCount
+    end
+
+    local tab_bar_appearing = (tab_bar.PrevFrameVisible + 1 < g.FrameCount)
+    if found_selected_tab_id == false and not tab_bar_appearing then
+        tab_bar.SelectedTabId = 0
+    end
+    if tab_bar.SelectedTabId == 0 and tab_bar.NextSelectedTabId == 0 and most_recently_selected_tab ~= nil then
+        tab_bar.SelectedTabId = most_recently_selected_tab.ID
+        scroll_to_tab_id = tab_bar.SelectedTabId
+    end
+
+    tab_bar.VisibleTabId = tab_bar.SelectedTabId
+    tab_bar.VisibleTabWasSubmitted = false
+
+    -- CTRL+TAB can override visible tab temporarily
+    if g.NavWindowingTarget ~= nil and g.NavWindowingTarget.DockNode and g.NavWindowingTarget.DockNode.TabBar == tab_bar then
+        tab_bar.VisibleTabId = g.NavWindowingTarget.TabId
+        scroll_to_tab_id = tab_bar.VisibleTabId
+    end
+
+    if scroll_to_tab_id ~= 0 then
+        ImGui.TabBarScrollToTab(tab_bar, scroll_to_tab_id, sections)
+    elseif tab_bar.ScrollButtonEnabled and ImGui.IsMouseHoveringRect(tab_bar.BarRect.Min, tab_bar.BarRect.Max, true) and ImGui.IsWindowContentHoverable(g.CurrentWindow) then
+        local wheel = g.IO.MouseWheelRequestAxisSwap and g.IO.MouseWheel or g.IO.MouseWheelH
+        local wheel_key = g.IO.MouseWheelRequestAxisSwap and ImGuiKey.MouseWheelY or ImGuiKey.MouseWheelX
+        if ImGui.TestKeyOwner(wheel_key, tab_bar.ID) and wheel ~= 0.0 then
+            local scroll_step = wheel * TabBarCalcScrollableWidth(tab_bar, sections) / 3.0
+            tab_bar.ScrollingTargetDistToVisibility = 0.0
+            tab_bar.ScrollingTarget = ImGui.TabBarScrollClamp(tab_bar, tab_bar.ScrollingTarget - scroll_step)
+        end
+        ImGui.SetKeyOwner(wheel_key, tab_bar.ID)
+    end
+
+    tab_bar.ScrollingAnim = ImGui.TabBarScrollClamp(tab_bar, tab_bar.ScrollingAnim)
+    tab_bar.ScrollingTarget = ImGui.TabBarScrollClamp(tab_bar, tab_bar.ScrollingTarget)
+    if tab_bar.ScrollingAnim ~= tab_bar.ScrollingTarget then
+        tab_bar.ScrollingSpeed = ImMax(tab_bar.ScrollingSpeed, 70.0 * g.FontSize)
+        tab_bar.ScrollingSpeed = ImMax(tab_bar.ScrollingSpeed, math.abs(tab_bar.ScrollingTarget - tab_bar.ScrollingAnim) / 0.3)
+        local teleport = (tab_bar.PrevFrameVisible + 1 < g.FrameCount) or (tab_bar.ScrollingTargetDistToVisibility > 10.0 * g.FontSize)
+        tab_bar.ScrollingAnim = teleport and tab_bar.ScrollingTarget or ImLinearSweep(tab_bar.ScrollingAnim, tab_bar.ScrollingTarget, g.IO.DeltaTime * tab_bar.ScrollingSpeed)
+    else
+        tab_bar.ScrollingSpeed = 0.0
+    end
+    tab_bar.ScrollingRectMinX = tab_bar.BarRect.Min.x + sections[1].Width + sections[1].Spacing
+    tab_bar.ScrollingRectMaxX = tab_bar.BarRect.Max.x - sections[3].Width - sections[2].Spacing
+
+    local window = g.CurrentWindow
+    ImVec2_Copy(window.DC.CursorPos, tab_bar.BarRect.Min)
+    ImGui.ItemSize(ImVec2(tab_bar.WidthAllTabs, tab_bar.BarRect:GetHeight()), tab_bar.FramePadding.y)
+    window.DC.IdealMaxPos.x = ImMax(window.DC.IdealMaxPos.x, tab_bar.BarRect.Min.x + tab_bar.WidthAllTabsIdeal)
+end
+
+function ImGui.TabBarCalcTabID(tab_bar, label, docked_window)
+    if docked_window ~= nil then
+        IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) ~= 0)
+        local id = docked_window.TabId
+        ImGui.KeepAliveID(id)
+        return id
+    end
+    return ImGui.GetCurrentContext().CurrentWindow:GetID(label)
+end
+
+function ImGui.TabBarCalcMaxTabWidth()
+    return ImGui.GetCurrentContext().FontSize * 20.0
+end
+
+function ImGui.TabBarFindTabByID(tab_bar, tab_id)
+    if tab_id ~= 0 then
+        for n = 1, tab_bar.Tabs.Size do
+            local tab = tab_bar.Tabs.Data[n]
+            if tab.ID == tab_id then return tab end
+        end
+    end
+    return nil
+end
+
+--- @param order int # 0-based visible order
+function ImGui.TabBarFindTabByOrder(tab_bar, order)
+    if order < 0 or order >= tab_bar.Tabs.Size then return nil end
+    return tab_bar.Tabs.Data[order + 1]
+end
+
+--- @return int # 0-based order
+function ImGui.TabBarGetTabOrder(tab_bar, tab)
+    local i = tab_bar.Tabs:find_index(tab)
+    return i and (i - 1) or -1
+end
+
+function ImGui.TabBarFindMostRecentlySelectedTabForActiveWindow(tab_bar)
+    local most_recently_selected_tab = nil
+    for n = 1, tab_bar.Tabs.Size do
+        local tab = tab_bar.Tabs.Data[n]
+        if most_recently_selected_tab == nil or most_recently_selected_tab.LastFrameSelected < tab.LastFrameSelected then
+            if tab.Window and tab.Window.WasActive then most_recently_selected_tab = tab end
+        end
+    end
+    return most_recently_selected_tab
+end
+
+function ImGui.TabBarGetCurrentTab(tab_bar)
+    if tab_bar.LastTabItemIdx < 0 or tab_bar.LastTabItemIdx >= tab_bar.Tabs.Size then return nil end
+    return tab_bar.Tabs.Data[tab_bar.LastTabItemIdx + 1]
+end
+
+function ImGui.TabBarGetTabName(tab_bar, tab)
+    if tab.Window then return tab.Window.Name end
+    if tab.Name == nil then return "N/A" end
+    return tab.Name
+end
+
+function ImGui.TabBarGetTabPos(tab_bar, tab)
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.SectionMask_) == 0 then
+        return tab_bar.BarRect.Min + ImVec2(IM_TRUNC(tab.Offset - tab_bar.ScrollingAnim), 0.0)
+    end
+    return tab_bar.BarRect.Min + ImVec2(tab.Offset, 0.0)
+end
+
+function ImGui.TabBarAddTab(tab_bar, tab_flags, window)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(ImGui.TabBarFindTabByID(tab_bar, window.TabId) == nil)
+    IM_ASSERT(g.CurrentTabBar ~= tab_bar)
+    if not window.HasCloseButton then
+        tab_flags = bit32.bor(tab_flags, ImGuiTabItemFlags.NoCloseButton)
+    end
+    local new_tab = ImGuiTabItem()
+    new_tab.ID = window.TabId
+    new_tab.Flags = tab_flags
+    new_tab.LastFrameVisible = tab_bar.CurrFrameVisible
+    if new_tab.LastFrameVisible == -1 then new_tab.LastFrameVisible = g.FrameCount - 1 end
+    new_tab.Window = window
+    tab_bar.Tabs:push_back(new_tab)
+end
+
+function ImGui.TabBarRemoveTab(tab_bar, tab_id)
+    local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
+    if tab then tab_bar.Tabs:erase(tab_bar.Tabs:find_index(tab)) end
+    if tab_bar.VisibleTabId == tab_id then tab_bar.VisibleTabId = 0 end
+    if tab_bar.SelectedTabId == tab_id then tab_bar.SelectedTabId = 0 end
+    if tab_bar.NextSelectedTabId == tab_id then tab_bar.NextSelectedTabId = 0 end
+end
+
+function ImGui.TabBarCloseTab(tab_bar, tab)
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) ~= 0 then return end
+    if bit32.band(tab.Flags, bit32.bor(ImGuiTabItemFlags.UnsavedDocument, ImGuiTabItemFlags.NoAssumedClosure)) == 0 then
+        tab.WantClose = true
+        if tab_bar.VisibleTabId == tab.ID then
+            tab.LastFrameVisible = -1
+            tab_bar.SelectedTabId = 0
+            tab_bar.NextSelectedTabId = 0
+        end
+    else
+        if tab_bar.VisibleTabId ~= tab.ID then ImGui.TabBarQueueFocus(tab_bar, tab) end
+    end
+end
+
+function ImGui.TabBarScrollClamp(tab_bar, scrolling)
+    scrolling = ImMin(scrolling, tab_bar.WidthAllTabs - tab_bar.BarRect:GetWidth())
+    return ImMax(scrolling, 0.0)
+end
+
+function ImGui.TabBarScrollToTab(tab_bar, tab_id, sections)
+    local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
+    if tab == nil then return end
+
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.Leading) ~= 0 then
+        tab = tab_bar.Tabs.Data[sections[1].TabCount + 1]
+    elseif bit32.band(tab.Flags, ImGuiTabItemFlags.Trailing) ~= 0 then
+        tab = tab_bar.Tabs.Data[sections[1].TabCount + sections[2].TabCount + 1]
+    end
+    if tab == nil or bit32.band(tab.Flags, ImGuiTabItemFlags.SectionMask_) ~= 0 then return end
+
+    local g = ImGui.GetCurrentContext()
+    local margin = ImClamp(tab_bar.ScrollingRectMaxX - tab_bar.ScrollingRectMinX - tab.Width, g.Style.ItemInnerSpacing.x, g.FontSize * 1.0)
+    local order = ImGui.TabBarGetTabOrder(tab_bar, tab)
+    local scrollable_width = TabBarCalcScrollableWidth(tab_bar, sections)
+
+    local tab_x1 = tab.Offset - sections[1].Width + ((order > sections[1].TabCount - 1) and -margin or 0.0)
+    local tab_x2 = tab.Offset - sections[1].Width + tab.Width + ((order + 1 < tab_bar.Tabs.Size - sections[3].TabCount) and margin or 1.0)
+    tab_bar.ScrollingTargetDistToVisibility = 0.0
+    if tab_bar.ScrollingTarget > tab_x1 or (tab_x2 - tab_x1 >= scrollable_width) then
+        tab_bar.ScrollingTargetDistToVisibility = ImMax(tab_bar.ScrollingAnim - tab_x2, 0.0)
+        tab_bar.ScrollingTarget = tab_x1
+    elseif tab_bar.ScrollingTarget < tab_x2 - scrollable_width then
+        tab_bar.ScrollingTargetDistToVisibility = ImMax((tab_x1 - scrollable_width) - tab_bar.ScrollingAnim, 0.0)
+        tab_bar.ScrollingTarget = tab_x2 - scrollable_width
+    end
+end
+
+--- TabBarQueueFocus(tab_bar, tab) or TabBarQueueFocus(tab_bar, tab_name)
+function ImGui.TabBarQueueFocus(tab_bar, tab)
+    if type(tab) == "string" then
+        IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0)
+        tab_bar.NextSelectedTabId = ImGui.TabBarCalcTabID(tab_bar, tab, nil)
+        return
+    end
+    tab_bar.NextSelectedTabId = tab.ID
+end
+
+function ImGui.TabBarQueueReorder(tab_bar, tab, offset)
+    IM_ASSERT(offset ~= 0)
+    IM_ASSERT(tab_bar.ReorderRequestTabId == 0)
+    tab_bar.ReorderRequestTabId = tab.ID
+    tab_bar.ReorderRequestOffset = offset
+end
+
+function ImGui.TabBarQueueReorderFromMousePos(tab_bar, src_tab, mouse_pos)
+    local g = ImGui.GetCurrentContext()
+    IM_ASSERT(tab_bar.ReorderRequestTabId == 0)
+    if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable) == 0 then return end
+
+    local tab_spacing = g.Style.ItemInnerSpacing.x
+    local is_central_section = bit32.band(src_tab.Flags, ImGuiTabItemFlags.SectionMask_) == 0
+    local bar_offset = tab_bar.BarRect.Min.x - (is_central_section and tab_bar.ScrollingTarget or 0)
+
+    local dir = ((bar_offset + src_tab.Offset) > mouse_pos.x) and -1 or 1
+    local src_idx = ImGui.TabBarGetTabOrder(tab_bar, src_tab)
+    local dst_idx = src_idx
+    local i = src_idx
+    while i >= 0 and i < tab_bar.Tabs.Size do
+        local dst_tab = tab_bar.Tabs.Data[i + 1]
+        if bit32.band(dst_tab.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then break end
+        if bit32.band(dst_tab.Flags, ImGuiTabItemFlags.SectionMask_) ~= bit32.band(src_tab.Flags, ImGuiTabItemFlags.SectionMask_) then break end
+        dst_idx = i
+        local x1 = bar_offset + dst_tab.Offset - tab_spacing
+        local x2 = bar_offset + dst_tab.Offset + dst_tab.Width + tab_spacing
+        if (dir < 0 and mouse_pos.x > x1) or (dir > 0 and mouse_pos.x < x2) then break end
+        i = i + dir
+    end
+
+    if dst_idx ~= src_idx then
+        ImGui.TabBarQueueReorder(tab_bar, src_tab, dst_idx - src_idx)
+    end
+end
+
+function ImGui.TabBarProcessReorder(tab_bar)
+    local tab1 = ImGui.TabBarFindTabByID(tab_bar, tab_bar.ReorderRequestTabId)
+    if tab1 == nil or bit32.band(tab1.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then return false end
+
+    local tab1_order = ImGui.TabBarGetTabOrder(tab_bar, tab1)
+    local tab2_order = tab1_order + tab_bar.ReorderRequestOffset
+    if tab2_order < 0 or tab2_order >= tab_bar.Tabs.Size then return false end
+
+    local tab2 = tab_bar.Tabs.Data[tab2_order + 1]
+    if bit32.band(tab2.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then return false end
+    if bit32.band(tab1.Flags, ImGuiTabItemFlags.SectionMask_) ~= bit32.band(tab2.Flags, ImGuiTabItemFlags.SectionMask_) then return false end
+
+    -- Move tab1 to tab2's position, shifting the tabs in between
+    table.remove(tab_bar.Tabs.Data, tab1_order + 1)
+    table.insert(tab_bar.Tabs.Data, tab2_order + 1, tab1)
+
+    if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.SaveSettings) ~= 0 then ImGui.MarkIniSettingsDirty() end
+    return true
+end
+
+function ImGui.TabBarScrollingButtons(tab_bar)
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+
+    local arrow_button_size = ImVec2(g.FontSize - 2.0, g.FontSize + g.Style.FramePadding.y * 2.0)
+    local scrolling_buttons_width = arrow_button_size.x * 2.0
+
+    local backup_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+
+    local select_dir = 0
+    local tc = g.Style.Colors[ImGuiCol.Text]
+    local arrow_col = ImVec4(tc.x, tc.y, tc.z, tc.w * 0.5)
+
+    ImGui.PushStyleColor(ImGuiCol.Text, arrow_col)
+    ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0, 0, 0, 0))
+    ImGui.PushItemFlag(bit32.bor(ImGuiItemFlags.ButtonRepeat, ImGuiItemFlags.NoNav), true)
+    local backup_repeat_delay = g.IO.KeyRepeatDelay
+    local backup_repeat_rate = g.IO.KeyRepeatRate
+    g.IO.KeyRepeatDelay = 0.250
+    g.IO.KeyRepeatRate = 0.200
+    local x = ImMax(tab_bar.BarRect.Min.x, tab_bar.BarRect.Max.x - scrolling_buttons_width)
+    ImVec2_CopyV(window.DC.CursorPos, x, tab_bar.BarRect.Min.y)
+    if ImGui.ArrowButtonEx("##<", ImGuiDir.Left, arrow_button_size, ImGuiButtonFlags.PressedOnClick) then select_dir = -1 end
+    ImVec2_CopyV(window.DC.CursorPos, x + arrow_button_size.x, tab_bar.BarRect.Min.y)
+    if ImGui.ArrowButtonEx("##>", ImGuiDir.Right, arrow_button_size, ImGuiButtonFlags.PressedOnClick) then select_dir = 1 end
+    ImGui.PopItemFlag()
+    ImGui.PopStyleColor(2)
+    g.IO.KeyRepeatRate = backup_repeat_rate
+    g.IO.KeyRepeatDelay = backup_repeat_delay
+
+    local tab_to_scroll_to = nil
+    if select_dir ~= 0 then
+        local tab_item = ImGui.TabBarFindTabByID(tab_bar, tab_bar.SelectedTabId)
+        if tab_item then
+            local selected_order = ImGui.TabBarGetTabOrder(tab_bar, tab_item)
+            local target_order = selected_order + select_dir
+            while tab_to_scroll_to == nil do
+                local idx = (target_order >= 0 and target_order < tab_bar.Tabs.Size) and target_order or selected_order
+                tab_to_scroll_to = tab_bar.Tabs.Data[idx + 1]
+                if bit32.band(tab_to_scroll_to.Flags, ImGuiTabItemFlags.Button) ~= 0 then
+                    target_order = target_order + select_dir
+                    selected_order = selected_order + select_dir
+                    if not (target_order < 0 or target_order >= tab_bar.Tabs.Size) then tab_to_scroll_to = nil end
+                end
+            end
+        end
+    end
+    ImVec2_Copy(window.DC.CursorPos, backup_cursor_pos)
+    tab_bar.BarRect.Max.x = tab_bar.BarRect.Max.x - (scrolling_buttons_width + 1.0)
+
+    return tab_to_scroll_to
+end
+
+function ImGui.TabBarTabListPopupButton(tab_bar)
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+
+    local tab_list_popup_button_width = g.FontSize + g.Style.FramePadding.y
+    local backup_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+    ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x - g.Style.FramePadding.y, tab_bar.BarRect.Min.y)
+    tab_bar.BarRect.Min.x = tab_bar.BarRect.Min.x + tab_list_popup_button_width
+
+    local tc = g.Style.Colors[ImGuiCol.Text]
+    ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(tc.x, tc.y, tc.z, tc.w * 0.5))
+    ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0, 0, 0, 0))
+    local open = ImGui.BeginCombo("##v", nil, bit32.bor(ImGuiComboFlags.NoPreview, ImGuiComboFlags.HeightLargest))
+    ImGui.PopStyleColor(2)
+
+    local tab_to_select = nil
+    if open then
+        for n = 1, tab_bar.Tabs.Size do
+            local tab = tab_bar.Tabs.Data[n]
+            if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) == 0 then
+                local tab_name = ImGui.TabBarGetTabName(tab_bar, tab)
+                if ImGui.Selectable(tab_name, tab_bar.SelectedTabId == tab.ID) then
+                    tab_to_select = tab
+                end
+            end
+        end
+        ImGui.EndCombo()
+    end
+
+    ImVec2_Copy(window.DC.CursorPos, backup_cursor_pos)
+    return tab_to_select
+end
+
+---------------------------------------------------------------------------------------
+-- [SECTION] Widgets: BeginTabItem, EndTabItem, etc.
+---------------------------------------------------------------------------------------
+
+--- @return bool visible, bool? p_open
+function ImGui.BeginTabItem(label, p_open, flags)
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+    if window.SkipItems then return false, p_open end
+
+    local tab_bar = g.CurrentTabBar
+    IM_ASSERT(tab_bar ~= nil, "Needs to be called between BeginTabBar() and EndTabBar()!")
+    IM_ASSERT(bit32.band(flags, ImGuiTabItemFlags.Button) == 0)
+
+    local ret
+    ret, p_open = ImGui.TabItemEx(tab_bar, label, p_open, flags, nil)
+    if ret and bit32.band(flags, ImGuiTabItemFlags.NoPushId) == 0 then
+        local tab = tab_bar.Tabs.Data[tab_bar.LastTabItemIdx + 1]
+        ImGui.PushOverrideID(tab.ID)
+    end
+    return ret, p_open
+end
+
+function ImGui.EndTabItem()
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+    if window.SkipItems then return end
+
+    local tab_bar = g.CurrentTabBar
+    IM_ASSERT(tab_bar ~= nil, "Needs to be called between BeginTabBar() and EndTabBar()!")
+    IM_ASSERT(tab_bar.LastTabItemIdx >= 0)
+    local tab = tab_bar.Tabs.Data[tab_bar.LastTabItemIdx + 1]
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.NoPushId) == 0 then
+        ImGui.PopID()
+    end
+end
+
+function ImGui.TabItemButton(label, flags)
+    if flags == nil then flags = 0 end
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+    if window.SkipItems then return false end
+    local tab_bar = g.CurrentTabBar
+    IM_ASSERT(tab_bar ~= nil, "Needs to be called between BeginTabBar() and EndTabBar()!")
+    return (ImGui.TabItemEx(tab_bar, label, nil, bit32.bor(flags, ImGuiTabItemFlags.Button, ImGuiTabItemFlags.NoReorder), nil))
+end
+
+function ImGui.TabItemSpacing(str_id, flags, width)
+    local g = ImGui.GetCurrentContext()
+    local window = g.CurrentWindow
+    if window.SkipItems then return end
+    local tab_bar = g.CurrentTabBar
+    IM_ASSERT(tab_bar ~= nil, "Needs to be called between BeginTabBar() and EndTabBar()!")
+    ImGui.SetNextItemWidth(width)
+    ImGui.TabItemEx(tab_bar, str_id, nil, bit32.bor(flags or 0, ImGuiTabItemFlags.Button, ImGuiTabItemFlags.NoReorder, ImGuiTabItemFlags.Invisible), nil)
+end
+
+--- @return bool ret, bool? p_open
+function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
+    local g = ImGui.GetCurrentContext()
+    if tab_bar.WantLayout then
+        local backup_next_item_data = {}
+        for k, v in pairs(g.NextItemData) do backup_next_item_data[k] = v end
+        ImGui.TabBarLayout(tab_bar)
+        for k, v in pairs(backup_next_item_data) do g.NextItemData[k] = v end
+    end
+    local window = g.CurrentWindow
+    if window.SkipItems then return false, p_open end
+
+    local style = g.Style
+    local id = ImGui.TabBarCalcTabID(tab_bar, label, docked_window)
+
+    if p_open ~= nil and not p_open then
+        ImGui.ItemAdd(ImRect(), id, nil, ImGuiItemFlags.NoNav)
+        return false, p_open
+    end
+
+    IM_ASSERT(p_open == nil or bit32.band(flags, ImGuiTabItemFlags.Button) == 0)
+    IM_ASSERT(bit32.band(flags, bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)) ~= bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing))
+
+    local has_p_open = (p_open ~= nil)
+    if bit32.band(flags, ImGuiTabItemFlags.NoCloseButton) ~= 0 then
+        has_p_open = false
+    elseif not has_p_open then
+        flags = bit32.bor(flags, ImGuiTabItemFlags.NoCloseButton)
+    end
+
+    local tab = ImGui.TabBarFindTabByID(tab_bar, id)
+    local tab_is_new = false
+    if tab == nil then
+        tab = ImGuiTabItem()
+        tab_bar.Tabs:push_back(tab)
+        tab.ID = id
+        tab_bar.TabsAddedNew = true
+        tab_is_new = true
+    end
+    tab_bar.LastTabItemIdx = ImGui.TabBarGetTabOrder(tab_bar, tab)
+
+    local size = ImGui.TabItemCalcSize(label, has_p_open or bit32.band(flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0)
+    tab.RequestedWidth = -1.0
+    if bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasWidth) ~= 0 then
+        size.x = g.NextItemData.Width
+        tab.RequestedWidth = size.x
+    end
+    if tab_is_new then tab.Width = ImMax(1.0, size.x) end
+    tab.ContentWidth = size.x
+    tab.BeginOrder = tab_bar.TabsActiveCount
+    tab_bar.TabsActiveCount = tab_bar.TabsActiveCount + 1
+
+    local tab_bar_appearing = (tab_bar.PrevFrameVisible + 1 < g.FrameCount)
+    local tab_bar_focused = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.IsFocused) ~= 0
+    local tab_appearing = (tab.LastFrameVisible + 1 < g.FrameCount)
+    local tab_just_unsaved = bit32.band(flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0 and bit32.band(tab.Flags, ImGuiTabItemFlags.UnsavedDocument) == 0
+    local is_tab_button = bit32.band(flags, ImGuiTabItemFlags.Button) ~= 0
+    tab.LastFrameVisible = g.FrameCount
+    tab.Flags = flags
+    tab.Window = docked_window
+
+    if docked_window ~= nil then
+        IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) ~= 0)
+        tab.NameOffset = -1
+        tab.Name = nil
+    else
+        tab.NameOffset = 0
+        tab.Name = label
+    end
+
+    if not is_tab_button then
+        if tab_appearing and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.AutoSelectNewTabs) ~= 0 and tab_bar.NextSelectedTabId == 0 then
+            if not tab_bar_appearing or tab_bar.SelectedTabId == 0 then
+                ImGui.TabBarQueueFocus(tab_bar, tab)
+            end
+        end
+        if bit32.band(flags, ImGuiTabItemFlags.SetSelected) ~= 0 and tab_bar.SelectedTabId ~= id then
+            ImGui.TabBarQueueFocus(tab_bar, tab)
+        end
+    end
+
+    local tab_contents_visible = (tab_bar.VisibleTabId == id)
+    if tab_contents_visible then tab_bar.VisibleTabWasSubmitted = true end
+
+    if not tab_contents_visible and tab_bar.SelectedTabId == 0 and tab_bar_appearing and docked_window == nil then
+        if tab_bar.Tabs.Size == 1 and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.AutoSelectNewTabs) == 0 then
+            tab_contents_visible = true
+        end
+    end
+
+    if tab_appearing and (not tab_bar_appearing or tab_is_new) then
+        ImGui.ItemAdd(ImRect(), id, nil, ImGuiItemFlags.NoNav)
+        if is_tab_button then return false, p_open end
+        return tab_contents_visible, p_open
+    end
+
+    if tab_bar.SelectedTabId == id then tab.LastFrameSelected = g.FrameCount end
+
+    local backup_main_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+
+    local is_central_section = bit32.band(tab.Flags, ImGuiTabItemFlags.SectionMask_) == 0
+    size.x = tab.Width
+    local pos = ImGui.TabBarGetTabPos(tab_bar, tab)
+    ImVec2_Copy(window.DC.CursorPos, pos)
+    local bb = ImRect(pos, pos + size)
+
+    local want_clip_rect = is_central_section and (bb.Min.x < tab_bar.ScrollingRectMinX or bb.Max.x > tab_bar.ScrollingRectMaxX)
+    if want_clip_rect then
+        ImGui.PushClipRect(ImVec2(ImClamp(bb.Min.x, tab_bar.ScrollingRectMinX, tab_bar.ScrollingRectMaxX), bb.Min.y - 1), ImVec2(tab_bar.ScrollingRectMaxX, bb.Max.y), true)
+    end
+
+    local backup_cursor_max_pos = ImVec2(window.DC.CursorMaxPos.x, window.DC.CursorMaxPos.y)
+    ImGui.ItemSize(bb:GetSize(), style.FramePadding.y)
+    ImVec2_Copy(window.DC.CursorMaxPos, backup_cursor_max_pos)
+
+    if not ImGui.ItemAdd(bb, id) then
+        if want_clip_rect then ImGui.PopClipRect() end
+        ImVec2_Copy(window.DC.CursorPos, backup_main_cursor_pos)
+        return tab_contents_visible, p_open
+    end
+
+    local button_flags = bit32.bor(is_tab_button and ImGuiButtonFlags.PressedOnClickRelease or ImGuiButtonFlags.PressedOnClick, ImGuiButtonFlags.AllowOverlap)
+    if g.DragDropActive and not ImGuiPayload_IsDataType(g.DragDropPayload, IMGUI_PAYLOAD_TYPE_WINDOW) then
+        button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnDragDropHold)
+    end
+    local hovered, held, pressed
+    if bit32.band(flags, ImGuiTabItemFlags.Invisible) ~= 0 then
+        hovered, held, pressed = false, false, false
+    else
+        pressed, hovered, held = ImGui.ButtonBehavior(bb, id, button_flags)
+    end
+    if pressed and not is_tab_button then ImGui.TabBarQueueFocus(tab_bar, tab) end
+
+    if held and docked_window and g.ActiveId == id and g.ActiveIdIsJustActivated then
+        g.ActiveIdWindow = docked_window
+    end
+
+    local node = docked_window and docked_window.DockNode or nil
+    local single_floating_window_node = node and node:IsFloatingNode() and (node.Windows.Size == 1)
+    if held and single_floating_window_node and ImGui.IsMouseDragging(0, 0.0) then
+        ImGui.StartMouseMovingWindow(docked_window)
+    elseif held and not tab_appearing and ImGui.IsMouseDragging(0) then
+        local drag_dir = 0
+        local drag_distance_from_edge_x = 0.0
+        if not g.DragDropActive and (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable) ~= 0 or docked_window ~= nil) then
+            if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < bb.Min.x then
+                drag_dir = -1
+                drag_distance_from_edge_x = bb.Min.x - g.IO.MousePos.x
+                ImGui.TabBarQueueReorderFromMousePos(tab_bar, tab, g.IO.MousePos)
+            elseif g.IO.MouseDelta.x > 0.0 and g.IO.MousePos.x > bb.Max.x then
+                drag_dir = 1
+                drag_distance_from_edge_x = g.IO.MousePos.x - bb.Max.x
+                ImGui.TabBarQueueReorderFromMousePos(tab_bar, tab, g.IO.MousePos)
+            end
+        end
+
+        local can_undock = docked_window ~= nil and bit32.band(docked_window.Flags, ImGuiWindowFlags.NoMove) == 0 and bit32.band(node.MergedFlags, ImGuiDockNodeFlags.NoUndocking) == 0
+        if can_undock then
+            local undocking_tab = (g.DragDropActive and g.DragDropPayload.SourceId == id)
+            if not undocking_tab then
+                local threshold_base = g.FontSize
+                local threshold_x = threshold_base * 2.2
+                local threshold_y = (threshold_base * 1.5) + ImClamp((math.abs(g.IO.MouseDragMaxDistanceAbs[0].x) - threshold_base * 2.0) * 0.20, 0.0, threshold_base * 4.0)
+                local distance_from_edge_y = ImMax(bb.Min.y - g.IO.MousePos.y, g.IO.MousePos.y - bb.Max.y)
+                if distance_from_edge_y >= threshold_y then undocking_tab = true end
+                if drag_distance_from_edge_x > threshold_x then
+                    if (drag_dir < 0 and ImGui.TabBarGetTabOrder(tab_bar, tab) == 0) or (drag_dir > 0 and ImGui.TabBarGetTabOrder(tab_bar, tab) == tab_bar.Tabs.Size - 1) then
+                        undocking_tab = true
+                    end
+                end
+            end
+
+            if undocking_tab then
+                ImGui.DockContextQueueUndockWindow(g, docked_window)
+                g.MovingWindow = docked_window
+                ImGui.SetActiveID(g.MovingWindow.MoveId, g.MovingWindow)
+                ImVec2_Copy(g.ActiveIdClickOffset, g.ActiveIdClickOffset - (g.MovingWindow.Pos - bb.Min))
+                g.ActiveIdNoClearOnFocusLoss = true
+                ImGui.SetActiveIdUsingAllKeyboardKeys()
+            end
+        end
+    end
+
+    local is_visible = bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0 and bit32.band(flags, ImGuiTabItemFlags.Invisible) == 0
+    if is_visible then
+        local display_draw_list = window.DrawList
+        local col_idx
+        if held or hovered then col_idx = ImGuiCol.TabHovered
+        elseif tab_contents_visible then col_idx = tab_bar_focused and ImGuiCol.TabSelected or ImGuiCol.TabDimmedSelected
+        else col_idx = tab_bar_focused and ImGuiCol.Tab or ImGuiCol.TabDimmed end
+        ImGui.TabItemBackground(display_draw_list, bb, flags, ImGui.GetColorU32(col_idx))
+        if tab_contents_visible and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DrawSelectedOverline) ~= 0 and style.TabBarOverlineSize > 0.0 then
+            local tl = ImVec2(bb.Min.x, bb.Min.y + style.TabBarOverlineSize * 0.5)
+            local tr = ImVec2(bb.Max.x, bb.Min.y + style.TabBarOverlineSize * 0.5)
+            local overline_col = ImGui.GetColorU32(tab_bar_focused and ImGuiCol.TabSelectedOverline or ImGuiCol.TabDimmedSelectedOverline)
+            if style.TabRounding > 0.0 then
+                local rounding = style.TabRounding
+                display_draw_list:PathArcToFast(tl + ImVec2(rounding, rounding), rounding, 7, 9)
+                display_draw_list:PathArcToFast(tr + ImVec2(-rounding, rounding), rounding, 9, 11)
+                display_draw_list:PathStroke(overline_col, style.TabBarOverlineSize)
+            else
+                display_draw_list:AddLine(tl, tr, overline_col, style.TabBarOverlineSize)
+            end
+        end
+        ImGui.RenderNavCursor(bb, id)
+
+        local hovered_unblocked = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup)
+        if tab_bar.SelectedTabId ~= tab.ID and hovered_unblocked and (ImGui.IsMouseClicked(1) or ImGui.IsMouseReleased(1)) and not is_tab_button then
+            ImGui.TabBarQueueFocus(tab_bar, tab)
+        end
+
+        if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.NoCloseWithMiddleMouseButton) ~= 0 then
+            flags = bit32.bor(flags, ImGuiTabItemFlags.NoCloseWithMiddleMouseButton)
+        end
+
+        local close_button_id = has_p_open and ImGui.GetIDWithSeed("#CLOSE", nil, docked_window and docked_window.ID or id) or 0
+        local label_flags = tab_just_unsaved and bit32.band(flags, bit32.bnot(ImGuiTabItemFlags.UnsavedDocument)) or flags
+        local just_closed, text_clipped = ImGui.TabItemLabelAndCloseButton(display_draw_list, bb, label_flags, tab_bar.FramePadding, label, id, close_button_id, tab_contents_visible)
+        if just_closed and has_p_open then
+            p_open = false
+            ImGui.TabBarCloseTab(tab_bar, tab)
+        end
+
+        if docked_window and (hovered or g.HoveredId == close_button_id) then
+            g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredWindow)
+        end
+
+        if text_clipped and g.HoveredId == id and not held then
+            if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.NoTooltip) == 0 and bit32.band(tab.Flags, ImGuiTabItemFlags.NoTooltip) == 0 then
+                local label_end = ImGui.FindRenderedTextEnd(label)
+                ImGui.SetItemTooltip("%s", string.sub(label, 1, label_end - 1))
+            end
+        end
+    end
+
+    if want_clip_rect then ImGui.PopClipRect() end
+    ImVec2_Copy(window.DC.CursorPos, backup_main_cursor_pos)
+
+    if is_tab_button then return pressed, p_open end
+    return tab_contents_visible, p_open
+end
+
+function ImGui.SetTabItemClosed(label)
+    local g = ImGui.GetCurrentContext()
+    local is_within_manual_tab_bar = g.CurrentTabBar and bit32.band(g.CurrentTabBar.Flags, ImGuiTabBarFlags.DockNode) == 0
+    if is_within_manual_tab_bar then
+        local tab_bar = g.CurrentTabBar
+        local tab_id = ImGui.TabBarCalcTabID(tab_bar, label, nil)
+        local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
+        if tab then tab.WantClose = true end
+    else
+        local window = ImGui.FindWindowByName(label)
+        if window and window.DockIsActive then
+            local node = window.DockNode
+            if node then
+                local tab_id = ImGui.TabBarCalcTabID(node.TabBar, label, window)
+                ImGui.TabBarRemoveTab(node.TabBar, tab_id)
+                window.DockTabWantClose = true
+            end
+        end
+    end
+end
+
+--- TabItemCalcSize(label, has_close_button_or_unsaved_marker) or TabItemCalcSize(window)
+function ImGui.TabItemCalcSize(label, has_close_button_or_unsaved_marker)
+    if type(label) == "table" then
+        local window = label
+        return ImGui.TabItemCalcSize(window.Name, window.HasCloseButton or bit32.band(window.Flags, ImGuiWindowFlags.UnsavedDocument) ~= 0)
+    end
+    local g = ImGui.GetCurrentContext()
+    local label_size = ImGui.CalcTextSize(label, nil, true)
+    local size = ImVec2(label_size.x + g.Style.FramePadding.x, label_size.y + g.Style.FramePadding.y * 2.0)
+    if has_close_button_or_unsaved_marker then
+        size.x = size.x + g.Style.FramePadding.x + (g.Style.ItemInnerSpacing.x + g.FontSize)
+    else
+        size.x = size.x + g.Style.FramePadding.x + 1.0
+    end
+    return ImVec2(ImMin(size.x, ImGui.TabBarCalcMaxTabWidth()), size.y)
+end
+
+function ImGui.TabItemBackground(draw_list, bb, flags, col)
+    local g = ImGui.GetCurrentContext()
+    local width = bb:GetWidth()
+    IM_ASSERT(width > 0.0)
+    local rounding = ImMax(0.0, ImMin(bit32.band(flags, ImGuiTabItemFlags.Button) ~= 0 and g.Style.FrameRounding or g.Style.TabRounding, width * 0.5 - 1.0))
+    local y1 = bb.Min.y + 1.0
+    local y2 = bb.Max.y - g.Style.TabBarBorderSize
+    draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, ImDrawFlags.RoundCornersTop)
+    if g.Style.TabBorderSize > 0.0 then
+        draw_list:PathLineTo(ImVec2(bb.Min.x, y2))
+        draw_list:PathArcToFast(ImVec2(bb.Min.x + rounding, y1 + rounding), rounding, 6, 9)
+        draw_list:PathArcToFast(ImVec2(bb.Max.x - rounding, y1 + rounding), rounding, 9, 12)
+        draw_list:PathLineTo(ImVec2(bb.Max.x, y2))
+        draw_list:PathStroke(ImGui.GetColorU32(ImGuiCol.Border), g.Style.TabBorderSize)
+    end
+end
+
+--- @return bool just_closed, bool text_clipped
+function ImGui.TabItemLabelAndCloseButton(draw_list, bb, flags, frame_padding, label, tab_id, close_button_id, is_contents_visible)
+    local g = ImGui.GetCurrentContext()
+    local label_end = ImGui.FindRenderedTextEnd(label)
+    local label_size = ImGui.CalcTextSize(label, label_end, false)
+
+    if bb:GetWidth() <= 1.0 then return false, false end
+
+    local text_ellipsis_clip_bb = ImRect(bb.Min.x + frame_padding.x, bb.Min.y + frame_padding.y, bb.Max.x - frame_padding.x, bb.Max.y)
+    local text_clipped = (text_ellipsis_clip_bb.Min.x + label_size.x) > text_ellipsis_clip_bb.Max.x
+
+    local button_sz = g.FontSize
+    local button_pos = ImVec2(ImMax(bb.Min.x, bb.Max.x - frame_padding.x - button_sz), bb.Min.y + frame_padding.y)
+
+    local close_button_pressed = false
+    local close_button_visible = false
+    local is_hovered = g.HoveredId == tab_id or g.HoveredId == close_button_id or g.ActiveId == tab_id or g.ActiveId == close_button_id
+
+    if close_button_id ~= 0 then
+        if is_contents_visible then
+            close_button_visible = (g.Style.TabCloseButtonMinWidthSelected < 0.0) or (is_hovered and bb:GetWidth() >= ImMax(button_sz, g.Style.TabCloseButtonMinWidthSelected))
+        else
+            close_button_visible = (g.Style.TabCloseButtonMinWidthUnselected < 0.0) or (is_hovered and bb:GetWidth() >= ImMax(button_sz, g.Style.TabCloseButtonMinWidthUnselected))
+        end
+    end
+
+    local unsaved_marker_visible = bit32.band(flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0 and (button_pos.x + button_sz <= bb.Max.x) and (not close_button_visible or not is_hovered)
+    if unsaved_marker_visible then
+        local bullet_pos = button_pos + ImVec2(button_sz, button_sz) * 0.5
+        ImGui.RenderBullet(draw_list, bullet_pos, ImGui.GetColorU32(ImGuiCol.UnsavedMarker))
+    elseif close_button_visible then
+        local last_item_backup = ImGuiLastItemData()
+        ImGuiLastItemData_Copy(last_item_backup, g.LastItemData)
+        if ImGui.CloseButton(close_button_id, button_pos) then close_button_pressed = true end
+        ImGuiLastItemData_Copy(g.LastItemData, last_item_backup)
+
+        if is_hovered and bit32.band(flags, ImGuiTabItemFlags.NoCloseWithMiddleMouseButton) == 0 and ImGui.IsMouseClicked(2) then
+            close_button_pressed = true
+        end
+    end
+
+    local ellipsis_max_x = text_ellipsis_clip_bb.Max.x
+    if close_button_visible or unsaved_marker_visible then
+        local visible_without_hover = unsaved_marker_visible or ((is_contents_visible and g.Style.TabCloseButtonMinWidthSelected or g.Style.TabCloseButtonMinWidthUnselected) < 0.0)
+        if visible_without_hover then
+            text_ellipsis_clip_bb.Max.x = text_ellipsis_clip_bb.Max.x - button_sz * 0.90
+            ellipsis_max_x = ellipsis_max_x - button_sz * 0.90
+        else
+            text_ellipsis_clip_bb.Max.x = text_ellipsis_clip_bb.Max.x - button_sz * 1.00
+        end
+    end
+    ImGui.LogSetNextTextDecoration("/", "\\")
+    ImGui.RenderTextEllipsis(draw_list, text_ellipsis_clip_bb.Min, text_ellipsis_clip_bb.Max, ellipsis_max_x, label, label_end, label_size)
+
+    return close_button_pressed, text_clipped
+end
+
+return true
+end
+
 __FILES['imgui_widgets.lua'] = function()
 --- ImGui Sincerely WIP
 -- (Widgets Code)
@@ -23797,6 +33455,28 @@ function ImGui.BulletText(fmt, ...)
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
     ImGui.RenderBullet(window.DrawList, bb.Min + ImVec2(style.FramePadding.x + g.FontSize * 0.5, g.FontSize * 0.5), text_col)
     ImGui.RenderText(bb.Min + ImVec2(g.FontSize + style.FramePadding.x * 2, 0.0), text, 1, text_end, false)
+end
+
+-- va_list variants: identical to the varargs versions in Lua
+ImGui.TextColoredV = ImGui.TextColored
+ImGui.TextDisabledV = ImGui.TextDisabled
+ImGui.TextWrappedV = ImGui.TextWrapped
+ImGui.TextAlignedV = ImGui.TextAligned
+ImGui.LabelTextV = ImGui.LabelText
+ImGui.BulletTextV = ImGui.BulletText
+
+-- Value(prefix, b) / Value(prefix, int) / Value(prefix, float, float_format)
+-- Lua can't tell int from float: integers without float_format print as %d, otherwise %.3f
+function ImGui.Value(prefix, v, float_format)
+    if type(v) == "boolean" then
+        ImGui.Text("%s: %s", prefix, v and "true" or "false")
+    elseif float_format then
+        ImGui.Text("%s: " .. float_format, prefix, v)
+    elseif math.floor(v) == v then
+        ImGui.Text("%s: %d", prefix, v)
+    else
+        ImGui.Text("%s: %.3f", prefix, v)
+    end
 end
 
 ----------------------------------------------------------------
@@ -24696,6 +34376,7 @@ function ImGui.CheckboxFlags(label, flags, flags_value)
 
     return pressed, flags
 end
+ImGui.CheckboxFlagsT = ImGui.CheckboxFlags
 
 --- @param label  string
 --- @param active bool
@@ -26123,6 +35804,26 @@ function ImGui.InputFloat3(label, v, format, flags)
     return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 3, nil, nil, format, flags)
 end
 
+function ImGui.InputFloat2(label, v, format, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 2, nil, nil, format or "%.3f", flags)
+end
+
+function ImGui.InputFloat4(label, v, format, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.Float, v, 4, nil, nil, format or "%.3f", flags)
+end
+
+function ImGui.InputInt2(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 2, nil, nil, "%d", flags)
+end
+
+function ImGui.InputInt3(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 3, nil, nil, "%d", flags)
+end
+
+function ImGui.InputInt4(label, v, flags)
+    return ImGui.InputScalarN(label, ImGuiDataType.S32, v, 4, nil, nil, "%d", flags)
+end
+
 --- @param label      string
 --- @param v          int
 --- @param step?      int
@@ -26537,6 +36238,112 @@ function ImGui.DragInt(label, v, v_speed, v_min, v_max, format, flags)
     if flags   == nil then flags   = 0    end
 
     return ImGui.DragScalar(label, ImGuiDataType.S32, v, v_speed, v_min, v_max, format, flags)
+end
+
+-- `v` is mutated in place (1-based), returns value_changed
+function ImGui.DragScalarN(label, data_type, v, components, v_speed, v_min, v_max, format, flags)
+    if v_speed == nil then v_speed = 1.0 end
+    if flags == nil then flags = 0 end
+
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return false
+    end
+
+    local g = GImGui
+    local value_changed = false
+    ImGui.BeginGroup()
+    ImGui.PushID(label)
+    ImGui.PushMultiItemsWidths(components, ImGui.CalcItemWidth())
+    for i = 1, components do
+        ImGui.PushID(i - 1)
+        if i > 1 then
+            ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+        end
+        if bit32.band(flags, ImGuiSliderFlags.ColorMarkers) ~= 0 then
+            ImGui.SetNextItemColorMarker(GDefaultRgbaColorMarkers[i])
+        end
+        local changed
+        v[i], changed = ImGui.DragScalar("", data_type, v[i], v_speed, v_min, v_max, format, flags)
+        value_changed = value_changed or changed
+        ImGui.PopID()
+        ImGui.PopItemWidth()
+    end
+    ImGui.PopID()
+
+    local label_end = ImGui.FindRenderedTextEnd(label)
+    if label_end > 1 then
+        ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+        ImGui.TextEx(label, label_end)
+    end
+
+    ImGui.EndGroup()
+    return value_changed
+end
+
+local function DragFloatN(n)
+    return function(label, v, v_speed, v_min, v_max, format, flags)
+        return ImGui.DragScalarN(label, ImGuiDataType.Float, v, n, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", flags or 0)
+    end
+end
+local function DragIntN(n)
+    return function(label, v, v_speed, v_min, v_max, format, flags)
+        return ImGui.DragScalarN(label, ImGuiDataType.S32, v, n, v_speed or 1.0, v_min or 0, v_max or 0, format or "%d", flags or 0)
+    end
+end
+ImGui.DragFloat2 = DragFloatN(2)
+ImGui.DragFloat3 = DragFloatN(3)
+ImGui.DragFloat4 = DragFloatN(4)
+ImGui.DragInt2 = DragIntN(2)
+ImGui.DragInt3 = DragIntN(3)
+ImGui.DragInt4 = DragIntN(4)
+
+-- NB: You likely want to specify the ImGuiSliderFlags_AlwaysClamp when using this.
+--- @return float v_current_min
+--- @return float v_current_max
+--- @return bool  value_changed
+local function DragRange2(data_type, label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    local window = ImGui.GetCurrentWindow()
+    if window.SkipItems then
+        return v_current_min, v_current_max, false
+    end
+
+    local g = GImGui
+    local lo = (data_type == ImGuiDataType.Float) and -FLT_MAX or INT_MIN
+    local hi = (data_type == ImGuiDataType.Float) and FLT_MAX or INT_MAX
+    ImGui.PushID(label)
+    ImGui.BeginGroup()
+    ImGui.PushMultiItemsWidths(2, ImGui.CalcItemWidth())
+
+    local min_min = (v_min >= v_max) and lo or v_min
+    local min_max = (v_min >= v_max) and v_current_max or ImMin(v_max, v_current_max)
+    local min_flags = bit32.bor(flags, (min_min == min_max) and ImGuiSliderFlags.ReadOnly or 0)
+    local value_changed, changed
+    v_current_min, value_changed = ImGui.DragScalar("##min", data_type, v_current_min, v_speed, min_min, min_max, format, min_flags)
+    ImGui.PopItemWidth()
+    ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+
+    local max_min = (v_min >= v_max) and v_current_min or ImMax(v_min, v_current_min)
+    local max_max = (v_min >= v_max) and hi or v_max
+    local max_flags = bit32.bor(flags, (max_min == max_max) and ImGuiSliderFlags.ReadOnly or 0)
+    v_current_max, changed = ImGui.DragScalar("##max", data_type, v_current_max, v_speed, max_min, max_max, format_max or format, max_flags)
+    value_changed = value_changed or changed
+    ImGui.PopItemWidth()
+    ImGui.SameLine(0, g.Style.ItemInnerSpacing.x)
+
+    ImGui.TextEx(label, ImGui.FindRenderedTextEnd(label))
+    ImGui.EndGroup()
+    ImGui.PopID()
+
+    return v_current_min, v_current_max, value_changed
+end
+
+function ImGui.DragFloatRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    return DragRange2(ImGuiDataType.Float, label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", format_max, flags or 0)
+end
+
+function ImGui.DragIntRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
+    return DragRange2(ImGuiDataType.S32, label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0, v_max or 0, format or "%d", format_max, flags or 0)
 end
 
 ----------------------------------------------------------------
@@ -27149,6 +36956,18 @@ function ImGui.SliderInt(label, v, v_min, v_max, format, flags)
     return ImGui.SliderScalar(label, ImGuiDataType.S32, v, v_min, v_max, format, flags)
 end
 
+function ImGui.SliderInt2(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 2, v_min, v_max, format or "%d", flags)
+end
+
+function ImGui.SliderInt3(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 3, v_min, v_max, format or "%d", flags)
+end
+
+function ImGui.SliderInt4(label, v, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, ImGuiDataType.S32, v, 4, v_min, v_max, format or "%d", flags)
+end
+
 --- @param label     string
 --- @param size      ImVec2
 --- @param data_type ImGuiDataType
@@ -27260,6 +37079,11 @@ function ImGui.InputText(label, buf, buf_size, flags, callback, user_data)
 
     IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0)
     return ImGui.InputTextEx(label, nil, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
+end
+
+--- @param size? ImVec2
+function ImGui.InputTextMultiline(label, buf, buf_size, size, flags, callback, user_data)
+    return ImGui.InputTextEx(label, nil, buf, buf_size, size or ImVec2(0, 0), bit32.bor(flags or 0, ImGuiInputTextFlags.Multiline), callback, user_data)
 end
 
 ImStb = {}
@@ -29307,6 +39131,27 @@ function ImGui.ColorEdit3(label, col, flags)
     if flags == nil then flags = 0 end
 
     return ImGui.ColorEdit4(label, col, bit32.bor(flags, ImGuiColorEditFlags.NoAlpha))
+end
+
+-- `col` mutated in place, returns value_changed
+function ImGui.ColorPicker3(label, col, flags)
+    local col4 = { col[1], col[2], col[3], 1.0 }
+    if not ImGui.ColorPicker4(label, col4, bit32.bor(flags or 0, ImGuiColorEditFlags.NoAlpha)) then
+        return false
+    end
+    col[1] = col4[1]; col[2] = col4[2]; col[3] = col4[3]
+    return true
+end
+
+function ImGui.SetColorEditOptions(flags)
+    local g = GImGui
+    local def = ImGuiColorEditFlags.DefaultOptions_
+    for _, mask in ipairs({ ImGuiColorEditFlags.DisplayMask_, ImGuiColorEditFlags.DataTypeMask_, ImGuiColorEditFlags.PickerMask_, ImGuiColorEditFlags.InputMask_ }) do
+        if bit32.band(flags, mask) == 0 then
+            flags = bit32.bor(flags, bit32.band(def, mask))
+        end
+    end
+    g.IO.ConfigColorEditFlags = flags
 end
 
 -- Helper for ColorPicker4()
@@ -35780,17 +45625,44 @@ end
 IM_INCLUDE('imgui.lua')
 IM_INCLUDE('imgui_impl_roblox.lua')
 IM_INCLUDE('imgui_demo.lua')
+IM_INCLUDE('imgui_demo_2.lua')
 
 return {
     BuildLoadGlyphGetAdvanceOrFallback = BuildLoadGlyphGetAdvanceOrFallback,
     CalcNextScrollFromScrollTargetAndClamp = CalcNextScrollFromScrollTargetAndClamp,
     DBL_MAX = DBL_MAX,
-    DemoWindowWidgetsBasic = DemoWindowWidgetsBasic,
-    DemoWindowWidgetsColorAndPickers = DemoWindowWidgetsColorAndPickers,
-    DemoWindowWidgetsImages = DemoWindowWidgetsImages,
-    DemoWindowWidgetsPlotting = DemoWindowWidgetsPlotting,
-    DemoWindowWidgetsProgressBars = DemoWindowWidgetsProgressBars,
-    DemoWindowWidgetsVerticalSliders = DemoWindowWidgetsVerticalSliders,
+    DemoB2I = DemoB2I,
+    DemoBuf = DemoBuf,
+    DemoBufStr = DemoBufStr,
+    DemoClamp = DemoClamp,
+    DemoCollapsingHeaderClosable = DemoCollapsingHeaderClosable,
+    DemoCombo = DemoCombo,
+    DemoHSV = DemoHSV,
+    DemoHas = DemoHas,
+    DemoItems = DemoItems,
+    DemoListBox = DemoListBox,
+    DemoNotPorted = DemoNotPorted,
+    DemoNotSupported = DemoNotSupported,
+    DemoTextFilter = DemoTextFilter,
+    DemoWindowLayout = DemoWindowLayout,
+    DemoWindowPopups = DemoWindowPopups,
+    DemoWindowTables = DemoWindowTables,
+    DemoWindowWidgets = DemoWindowWidgets,
+    DockSettingsFindNodeSettings = DockSettingsFindNodeSettings,
+    DockSettingsHandler_ApplyAll = DockSettingsHandler_ApplyAll,
+    DockSettingsHandler_ClearAll = DockSettingsHandler_ClearAll,
+    DockSettingsHandler_ReadLine = DockSettingsHandler_ReadLine,
+    DockSettingsHandler_ReadOpen = DockSettingsHandler_ReadOpen,
+    DockSettingsHandler_WriteAll = DockSettingsHandler_WriteAll,
+    DockSettingsRemoveNodeReferences = DockSettingsRemoveNodeReferences,
+    DockSettingsRenameNodeReferences = DockSettingsRenameNodeReferences,
+    ExampleImageViewerData = ExampleImageViewerData,
+    ExampleImageViewer_DrawCanvas = ExampleImageViewer_DrawCanvas,
+    ExampleImageViewer_DrawOptions = ExampleImageViewer_DrawOptions,
+    ExampleTreeNode = ExampleTreeNode,
+    ExampleTree_CreateDemoTree = ExampleTree_CreateDemoTree,
+    ExampleTree_CreateNode = ExampleTree_CreateNode,
+    ExampleTree_DestroyNode = ExampleTree_DestroyNode,
     FLT_MAX = FLT_MAX,
     FLT_MIN = FLT_MIN,
     FONT_ATLAS_DEFAULT_TEX_DATA_H = FONT_ATLAS_DEFAULT_TEX_DATA_H,
@@ -35798,14 +45670,17 @@ return {
     GetDefaultFontDataProggyClean = GetDefaultFontDataProggyClean,
     GetDefaultFontDataProggyForever = GetDefaultFontDataProggyForever,
     GetMinimumStepAtDecimalPrecision = GetMinimumStepAtDecimalPrecision,
+    HelpMarker = HelpMarker,
     IMGUI_DEBUG_LOG_ACTIVEID = IMGUI_DEBUG_LOG_ACTIVEID,
     IMGUI_DEBUG_LOG_FONT = IMGUI_DEBUG_LOG_FONT,
     IMGUI_DEBUG_LOG_POPUP = IMGUI_DEBUG_LOG_POPUP,
     IMGUI_DEBUG_LOG_VIEWPORT = IMGUI_DEBUG_LOG_VIEWPORT,
+    IMGUI_DEMO_MARKER = IMGUI_DEMO_MARKER,
     IMGUI_DISABLE_DEBUG_TOOLS = IMGUI_DISABLE_DEBUG_TOOLS,
     IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS = IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS,
     IMGUI_FONT_SIZE_MAX = IMGUI_FONT_SIZE_MAX,
     IMGUI_FONT_SIZE_THRESHOLD_FOR_LOADADVANCEXONLYMODE = IMGUI_FONT_SIZE_THRESHOLD_FOR_LOADADVANCEXONLYMODE,
+    IMGUI_PAYLOAD_TYPE_WINDOW = IMGUI_PAYLOAD_TYPE_WINDOW,
     IMGUI_WINDOW_HARD_MIN_SIZE = IMGUI_WINDOW_HARD_MIN_SIZE,
     IMSTB_TEXTEDIT_UNDOSTATECOUNT = IMSTB_TEXTEDIT_UNDOSTATECOUNT,
     IM_ALLOC = IM_ALLOC,
@@ -35955,12 +45830,19 @@ return {
     ImGuiCond = ImGuiCond,
     ImGuiConfigFlags = ImGuiConfigFlags,
     ImGuiContext = ImGuiContext,
+    ImGuiDataAuthority = ImGuiDataAuthority,
     ImGuiDataType = ImGuiDataType,
     ImGuiDebugLogFlags = ImGuiDebugLogFlags,
+    ImGuiDemoWindowData = ImGuiDemoWindowData,
     ImGuiDir = ImGuiDir,
+    ImGuiDockContext = ImGuiDockContext,
+    ImGuiDockNode = ImGuiDockNode,
+    ImGuiDockNodeFlags = ImGuiDockNodeFlags,
+    ImGuiDockNodeState = ImGuiDockNodeState,
     ImGuiDragDropFlags = ImGuiDragDropFlags,
     ImGuiFocusRequestFlags = ImGuiFocusRequestFlags,
     ImGuiFocusScopeData = ImGuiFocusScopeData,
+    ImGuiFocusedFlags = ImGuiFocusedFlags,
     ImGuiGroupData = ImGuiGroupData,
     ImGuiHoveredFlags = ImGuiHoveredFlags,
     ImGuiIO = ImGuiIO,
@@ -35997,6 +45879,7 @@ return {
     ImGuiLastItemData_Copy = ImGuiLastItemData_Copy,
     ImGuiLayoutType = ImGuiLayoutType,
     ImGuiLocKey = ImGuiLocKey,
+    ImGuiLogFlags = ImGuiLogFlags,
     ImGuiMod_Alt = ImGuiMod_Alt,
     ImGuiMod_Ctrl = ImGuiMod_Ctrl,
     ImGuiMod_Mask_ = ImGuiMod_Mask_,
@@ -36013,6 +45896,11 @@ return {
     ImGuiNextItemDataFlags = ImGuiNextItemDataFlags,
     ImGuiNextWindowData = ImGuiNextWindowData,
     ImGuiNextWindowDataFlags = ImGuiNextWindowDataFlags,
+    ImGuiPayload = ImGuiPayload,
+    ImGuiPayload_Clear = ImGuiPayload_Clear,
+    ImGuiPayload_IsDataType = ImGuiPayload_IsDataType,
+    ImGuiPayload_IsDelivery = ImGuiPayload_IsDelivery,
+    ImGuiPayload_IsPreview = ImGuiPayload_IsPreview,
     ImGuiPlatformIO = ImGuiPlatformIO,
     ImGuiPlatformImeData = ImGuiPlatformImeData,
     ImGuiPlatformImeData_Compare = ImGuiPlatformImeData_Compare,
@@ -36027,12 +45915,23 @@ return {
     ImGuiSelectableFlags = ImGuiSelectableFlags,
     ImGuiSelectionUserData_Invalid = ImGuiSelectionUserData_Invalid,
     ImGuiSeparatorFlags = ImGuiSeparatorFlags,
+    ImGuiSettingsHandler = ImGuiSettingsHandler,
+    ImGuiShrinkWidthItem = ImGuiShrinkWidthItem,
     ImGuiSliderFlags = ImGuiSliderFlags,
+    ImGuiSortDirection = ImGuiSortDirection,
     ImGuiStyle = ImGuiStyle,
     ImGuiStyleMod = ImGuiStyleMod,
     ImGuiStyleVar = ImGuiStyleVar,
     ImGuiStyleVarInfo = ImGuiStyleVarInfo,
+    ImGuiTabBar = ImGuiTabBar,
+    ImGuiTabBarFlags = ImGuiTabBarFlags,
+    ImGuiTabItem = ImGuiTabItem,
+    ImGuiTabItemFlags = ImGuiTabItemFlags,
+    ImGuiTableBgTarget = ImGuiTableBgTarget,
+    ImGuiTableColumnFlags = ImGuiTableColumnFlags,
     ImGuiTableFlags = ImGuiTableFlags,
+    ImGuiTableRowFlags = ImGuiTableRowFlags,
+    ImGuiTextBuffer = ImGuiTextBuffer,
     ImGuiTextFlags = ImGuiTextFlags,
     ImGuiTooltipFlags = ImGuiTooltipFlags,
     ImGuiTreeNodeFlags = ImGuiTreeNodeFlags,
@@ -36042,6 +45941,7 @@ return {
     ImGuiWindow = ImGuiWindow,
     ImGuiWindowBgClickFlags = ImGuiWindowBgClickFlags,
     ImGuiWindowClass = ImGuiWindowClass,
+    ImGuiWindowDockStyleCol = ImGuiWindowDockStyleCol,
     ImGuiWindowFlags = ImGuiWindowFlags,
     ImGuiWindowRefreshFlags = ImGuiWindowRefreshFlags,
     ImGuiWindowSettings = ImGuiWindowSettings,
@@ -36065,6 +45965,7 @@ return {
     ImMul = ImMul,
     ImParseFormatFindStart = ImParseFormatFindStart,
     ImParseFormatSanitizeForScanning = ImParseFormatSanitizeForScanning,
+    ImPool = ImPool,
     ImPow = ImPow,
     ImRect = ImRect,
     ImRect_Copy = ImRect_Copy,
@@ -36134,7 +46035,7 @@ return {
     STB_TEXTEDIT_K_WORDRIGHT = STB_TEXTEDIT_K_WORDRIGHT,
     STB_TEXTEDIT_NEWLINE = STB_TEXTEDIT_NEWLINE,
     STB_TexteditState = STB_TexteditState,
-    ShowExampleAppFullscreen = ShowExampleAppFullscreen,
+    ShowDockingDisabledMessage = ShowDockingDisabledMessage,
     TILE_SIZE = TILE_SIZE,
     UINT_MAX = UINT_MAX,
     stb_text_locate_coord = stb_text_locate_coord,

@@ -137,6 +137,8 @@ function ImGui.StyleColorsDark(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.50, 0.50, 0.50, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.HeaderActive].x, colors[ImGuiCol.HeaderActive].y, colors[ImGuiCol.HeaderActive].z, colors[ImGuiCol.HeaderActive].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.20, 0.20, 0.20, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(0.61, 0.61, 0.61, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(1.00, 0.43, 0.35, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -205,6 +207,8 @@ function ImGui.StyleColorsClassic(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.53, 0.53, 0.87, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.Header].x, colors[ImGuiCol.Header].y, colors[ImGuiCol.Header].z, colors[ImGuiCol.Header].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.20, 0.20, 0.20, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(1.00, 1.00, 1.00, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(0.90, 0.70, 0.00, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -274,6 +278,8 @@ function ImGui.StyleColorsLight(dst)
     colors[ImGuiCol.TabDimmed]                 = ImLerpV4V4F(colors[ImGuiCol.Tab],          colors[ImGuiCol.TitleBg], 0.80)
     colors[ImGuiCol.TabDimmedSelected]         = ImLerpV4V4F(colors[ImGuiCol.TabSelected],  colors[ImGuiCol.TitleBg], 0.40)
     colors[ImGuiCol.TabDimmedSelectedOverline] = ImVec4(0.26, 0.59, 1.00, 0.00)
+    colors[ImGuiCol.DockingPreview] = ImVec4(colors[ImGuiCol.Header].x, colors[ImGuiCol.Header].y, colors[ImGuiCol.Header].z, colors[ImGuiCol.Header].w * 0.7)
+    colors[ImGuiCol.DockingEmptyBg] = ImVec4(0.68, 0.69, 0.73, 1.00)
     colors[ImGuiCol.PlotLines]                 = ImVec4(0.39, 0.39, 0.39, 1.00)
     colors[ImGuiCol.PlotLinesHovered]          = ImVec4(1.00, 0.43, 0.35, 1.00)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
@@ -325,6 +331,18 @@ function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx,
         local b = math.floor(col0_b + col_delta_b * t)
 
         vert[3] = bit32.bor(bit32.lshift(r, IM_COL32_R_SHIFT), bit32.lshift(g, IM_COL32_G_SHIFT), bit32.lshift(b, IM_COL32_B_SHIFT), bit32.band(vert[3], IM_COL32_A_MASK))
+    end
+end
+
+-- Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
+function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, pivot_in, cos_a, sin_a, pivot_out)
+    local data = draw_list.VtxBuffer.Data
+    local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
+    for i = vert_start_idx, vert_end_idx - 1 do
+        local pos = data[i][1]
+        local x, y = pos[1] - pix, pos[2] - piy
+        pos[1] = x * cos_a - y * sin_a + pox
+        pos[2] = x * sin_a + y * cos_a + poy
     end
 end
 
@@ -3145,7 +3163,7 @@ function MT.ImDrawList:_ClearFreeMemory()
     self._TextureStack:clear()
     -- self._CallbacksDataBuf:clear()
     self._Path:clear()
-    -- self._Splitter.ClearFreeMemory()
+    self._Splitter:ClearFreeMemory()
 end
 
 function MT.ImDrawList:AddDrawCmd()
@@ -3311,6 +3329,184 @@ function MT.ImDrawList:_OnChangedVtxOffset()
     IM_ASSERT(curr_cmd.UserCallback == nil)
     curr_cmd.VtxOffset = self._CmdHeader.VtxOffset
 end
+
+----------------------------------------------------------------
+-- [SECTION] ImDrawListSplitter
+----------------------------------------------------------------
+-- Lua: channels swap ImVector objects with the draw list (C++ memcpy of the vector headers).
+-- Channel 0 holds nothing while it is the current channel (its buffers live in the draw list).
+
+-- Copy ClipRect, TexRef, VtxOffset (TexRef is assigned by reference, never mutated)
+local function ImDrawCmd_HeaderCopyRef(dst, src)
+    ImVec4_Copy(dst.ClipRect, src.ClipRect)
+    dst.TexRef = src.TexRef
+    dst.VtxOffset = src.VtxOffset
+end
+
+function MT.ImDrawListSplitter:Clear()
+    self._Current = 0
+    self._Count = 1
+end
+
+function MT.ImDrawListSplitter:ClearFreeMemory()
+    for i = 1, self._Channels.Size do
+        local ch = self._Channels.Data[i]
+        if i - 1 == self._Current then
+            -- Current channel is a copy of CmdBuffer/IdxBuffer, don't destruct again
+            self._Channels.Data[i] = ImDrawChannel()
+        else
+            ch._CmdBuffer:clear()
+            ch._IdxBuffer:clear()
+        end
+    end
+    self._Current = 0
+    self._Count = 1
+    self._Channels:clear()
+end
+
+--- @param draw_list      ImDrawList
+--- @param channels_count int
+function MT.ImDrawListSplitter:Split(draw_list, channels_count)
+    IM_ASSERT(self._Current == 0 and self._Count <= 1, "Nested channel splitting is not supported. Please use separate instances of ImDrawListSplitter.")
+    local old_channels_count = self._Channels.Size
+    if old_channels_count < channels_count then
+        self._Channels:reserve(channels_count)
+        self._Channels:resize(channels_count)
+    end
+    self._Count = channels_count
+
+    -- Channel 0 is the draw list itself (memset to 0 in C++)
+    local channels = self._Channels.Data
+    channels[1] = { _CmdBuffer = nil, _IdxBuffer = nil }
+    for i = 2, channels_count do
+        if i > old_channels_count or channels[i] == nil then
+            channels[i] = ImDrawChannel()
+        else
+            channels[i]._CmdBuffer:resize(0)
+            channels[i]._IdxBuffer:resize(0)
+        end
+    end
+end
+
+--- @param draw_list ImDrawList
+function MT.ImDrawListSplitter:Merge(draw_list)
+    -- Note that we never use or rely on _Channels.Size because it is merely a buffer that we never shrink back to 0 to keep all sub-buffers ready for use.
+    if self._Count <= 1 then
+        return
+    end
+
+    self:SetCurrentChannel(draw_list, 0)
+    draw_list:_PopUnusedDrawCmd()
+
+    -- Calculate our final buffer sizes. Also fix the incorrect IdxOffset values in each command.
+    local new_cmd_buffer_count = 0
+    local new_idx_buffer_count = 0
+    local last_cmd = (self._Count > 0 and draw_list.CmdBuffer.Size > 0) and draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] or nil
+    local idx_offset = last_cmd and (last_cmd.IdxOffset + last_cmd.ElemCount) or 0
+    local channels = self._Channels.Data
+    for i = 2, self._Count do
+        local ch = channels[i]
+        local cmds = ch._CmdBuffer
+        if cmds.Size > 0 and cmds.Data[cmds.Size].ElemCount == 0 and cmds.Data[cmds.Size].UserCallback == nil then -- Equivalent of PopUnusedDrawCmd()
+            cmds:pop_back()
+        end
+
+        if cmds.Size > 0 and last_cmd ~= nil then
+            -- Do not include ImDrawCmd_AreSequentialIdxOffset() in the compare as we rebuild IdxOffset values ourselves.
+            -- Manipulating IdxOffset (e.g. by reordering draw commands like done by RenderDimmedBackgroundBehindWindow()) is not supported within a splitter.
+            local next_cmd = cmds.Data[1]
+            if ImDrawCmd_HeaderCompare(last_cmd, next_cmd) and last_cmd.UserCallback == nil and next_cmd.UserCallback == nil then
+                -- Merge previous channel last draw command with current channel first draw command if matching.
+                last_cmd.ElemCount = last_cmd.ElemCount + next_cmd.ElemCount
+                idx_offset = idx_offset + next_cmd.ElemCount
+                cmds:erase(1) -- FIXME-OPT: Improve for multiple merges.
+            end
+        end
+        if cmds.Size > 0 then
+            last_cmd = cmds.Data[cmds.Size]
+        end
+        new_cmd_buffer_count = new_cmd_buffer_count + cmds.Size
+        new_idx_buffer_count = new_idx_buffer_count + ch._IdxBuffer.Size
+        for cmd_n = 1, cmds.Size do
+            cmds.Data[cmd_n].IdxOffset = idx_offset
+            idx_offset = idx_offset + cmds.Data[cmd_n].ElemCount
+        end
+    end
+    local cmd_write = draw_list.CmdBuffer.Size + 1
+    local idx_write = draw_list.IdxBuffer.Size + 1
+    draw_list.CmdBuffer:resize(draw_list.CmdBuffer.Size + new_cmd_buffer_count)
+    draw_list.IdxBuffer:resize(draw_list.IdxBuffer.Size + new_idx_buffer_count)
+
+    -- Write commands and indices in order (they are fairly small structures, we don't copy vertices only indices)
+    local dst_cmds = draw_list.CmdBuffer.Data
+    local dst_idx = draw_list.IdxBuffer.Data
+    for i = 2, self._Count do
+        local ch = channels[i]
+        local src_cmds = ch._CmdBuffer.Data
+        for n = 1, ch._CmdBuffer.Size do
+            dst_cmds[cmd_write] = src_cmds[n]
+            src_cmds[n] = nil -- ownership moved to the draw list
+            cmd_write = cmd_write + 1
+        end
+        local src_idx = ch._IdxBuffer.Data
+        for n = 1, ch._IdxBuffer.Size do
+            dst_idx[idx_write] = src_idx[n]
+            idx_write = idx_write + 1
+        end
+    end
+    draw_list._IdxWritePtr = idx_write
+
+    -- Ensure there's always a non-callback draw command trailing the command-buffer
+    if draw_list.CmdBuffer.Size == 0 or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size].UserCallback ~= nil then
+        draw_list:AddDrawCmd()
+    end
+
+    -- If current command is used with different settings we need to add a new command
+    local curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    if curr_cmd.ElemCount == 0 then
+        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
+    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        draw_list:AddDrawCmd()
+    end
+
+    self._Count = 1
+end
+
+--- @param draw_list ImDrawList
+--- @param idx       int # 0-based channel index
+function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
+    IM_ASSERT(idx >= 0 and idx < self._Count)
+    if self._Current == idx then
+        return
+    end
+
+    -- Overwrite ImVector (12/16 bytes), four times. This is merely a silly optimization instead of doing .swap()
+    local channels = self._Channels.Data
+    local cur = channels[self._Current + 1]
+    cur._CmdBuffer = draw_list.CmdBuffer
+    cur._IdxBuffer = draw_list.IdxBuffer
+    self._Current = idx
+    local ch = channels[idx + 1]
+    draw_list.CmdBuffer = ch._CmdBuffer
+    draw_list.IdxBuffer = ch._IdxBuffer
+    draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
+
+    -- If current command is used with different settings we need to add a new command
+    local curr_cmd = (draw_list.CmdBuffer.Size == 0) and nil or draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size]
+    if curr_cmd == nil then
+        draw_list:AddDrawCmd()
+    elseif curr_cmd.ElemCount == 0 then
+        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
+    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        draw_list:AddDrawCmd()
+    end
+end
+
+--- @param count int
+function MT.ImDrawList:ChannelsSplit(count) self._Splitter:Split(self, count) end
+function MT.ImDrawList:ChannelsMerge() self._Splitter:Merge(self) end
+--- @param n int # 0-based
+function MT.ImDrawList:ChannelsSetCurrent(n) self._Splitter:SetCurrentChannel(self, n) end
 
 --- @param points       ImVec2[]
 --- @param points_count int
@@ -3910,6 +4106,27 @@ function MT.ImDrawList:AddTriangle(p1, p2, p3, col, thickness)
     self:PathLineTo(p2)
     self:PathLineTo(p3)
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddQuad(p1, p2, p3, p4, col, thickness)
+    if thickness == nil then thickness = 1.0 end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+
+    self:PathLineTo(p1)
+    self:PathLineTo(p2)
+    self:PathLineTo(p3)
+    self:PathLineTo(p4)
+    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+end
+
+function MT.ImDrawList:AddQuadFilled(p1, p2, p3, p4, col)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+
+    self:PathLineTo(p1)
+    self:PathLineTo(p2)
+    self:PathLineTo(p3)
+    self:PathLineTo(p4)
+    self:PathFillConvex(col)
 end
 
 function MT.ImDrawList:AddTriangleFilled(p1, p2, p3, col)
