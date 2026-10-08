@@ -7387,7 +7387,10 @@ local function FindHoveredWindowEx(pos, find_first_and_in_any_viewport)
         end
 
         if window.HitTestHoleSize.x ~= 0 then
-            -- TODO: hit test hole
+            local hx, hy = window.Pos.x + window.HitTestHoleOffset.x, window.Pos.y + window.HitTestHoleOffset.y
+            if pos.x >= hx and pos.y >= hy and pos.x < hx + window.HitTestHoleSize.x and pos.y < hy + window.HitTestHoleSize.y then
+                break -- continue
+            end
         end
 
         if find_first_and_in_any_viewport then
