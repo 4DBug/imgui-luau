@@ -33542,6 +33542,7 @@ local function GetTile(bd, index, tx, ty)
     label.ResampleMode = Enum.ResamplerMode.Pixelated
     label.ImageContent = Content.fromObject(img)
     label.Visible = false
+    label.Active = bd.TilesActive
     label.Parent = bd.Gui
     tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false }
     bd.Tiles[index] = tile
@@ -33730,21 +33731,9 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
+        Tiles = {}, TileCols = 0, TileRows = 0, Scale = render_scale or 1, TilesActive = false, TH1 = {}, TH2 = {}, TN = {}, TL = {}, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
-
-    -- 1x1 Active frame that follows the mouse while imgui wants it: sinks clicks/wheel only where imgui owns the mouse
-    local blocker = Instance.new("Frame")
-    blocker.Name = "InputBlocker"
-    blocker.BackgroundTransparency = 1
-    blocker.BorderSizePixel = 0
-    blocker.Active = true
-    blocker.ZIndex = 2
-    blocker.Size = UDim2.fromOffset(1, 1)
-    blocker.Visible = false
-    blocker.Parent = gui
-    bd.Blocker = blocker
 
     io.BackendFlags = bit32.bor(io.BackendFlags, ImGuiBackendFlags.RendererHasTextures, ImGuiBackendFlags.RendererHasVtxOffset)
 
@@ -33837,10 +33826,12 @@ function ImGui_ImplRoblox_NewFrame()
         io:AddMousePosEvent(m.X * bd.Scale, m.Y * bd.Scale)
     end
 
-    -- Keep the blocker under the mouse while imgui wants it, so the game (camera zoom etc.) doesn't get the input
+    -- While the mouse is over imgui, make the tiles Active so Roblox stops passing clicks/wheel to the game (camera zoom etc.)
     local want = io.WantCaptureMouse
-    bd.Blocker.Visible = want
-    if want then bd.Blocker.Position = UDim2.fromOffset(m.X, m.Y) end
+    if want ~= bd.TilesActive then
+        bd.TilesActive = want
+        for _, tile in pairs(bd.Tiles) do tile.Label.Active = want end
+    end
 end
 
 function ImGui_ImplRoblox_SetRenderScale(scale)
