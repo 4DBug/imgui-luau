@@ -12,7 +12,7 @@ TMP = tempfile.mkdtemp(prefix="imgui_test_")  # per process: parallel runs must 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 LUAU = shutil.which("luau") or "/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau-0.734/bin/luau"
-G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, warn, require, script, os"
+G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, UDim, CFrame, warn, require, script, os"
 
 def build_run(args, flags):
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle.py"), TMP] + (["--no-demo"] if os.environ.get("NO_DEMO") else []), check=True, stdout=subprocess.DEVNULL)

@@ -600,6 +600,73 @@ local function DrawListSignature(draw_list, ox, oy)
     return readstring(draw_list.VtxBuffer.Buf, 0, draw_list.VtxBuffer.Size * VTX_STRIDE) .. readstring(b, 0, o)
 end
 
+-- Overlays: user Instances (e.g. a Frame holding a ViewportFrame) placed inside a window, registered every frame with
+-- ImGui_ImplRoblox.SetOverlay() while that window is current. They stack right above the window's layers, move with
+-- it, and (clip = true) are clipped to the window's content area like its widgets.
+local function OverlayHolder(bd, draw_list, clip)
+    local hs = bd.OverlayHolders[draw_list]
+    if not hs then hs = {}; bd.OverlayHolders[draw_list] = hs end
+    local h = hs[clip]
+    if not h then
+        h = Instance.new("Frame")
+        h.Name = clip and "OverlayClip" or "Overlay"
+        h.BackgroundTransparency = 1
+        h.BorderSizePixel = 0
+        h.ClipsDescendants = clip
+        h.Size = UDim2.fromOffset(0, 0)
+        h.Parent = bd.Gui
+        hs[clip] = h
+    end
+    return h
+end
+
+local function PlaceOverlays(bd, draw_list, z, ox, oy)
+    local list = bd.Overlays[draw_list]
+    local hs = bd.OverlayHolders[draw_list]
+    if not list then
+        if hs then for _, h in pairs(hs) do h.Visible = false end end
+        return z
+    end
+    local scale, frame_no = bd.Scale, bd.FrameNo
+    z += 1
+    local used = {}
+    for _, o in ipairs(list) do
+        local clip = o.Clip and draw_list._ContentClipX0 ~= nil
+        local h = OverlayHolder(bd, draw_list, clip)
+        local hx, hy = 0, 0
+        if clip then
+            hx, hy = draw_list._ContentClipX0 - ox, draw_list._ContentClipY0 - oy
+            if not used[h] then
+                h.Position = UDim2.fromOffset(hx / scale, hy / scale)
+                h.Size = UDim2.fromOffset((draw_list._ContentClipX1 - draw_list._ContentClipX0) / scale, (draw_list._ContentClipY1 - draw_list._ContentClipY0) / scale)
+            end
+        elseif not used[h] then
+            h.Position = UDim2.fromOffset(0, 0)
+        end
+        used[h] = true
+        h.ZIndex = z
+        h.Visible = true
+        local f = o.Frame
+        if f.Parent ~= h then f.Parent = h end
+        f.Position = UDim2.fromOffset((o.X - ox - hx) / scale, (o.Y - oy - hy) / scale)
+        f.Size = UDim2.fromOffset(o.W / scale, o.H / scale)
+        f.Visible = true
+        bd.OverlayShown[f] = frame_no
+    end
+    if hs then for _, h in pairs(hs) do if not used[h] then h.Visible = false end end end
+    return z
+end
+
+--- Show `frame` this frame at (x, y, w, h) (imgui coordinates) inside the current window. Call every frame it should
+--- be visible; frames not submitted are hidden. clip: clip to the window's content area (scrolls with it).
+function ImGui_ImplRoblox_SetOverlay(frame, x, y, w, h, clip)
+    local bd = ImGui_ImplRoblox_GetBackendData()
+    local dl = ImGui.GetWindowDrawList()
+    local list = bd.Overlays[dl]
+    if not list then list = {}; bd.Overlays[dl] = list end
+    list[#list + 1] = { Frame = frame, X = x, Y = y, W = w, H = h, Clip = clip ~= false }
+end
+
 -- MicroProfiler labels, enabled with ImGui_ImplRoblox.SetProfiling(true)
 local profilebegin, profileend = debug.profilebegin, debug.profileend
 local profiling = false
@@ -781,7 +848,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     end
     if rate > 0 then
         local now = os.clock()
-        if now + 0.002 < bd.NextRender then PE(); return end
+        if now + 0.002 < bd.NextRender then table.clear(bd.Overlays); PE(); return end
         bd.NextRender = math.max(bd.NextRender + 1 / rate, now)
     end
 
@@ -811,6 +878,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                 end
             end
             set.LastUsed = frame_no
+            z = PlaceOverlays(bd, draw_list, z, ox, oy)
             PE()
             continue
         end
@@ -938,7 +1006,14 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         elseif set and set[3] then HideLayer(set[3]) end
         set = bd.Layers[draw_list]
         if set then set.LastUsed = frame_no; set.Sig = sig end
+        z = PlaceOverlays(bd, draw_list, z, ox, oy)
     end
+
+    -- Overlay frames not submitted this frame are hidden (never destroyed: the user owns them)
+    for frame, shown in pairs(bd.OverlayShown) do
+        if shown ~= frame_no then frame.Visible = false; bd.OverlayShown[frame] = nil end
+    end
+    table.clear(bd.Overlays)
 
     -- Hide layers not drawn this frame; free long unused ones (closed windows, old tooltips)
     for draw_list, set in pairs(bd.Layers) do
@@ -980,7 +1055,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Layers = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, BusyRenderRate = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
+        Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, BusyRenderRate = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -1115,6 +1190,8 @@ ImGui_ImplRoblox = {
     AddFile        = ImGui_ImplRoblox_AddFile,
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
+    SetOverlay     = ImGui_ImplRoblox_SetOverlay,
+    GetRenderScale = function() return ImGui_ImplRoblox_GetBackendData().Scale end,
     SetBusyRenderRate = ImGui_ImplRoblox_SetBusyRenderRate,
     SetProfiling   = ImGui_ImplRoblox_SetProfiling,
     IsProfiling    = ImGui_ImplRoblox_IsProfiling,
