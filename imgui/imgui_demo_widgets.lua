@@ -1629,7 +1629,7 @@ local function StyleCopy(dst, src)
         elseif type(v) == "table" and getmetatable(v) ~= nil and type(v[1]) == "number" then
             local c = dst[k]
             if type(c) ~= "table" then c = setmetatable({}, getmetatable(v)); dst[k] = c end
-            for i = 1, #v do rawset(c, i, v[i]) end
+            for _, key in ipairs({ "x", "y", "z", "w" }) do if rawget(v, key) ~= nil then c[key] = v[key] end end
         else
             dst[k] = v
         end

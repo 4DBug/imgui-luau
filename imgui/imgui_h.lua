@@ -193,8 +193,8 @@ ImGuiMouseCursor =
 --- @return ImTextureRect
 function ImTextureRect(x, y, w, h) return { x = x, y = y, w = w, h = h } end
 
--- This structure supports indexing on string keys `x`, `y` and number keys 1, 2.
--- But note that the former is likely to be more expensive.
+-- [Luau] Stored as named fields {x=, y=} so the common `.x`/`.y` access is a plain table read (no metamethod call).
+-- Numeric keys 1, 2 still work through the metatable, but are slower: prefer .x/.y in hot code.
 --- @class ImVec2
 --- @operator add(ImVec2): ImVec2
 --- @operator sub(ImVec2): ImVec2
@@ -202,146 +202,97 @@ function ImTextureRect(x, y, w, h) return { x = x, y = y, w = w, h = h } end
 --- @operator mul(ImVec2): ImVec2
 --- @operator div(number): ImVec2
 --- @operator div(ImVec2): ImVec2
---- @field [1] number
---- @field [2] number
 --- @field x number
 --- @field y number
 local IM_VEC2 = {}
+local VEC2_KEYS = { "x", "y" }
 
---- @param t ImVec2
---- @param k string
 IM_VEC2.__index = function(t, k)
-    if     k == "x" then return rawget(t, 1)
-    elseif k == "y" then return rawget(t, 2)
-    end
+    local n = VEC2_KEYS[k]
+    if n then return rawget(t, n) end
 end
 
---- @param t ImVec2
---- @param k string
---- @param v number
 IM_VEC2.__newindex = function(t, k, v)
-    if     k == "x" then rawset(t, 1, v)
-    elseif k == "y" then rawset(t, 2, v)
-    else IM_ASSERT(false)
-    end
+    local n = VEC2_KEYS[k]
+    IM_ASSERT(n ~= nil)
+    rawset(t, n, v)
 end
 
 --- @param x? number
 --- @param y? number
 --- @return ImVec2
 --- @nodiscard
-function ImVec2(x, y) return setmetatable({x or 0, y or 0}, IM_VEC2) end
+function ImVec2(x, y) return setmetatable({ x = x or 0, y = y or 0 }, IM_VEC2) end
 
-function IM_VEC2.__add(lhs, rhs) return ImVec2(lhs[1] + rhs[1], lhs[2] + rhs[2]) end
-function IM_VEC2.__sub(lhs, rhs) return ImVec2(lhs[1] - rhs[1], lhs[2] - rhs[2]) end
+function IM_VEC2.__add(lhs, rhs) return setmetatable({ x = lhs.x + rhs.x, y = lhs.y + rhs.y }, IM_VEC2) end
+function IM_VEC2.__sub(lhs, rhs) return setmetatable({ x = lhs.x - rhs.x, y = lhs.y - rhs.y }, IM_VEC2) end
 
---- @overload fun(lhs: ImVec2, rhs: number): ImVec2
---- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function IM_VEC2.__mul(lhs, rhs)
-    if     type(lhs) == "table" and type(rhs) == "number" then return ImVec2(lhs[1] * rhs, lhs[2] * rhs)
-    elseif type(lhs) == "table" and type(rhs) == "table"  then return ImVec2(lhs[1] * rhs[1], lhs[2] * rhs[2])
-    end
+    if type(rhs) == "number" then return setmetatable({ x = lhs.x * rhs, y = lhs.y * rhs }, IM_VEC2) end
+    return setmetatable({ x = lhs.x * rhs.x, y = lhs.y * rhs.y }, IM_VEC2)
 end
 
---- @overload fun(lhs: ImVec2, rhs: number): ImVec2
---- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 function IM_VEC2.__div(lhs, rhs)
-    if     type(lhs) == "table" and type(rhs) == "number" then return ImVec2(lhs[1] / rhs, lhs[2] / rhs)
-    elseif type(lhs) == "table" and type(rhs) == "table"  then return ImVec2(lhs[1] / rhs[1], lhs[2] / rhs[2])
-    end
+    if type(rhs) == "number" then return setmetatable({ x = lhs.x / rhs, y = lhs.y / rhs }, IM_VEC2) end
+    return setmetatable({ x = lhs.x / rhs.x, y = lhs.y / rhs.y }, IM_VEC2)
 end
 
-function IM_VEC2.__eq(lhs, rhs) return lhs[1] == rhs[1] and lhs[2] == rhs[2] end
+function IM_VEC2.__eq(lhs, rhs) return lhs.x == rhs.x and lhs.y == rhs.y end
 
 function IM_VEC2:__tostring() return string.format("ImVec2(%g, %g)", self.x, self.y) end
 
 --- @param dest ImVec2
 --- @param src  ImVec2
-function ImVec2_Copy(dest, src) dest[1] = src[1]; dest[2] = src[2] end
+function ImVec2_Copy(dest, src) dest.x = src.x; dest.y = src.y end
 
---- @param dest  ImVec2
---- @param src_x number
---- @param src_y number
-function ImVec2_CopyV(dest, src_x, src_y) dest[1] = src_x; dest[2] = src_y end
+function ImVec2_CopyV(dest, src_x, src_y) dest.x = src_x; dest.y = src_y end
 
---- @param v     ImVec2
---- @param add_x number
---- @param add_y number
-function ImVec2_AddVA(v, add_x, add_y) return v[1] + add_x, v[2] + add_y end
+function ImVec2_AddVA(v, add_x, add_y) return v.x + add_x, v.y + add_y end
 
---- @param v     ImVec2
---- @param sub_x number
---- @param sub_y number
-function ImVec2_SubVA(v, sub_x, sub_y) return v[1] - sub_x, v[2] - sub_y end
+function ImVec2_SubVA(v, sub_x, sub_y) return v.x - sub_x, v.y - sub_y end
 
---- @param a      ImVec2
---- @param scalar number
-function ImVec2_MulVX(a, scalar)
-    return a[1] * scalar, a[2] * scalar
-end
+function ImVec2_MulVX(a, scalar) return a.x * scalar, a.y * scalar end
 
 --- An inlined version of `ImVec2_Copy` currently for use in certain ImVector<ImVec2> `push_back`
---- @param t ImVec2[]
---- @param k int
---- @param v ImVec2
-local function ImVec2_TCopy(t, k, v) local dest = t[k]; dest[1] = v[1]; dest[2] = v[2]; end
+local function ImVec2_TCopy(t, k, v) local dest = t[k]; dest.x = v.x; dest.y = v.y; end
 
--- This structure supports indexing on string keys `x`, `y`, `z`, `w` and number keys 1, 2, 3, 4.
--- But note that the former is likely to be more expensive.
+-- [Luau] Same layout as ImVec2: named fields x, y, z, w; numeric keys 1..4 go through the metatable.
 --- @class ImVec4
 --- @operator add(ImVec4): ImVec4
 --- @operator sub(ImVec4): ImVec4
 --- @operator mul(number): ImVec4
---- @field [1] number
---- @field [2] number
---- @field [3] number
---- @field [4] number
 --- @field x number
 --- @field y number
 --- @field z number
 --- @field w number
 local IM_VEC4 = {}
+local VEC4_KEYS = { "x", "y", "z", "w" }
 
---- @param t ImVec4
---- @param k string
 IM_VEC4.__index = function(t, k)
-    if     k == "x" then return rawget(t, 1)
-    elseif k == "y" then return rawget(t, 2)
-    elseif k == "z" then return rawget(t, 3)
-    elseif k == "w" then return rawget(t, 4)
-    end
+    local n = VEC4_KEYS[k]
+    if n then return rawget(t, n) end
 end
 
---- @param t ImVec4
---- @param k string
---- @param v number
 IM_VEC4.__newindex = function(t, k, v)
-    if     k == "x" then rawset(t, 1, v)
-    elseif k == "y" then rawset(t, 2, v)
-    elseif k == "z" then rawset(t, 3, v)
-    elseif k == "w" then rawset(t, 4, v)
-    else IM_ASSERT(false)
-    end
+    local n = VEC4_KEYS[k]
+    IM_ASSERT(n ~= nil)
+    rawset(t, n, v)
 end
 
---- @param x? number
---- @param y? number
---- @param z? number
---- @param w? number
 --- @return ImVec4
 --- @nodiscard
-function ImVec4(x, y, z, w) return setmetatable({x or 0, y or 0, z or 0, w or 0}, IM_VEC4) end
+function ImVec4(x, y, z, w) return setmetatable({ x = x or 0, y = y or 0, z = z or 0, w = w or 0 }, IM_VEC4) end
 
-function IM_VEC4.__add(lhs, rhs) return ImVec4(lhs[1] + rhs[1], lhs[2] + rhs[2], lhs[3] + rhs[3], lhs[4] + rhs[4]) end
-function IM_VEC4.__sub(lhs, rhs) return ImVec4(lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3], lhs[4] - rhs[4]) end
-function IM_VEC4.__mul(lhs, rhs) return ImVec4(lhs[1] * rhs, lhs[2] * rhs, lhs[3] * rhs, lhs[4] * rhs) end
-function IM_VEC4.__eq(lhs, rhs) return lhs[1] == rhs[1] and lhs[2] == rhs[2] and lhs[3] == rhs[3] and lhs[4] == rhs[4] end
+function IM_VEC4.__add(lhs, rhs) return ImVec4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w) end
+function IM_VEC4.__sub(lhs, rhs) return ImVec4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w) end
+function IM_VEC4.__mul(lhs, rhs) return ImVec4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs) end
+function IM_VEC4.__eq(lhs, rhs) return lhs.x == rhs.x and lhs.y == rhs.y and lhs.z == rhs.z and lhs.w == rhs.w end
 
 function IM_VEC4:__tostring() return string.format("ImVec4(%g, %g, %g, %g)", self.x, self.y, self.z, self.w) end
 
 --- @param dest ImVec4
 --- @param src  ImVec4
-function ImVec4_Copy(dest, src) dest[1] = src[1]; dest[2] = src[2]; dest[3] = src[3]; dest[4] = src[4] end
+function ImVec4_Copy(dest, src) dest.x = src.x; dest.y = src.y; dest.z = src.z; dest.w = src.w end
 
 --- A compact ImVector clone
 --- @class ImVector<T>
@@ -356,8 +307,10 @@ local IM_VECTOR = {}
 --- @param k string|int
 --- @return any
 IM_VECTOR.__index = function(t, k)
+    local m = IM_VECTOR[k] -- methods first (hot path)
+    if m ~= nil then return m end
     if k == "Data" then return nil end -- Data has already been discarded
-    return IM_VECTOR[k] or t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- if the mt access turns out nil, the k must be int index into Data
+    return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- if the mt access turns out nil, the k must be int index into Data
 end
 
 --- @param t ImVector
