@@ -1,4 +1,4 @@
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a minimal Lua impl of C-like sscanf, sprintf sub-set
 
 -- Supports:

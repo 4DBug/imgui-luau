@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Draw Code)
 
 FONT_ATLAS_DEFAULT_TEX_DATA_W = 122

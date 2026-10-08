@@ -16,10 +16,10 @@ game:GetService("RunService").Stepped:Connect(function()
     io.DeltaTime = 1 / 60
     if MODE == "drag" then
         local t = math.abs((frame % 200) - 100) -- triangle wave, smooth back and forth
-        if frame == 5 then local w = ImGui.FindWindowByName("ImGui Sincerely Demo"); bx, by = w.Pos.x + 80, w.Pos.y + 8; io:AddMousePosEvent(bx, by) elseif frame == 6 then io:AddMouseButtonEvent(0, true)
+        if frame == 5 then local w = ImGui.FindWindowByName("Dear ImGui Demo"); bx, by = w.Pos.x + 80, w.Pos.y + 8; io:AddMousePosEvent(bx, by) elseif frame == 6 then io:AddMouseButtonEvent(0, true)
         elseif frame > 6 then io:AddMousePosEvent(bx - t * 5, by + t * 2) end
     elseif MODE == "scroll" then
-        local w = ImGui.FindWindowByName("ImGui Sincerely Demo"); if w then io:AddMousePosEvent(w.Pos.x + w.Size.x * 0.5, w.Pos.y + w.Size.y * 0.5) end
+        local w = ImGui.FindWindowByName("Dear ImGui Demo"); if w then io:AddMousePosEvent(w.Pos.x + w.Size.x * 0.5, w.Pos.y + w.Size.y * 0.5) end
         io:AddMouseWheelEvent(0, (frame % 20 < 10) and -1 or 1)
     else
         io:AddMousePosEvent(60 + (frame * 7) % 200, 80 + (frame * 5) % 200)
@@ -39,7 +39,7 @@ game:GetService("RunService").Stepped:Connect(function()
     ImGui.Render()
     G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     if frame == ARG_FRAMES - 1 and MODE == "drag" then
-        local w = ImGui.FindWindowByName("ImGui Sincerely Demo")
+        local w = ImGui.FindWindowByName("Dear ImGui Demo")
         assert(w.Pos.y > 25, "window was not dragged")
         print("DRAG OK", w.Pos.x, w.Pos.y, w.Collapsed, ImGui.GetDrawData().TotalVtxCount)
     end

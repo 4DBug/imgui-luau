@@ -1,4 +1,4 @@
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_rectpack.h`
 
 -- ALL TABLES IN THIS FILE ARE 1-BASED!

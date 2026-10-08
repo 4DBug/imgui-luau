@@ -9,7 +9,7 @@ function IM_INCLUDE(name)
 end
 
 __FILES['imgui.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Core Code)
 
 --- Flags:
@@ -101,7 +101,7 @@ IM_INCLUDE"imgui_tables.lua"
 
 
 do --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Drag and drop: 1:1 port of imgui.cpp [SECTION] DRAG AND DROP (docking branch)
 -- Payload `Data` is any Lua value (no copy is made). `data_size` is optional and only kept for API parity.
 
@@ -391,7 +391,7 @@ function ImGui.PayloadIsDataType(payload, t) return ImGuiPayload_IsDataType(payl
 end --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
 
 do --[[ [SECTION] imgui_docking (was imgui_docking.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Docking: 1:1 port of imgui.cpp [SECTION] DOCKING (docking branch, 1.93 WIP)
 --
 -- Port notes:
@@ -4301,7 +4301,7 @@ local function ImGuiLocEntry(key, text)
 end
 
 local GLocalizationEntriesEnUS = {
-    ImGuiLocEntry(ImGuiLocKey.VersionStr,                    "ImGui Sincerely WIP"),
+    ImGuiLocEntry(ImGuiLocKey.VersionStr,                    "Dear ImGui WIP"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeOne,                  "Size column to fit###SizeOne"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeAllFit,               "Size all columns to fit###SizeAll"),
     ImGuiLocEntry(ImGuiLocKey.TableSizeAllDefault,           "Size all columns to default###SizeAll"),
@@ -17511,7 +17511,7 @@ function ImGui.ShowDebugLogWindow(p_open)
         ImGui.SetNextWindowSize(ImVec2(0.0, ImGui.GetFontSize() * 12.0), ImGuiCond.FirstUseEver)
     end
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Debug Log", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui Debug Log", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open
@@ -17671,7 +17671,7 @@ function ImGui.ShowIDStackToolWindow(p_open)
         ImGui.SetNextWindowSize(ImVec2(0.0, ImGui.GetFontSize() * 8.0), ImGuiCond.FirstUseEver)
     end
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely ID Stack Tool", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui ID Stack Tool", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open
@@ -18146,7 +18146,7 @@ function ImGui.ShowMetricsWindow(p_open)
     if cfg.ShowIDStackTool then cfg.ShowIDStackTool = ImGui.ShowIDStackToolWindow(cfg.ShowIDStackTool) end
 
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Metrics/Debugger", p_open)
+    p_open, visible = ImGui.Begin("Dear ImGui Metrics/Debugger", p_open)
     if not visible or ImGui.GetCurrentWindow().BeginCount > 1 then
         ImGui.End()
         return p_open
@@ -18472,7 +18472,7 @@ __FILES['imgui_demo.lua'] = function()
 -- dear imgui demo (Luau port of imgui_demo.cpp). Optional: the library never calls into this file.
 
 do --[[ imgui_demo.lua ]]
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Demo Code) Port of imgui_demo.cpp (docking branch)
 -- This file: shared demo helpers, ShowDemoWindow(), DemoWindowMenuBar(), DemoWindowWidgets() dispatcher, example tree/image viewer helpers.
 -- Other parts (all global functions, loaded from the same bundle):
@@ -18907,7 +18907,7 @@ local function DemoWindowMenuBar(data)
                 ImGui.SetItemTooltip("Requires io.ConfigDebugIsDebuggerPresent=true to be set.\n\nWe otherwise disable some extra features to avoid casual users crashing the application.")
             end
             _, data.ShowStyleEditor = ImGui.MenuItem("Style Editor", nil, data.ShowStyleEditor)
-            _, data.ShowAbout = ImGui.MenuItem("About ImGui Sincerely", nil, data.ShowAbout)
+            _, data.ShowAbout = ImGui.MenuItem("About Dear ImGui", nil, data.ShowAbout)
 
             ImGui.EndMenu()
         end
@@ -19169,7 +19169,7 @@ function ImGui.ShowDemoWindow(p_open)
     if data.ShowAbout then RunApp(ImGui.ShowAboutWindow, "ShowAbout") end
     if data.ShowStyleEditor then
         local visible
-        data.ShowStyleEditor, visible = ImGui.Begin("ImGui Sincerely Style Editor", data.ShowStyleEditor)
+        data.ShowStyleEditor, visible = ImGui.Begin("Dear ImGui Style Editor", data.ShowStyleEditor)
         if visible then
             ImGui.ShowStyleEditor()
         end
@@ -19199,7 +19199,7 @@ function ImGui.ShowDemoWindow(p_open)
 
     -- Main body of the Demo window starts here.
     local visible
-    p_open, visible = ImGui.Begin("ImGui Sincerely Demo", p_open, window_flags)
+    p_open, visible = ImGui.Begin("Dear ImGui Demo", p_open, window_flags)
     if no_close then p_open = nil end
     if not visible then
         -- Early out if the window is collapsed, as an optimization.
@@ -19216,7 +19216,7 @@ function ImGui.ShowDemoWindow(p_open)
     -- Menu Bar
     DemoWindowMenuBar(data)
 
-    ImGui.Text("ImGui Sincerely says hello! (%s) (%d)", IMGUI_VERSION or "WIP", IMGUI_VERSION_NUM or 0)
+    ImGui.Text("Dear ImGui says hello! (%s) (%d)", IMGUI_VERSION or "WIP", IMGUI_VERSION_NUM or 0)
     ImGui.Spacing()
 
     if ImGui.CollapsingHeader("Help") then
@@ -19398,7 +19398,7 @@ end
 end --[[ imgui_demo.lua ]]
 
 do --[[ imgui_demo_2.lua ]]
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Demo Code, part 2): DemoWindowLayout(), DemoWindowPopups(), DemoWindowTables(), DemoWindowColumns(),
 -- DemoWindowInputs() and all ShowExampleAppXXX() example apps.
 -- Port of imgui_demo.cpp (docking branch). Globals are shared with imgui_demo.lua (HelpMarker, ShowExampleMenuFile, ...)
@@ -25671,7 +25671,7 @@ local _
 local show_config_info = false
 function ImGui.ShowAboutWindow(p_open)
     local visible
-    p_open, visible = ImGui.Begin("About ImGui Sincerely", p_open, ImGuiWindowFlags.AlwaysAutoResize)
+    p_open, visible = ImGui.Begin("About Dear ImGui", p_open, ImGuiWindowFlags.AlwaysAutoResize)
     if not visible then ImGui.End(); return p_open end
     ImGui.Text("Dear ImGui %s (%d)", IMGUI_VERSION, IMGUI_VERSION_NUM)
     ImGui.TextLinkOpenURL("Homepage", "https://github.com/ocornut/imgui"); ImGui.SameLine()
@@ -25754,7 +25754,7 @@ return true
 end
 
 __FILES['imgui_draw.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Draw Code)
 
 FONT_ATLAS_DEFAULT_TEX_DATA_W = 122
@@ -30992,7 +30992,7 @@ return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
 __FILES['imgui_h.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Definitions)
 
 --- @meta
@@ -40719,7 +40719,7 @@ ffff001300090013001d002700310033003d004a0054005e00680072007c00860090009a00a400ae
 end
 
 __FILES['imgui_internal.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (internal structures/api)
 
 --- @meta
@@ -43891,7 +43891,7 @@ return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
 __FILES['imgui_tables.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Tables and Columns Code)
 -- 1:1 port of imgui_tables.cpp (docking branch, 1.93 WIP)
 --
@@ -48238,7 +48238,7 @@ return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
 __FILES['imgui_widgets.lua'] = function()
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Widgets Code)
 
 --- @type ImGuiContext?
@@ -56811,7 +56811,7 @@ end
 
 
 do --[[ [SECTION] Widgets: BeginTabBar, EndTabBar, etc. (was imgui_tabs.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Tab bars & tab items: 1:1 port of imgui_widgets.cpp [SECTION] Widgets: BeginTabBar/BeginTabItem (docking branch)
 --
 -- Port notes:
@@ -57979,7 +57979,7 @@ return true -- [Roblox] ModuleScripts must return exactly one value
 end
 
 __FILES['imstb_rectpack.lua'] = function()
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_rectpack.h`
 
 -- ALL TABLES IN THIS FILE ARE 1-BASED!
@@ -58425,7 +58425,7 @@ return {
 end
 
 __FILES['imstb_textedit.lua'] = function()
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_textedit.h`
 
 -- ALL TABLES IN THIS FILE ARE 1-BASED!
@@ -59666,7 +59666,7 @@ return {
 end
 
 __FILES['imstb_truetype.lua'] = function()
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a Lua port of original `imstb_truetype.h`
 
 --- STBTT_RASTERIZER_VERSION == 2
@@ -62134,7 +62134,7 @@ return {
 end
 
 __FILES['imstd_minstdio.lua'] = function()
---- ImGui Sincerely
+--- Dear ImGui
 -- This is a minimal Lua impl of C-like sscanf, sprintf sub-set
 
 -- Supports:

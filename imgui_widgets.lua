@@ -1,4 +1,4 @@
---- ImGui Sincerely WIP
+--- Dear ImGui WIP
 -- (Widgets Code)
 
 --- @type ImGuiContext?
@@ -8571,7 +8571,7 @@ end
 
 
 do --[[ [SECTION] Widgets: BeginTabBar, EndTabBar, etc. (was imgui_tabs.lua) ]]
---- ImGui Sincerely
+--- Dear ImGui
 -- Tab bars & tab items: 1:1 port of imgui_widgets.cpp [SECTION] Widgets: BeginTabBar/BeginTabItem (docking branch)
 --
 -- Port notes:
