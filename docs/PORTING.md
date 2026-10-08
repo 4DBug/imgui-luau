@@ -21,7 +21,7 @@ there, but keep this port's existing data structures and conventions. Read the s
 ## Portability (LÖVE build)
 - Library code must stay valid **Lua 5.1/LuaJIT syntax** apart from `@native` lines (stripped for LÖVE): no `+=`, `//`,
   `continue`, type annotations, `if`-expressions or string interpolation. Luau library calls are fine only if
-  `compat/luajit.lua` shims them (`bit32`, `buffer`, `table.clear/find/move/unpack`, `utf8`).
+  the COMPAT section of `backends/imgui_impl_love.lua` shims them (`bit32`, `buffer`, `table.clear/find/move/unpack`, `utf8`).
 - Check with `tools/test/love/run.sh` (LuaJIT draw checksums must equal the Luau ones).
 
 ## Conventions (follow what the port already does)
