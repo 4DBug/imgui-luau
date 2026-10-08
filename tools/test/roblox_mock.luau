@@ -134,7 +134,7 @@ local fakeG = {} -- Roblox's shared _G
 local cache = {}
 local ROBLOX
 local function makeEnv(inst) return setmetatable({ script = inst }, { __index = ROBLOX }) end
-local GLOBAL_NAMES = { "game", "workspace", "Instance", "Enum", "Vector2", "Vector3", "UDim2", "Color3", "Content", "warn", "require", "script", "os" }
+local GLOBAL_NAMES = { "game", "workspace", "Instance", "Enum", "Vector2", "Vector3", "UDim2", "Color3", "Content", "UDim", "CFrame", "warn", "require", "script", "os" }
 -- Load like Roblox does but WITHOUT setfenv (which would disable Luau optimizations): Roblox globals become chunk locals.
 local function loadAsScript(src_name, inst)
     local fn = SOURCE_FNS[src_name]
@@ -158,6 +158,8 @@ ROBLOX = setmetatable({
     Vector3 = { new = function(x, y, z) return { X = x, Y = y, Z = z } end },
     UDim2 = { new = function(...) return { ... } end, fromScale = function(...) return { ... } end, fromOffset = function(x, y) return { X = x, Y = y } end },
     Color3 = { new = function(r, g, b) return { R = r or 0, G = g or 0, B = b or 0 } end },
+    UDim = { new = function(s, o) return { Scale = s, Offset = o } end },
+    CFrame = { new = function(...) return { ... } end, lookAt = function(...) return { ... } end, Angles = function(...) return { ... } end },
     Content = { fromObject = function(o) return { Object = o } end },
     warn = function(...) print("WARN", ...) end,
     os = { clock = function() return FAKE_TIME end, time = os.time, realclock = os.clock },
