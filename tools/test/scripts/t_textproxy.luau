@@ -2,7 +2,7 @@
 local G = require(game:GetService("ReplicatedStorage"):WaitForChild("ImGui"))
 local ImGui, ImVec2 = G.ImGui, G.ImVec2
 local UIS = game:GetService("UserInputService")
-ImGui.CreateContext(); G.ImGui_ImplRoblox.Init()
+ImGui.CreateContext(); G.ImGui_ImplRoblox.Init(); G.ImGui_ImplRoblox.SetTextProxy(true)
 local io = ImGui.GetIO()
 local buf = ImGui.NewTextBuffer("", 64)
 local proxy
