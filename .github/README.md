@@ -1,3 +1,6 @@
+> [!NOTE]
+> This is a read-only mirror of **https://git.bug.tools/bug/imgui-luau**. Releases are built here by GitHub Actions; development happens on git.bug.tools.
+
 Dear ImGui for Roblox (and more)
 =====
 
@@ -22,7 +25,7 @@ This port brings that to Roblox (and LÖVE): debug overlays, admin panels, in-ga
 
 ### Usage
 
-**The core of Dear ImGui is a set of files with no dependencies**, plus one platform backend from [backends/](backends/). `tools/bundle.py` combines them into a single file: `build/ImGui.luau` (ModuleScript, Roblox backend) or, with `--target love`, `build/imgui_love.lua` (LÖVE backend). Your UI code is the same for both.
+**The core of Dear ImGui is a set of files with no dependencies**, plus one platform backend from [backends/](/backends/). `tools/bundle.py` combines them into a single file: `build/ImGui.luau` (ModuleScript, Roblox backend) or, with `--target love`, `build/imgui_love.lua` (LÖVE backend). Your UI code is the same for both.
 
 Dear ImGui is **immediate mode**: you call widget functions every frame, and their return values tell you what the user did. There is no widget object to keep in sync with your state.
 
@@ -37,7 +40,7 @@ f = ImGui.SliderFloat("float", f, 0.0, 1.0)
 ```
 Result:
 
-![sample code output (dark, light)](docs/images/debug.png)
+![sample code output (dark, light)](/docs/images/debug.png)
 <br>_(settings: Dark style (left), Light style (right) / Font: ProggyClean, 13px)_
 
 Code:
@@ -70,15 +73,15 @@ ImGui.End()
 ```
 Result:
 
-![my_first_tool](docs/images/tool.png)
+![my_first_tool](/docs/images/tool.png)
 
 Dear ImGui allows you to **create elaborate tools** as well as very short-lived ones. On the extreme side of short-livedness: using the Edit&Continue-friendly nature of immediate mode, you can add a slider to tweak a value in one line and remove it again a minute later.
 
-Every snippet in this README is run by [`tools/test/scripts/t_readme.luau`](tools/test/scripts/t_readme.luau), and every image was rendered by this port with [`tools/screenshots/make.py`](tools/screenshots/make.py).
+Every snippet in this README is run by [`tools/test/scripts/t_readme.luau`](/tools/test/scripts/t_readme.luau), and every image was rendered by this port with [`tools/screenshots/make.py`](/tools/screenshots/make.py).
 
 ### How it works (Roblox backend)
 
-Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
+Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](/backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
 
 **Why software rasterization?** The alternatives don't fit Dear ImGui:
 - *One GUI Instance per widget/shape* (what most Roblox UI libraries do) means re-creating, re-parenting or diffing thousands of Instances every frame, can't express anti-aliased curves, per-vertex gradients or font-atlas glyphs, and would no longer be Dear ImGui's renderer output.
@@ -95,25 +98,25 @@ The cost is CPU time in Luau, so the backend is built around **not drawing**:
 
 **Input.** Mouse and keys come from `UserInputService`. While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the wheel don't reach the game (camera zoom). Games can't read the clipboard, so while a text field is active a hidden `TextBox` holds focus: the OS delivers typing (any layout), paste and copy/cut through it, and its text mirrors Dear ImGui's current selection. Fonts are TTFs rasterized by the ported stb_truetype into the font atlas, which becomes a backend texture like any image (`CreateTexture` works for your own pixels too).
 
-**Instances inside windows.** The backend can place your own Instances (e.g. a `ViewportFrame`) inside a window's layer, so they stack, clip and move with it; see the `ImGui.Embed` widget in [examples/example_roblox/main.client.luau](examples/example_roblox/main.client.luau).
+**Instances inside windows.** The backend can place your own Instances (e.g. a `ViewportFrame`) inside a window's layer, so they stack, clip and move with it; see the `ImGui.Embed` widget in [examples/example_roblox/main.client.luau](/examples/example_roblox/main.client.luau).
 
 ### Demo
 
-Calling `ImGui.ShowDemoWindow()` creates a demo window that showcases a variety of features and examples. The code is in [imgui_demo.lua](imgui_demo.lua), like upstream's `imgui_demo.cpp`. **It's strongly recommended to keep it at hand as a reference**: you can find the code for any widget you see by searching for its label.
+Calling `ImGui.ShowDemoWindow()` creates a demo window that showcases a variety of features and examples. The code is in [imgui_demo.lua](/imgui_demo.lua), like upstream's `imgui_demo.cpp`. **It's strongly recommended to keep it at hand as a reference**: you can find the code for any widget you see by searching for its label.
 
-![demo](docs/images/demo.png)
+![demo](/docs/images/demo.png)
 
 Tables, with sorting, resizing, reordering, borders and row backgrounds:
 
-![tables](docs/images/tables.png)
+![tables](/docs/images/tables.png)
 
 Docking (`io.ConfigFlags |= ImGuiConfigFlags.DockingEnable`):
 
-![docking](docs/images/docking.png)
+![docking](/docs/images/docking.png)
 
 Plotting:
 
-![plot](docs/images/plot.gif)
+![plot](/docs/images/plot.gif)
 
 Custom drawing with `ImDrawList`:
 
@@ -126,17 +129,17 @@ draw_list:AddLine(p + ImVec2(0, 120), p + ImVec2(220, 120), IM_COL32(255, 255, 0
 ImGui.Dummy(ImVec2(220, 130)) -- reserve the space so the window sizes/scrolls correctly
 ```
 
-![drawlist](docs/images/drawlist.png)
+![drawlist](/docs/images/drawlist.png)
 
 The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.ShowMetricsWindow()`):
 
-![style editor](docs/images/style.png) ![metrics](docs/images/metrics.png)
+![style editor](/docs/images/style.png) ![metrics](/docs/images/metrics.png)
 
 ### Getting Started & Integration (Roblox)
 
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out).
-2. Sync with [Rojo](https://rojo.space): [`default.project.json`](default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
-3. A minimal LocalScript (full version: [examples/example_roblox/main.client.luau](examples/example_roblox/main.client.luau)):
+2. Sync with [Rojo](https://rojo.space): [`default.project.json`](/default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
+3. A minimal LocalScript (full version: [examples/example_roblox/main.client.luau](/examples/example_roblox/main.client.luau)):
 
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -172,7 +175,7 @@ Backend options:
 | `ImGui_ImplRoblox.SetProfiling(true)` | MicroProfiler (Ctrl+F6) labels for every backend stage. |
 | `ImGui_ImplRoblox.AddFile(path, bytes)` | Register a file (e.g. a `.ttf`) so `io.Fonts:AddFontFromFileTTF(path, size)` can load it. |
 
-Fonts: ProggyClean (default), ProggyTiny, ProggyForever, Cousine, DroidSans, Karla and Roboto are embedded from [fonts/](fonts/):
+Fonts: ProggyClean (default), ProggyTiny, ProggyForever, Cousine, DroidSans, Karla and Roboto are embedded from [fonts/](/fonts/):
 
 ```lua
 io.Fonts:AddFontDefault()
@@ -183,27 +186,27 @@ io.Fonts:AddFontFromFileTTF("fonts/Roboto-Medium.ttf", 16.0)
 
 | Backend | File | Build | Renderer | Example |
 | --- | --- | --- | --- | --- |
-| Roblox (primary) | [backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua) | `python3 tools/bundle.py` | Luau software rasterizer into EditableImage tiles | [examples/example_roblox](examples/example_roblox) |
-| LÖVE 11.x | [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua) | `python3 tools/bundle.py --target love` | GPU, one `Mesh` per draw list | [examples/example_love](examples/example_love) |
+| Roblox (primary) | [backends/imgui_impl_roblox.lua](/backends/imgui_impl_roblox.lua) | `python3 tools/bundle.py` | Luau software rasterizer into EditableImage tiles | [examples/example_roblox](/examples/example_roblox) |
+| LÖVE 11.x | [backends/imgui_impl_love.lua](/backends/imgui_impl_love.lua) | `python3 tools/bundle.py --target love` | GPU, one `Mesh` per draw list | [examples/example_love](/examples/example_love) |
 
 A backend implements the usual Dear ImGui contract (`Init`, `NewFrame`, `RenderDrawData`, input → `io:Add*Event`, texture updates via `ImTextureData`). Adding another Lua host means a new `backends/imgui_impl_<name>.lua` plus a `--target` in `tools/bundle.py`.
 
 #### LÖVE
 
-The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua):
+The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/imgui_impl_love.lua](/backends/imgui_impl_love.lua):
 
 ```
 python3 tools/bundle.py --target love      # -> build/imgui_love.lua (LÖVE backend + shims from the LÖVE backend)
 love examples/example_love
 ```
 
-Roblox stays the primary target: the Roblox build is untouched by this (no shims, `@native` kept); the LÖVE build strips `@native` and adds small `bit32`/`buffer`/`utf8`/`table` shims (the COMPAT section of [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua)). `tools/test/love/run.sh` checks that LuaJIT produces exactly the same draw data as Luau.
+Roblox stays the primary target: the Roblox build is untouched by this (no shims, `@native` kept); the LÖVE build strips `@native` and adds small `bit32`/`buffer`/`utf8`/`table` shims (the COMPAT section of [backends/imgui_impl_love.lua](/backends/imgui_impl_love.lua)). `tools/test/love/run.sh` checks that LuaJIT produces exactly the same draw data as Luau.
 
-[examples/example_shared/app.lua](examples/example_shared/app.lua) is one UI that runs unchanged on both: `roblox.client.luau` (Rojo: `examples/example_shared/default.project.json`) and `main.lua` (`love examples/example_shared`) are the only platform code. Write shared UI code in plain Lua 5.1 syntax (no `+=`, `//`, `continue`).
+[examples/example_shared/app.lua](/examples/example_shared/app.lua) is one UI that runs unchanged on both: `roblox.client.luau` (Rojo: `examples/example_shared/default.project.json`) and `main.lua` (`love examples/example_shared`) are the only platform code. Write shared UI code in plain Lua 5.1 syntax (no `+=`, `//`, `continue`).
 
 #### Prebuilt releases
 
-Every push to `master` publishes a rolling `latest` release, and every `v*` tag a versioned release ([.github/workflows/release.yml](.github/workflows/release.yml)), with:
+Every push to `master` publishes a rolling `latest` release, and every `v*` tag a versioned release ([.github/workflows/release.yml](/.github/workflows/release.yml)), with:
 `ImGui.luau` / `ImGui-nodemo.luau` (Roblox ModuleScript), `imgui_love.lua` / `imgui_love-nodemo.lua` (LÖVE), and `imgui-luau-roblox-*.zip` / `imgui-luau-love-*.zip` (bundle + examples).
 
 ### Differences from C++ Dear ImGui
@@ -253,11 +256,11 @@ python3 tools/test/run.py --main tools/test/scripts/t_tables.luau --frames 120 -
 - `t_click_fuzz`, `t_apps`, `t_dock*`, `t_tables`, …: behaviour tests.
 - `tools/test/love/run.sh`: builds the LÖVE target, checks LuaJIT produces the same draw checksums as Luau, runs the LÖVE examples headless. `--profile` + `tools/test/prof.py` for profiling.
 
-See [docs/PORTING.md](docs/PORTING.md) for the porting rules.
+See [docs/PORTING.md](/docs/PORTING.md) for the porting rules.
 
 ### Not ported yet
 
-Multi-select / box-select, typing-select, the Assets Browser example, the Item Picker and a few smaller items. The full list is in [docs/TODO.txt](docs/TODO.txt).
+Multi-select / box-select, typing-select, the Assets Browser example, the Item Picker and a few smaller items. The full list is in [docs/TODO.txt](/docs/TODO.txt).
 
 ### FAQ
 
