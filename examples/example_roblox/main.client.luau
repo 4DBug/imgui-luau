@@ -1,336 +1,495 @@
--- LocalScript. Build the library first: `python3 tools/bundle.py` -> build/ImGui.luau (see default.project.json)
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local AssetService = game:GetService("AssetService")
 
 local G = require(ReplicatedStorage:WaitForChild("ImGui"))
-local ExampleImageViewerData, ExampleImageViewer_DrawOptions, ExampleImageViewer_DrawCanvas = G.ExampleImageViewerData, G.ExampleImageViewer_DrawOptions, G.ExampleImageViewer_DrawCanvas
 
-local ImGui, ImVec4, ImGuiConfigFlags, ImGui_ImplRoblox = G.ImGui, G.ImVec4, G.ImGuiConfigFlags, G.ImGui_ImplRoblox
+local BaseEnvironment = getfenv()
+setfenv(1, setmetatable({}, {
+	__index = function(_, Key)
+		local Value = G[Key]
+		if Value ~= nil then
+			return Value
+		end
+		return BaseEnvironment[Key]
+	end,
+}))
 
-local main_scale = 1.0
--- Roblox UI points are multiplied by the OS display scale (e.g. 150%), which makes imgui look large.
--- Set this to your display scale to render imgui at physical-pixel resolution (same size as a desktop imgui app).
-local render_scale = 1.0
-local clear_color = ImVec4(0.45, 0.55, 0.60, 1.00)
-local show_demo_window = true
-local show_another_window = false
-local f = 0.0
-local counter = 0
+local MainScale = 1.0
+local RenderScale = 1.0
+local RenderRate = 60
+local ThumbnailSize = 420
+local FontSize = 13.0
+local FontNames = { "Cousine-Regular", "DroidSans", "Karla-Regular", "ProggyTiny", "Roboto-Medium" }
+
+local State = {
+	ClearColor = ImVec4(0.45, 0.55, 0.60, 1.00),
+	ShowDemoWindow = true,
+	ShowAnotherWindow = false,
+	Float = 0.0,
+	Counter = 0,
+}
+
+local Spinner = {
+	Show = true,
+	Speed = 1.0,
+	Angle = 0.0,
+	Color = ImVec4(0.80, 0.65, 0.97, 1.0),
+}
 
 ImGui.CreateContext()
 
-local io = ImGui.GetIO()
-io.ConfigFlags = bit32.bor(io.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard, ImGuiConfigFlags.DockingEnable)
+local IO = ImGui.GetIO()
+IO.ConfigFlags = bit32.bor(IO.ConfigFlags, ImGuiConfigFlags.NavEnableKeyboard, ImGuiConfigFlags.DockingEnable)
 
--- Catppuccin Mocha, Mauve accent (https://catppuccin.com/palette)
-local function StyleColorsCatppuccinMocha(style)
-    local function hex(h, a)
-        return ImVec4(bit32.extract(h, 16, 8) / 255, bit32.extract(h, 8, 8) / 255, bit32.extract(h, 0, 8) / 255, a or 1.0)
-    end
-    local crust, mantle, base = 0x11111b, 0x181825, 0x1e1e2e
-    local surface0, surface1, surface2 = 0x313244, 0x45475a, 0x585b70
-    local overlay0, overlay2, text = 0x6c7086, 0x9399b2, 0xcdd6f4
-    local mauve, lavender = 0xcba6f7, 0xb4befe
-    local C, c = G.ImGuiCol, style.Colors
-    local function set(idx, h, a) c[idx] = hex(h, a) end
-    set(C.Text, text);                      set(C.TextDisabled, overlay0)
-    set(C.WindowBg, base);                  set(C.ChildBg, base, 0.0)
-    set(C.PopupBg, mantle, 0.98);           set(C.Border, surface1);          set(C.BorderShadow, crust, 0.0)
-    set(C.FrameBg, surface0);               set(C.FrameBgHovered, surface1);  set(C.FrameBgActive, surface2)
-    set(C.TitleBg, mantle);                 set(C.TitleBgActive, crust);      set(C.TitleBgCollapsed, mantle, 0.75)
-    set(C.MenuBarBg, mantle)
-    set(C.ScrollbarBg, mantle);             set(C.ScrollbarGrab, surface1)
-    set(C.ScrollbarGrabHovered, surface2);  set(C.ScrollbarGrabActive, overlay0)
-    set(C.CheckMark, mauve);                set(C.SliderGrab, mauve, 0.8);    set(C.SliderGrabActive, mauve)
-    set(C.Button, surface0);                set(C.ButtonHovered, surface1);   set(C.ButtonActive, mauve, 0.6)
-    set(C.Header, surface0);                set(C.HeaderHovered, surface1);   set(C.HeaderActive, mauve, 0.5)
-    set(C.Separator, surface1);             set(C.SeparatorHovered, mauve, 0.7); set(C.SeparatorActive, mauve)
-    set(C.ResizeGrip, mauve, 0.2);          set(C.ResizeGripHovered, mauve, 0.6); set(C.ResizeGripActive, mauve, 0.9)
-    set(C.InputTextCursor, text)
-    set(C.TabHovered, surface2);            set(C.Tab, surface0)
-    set(C.TabSelected, surface1);           set(C.TabSelectedOverline, mauve)
-    set(C.TabDimmed, mantle);               set(C.TabDimmedSelected, surface0); set(C.TabDimmedSelectedOverline, overlay0)
-    set(C.DockingPreview, mauve, 0.7);      set(C.DockingEmptyBg, crust)
-    set(C.PlotLines, overlay2);             set(C.PlotLinesHovered, mauve)
-    set(C.PlotHistogram, mauve, 0.8);       set(C.PlotHistogramHovered, lavender)
-    set(C.TableHeaderBg, surface0);         set(C.TableBorderStrong, surface1); set(C.TableBorderLight, surface0)
-    set(C.TableRowBg, base, 0.0);           set(C.TableRowBgAlt, surface0, 0.3)
-    set(C.TextLink, mauve);                 set(C.TextSelectedBg, mauve, 0.35)
-    set(C.TreeLines, surface2)
-    set(C.DragDropTarget, mauve, 0.9)
-    set(C.NavCursor, lavender);             set(C.NavWindowingHighlight, lavender, 0.7)
-    set(C.NavWindowingDimBg, crust, 0.5);   set(C.ModalWindowDimBg, crust, 0.6)
+-- catppuccin mocha mauve https://catppuccin.com/palette
+local function StyleColorsCatppuccinMocha(Style)
+	local function Hex(Value, Alpha)
+		return ImVec4(
+			bit32.extract(Value, 16, 8) / 255,
+			bit32.extract(Value, 8, 8) / 255,
+			bit32.extract(Value, 0, 8) / 255,
+			Alpha or 1.0
+		)
+	end
+
+	local Crust, Mantle, Base = 0x11111b, 0x181825, 0x1e1e2e
+	local Surface0, Surface1, Surface2 = 0x313244, 0x45475a, 0x585b70
+	local Overlay0, Overlay2, Text = 0x6c7086, 0x9399b2, 0xcdd6f4
+	local Mauve, Lavender = 0xcba6f7, 0xb4befe
+
+	local Entries = {
+		{ "Text", Text },
+		{ "TextDisabled", Overlay0 },
+
+		{ "WindowBg", Base },
+		{ "ChildBg", Base, 0.0 },
+		{ "PopupBg", Mantle, 0.98 },
+		{ "Border", Surface1 },
+		{ "BorderShadow", Crust, 0.0 },
+
+		{ "FrameBg", Surface0 },
+		{ "FrameBgHovered", Surface1 },
+		{ "FrameBgActive", Surface2 },
+
+		{ "TitleBg", Mantle },
+		{ "TitleBgActive", Crust },
+		{ "TitleBgCollapsed", Mantle, 0.75 },
+		{ "MenuBarBg", Mantle },
+
+		{ "ScrollbarBg", Mantle },
+		{ "ScrollbarGrab", Surface1 },
+		{ "ScrollbarGrabHovered", Surface2 },
+		{ "ScrollbarGrabActive", Overlay0 },
+
+		{ "CheckMark", Mauve },
+		{ "SliderGrab", Mauve, 0.8 },
+		{ "SliderGrabActive", Mauve },
+
+		{ "Button", Surface0 },
+		{ "ButtonHovered", Surface1 },
+		{ "ButtonActive", Mauve, 0.6 },
+
+		{ "Header", Surface0 },
+		{ "HeaderHovered", Surface1 },
+		{ "HeaderActive", Mauve, 0.5 },
+
+		{ "Separator", Surface1 },
+		{ "SeparatorHovered", Mauve, 0.7 },
+		{ "SeparatorActive", Mauve },
+
+		{ "ResizeGrip", Mauve, 0.2 },
+		{ "ResizeGripHovered", Mauve, 0.6 },
+		{ "ResizeGripActive", Mauve, 0.9 },
+
+		{ "InputTextCursor", Text },
+
+		{ "Tab", Surface0 },
+		{ "TabHovered", Surface2 },
+		{ "TabSelected", Surface1 },
+		{ "TabSelectedOverline", Mauve },
+		{ "TabDimmed", Mantle },
+		{ "TabDimmedSelected", Surface0 },
+		{ "TabDimmedSelectedOverline", Overlay0 },
+
+		{ "DockingPreview", Mauve, 0.7 },
+		{ "DockingEmptyBg", Crust },
+
+		{ "PlotLines", Overlay2 },
+		{ "PlotLinesHovered", Mauve },
+		{ "PlotHistogram", Mauve, 0.8 },
+		{ "PlotHistogramHovered", Lavender },
+
+		{ "TableHeaderBg", Surface0 },
+		{ "TableBorderStrong", Surface1 },
+		{ "TableBorderLight", Surface0 },
+		{ "TableRowBg", Base, 0.0 },
+		{ "TableRowBgAlt", Surface0, 0.3 },
+
+		{ "TextLink", Mauve },
+		{ "TextSelectedBg", Mauve, 0.35 },
+		{ "TreeLines", Surface2 },
+		{ "DragDropTarget", Mauve, 0.9 },
+
+		{ "NavCursor", Lavender },
+		{ "NavWindowingHighlight", Lavender, 0.7 },
+		{ "NavWindowingDimBg", Crust, 0.5 },
+		{ "ModalWindowDimBg", Crust, 0.6 },
+	}
+
+	for _, Entry in ipairs(Entries) do
+		local Name, Color, Alpha = Entry[1], Entry[2], Entry[3]
+		Style.Colors[ImGuiCol[Name]] = Hex(Color, Alpha)
+	end
 end
 
-local style = ImGui.GetStyle()
-StyleColorsCatppuccinMocha(style)
-style:ScaleAllSizes(main_scale)
-style.FontScaleDpi = main_scale
+local Style = ImGui.GetStyle()
+StyleColorsCatppuccinMocha(Style)
+Style:ScaleAllSizes(MainScale)
+Style.FontScaleDpi = MainScale
 
--- Fonts: ProggyClean stays the default (added first); the rest show up in Style Editor > Fonts
-io.Fonts:AddFontDefault()
-for _, name in ipairs({ "Cousine-Regular", "DroidSans", "Karla-Regular", "ProggyTiny", "Roboto-Medium" }) do
-    io.Fonts:AddFontFromFileTTF("fonts/" .. name .. ".ttf", 13.0)
+IO.Fonts:AddFontDefault()
+for _, Name in ipairs(FontNames) do
+	IO.Fonts:AddFontFromFileTTF("fonts/" .. Name .. ".ttf", FontSize)
 end
 
-ImGui_ImplRoblox.Init(nil, render_scale)
-ImGui_ImplRoblox.SetRenderRate(60) -- tile redraws per second; imgui logic + your code still run every frame
--- ImGui_ImplRoblox.SetBusyRenderRate(30) -- optional: lower redraw rate while scrolling/resizing/moving windows
-ImGui_ImplRoblox.SetProfiling(true) -- MicroProfiler (Ctrl+F6) labels; turn off when not profiling
+ImGui_ImplRoblox.Init(nil, RenderScale)
+ImGui_ImplRoblox.SetRenderRate(RenderRate)
+-- ImGui_ImplRoblox.SetBusyRenderRate(30) -- Optional: lower redraw rate while scrolling/resizing/moving windows
+-- ImGui_ImplRoblox.SetProfiling(true)    -- MicroProfiler labels; turn off when not profiling
+-- ImGui_ImplRoblox.SetTextProxy(true)     -- Optional: hidden TextBox for OS typing (any layout), paste and copy/cut
 
-local function P(name) if ImGui_ImplRoblox.IsProfiling() then debug.profilebegin(name) end end
-local function PE() if ImGui_ImplRoblox.IsProfiling() then debug.profileend() end end
+local function ProfileBegin(Name)
+	if ImGui_ImplRoblox.IsProfiling() then
+		debug.profilebegin(Name)
+	end
+end
 
---------------------------------------------------------------------------------------------------------------------
--- Custom widget: ImGui.Embed(id, size, flags, init) -> Frame
--- Reserves a widget-sized area in the current window and shows a real Frame there, so any Instances (UI, a
--- ViewportFrame, ...) can live inside an imgui window. Immediate-mode friendly:
---   * one Frame per id (per window, through the ID stack, like any widget); `init(frame)` runs only when it is created
---   * call it every frame the Frame should be visible; when it isn't called (window closed/collapsed, tab or tree node
---     closed, scrolled fully out of view) the Frame is hidden, never destroyed, so your Instances keep their state
---   * size uses imgui sizing (ImVec2(-1, h) = fill width, 0 = default), style gives padding/rounding/background/border
---   * returns the Frame: edit properties, add or remove children any time
--- ImGui.DestroyEmbed(id) removes it for good (call while the same window is current, like the widget itself).
---------------------------------------------------------------------------------------------------------------------
+local function ProfileEnd()
+	if ImGui_ImplRoblox.IsProfiling() then
+		debug.profileend()
+	end
+end
+
+
 local EmbedFlags = {
-    None         = 0,
-    NoClip       = 1,  -- don't clip to the window's content area (still moves/hides/stacks with the window)
-    NoBackground = 2,  -- no FrameBg behind the Frame
-    NoBorder     = 4,  -- no style border
-    NoPadding    = 8,  -- no FramePadding inside the Frame (UIPadding)
-    NoRounding   = 16, -- no FrameRounding corners (UICorner)
+	None         = 0,
+	NoClip       = 1,  -- Don't clip to the window's content area (still moves/hides/stacks with the window)
+	NoBackground = 2,  -- No FrameBg behind the Frame
+	NoBorder     = 4,  -- No style border
+	NoPadding    = 8,  -- No FramePadding inside the Frame (UIPadding)
+	NoRounding   = 16, -- No FrameRounding corners (UICorner)
 }
+
 G.ImGuiEmbedFlags = EmbedFlags
 
-local embeds = {} -- [ImGuiID] = { Frame, Padding, Corner }
+local Embeds = {}
 
-function ImGui.Embed(id, size, flags, init)
-    flags = flags or EmbedFlags.None
-    local window = ImGui.GetCurrentWindow()
-    local gid = window:GetID(id)
-    local e = embeds[gid]
-    if not e then
-        local frame = Instance.new("Frame")
-        frame.Name = tostring(id)
-        frame.BackgroundTransparency = 1
-        frame.BorderSizePixel = 0
-        frame.Visible = false
-        e = { Frame = frame, Padding = Instance.new("UIPadding"), Corner = Instance.new("UICorner") }
-        e.Padding.Parent = frame
-        e.Corner.Parent = frame
-        embeds[gid] = e
-        if init then init(frame) end
-    end
-    if window.SkipItems then return e.Frame end
-
-    local style = ImGui.GetStyle()
-    local sz = ImGui.CalcItemSize(size or G.ImVec2(0, 0), ImGui.CalcItemWidth(), ImGui.GetFrameHeight() * 4)
-    local p = window.DC.CursorPos
-    local bb = G.ImRect(p.x, p.y, p.x + sz.x, p.y + sz.y)
-    ImGui.ItemSize(sz)
-    if not ImGui.ItemAdd(bb, gid) then return e.Frame end -- fully clipped: not submitted -> hidden this frame
-
-    local rounding = bit32.band(flags, EmbedFlags.NoRounding) == 0 and style.FrameRounding or 0
-    if bit32.band(flags, EmbedFlags.NoBackground) == 0 then
-        ImGui.RenderFrame(bb.Min, bb.Max, ImGui.GetColorU32(G.ImGuiCol.FrameBg), bit32.band(flags, EmbedFlags.NoBorder) == 0, rounding)
-    elseif bit32.band(flags, EmbedFlags.NoBorder) == 0 then
-        ImGui.RenderFrameBorder(bb.Min, bb.Max, rounding)
-    end
-
-    -- style -> Instances (only written when changed)
-    local scale = ImGui_ImplRoblox.GetRenderScale()
-    local px, py = 0, 0
-    if bit32.band(flags, EmbedFlags.NoPadding) == 0 then px, py = style.FramePadding.x / scale, style.FramePadding.y / scale end
-    if e.PX ~= px or e.PY ~= py then
-        e.PX, e.PY = px, py
-        e.Padding.PaddingLeft, e.Padding.PaddingRight = UDim.new(0, px), UDim.new(0, px)
-        e.Padding.PaddingTop, e.Padding.PaddingBottom = UDim.new(0, py), UDim.new(0, py)
-    end
-    if e.R ~= rounding then e.R = rounding; e.Corner.CornerRadius = UDim.new(0, rounding / scale) end
-
-    ImGui_ImplRoblox.SetOverlay(e.Frame, bb.Min.x, bb.Min.y, sz.x, sz.y, bit32.band(flags, EmbedFlags.NoClip) == 0)
-    return e.Frame
+local function HasFlag(Flags, Flag)
+	return bit32.band(Flags, Flag) ~= 0
 end
 
-function ImGui.DestroyEmbed(id)
-    local gid = ImGui.GetCurrentWindow():GetID(id)
-    local e = embeds[gid]
-    if e then e.Frame:Destroy(); embeds[gid] = nil end
+local function CreateEmbed(Id)
+	local Frame = Instance.new("Frame")
+	Frame.Name = tostring(Id)
+	Frame.BackgroundTransparency = 1
+	Frame.BorderSizePixel = 0
+	Frame.Visible = false
+
+	local Padding = Instance.new("UIPadding")
+	Padding.Parent = Frame
+
+	local Corner = Instance.new("UICorner")
+	Corner.Parent = Frame
+
+	return { Frame = Frame, Padding = Padding, Corner = Corner }
 end
 
--- Example: Decal Viewer. Loads a decal/image asset's pixels into an imgui texture and shows it in the demo's
--- image viewer (zoom with the wheel, drag to pan, toggleable pixel grid).
-local AssetService = game:GetService("AssetService")
-local MarketplaceService = game:GetService("MarketplaceService")
-local decal = { input = ImGui.NewTextBuffer("", 32), status = "Enter a decal or image id", tex = nil, w = 0, h = 0, loading = false,
-                viewer = ExampleImageViewerData(), show = true }
+function ImGui.Embed(Id, Size, Flags, Init)
+	Flags = Flags or EmbedFlags.None
 
--- A Decal asset wraps an Image asset with a different id; the image is almost always uploaded just before it
--- (same creator, id slightly lower). ponytail: heuristic scan of 10 ids, InsertService:LoadAsset when owned is exact.
-local function ResolveImageId(id)
-    local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id)
-    if not ok then return nil, "GetProductInfo failed: " .. tostring(info) end
-    if info.AssetTypeId == 1 then return id end -- already an Image
-    if info.AssetTypeId ~= 13 then return nil, "asset is not a decal or image" end
-    for cand = id - 1, id - 10, -1 do
-        local ok2, ci = pcall(MarketplaceService.GetProductInfo, MarketplaceService, cand)
-        if ok2 and ci.AssetTypeId == 1 and ci.Creator and info.Creator and ci.Creator.Id == info.Creator.Id then return cand end
-    end
-    return nil, "couldn't find the decal's image id (try the image id directly)"
+	local Window = ImGui.GetCurrentWindow()
+	local GuiId = Window:GetID(Id)
+
+	local Embed = Embeds[GuiId]
+	if not Embed then
+		Embed = CreateEmbed(Id)
+		Embeds[GuiId] = Embed
+
+		if Init then
+			Init(Embed.Frame)
+		end
+	end
+
+	if Window.SkipItems then
+		return Embed.Frame
+	end
+
+	local EmbedStyle = ImGui.GetStyle()
+	local ItemSize = ImGui.CalcItemSize(
+		Size or ImVec2(0, 0),
+		ImGui.CalcItemWidth(),
+		ImGui.GetFrameHeight() * 4
+	)
+	local CursorPos = Window.DC.CursorPos
+	local BoundingBox = ImRect(CursorPos.x, CursorPos.y, CursorPos.x + ItemSize.x, CursorPos.y + ItemSize.y)
+
+	ImGui.ItemSize(ItemSize)
+	if not ImGui.ItemAdd(BoundingBox, GuiId) then
+		return Embed.Frame
+	end
+
+	local Rounding = HasFlag(Flags, EmbedFlags.NoRounding) and 0 or EmbedStyle.FrameRounding
+	local ShowBorder = not HasFlag(Flags, EmbedFlags.NoBorder)
+
+	if not HasFlag(Flags, EmbedFlags.NoBackground) then
+		ImGui.RenderFrame(
+			BoundingBox.Min,
+			BoundingBox.Max,
+			ImGui.GetColorU32(ImGuiCol.FrameBg),
+			ShowBorder,
+			Rounding
+		)
+	elseif ShowBorder then
+		ImGui.RenderFrameBorder(BoundingBox.Min, BoundingBox.Max, Rounding)
+	end
+
+	local Scale = ImGui_ImplRoblox.GetRenderScale()
+	local PaddingX, PaddingY = 0, 0
+
+	if not HasFlag(Flags, EmbedFlags.NoPadding) then
+		PaddingX = EmbedStyle.FramePadding.x / Scale
+		PaddingY = EmbedStyle.FramePadding.y / Scale
+	end
+
+	if Embed.PaddingX ~= PaddingX or Embed.PaddingY ~= PaddingY then
+		Embed.PaddingX, Embed.PaddingY = PaddingX, PaddingY
+
+		local Padding = Embed.Padding
+		Padding.PaddingLeft = UDim.new(0, PaddingX)
+		Padding.PaddingRight = UDim.new(0, PaddingX)
+		Padding.PaddingTop = UDim.new(0, PaddingY)
+		Padding.PaddingBottom = UDim.new(0, PaddingY)
+	end
+
+	if Embed.Rounding ~= Rounding then
+		Embed.Rounding = Rounding
+		Embed.Corner.CornerRadius = UDim.new(0, Rounding / Scale)
+	end
+
+	ImGui_ImplRoblox.SetOverlay(
+		Embed.Frame,
+		BoundingBox.Min.x,
+		BoundingBox.Min.y,
+		ItemSize.x,
+		ItemSize.y,
+		not HasFlag(Flags, EmbedFlags.NoClip)
+	)
+
+	return Embed.Frame
 end
 
-local function LoadDecal(id)
-    decal.loading = true
-    decal.status = "Loading " .. id .. "..."
-    task.spawn(function()
-        local image_id, err = ResolveImageId(id)
-        decal.thumb = nil
-        if image_id then
-            -- 1) the image itself (needs permission), 2) its 420x420 thumbnail (may be allowed when 1 isn't)
-            local ok, img = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri("rbxassetid://" .. image_id))
-            if not ok then
-                local ok2, img2 = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri("rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"))
-                if ok2 then ok, img = true, img2 end
-            end
-            if ok then
-                local size = img.Size
-                local pixels = img:ReadPixelsBuffer(Vector2.zero, size)
-                img:Destroy()
-                if decal.tex then ImGui_ImplRoblox.DestroyTexture(decal.tex) end
-                decal.thumb = nil
-                decal.tex, decal.w, decal.h = ImGui_ImplRoblox.CreateTexture(pixels, size.X, size.Y), size.X, size.Y
-                decal.viewer.ViewReset = true
-                decal.status = string.format("Image %d: %dx%d", image_id, size.X, size.Y)
-            else
-                -- 3) no pixel access: Roblox still displays any asset, so show its thumbnail in an ImageLabel (no grid)
-                decal.thumb = "rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"
-                decal.status = "No pixel access (asset not owned by this experience's creator): display only, no zoom/grid"
-            end
-        else
-            decal.thumb = "rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420"
-            decal.status = (err or "") .. " - showing thumbnail"
-        end
-        decal.loading = false
-    end)
+function ImGui.DestroyEmbed(Id)
+	local GuiId = ImGui.GetCurrentWindow():GetID(Id)
+	local Embed = Embeds[GuiId]
+
+	if Embed then
+		Embed.Frame:Destroy()
+		Embeds[GuiId] = nil
+	end
+end
+
+
+local Decal = {
+	Show = true,
+	Input = ImGui.NewTextBuffer("", 32),
+	Status = "Enter a decal or image id",
+	Loading = false,
+	Texture = nil,
+	Width = 0,
+	Height = 0,
+	Viewer = ExampleImageViewerData(),
+}
+
+local function LoadDecal(Id)
+	Decal.Loading = true
+	Decal.Status = "Loading " .. Id .. "..."
+
+	task.spawn(function()
+		local Uri = string.format("rbxthumb://type=Asset&id=%d&w=%d&h=%d", Id, ThumbnailSize, ThumbnailSize)
+		local Success, Result = pcall(AssetService.CreateEditableImageAsync, AssetService, Content.fromUri(Uri))
+
+		if Success then
+			local Size = Result.Size
+			local Pixels = Result:ReadPixelsBuffer(Vector2.zero, Size)
+			Result:Destroy()
+
+			if Decal.Texture then
+				ImGui_ImplRoblox.DestroyTexture(Decal.Texture)
+			end
+
+			Decal.Texture = ImGui_ImplRoblox.CreateTexture(Pixels, Size.X, Size.Y)
+			Decal.Width, Decal.Height = Size.X, Size.Y
+			Decal.Viewer.ViewReset = true
+			Decal.Status = string.format("Thumbnail %d: %dx%d", Id, Size.X, Size.Y)
+		else
+			Decal.Status = "Failed to load thumbnail: " .. tostring(Result)
+		end
+
+		Decal.Loading = false
+	end)
 end
 
 local function ShowDecalViewer()
-    if not decal.show then return end
-    decal.show = ImGui.Begin("Decal Viewer", decal.show)
-    ImGui.SetNextItemWidth(ImGui.GetFontSize() * 12)
-    local enter = ImGui.InputTextWithHint("##id", "decal id", decal.input, 32, G.ImGuiInputTextFlags.CharsDecimal + G.ImGuiInputTextFlags.EnterReturnsTrue)
-    ImGui.SameLine()
-    ImGui.BeginDisabled(decal.loading)
-    if (ImGui.Button("Load") or enter) and not decal.loading then
-        local id = tonumber(ImGui.TextBufferToString(decal.input))
-        if id then LoadDecal(id) else decal.status = "Not a number" end
-    end
-    ImGui.EndDisabled()
-    ImGui.SameLine(); ImGui.TextDisabled(decal.status)
-    if decal.thumb then
-        local avail = ImGui.GetContentRegionAvail()
-        local frame = ImGui.Embed("decal_thumb", G.ImVec2(-1, math.max(avail.y, 50)), G.ImGuiEmbedFlags.None, function(f)
-            local img = Instance.new("ImageLabel")
-            img.Name = "Image"
-            img.Size = UDim2.fromScale(1, 1)
-            img.BackgroundTransparency = 1
-            img.ScaleType = Enum.ScaleType.Fit
-            img.Parent = f
-        end)
-        if frame.Image.Image ~= decal.thumb then frame.Image.Image = decal.thumb end
-    elseif decal.tex then
-        ExampleImageViewer_DrawOptions(decal.viewer)
-        local avail = ImGui.GetContentRegionAvail()
-        ExampleImageViewer_DrawCanvas(decal.viewer, G.ImVec2(math.max(avail.x, 50), math.max(avail.y, 50)), decal.tex, decal.w, decal.h)
-    end
-    ImGui.End()
+	if not Decal.Show then
+		return
+	end
+
+	Decal.Show = ImGui.Begin("Decal Viewer", Decal.Show)
+
+	ImGui.SetNextItemWidth(ImGui.GetFontSize() * 12)
+	local EnterPressed = ImGui.InputTextWithHint(
+		"##id",
+		"decal id",
+		Decal.Input,
+		32,
+		ImGuiInputTextFlags.CharsDecimal + ImGuiInputTextFlags.EnterReturnsTrue
+	)
+
+	ImGui.SameLine()
+	ImGui.BeginDisabled(Decal.Loading)
+	if (ImGui.Button("Load") or EnterPressed) and not Decal.Loading then
+		local Id = tonumber(ImGui.TextBufferToString(Decal.Input))
+		if Id and Id == math.floor(Id) then
+			LoadDecal(Id)
+		else
+			Decal.Status = "Not a valid id"
+		end
+	end
+	ImGui.EndDisabled()
+
+	ImGui.SameLine()
+	ImGui.TextDisabled(Decal.Status)
+
+	if Decal.Texture then
+		ExampleImageViewer_DrawOptions(Decal.Viewer)
+
+		local Available = ImGui.GetContentRegionAvail()
+		ExampleImageViewer_DrawCanvas(
+			Decal.Viewer,
+			ImVec2(math.max(Available.x, 50), math.max(Available.y, 50)),
+			Decal.Texture,
+			Decal.Width,
+			Decal.Height
+		)
+	end
+
+	ImGui.End()
 end
 
--- Example: a ViewportFrame with a spinning part, edited live from imgui widgets
-local spin_speed = 1.0
-local part_color = ImVec4(0.80, 0.65, 0.97, 1.0)
-local spin_angle = 0.0
-local show_viewport_window = true
+local function ShowHelloWindow()
+	ImGui.Begin("Hello, world!")
+
+	ImGui.Text("This is some useful text.")
+
+	local _
+	_, State.ShowDemoWindow = ImGui.Checkbox("Demo Window", State.ShowDemoWindow)
+	_, State.ShowAnotherWindow = ImGui.Checkbox("Another Window", State.ShowAnotherWindow)
+
+	State.Float = ImGui.SliderFloat("float", State.Float, 0.0, 1.0)
+	ImGui.ColorEdit3("clear color", State.ClearColor)
+
+	if ImGui.Button("Button") then
+		State.Counter += 1
+	end
+	ImGui.SameLine()
+	ImGui.Text("counter = %d", State.Counter)
+
+	ImGui.Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0 / IO.Framerate, IO.Framerate)
+
+	ImGui.End()
+end
+
+local function ShowAnotherWindow()
+	if not State.ShowAnotherWindow then
+		return
+	end
+
+	State.ShowAnotherWindow = ImGui.Begin("Another Window", State.ShowAnotherWindow)
+
+	ImGui.Text("Hello from another window!")
+	if ImGui.Button("Close Me") then
+		State.ShowAnotherWindow = false
+	end
+
+	ImGui.End()
+end
+
+local function CreateSpinnerViewport(Container)
+	local Viewport = Instance.new("ViewportFrame")
+	Viewport.Size = UDim2.fromScale(1, 1)
+	Viewport.BackgroundTransparency = 1
+	Viewport.Parent = Container
+
+	local Camera = Instance.new("Camera")
+	Camera.CFrame = CFrame.lookAt(Vector3.new(0, 2, 6), Vector3.zero)
+	Camera.Parent = Viewport
+	Viewport.CurrentCamera = Camera
+
+	local Part = Instance.new("Part")
+	Part.Name = "Spinner"
+	Part.Size = Vector3.new(2, 2, 2)
+	Part.Parent = Viewport
+end
+
+local function ShowViewportWindow()
+	if not Spinner.Show then
+		return
+	end
+
+	Spinner.Show = ImGui.Begin("Viewport", Spinner.Show)
+
+	Spinner.Speed = ImGui.SliderFloat("speed", Spinner.Speed, 0.0, 5.0)
+	ImGui.ColorEdit3("color", Spinner.Color)
+
+	local Frame = ImGui.Embed("viewport", ImVec2(-1, 220), EmbedFlags.None, CreateSpinnerViewport)
+
+	Spinner.Angle += Spinner.Speed * IO.DeltaTime
+
+	local Part = Frame.ViewportFrame.Spinner
+	Part.CFrame = CFrame.Angles(0.4, Spinner.Angle, 0)
+	Part.Color = Color3.new(Spinner.Color.x, Spinner.Color.y, Spinner.Color.z)
+
+	ImGui.End()
+end
 
 RunService.Stepped:Connect(function()
-    P("ImGui frame")
-    ImGui_ImplRoblox.NewFrame()
-    P("ImGui.NewFrame"); ImGui.NewFrame(); PE()
-    P("ImGui UI")
+	ProfileBegin("ImGui frame")
+	ImGui_ImplRoblox.NewFrame()
 
-    -- Dockspace covering the whole screen; the centre stays transparent so the game shows through
-    ImGui.DockSpaceOverViewport(0, nil, G.ImGuiDockNodeFlags.PassthruCentralNode)
+	ProfileBegin("ImGui.NewFrame")
+	ImGui.NewFrame()
+	ProfileEnd()
 
-    if show_demo_window then
-        ImGui.ShowDemoWindow()
-    end
+	ProfileBegin("ImGui UI")
+	ImGui.DockSpaceOverViewport(0, nil, ImGuiDockNodeFlags.PassthruCentralNode)
 
-    do
-        ImGui.Begin("Hello, world!")
+	if State.ShowDemoWindow then
+		-- For reference: https://github.com/4DBug/imgui-luau/blob/master/imgui_demo.lua
+		ImGui.ShowDemoWindow()
+	end
 
-        ImGui.Text("This is some useful text.")
-        local _
-        _, show_demo_window = ImGui.Checkbox("Demo Window", show_demo_window)
-        _, show_another_window = ImGui.Checkbox("Another Window", show_another_window)
+	ShowHelloWindow()
+	ShowAnotherWindow()
+	ShowDecalViewer()
+	ShowViewportWindow()
+	ProfileEnd()
 
-        f = ImGui.SliderFloat("float", f, 0.0, 1.0)
-        ImGui.ColorEdit3("clear color", clear_color)
+	ProfileBegin("ImGui.Render")
+	ImGui.EndFrame()
+	ImGui.Render()
+	ProfileEnd()
 
-        if ImGui.Button("Button") then
-            counter = counter + 1
-        end
-        ImGui.SameLine()
-        ImGui.Text("counter = %d", counter)
-
-        ImGui.Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0 / io.Framerate, io.Framerate)
-
-        ImGui.End()
-    end
-
-    if show_another_window then
-        show_another_window = ImGui.Begin("Another Window", show_another_window)
-
-        ImGui.Text("Hello from another window!")
-        if ImGui.Button("Close Me") then
-            show_another_window = false
-        end
-
-        ImGui.End()
-    end
-
-    PE()
-    ShowDecalViewer()
-
-    if show_viewport_window then
-        show_viewport_window = ImGui.Begin("Viewport", show_viewport_window)
-        spin_speed = ImGui.SliderFloat("speed", spin_speed, 0.0, 5.0)
-        ImGui.ColorEdit3("color", part_color)
-        local frame = ImGui.Embed("viewport", G.ImVec2(-1, 220), G.ImGuiEmbedFlags.None, function(f)
-            -- runs once
-            local vpf = Instance.new("ViewportFrame")
-            vpf.Size = UDim2.fromScale(1, 1)
-            vpf.BackgroundTransparency = 1
-            vpf.Parent = f
-            local cam = Instance.new("Camera")
-            cam.CFrame = CFrame.lookAt(Vector3.new(0, 2, 6), Vector3.new(0, 0, 0))
-            cam.Parent = vpf
-            vpf.CurrentCamera = cam
-            local part = Instance.new("Part")
-            part.Name = "Spinner"
-            part.Size = Vector3.new(2, 2, 2)
-            part.Parent = vpf
-        end)
-        -- every frame: edit what was created once
-        spin_angle += spin_speed * io.DeltaTime
-        local part = frame.ViewportFrame.Spinner
-        part.CFrame = CFrame.Angles(0.4, spin_angle, 0)
-        part.Color = Color3.new(part_color.x, part_color.y, part_color.z)
-        ImGui.Text("Frames created: 1 (same Frame every frame)")
-        ImGui.End()
-    end
-
-    P("ImGui.Render"); ImGui.EndFrame(); ImGui.Render(); PE()
-    ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
-    PE()
+	ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
+	ProfileEnd()
 end)
