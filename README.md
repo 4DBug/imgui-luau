@@ -280,7 +280,7 @@ Multi-select / box-select, typing-select, the Assets Browser example, the Item P
 
 ### AI disclosure
 
-AI tools were used to assist in making this project (porting code, the Roblox and LÖVE backends, optimizations, tests and documentation). All changes were reviewed and tested by a human, and correctness is checked by the test suite (draw-data checksums against the reference behaviour, pixel comparisons, behaviour tests). Bug reports are welcome.
+AI tools were used to assist in making this project (porting code, optimizations, tests and documentation). All changes were reviewed and tested by a human, and correctness is checked by the test suite (draw-data checksums against the reference behaviour, pixel comparisons, behaviour tests). Bug reports are welcome.
 
 ### Credits
 
