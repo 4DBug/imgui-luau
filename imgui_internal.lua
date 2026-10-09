@@ -1236,7 +1236,9 @@ function ImGuiNextWindowData()
         SizeCallbackUserData = nil,
         BgAlphaVal           = nil,
         MenuBarOffsetMinVal  = ImVec2(),
-        RefreshFlagsVal      = nil
+        RefreshFlagsVal      = nil,
+        CacheKeySet          = false, -- [Port] SetNextWindowCached()
+        CacheKeyVal          = nil
     }, IMGUI_NEXT_WINDOW_DATA)
 end
 
@@ -2408,6 +2410,8 @@ function ImGuiWindow(ctx, name)
         SkipItems = false,
 
         SkipRefresh = false,
+        CacheSnap = nil, -- [Port] SetNextWindowCached(): state at the last refresh
+        CacheSkipItemsBackup = nil,
 
         Appearing = false,
 
