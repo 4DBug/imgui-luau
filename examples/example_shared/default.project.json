@@ -3,7 +3,7 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "ImGui": { "$path": "../../build/ImGui.luau" },
+      "ImGui": { "$path": "../../build/ImGuiTyped.luau", "Impl": { "$path": "../../build/ImGui.luau" } },
       "SharedApp": { "$path": "app.lua" }
     },
     "StarterPlayer": {

@@ -42,6 +42,7 @@ jobs:
           python3 tools/sync_github_readme.py --check
           luau-compile --null dist/roblox/ImGui.luau
           luau-compile --null dist/roblox-nodemo/ImGui.luau
+          sed 's|require(script:WaitForChild("Impl"))|nil|' dist/roblox/ImGuiTyped.luau > /tmp/ImGuiTyped.luau && luau-analyze /tmp/ImGuiTyped.luau
           luajit -bl dist/love/imgui_love.lua > /dev/null
           luajit -bl dist/love-nodemo/imgui_love.lua > /dev/null
           python3 tools/test/run.py --main tools/test/scripts/t_readme.luau --frames 30 --quiet --roblox --timeout 300 | tee /tmp/r.txt
@@ -59,7 +60,7 @@ jobs:
           cp love/imgui_love.lua imgui_love.lua
           cp love-nodemo/imgui_love.lua imgui_love-nodemo.lua
           # Roblox: module + example LocalScript + Rojo project
-          mkdir -p pkg-roblox/build && cp ImGui.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
+          mkdir -p pkg-roblox/build && cp ImGui.luau roblox/ImGuiTyped.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
           mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox ../examples/example_shared pkg-roblox/examples/
           (cd pkg-roblox && zip -qr ../imgui-luau-roblox-$V.zip .)
           # LÖVE: bundle + fonts + examples (run: love examples/example_love)
@@ -89,7 +90,7 @@ jobs:
           grep -q "^version = \"${GITHUB_REF_NAME#v}\"" wally.toml || { echo "wally.toml version != tag"; exit 1; }
           curl -fsSL -o wally.zip https://github.com/UpliftGames/wally/releases/download/v0.3.2/wally-v0.3.2-linux.zip
           unzip -q wally.zip -d wallybin && chmod +x wallybin/wally
-          mkdir -p dist/wally/src && cp wally.toml dist/wally/ && cp dist/roblox/ImGui.luau dist/wally/src/init.luau
+          mkdir -p dist/wally/src && cp wally.toml dist/wally/ && cp dist/roblox/ImGuiTyped.luau dist/wally/src/init.luau && cp dist/roblox/ImGui.luau dist/wally/src/Impl.luau
           echo '{"name":"imgui-luau","tree":{"$path":"src"}}' > dist/wally/default.project.json
           wallybin/wally login --token "$WALLY_TOKEN"
           wallybin/wally publish --project-path dist/wally
