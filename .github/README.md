@@ -281,6 +281,10 @@ Multi-select / box-select, typing-select, the Assets Browser example, the Item P
 
 **Where is the documentation?** Upstream's docs apply: the [wiki](https://github.com/ocornut/imgui/wiki), the [FAQ](https://github.com/ocornut/imgui/blob/master/docs/FAQ.md) and the comments in `imgui.h`. The demo is the best reference.
 
+### AI disclosure
+
+AI tools were used to assist in making this project (porting code, the Roblox and LÖVE backends, optimizations, tests and documentation). All changes were reviewed and tested by a human, and correctness is checked by the test suite (draw-data checksums against the reference behaviour, pixel comparisons, behaviour tests). Bug reports are welcome.
+
 ### Credits
 
 Dear ImGui is developed by [Omar Cornut](https://www.miracleworld.net) and [every direct or indirect contributor](https://github.com/ocornut/imgui/graphs/contributors). This repository is an unofficial port and is not affiliated with the Dear ImGui project.
