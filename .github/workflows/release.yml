@@ -80,6 +80,20 @@ jobs:
             dist/*.zip
           generate_release_notes: true
 
+      - name: Publish to Wally (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          WALLY_TOKEN: ${{ secrets.WALLY_TOKEN }}
+        run: |
+          [ -n "$WALLY_TOKEN" ] || { echo "WALLY_TOKEN not set, skipping"; exit 0; }
+          grep -q "^version = \"${GITHUB_REF_NAME#v}\"" wally.toml || { echo "wally.toml version != tag"; exit 1; }
+          curl -fsSL -o wally.zip https://github.com/UpliftGames/wally/releases/download/v0.3.2/wally-v0.3.2-linux.zip
+          unzip -q wally.zip -d wallybin && chmod +x wallybin/wally
+          mkdir -p dist/wally/src && cp wally.toml dist/wally/ && cp dist/roblox/ImGui.luau dist/wally/src/init.luau
+          echo '{"name":"imgui-luau","tree":{"$path":"src"}}' > dist/wally/default.project.json
+          wallybin/wally login --token "$WALLY_TOKEN"
+          wallybin/wally publish --project-path dist/wally
+
       - name: Release (latest)
         if: "!startsWith(github.ref, 'refs/tags/v')"
         env:

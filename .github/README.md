@@ -137,6 +137,8 @@ The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.Sh
 
 ### Getting Started & Integration (Roblox)
 
+With [Wally](https://wally.run): add `ImGui = "bug/imgui-luau@0.1.0"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
+
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out).
 2. Sync with [Rojo](https://rojo.space): [`default.project.json`](/default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
 3. A minimal LocalScript (full version: [examples/example_roblox/main.client.luau](/examples/example_roblox/main.client.luau)):

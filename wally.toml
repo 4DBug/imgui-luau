@@ -1,0 +1,10 @@
+[package]
+name = "bug/imgui-luau"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+license = "MIT"
+description = "Dear ImGui (docking branch) ported to Luau for Roblox"
+repository = "https://github.com/4DBug/imgui-luau"
+
+[dependencies]
