@@ -47,6 +47,8 @@ jobs:
           luajit -bl dist/love-nodemo/imgui_love.lua > /dev/null
           python3 tools/test/run.py --main tools/test/scripts/t_readme.luau --frames 30 --quiet --roblox --timeout 300 | tee /tmp/r.txt
           grep -q "README OK" /tmp/r.txt
+          python3 tools/test/run.py --main tools/test/scripts/t_cached_window.luau --frames 130 --quiet --roblox --timeout 300 | tee /tmp/c.txt
+          grep -q "CACHED OK" /tmp/c.txt
           python3 tools/bundle.py --target love >/dev/null
           luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic
           luajit tools/test/love/t_examples.lua

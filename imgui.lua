@@ -8846,6 +8846,26 @@ function ImGui.UpdateWindowSkipRefresh(window)
     end
 
     if bit32.band(g.NextWindowData.RefreshFlagsVal, ImGuiWindowRefreshFlags.TryToAvoidRefresh) ~= 0 then
+        -- [Port] SetNextWindowCached(): refresh on any change since the last refresh (and one frame after being busy)
+        if g.NextWindowData.CacheKeySet then
+            local function related(w) return w ~= nil and (w.RootWindow == window.RootWindow or ImGui.IsWindowWithinBeginStackOf(w.RootWindow, window)) end
+            local busy = window.Appearing or window.Hidden or window.DockIsActive or related(g.HoveredWindow) or related(g.NavWindow) or related(g.ActiveIdWindow) or (g.MovingWindow ~= nil and related(g.MovingWindow))
+            local c, key, ds, tex = window.CacheSnap, g.NextWindowData.CacheKeyVal, g.IO.DisplaySize, g.IO.Fonts.TexData
+            if busy or c == nil or c.Busy or c.Key ~= key or c.Tex ~= tex or c.Collapsed ~= window.Collapsed
+                or c.PosX ~= window.Pos.x or c.PosY ~= window.Pos.y or c.SizeX ~= window.SizeFull.x or c.SizeY ~= window.SizeFull.y
+                or c.ScrollX ~= window.Scroll.x or c.ScrollY ~= window.Scroll.y or window.ScrollTarget.x < FLT_MAX or window.ScrollTarget.y < FLT_MAX
+                or c.DisplayX ~= ds.x or c.DisplayY ~= ds.y then
+                c = c or {}
+                window.CacheSnap = c
+                c.Busy, c.Key, c.Tex, c.Collapsed = busy, key, tex, window.Collapsed
+                c.PosX, c.PosY, c.SizeX, c.SizeY = window.Pos.x, window.Pos.y, window.SizeFull.x, window.SizeFull.y
+                c.ScrollX, c.ScrollY, c.DisplayX, c.DisplayY = window.Scroll.x, window.Scroll.y, ds.x, ds.y
+                return
+            end
+            -- skip: widgets early-out on SkipItems and Begin() returns visible=false; End() restores it
+            window.CacheSkipItemsBackup = window.SkipItems
+            window.SkipItems = true
+        end
         -- FIXME-IDLE: Tests for e.g. mouse clicks or keyboard while focused.
         if window.Appearing then  -- If currently appearing
             return
@@ -9477,6 +9497,20 @@ function ImGui.SetNextWindowRefreshPolicy(flags)
     local g = GImGui
     g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasRefreshPolicy)
     g.NextWindowData.RefreshFlagsVal = flags
+    g.NextWindowData.CacheKeySet = false
+end
+
+-- [Port] Opt-in cached window (built on the refresh policy above). While nothing that could change the window
+-- happened, Begin() keeps last frame's draw list and returns visible=false, so `if visible then ... end` skips your code.
+-- It refreshes when `key` changes (pass e.g. a version number of the data shown), while the window (or a popup/child
+-- of it) is hovered, focused or active and for one frame after, and when it appears, moves, resizes, scrolls,
+-- collapses, is docked, or the display size or font atlas texture changes.
+-- Anything else that changes the contents (style, fonts, time) must be part of `key`.
+function ImGui.SetNextWindowCached(key)
+    local g = GImGui
+    ImGui.SetNextWindowRefreshPolicy(bit32.bor(ImGuiWindowRefreshFlags.TryToAvoidRefresh, ImGuiWindowRefreshFlags.RefreshOnHover, ImGuiWindowRefreshFlags.RefreshOnFocus))
+    g.NextWindowData.CacheKeySet = true
+    g.NextWindowData.CacheKeyVal = key
 end
 
 function ImGui.GetWindowDpiScale()
@@ -10678,6 +10712,10 @@ function ImGui.End()
     if (window.SkipRefresh) then
         IM_ASSERT(window.DrawList == nil)
         window.DrawList = window.DrawListInst
+    end
+    if window.CacheSkipItemsBackup ~= nil then -- [Port] SetNextWindowCached()
+        window.SkipItems = window.CacheSkipItemsBackup
+        window.CacheSkipItemsBackup = nil
     end
 
     -- Stop logging
