@@ -203,7 +203,7 @@ Roblox stays the primary target: the Roblox build is untouched by this (no shims
 
 #### Prebuilt releases
 
-Every push to `master` publishes a `latest` pre-release, and every `v*` tag a versioned release ([.github/workflows/release.yml](.github/workflows/release.yml)), with:
+Every push to `master` publishes a rolling `latest` release, and every `v*` tag a versioned release ([.github/workflows/release.yml](.github/workflows/release.yml)), with:
 `ImGui.luau` / `ImGui-nodemo.luau` (Roblox ModuleScript), `imgui_love.lua` / `imgui_love-nodemo.lua` (LÖVE), and `imgui-luau-roblox-*.zip` / `imgui-luau-love-*.zip` (bundle + examples).
 
 ### Differences from C++ Dear ImGui

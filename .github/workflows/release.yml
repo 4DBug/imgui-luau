@@ -1,6 +1,6 @@
 # Builds every backend and publishes them as a GitHub Release.
 #   push a tag "v*"           -> release named after the tag
-#   push to master            -> rolling "latest" pre-release (replaced each time)
+#   push to master            -> rolling "latest" release (replaced each time, marked as the repo's latest release)
 #   run manually (Actions tab) -> same as master
 name: Build & Release
 
@@ -39,6 +39,7 @@ jobs:
 
       - name: Check
         run: |
+          python3 tools/sync_github_readme.py --check
           luau-compile --null dist/roblox/ImGui.luau
           luau-compile --null dist/roblox-nodemo/ImGui.luau
           luajit -bl dist/love/imgui_love.lua > /dev/null
@@ -85,6 +86,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest --prerelease --title "Latest build (${GITHUB_SHA::7})" \
-            --notes "Automatic build of ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Tag a commit v* for a stable release." \
+          gh release create latest --latest --title "Latest build (${GITHUB_SHA::7})" \
+            --notes "Automatic build of ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Tag a commit v* for a versioned release." \
             dist/ImGui.luau dist/ImGui-nodemo.luau dist/imgui_love.lua dist/imgui_love-nodemo.lua dist/*.zip
