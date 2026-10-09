@@ -39,6 +39,11 @@ def upstream_decls():
     return decls
 
 LOOSE = "(...any) -> ...any"
+PORT_ONLY = {  # port additions that aren't in imgui.h
+    "SetNextWindowCached": "(key: any) -> ()",
+    "NewTextBuffer": "(str: string, size: number?) -> {number}",
+    "TextBufferToString": "(buf: {number}) -> string",
+}
 
 def signature(port_params, ret, cparams):
     if any(p == "..." for p in cparams):
@@ -103,7 +108,7 @@ def types_header(files):
              "export type ImGuiAPI = {"]
     for name in sorted(fns):
         d = decls.get(name)
-        sig = signature(fns[name], *d[0]) if d and len(d) == 1 else LOOSE
+        sig = PORT_ONLY.get(name) or (signature(fns[name], *d[0]) if d and len(d) == 1 else LOOSE)
         lines.append("    %s: %s," % (name, sig))
     lines += ["    [string]: any,", "}"]
     for name, keys in sorted(enums(files).items()):

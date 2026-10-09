@@ -124,12 +124,24 @@ local function MyTool()
 end
 -- [/snippet]
 
+-- [snippet:cached]
+local stats = { version = 0, kills = 0 }
+local function StatsWindow()
+    ImGui.SetNextWindowCached(stats.version) -- bump stats.version whenever stats change
+    local _, visible = ImGui.Begin("Stats")
+    if visible then -- false while the cached contents are reused
+        ImGui.Text("Kills: %d", stats.kills)
+    end
+    ImGui.End()
+end
+-- [/snippet]
+
 local frame = 0
 RunService.Stepped:Connect(function()
     frame += 1
     G.ImGui_ImplRoblox.NewFrame()
     ImGui.NewFrame()
-    MyFirstTool(); MyTool(); Conventions(); MenusAndTable(); Plot(); CustomDrawing()
+    MyFirstTool(); MyTool(); Conventions(); MenusAndTable(); Plot(); CustomDrawing(); StatsWindow()
     ImGui.Render()
     G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     if frame == 20 then

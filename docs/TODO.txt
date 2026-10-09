@@ -45,7 +45,6 @@ KNOWN ISSUES
 
 PERFORMANCE IDEAS (not done)
 ----------------------------
-- Opt-in cached windows (skip user code for idle windows).
 - Cheaper visible ColorEdit4 rows; cheaper Begin() for child windows.
 
 PLANNED EXTENSIONS

@@ -241,6 +241,20 @@ Measured headless (Luau CLI, Studio-like native code generation), demo window op
 
 Most of the remaining cost is widget logic (your UI code and Dear ImGui's per-widget work), which runs every frame by design. Use `ImGuiListClipper` for long lists.
 
+Windows that rarely change can opt in to caching: `ImGui.SetNextWindowCached(key)` keeps last frame's drawing and makes `Begin` return `visible = false`, so your code for that window doesn't run. It refreshes when `key` changes, while the window is hovered, focused or active (plus one frame after), and when it appears, moves, resizes, scrolls, collapses or is docked. An idle 200-widget window goes from ~2.2 ms to ~0.15 ms per frame.
+
+```lua
+local stats = { version = 0, kills = 0 }
+local function StatsWindow()
+    ImGui.SetNextWindowCached(stats.version) -- bump stats.version whenever stats change
+    local _, visible = ImGui.Begin("Stats")
+    if visible then -- false while the cached contents are reused
+        ImGui.Text("Kills: %d", stats.kills)
+    end
+    ImGui.End()
+end
+```
+
 ### Testing
 
 `tools/test/run.py` runs any LocalScript headless against a mocked Roblox (`tools/test/roblox_mock.luau`):
