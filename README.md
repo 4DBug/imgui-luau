@@ -7,7 +7,7 @@ Dear ImGui for Roblox (and more)
 
 A Lua/Luau port of [Dear ImGui](https://github.com/ocornut/imgui) (docking branch, 1.93 WIP). **Roblox is the primary target** (rendered with EditableImages); the same sources also run on [LÖVE](https://love2d.org) (LuaJIT, GPU renderer), and the backend layout leaves room for more. It follows the C++ source function by function, so upstream documentation, examples and the demo apply almost directly.
 
-| [The Pitch](#the-pitch) - [Usage](#usage) - [How it works](#how-it-works) - [Demo](#demo) - [Getting Started & Integration](#getting-started--integration) - [Backends](#backends) |
+| [The Pitch](#the-pitch) - [Usage](#usage) - [Demo](#demo) - [Getting Started & Integration](#getting-started--integration-roblox) - [How it works](#how-it-works-roblox-backend) - [Backends](#backends) |
 :----------------------------------------------------------: |
 | [Differences from C++](#differences-from-c-dear-imgui) - [Performance](#performance) - [Testing](#testing) - [Not ported yet](#not-ported-yet) |
 | [FAQ](#faq) - [Credits](#credits) - [License](#license) |
@@ -75,27 +75,6 @@ Result:
 Dear ImGui allows you to **create elaborate tools** as well as very short-lived ones. On the extreme side of short-livedness: using the Edit&Continue-friendly nature of immediate mode, you can add a slider to tweak a value in one line and remove it again a minute later.
 
 Every snippet in this README is run by [`tools/test/scripts/t_readme.luau`](tools/test/scripts/t_readme.luau), and every image was rendered by this port with [`tools/screenshots/make.py`](tools/screenshots/make.py).
-
-### How it works (Roblox backend)
-
-Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
-
-**Why software rasterization?** The alternatives don't fit Dear ImGui:
-- *One GUI Instance per widget/shape* (what most Roblox UI libraries do) means re-creating, re-parenting or diffing thousands of Instances every frame, can't express anti-aliased curves, per-vertex gradients or font-atlas glyphs, and would no longer be Dear ImGui's renderer output.
-- *Rasterizing the draw data* keeps the output identical to Dear ImGui's: the same fonts, anti-aliasing, rounding and gradients, and every widget (including custom `ImDrawList` drawing) works without backend support.
-
-The cost is CPU time in Luau, so the backend is built around **not drawing**:
-
-1. **Layers per window.** Every draw list (one per top-level window, popup, tooltip) gets its own `Frame` with `ZIndex` following Dear ImGui's draw order. Its content is rasterized relative to the window, so **moving a window only changes the Frame's `Position`**; no pixel is redrawn or uploaded.
-2. **Tiles.** Each layer is covered by 128×128 EditableImage tiles (`ImageLabel`s). Every primitive is hashed (positions relative to the layer, UVs, colours, texture, clip) into the tiles it touches. **Only tiles whose hash changed are re-rasterized and uploaded**, and only the dirty region of those (`WritePixelsBuffer` with a sub-rectangle). A static UI uploads nothing.
-3. **Scrolling reuses pixels.** Window content is a separate layer inside a `ClipsDescendants` frame sized to the window's visible area, positioned at the scroll offset. Scrolling moves it like dragging moves a window; only rows entering view are drawn. Decorations (title bar, borders, scrollbar) stay in their own layers.
-4. **Skipping unchanged windows.** Vertices are stored in a flat Luau `buffer` (36 bytes each) instead of tables. Before any per-tile work, a window's raw vertex/index bytes are compared with last frame's; if identical, its layers are just restacked.
-5. **Fast rasterizer.** `@native` functions; axis-aligned quads (most rects and every glyph) take a span-fill path, flat rows are copied instead of re-blended, gradient rects (color pickers) are filled per row, and only real triangles (anti-aliased edges, curves) use the generic edge-function rasterizer.
-6. **Render rate.** Tiles update at most `SetRenderRate(hz)` times per second (default 60), optionally lower while scrolling/resizing (`SetBusyRenderRate`). Your UI code and Dear ImGui's logic still run every frame, so input is never dropped.
-
-**Input.** Mouse and keys come from `UserInputService`. While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the wheel don't reach the game (camera zoom). Games can't read the clipboard, so while a text field is active a hidden `TextBox` holds focus: the OS delivers typing (any layout), paste and copy/cut through it, and its text mirrors Dear ImGui's current selection. Fonts are TTFs rasterized by the ported stb_truetype into the font atlas, which becomes a backend texture like any image (`CreateTexture` works for your own pixels too).
-
-**Instances inside windows.** The backend can place your own Instances (e.g. a `ViewportFrame`) inside a window's layer, so they stack, clip and move with it; see the `ImGui.Embed` widget in [examples/example_roblox/main.client.luau](examples/example_roblox/main.client.luau).
 
 ### Demo
 
@@ -180,6 +159,27 @@ Fonts: ProggyClean (default), ProggyTiny, ProggyForever, Cousine, DroidSans, Kar
 io.Fonts:AddFontDefault()
 io.Fonts:AddFontFromFileTTF("fonts/Roboto-Medium.ttf", 16.0)
 ```
+
+### How it works (Roblox backend)
+
+Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
+
+**Why software rasterization?** The alternatives don't fit Dear ImGui:
+- *One GUI Instance per widget/shape* (what most Roblox UI libraries do) means re-creating, re-parenting or diffing thousands of Instances every frame, can't express anti-aliased curves, per-vertex gradients or font-atlas glyphs, and would no longer be Dear ImGui's renderer output.
+- *Rasterizing the draw data* keeps the output identical to Dear ImGui's: the same fonts, anti-aliasing, rounding and gradients, and every widget (including custom `ImDrawList` drawing) works without backend support.
+
+The cost is CPU time in Luau, so the backend is built around **not drawing**:
+
+1. **Layers per window.** Every draw list (one per top-level window, popup, tooltip) gets its own `Frame` with `ZIndex` following Dear ImGui's draw order. Its content is rasterized relative to the window, so **moving a window only changes the Frame's `Position`**; no pixel is redrawn or uploaded.
+2. **Tiles.** Each layer is covered by 128×128 EditableImage tiles (`ImageLabel`s). Every primitive is hashed (positions relative to the layer, UVs, colours, texture, clip) into the tiles it touches. **Only tiles whose hash changed are re-rasterized and uploaded**, and only the dirty region of those (`WritePixelsBuffer` with a sub-rectangle). A static UI uploads nothing.
+3. **Scrolling reuses pixels.** Window content is a separate layer inside a `ClipsDescendants` frame sized to the window's visible area, positioned at the scroll offset. Scrolling moves it like dragging moves a window; only rows entering view are drawn. Decorations (title bar, borders, scrollbar) stay in their own layers.
+4. **Skipping unchanged windows.** Vertices are stored in a flat Luau `buffer` (36 bytes each) instead of tables. Before any per-tile work, a window's raw vertex/index bytes are compared with last frame's; if identical, its layers are just restacked.
+5. **Fast rasterizer.** `@native` functions; axis-aligned quads (most rects and every glyph) take a span-fill path, flat rows are copied instead of re-blended, gradient rects (color pickers) are filled per row, and only real triangles (anti-aliased edges, curves) use the generic edge-function rasterizer.
+6. **Render rate.** Tiles update at most `SetRenderRate(hz)` times per second (default 60), optionally lower while scrolling/resizing (`SetBusyRenderRate`). Your UI code and Dear ImGui's logic still run every frame, so input is never dropped.
+
+**Input.** Mouse and keys come from `UserInputService`. While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the wheel don't reach the game (camera zoom). Games can't read the clipboard, so while a text field is active a hidden `TextBox` holds focus: the OS delivers typing (any layout), paste and copy/cut through it, and its text mirrors Dear ImGui's current selection. Fonts are TTFs rasterized by the ported stb_truetype into the font atlas, which becomes a backend texture like any image (`CreateTexture` works for your own pixels too).
+
+**Instances inside windows.** The backend can place your own Instances (e.g. a `ViewportFrame`) inside a window's layer, so they stack, clip and move with it; see the `ImGui.Embed` widget in [examples/example_roblox/main.client.luau](examples/example_roblox/main.client.luau).
 
 ### Backends
 
