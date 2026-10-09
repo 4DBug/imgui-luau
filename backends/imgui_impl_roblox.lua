@@ -1127,8 +1127,23 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         end
     end)
 
-    -- Text proxy: a hidden TextBox holds focus while an imgui text field is active, so the OS gives us typing (any
-    -- layout/unicode), paste (Ctrl+V) and copy/cut (Ctrl+C/X of the proxy's text = imgui's current selection).
+    bd.PendingChars = {}
+
+    connect(UserInputService.WindowFocused, function() ImGui.GetIO():AddFocusEvent(true) end)
+    connect(UserInputService.WindowFocusReleased, function() ImGui.GetIO():AddFocusEvent(false) end)
+end
+
+-- Text proxy (opt-in, ImGui_ImplRoblox.SetTextProxy(true)): a hidden TextBox holds focus while an imgui text field is
+-- active, so the OS gives us typing (any layout/unicode), paste (Ctrl+V) and copy/cut (Ctrl+C/X of imgui's selection).
+-- Off: typing comes from KeyCodes (printable ASCII), no OS clipboard.
+function ImGui_ImplRoblox_SetTextProxy(enabled)
+    local bd = ImGui_ImplRoblox_GetBackendData()
+    if not enabled then
+        if bd.Proxy then bd.Proxy:Destroy(); bd.Proxy = nil end
+        proxy_focused = false
+        return
+    end
+    if bd.Proxy then return end
     local proxy = Instance.new("TextBox")
     proxy.Name = "TextProxy"
     proxy.BackgroundTransparency = 1
@@ -1140,12 +1155,11 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     proxy.ClearTextOnFocus = false
     proxy.TextEditable = true
     proxy.Text = ""
-    proxy.Parent = gui
-    bd.Proxy, bd.ProxyText, bd.PendingChars = proxy, "", {}
+    proxy.Parent = bd.Gui
+    bd.Proxy, bd.ProxyText = proxy, ""
     -- Clicking elsewhere (or Roblox taking focus) ends the edit, like clicking outside the field in imgui.
     -- (Text is polled in NewFrame instead of using Text changed signals: those are deferred in Roblox.)
-    connect(proxy.FocusLost, function()
-        if bd.ProxyDebug then print("[ImGui text proxy] FocusLost, mouse over imgui:", ImGui.GetIO().WantCaptureMouse) end
+    proxy.FocusLost:Connect(function()
         if bd.ProxyReleasing then return end
         -- Roblox drops TextBox focus on any click, including clicks inside imgui (e.g. moving the cursor within the
         -- same field). Those must not end the edit: just recapture next frame. Only a click outside imgui ends it.
@@ -1154,9 +1168,6 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         local g = ImGui.GetCurrentContext()
         if g and g.ActiveId ~= 0 and g.ActiveId == bd.ProxyActiveId then ImGui.ClearActiveID() end
     end)
-
-    connect(UserInputService.WindowFocused, function() ImGui.GetIO():AddFocusEvent(true) end)
-    connect(UserInputService.WindowFocusReleased, function() ImGui.GetIO():AddFocusEvent(false) end)
 end
 
 function ImGui_ImplRoblox_Shutdown()
@@ -1201,15 +1212,16 @@ function ImGui_ImplRoblox_NewFrame()
     -- otherwise the KeyCode fallback keeps typing working.
     local proxy = bd.Proxy
     local g = ImGui.GetCurrentContext()
-    local focused_box = UserInputService:GetFocusedTextBox()
-    if io.WantTextInput and g.ActiveId ~= 0 then
+    local focused_box = proxy and UserInputService:GetFocusedTextBox()
+    if not proxy then
+        -- text proxy disabled: KeyCode typing only
+    elseif io.WantTextInput and g.ActiveId ~= 0 then
         if g.ActiveId ~= bd.ProxyActiveId or g.ActiveIdIsJustActivated or g.IO.MouseClicked[0] then bd.ProxyActiveId = g.ActiveId; bd.ProxyLostId = nil end -- (re)clicking a field recaptures
         local mouse_up = not (io.MouseDown[0] or io.MouseDown[1] or io.MouseDown[2])
         if focused_box ~= proxy and mouse_up and bd.ProxyLostId ~= g.ActiveId and (focused_box == nil or not focused_box:IsDescendantOf(game)) then
             bd.ProxyText = proxy.Text -- what it already holds is not new input (else re-typing it would collapse imgui's selection)
             proxy:CaptureFocus()
             focused_box = UserInputService:GetFocusedTextBox()
-            if bd.ProxyDebug then print("[ImGui text proxy] CaptureFocus ->", focused_box == proxy and "focused" or ("FAILED, focused = " .. tostring(focused_box))) end
         end
     elseif focused_box == proxy then
         bd.ProxyReleasing = true
@@ -1217,13 +1229,11 @@ function ImGui_ImplRoblox_NewFrame()
         bd.ProxyReleasing = false
         focused_box = nil
     end
-    local was_focused = proxy_focused
-    proxy_focused = focused_box == proxy
+    proxy_focused = proxy ~= nil and focused_box == proxy
     local used_proxy_text = false
     if proxy_focused then
         -- 1) whatever the OS put in the proxy since last frame (typing, paste, cut) replaces imgui's selection
         local text = proxy.Text
-        if text ~= bd.ProxyText and bd.ProxyDebug then print("[ImGui text proxy] text", string.format("%q", text), "was", string.format("%q", tostring(bd.ProxyText))) end
         if text ~= bd.ProxyText and text ~= bd.ProxyLastRaw then -- (LastRaw: don't re-send if our reset hasn't applied yet)
             bd.ProxyLastRaw = text
             -- InputText ignores characters while Ctrl is held (upstream, so shortcuts don't type); a paste arrives with
@@ -1259,7 +1269,6 @@ function ImGui_ImplRoblox_NewFrame()
             proxy.Text = sel
             bd.ProxyLastRaw = nil
             bd.ProxyText = sel
-            if bd.ProxyDebug then print("[ImGui text proxy] mirror selection", string.format("%q", sel)) end
         end
         -- keep imgui's selection fully selected in the proxy, so Ctrl+C copies it and typing/Ctrl+V replaces it
         local want_sel, want_cur = (#sel > 0) and 1 or -1, #sel + 1
@@ -1275,7 +1284,6 @@ function ImGui_ImplRoblox_NewFrame()
         if not used_proxy_text then for _, c in ipairs(pending) do io:AddInputCharacter(c) end end
         table.clear(pending)
     end
-    if bd.ProxyDebug and was_focused ~= proxy_focused then print("[ImGui text proxy] proxy_focused =", proxy_focused) end
 
     -- While the mouse is over imgui, make the tiles Active so Roblox stops passing clicks/wheel to the game (camera zoom etc.)
     local want = io.WantCaptureMouse
@@ -1317,7 +1325,7 @@ ImGui_ImplRoblox = {
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
     SetOverlay     = ImGui_ImplRoblox_SetOverlay,
-    SetTextProxyDebug = function(on) ImGui_ImplRoblox_GetBackendData().ProxyDebug = on end, -- prints focus/text events
+    SetTextProxy   = ImGui_ImplRoblox_SetTextProxy,
     CreateTexture  = ImGui_ImplRoblox_CreateTexture,
     DestroyTexture = ImGui_ImplRoblox_DestroyTexture,
     GetRenderScale = function() return ImGui_ImplRoblox_GetBackendData().Scale end,
