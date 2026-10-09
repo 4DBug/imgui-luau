@@ -1,0 +1,90 @@
+# Builds every backend and publishes them as a GitHub Release.
+#   push a tag "v*"           -> release named after the tag
+#   push to master            -> rolling "latest" pre-release (replaced each time)
+#   run manually (Actions tab) -> same as master
+name: Build & Release
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Luau and LuaJIT (for checks)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq luajit
+          curl -fsSL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          unzip -q luau.zip -d luau && chmod +x luau/* && echo "$PWD/luau" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          python3 tools/bundle.py dist/roblox                       # ImGui.luau (library + demo)
+          python3 tools/bundle.py --no-demo dist/roblox-nodemo        # ImGui.luau (library only)
+          python3 tools/bundle.py --target love dist/love             # imgui_love.lua (library + demo)
+          python3 tools/bundle.py --target love --no-demo dist/love-nodemo
+
+      - name: Check
+        run: |
+          luau-compile --null dist/roblox/ImGui.luau
+          luau-compile --null dist/roblox-nodemo/ImGui.luau
+          luajit -bl dist/love/imgui_love.lua > /dev/null
+          luajit -bl dist/love-nodemo/imgui_love.lua > /dev/null
+          python3 tools/test/run.py --main tools/test/scripts/t_readme.luau --frames 30 --quiet --roblox --timeout 300 | tee /tmp/r.txt
+          grep -q "README OK" /tmp/r.txt
+          python3 tools/bundle.py --target love >/dev/null
+          luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic
+          luajit tools/test/love/t_examples.lua
+
+      - name: Package
+        run: |
+          V="${GITHUB_REF_NAME}"
+          cd dist
+          cp roblox/ImGui.luau ImGui.luau
+          cp roblox-nodemo/ImGui.luau ImGui-nodemo.luau
+          cp love/imgui_love.lua imgui_love.lua
+          cp love-nodemo/imgui_love.lua imgui_love-nodemo.lua
+          # Roblox: module + example LocalScript + Rojo project
+          mkdir -p pkg-roblox/build && cp ImGui.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
+          mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox ../examples/example_shared pkg-roblox/examples/
+          (cd pkg-roblox && zip -qr ../imgui-luau-roblox-$V.zip .)
+          # LÖVE: bundle + fonts + examples (run: love examples/example_love)
+          mkdir -p pkg-love/build && cp imgui_love.lua pkg-love/build/ && cp -r ../fonts pkg-love/ && rm -f pkg-love/fonts/*.lua
+          mkdir -p pkg-love/examples && cp -r ../examples/example_love ../examples/example_shared pkg-love/examples/
+          (cd pkg-love && zip -qr ../imgui-luau-love-$V.zip .)
+          ls -la
+
+      - name: Release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ImGui.luau
+            dist/ImGui-nodemo.luau
+            dist/imgui_love.lua
+            dist/imgui_love-nodemo.lua
+            dist/*.zip
+          generate_release_notes: true
+
+      - name: Release (latest)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest --prerelease --title "Latest build (${GITHUB_SHA::7})" \
+            --notes "Automatic build of ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Tag a commit v* for a stable release." \
+            dist/ImGui.luau dist/ImGui-nodemo.luau dist/imgui_love.lua dist/imgui_love-nodemo.lua dist/*.zip

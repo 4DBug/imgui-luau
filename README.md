@@ -201,6 +201,11 @@ Roblox stays the primary target: the Roblox build is untouched by this (no shims
 
 [examples/example_shared/app.lua](examples/example_shared/app.lua) is one UI that runs unchanged on both: `roblox.client.luau` (Rojo: `examples/example_shared/default.project.json`) and `main.lua` (`love examples/example_shared`) are the only platform code. Write shared UI code in plain Lua 5.1 syntax (no `+=`, `//`, `continue`).
 
+#### Prebuilt releases
+
+Every push to `master` publishes a `latest` pre-release, and every `v*` tag a versioned release ([.github/workflows/release.yml](.github/workflows/release.yml)), with:
+`ImGui.luau` / `ImGui-nodemo.luau` (Roblox ModuleScript), `imgui_love.lua` / `imgui_love-nodemo.lua` (LÖVE), and `imgui-luau-roblox-*.zip` / `imgui-luau-love-*.zip` (bundle + examples).
+
 ### Differences from C++ Dear ImGui
 
 The API is the same function-for-function; these are the Luau-specific conventions:
