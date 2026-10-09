@@ -1,13 +1,13 @@
-Dear ImGui for Roblox
+Dear ImGui for Roblox (and more)
 =====
 
 <center><b><i>"Give someone state and they'll have a bug one day, but teach them how to represent state in two separate locations that have to be kept in sync and they'll have bugs for a lifetime."</i></b></center> <a href="https://twitter.com/rygorous/status/1507178315886444544">-ryg</a>
 
 ----
 
-A Luau port of [Dear ImGui](https://github.com/ocornut/imgui) (docking branch, 1.93 WIP) for Roblox, rendered with EditableImages. It follows the C++ source function by function, so upstream documentation, examples and the demo apply almost directly.
+A Lua/Luau port of [Dear ImGui](https://github.com/ocornut/imgui) (docking branch, 1.93 WIP). **Roblox is the primary target** (rendered with EditableImages); the same sources also run on [LÖVE](https://love2d.org) (LuaJIT, GPU renderer), and the backend layout leaves room for more. It follows the C++ source function by function, so upstream documentation, examples and the demo apply almost directly.
 
-| [The Pitch](#the-pitch) - [Usage](#usage) - [How it works](#how-it-works) - [Demo](#demo) - [Getting Started & Integration](#getting-started--integration) |
+| [The Pitch](#the-pitch) - [Usage](#usage) - [How it works](#how-it-works) - [Demo](#demo) - [Getting Started & Integration](#getting-started--integration) - [Backends](#backends) |
 :----------------------------------------------------------: |
 | [Differences from C++](#differences-from-c-dear-imgui) - [Performance](#performance) - [Testing](#testing) - [Not ported yet](#not-ported-yet) |
 | [FAQ](#faq) - [Credits](#credits) - [License](#license) |
@@ -18,11 +18,11 @@ Dear ImGui is a **bloat-free graphical user interface library**. It outputs opti
 
 Dear ImGui is designed to **enable fast iterations** and to **empower programmers** to create **content creation tools and visualization / debug tools** (as opposed to UI for the average end-user). It favors simplicity and productivity toward this goal and lacks certain features commonly found in more high-level libraries.
 
-This port brings that to Roblox: debug overlays, admin panels, in-game editors, profilers and dev tools, written as plain Luau code with no Instances to create, parent or clean up. It includes docking, tables, multiple fonts, the full Style Editor, the Metrics/Debugger window and the complete demo.
+This port brings that to Roblox (and LÖVE): debug overlays, admin panels, in-game editors, profilers and dev tools, written as plain Luau code with no Instances to create, parent or clean up. It includes docking, tables, multiple fonts, the full Style Editor, the Metrics/Debugger window and the complete demo.
 
 ### Usage
 
-**The core of Dear ImGui is a set of files with no dependencies**, bundled by `tools/bundle.py` into one ModuleScript (`build/ImGui.luau`). The Roblox backend (`backends/imgui_impl_roblox.lua`) is included in the bundle.
+**The core of Dear ImGui is a set of files with no dependencies**, plus one platform backend from [backends/](backends/). `tools/bundle.py` combines them into a single file: `build/ImGui.luau` (ModuleScript, Roblox backend) or, with `--target love`, `build/imgui_love.lua` (LÖVE backend). Your UI code is the same for both.
 
 Dear ImGui is **immediate mode**: you call widget functions every frame, and their return values tell you what the user did. There is no widget object to keep in sync with your state.
 
@@ -76,7 +76,7 @@ Dear ImGui allows you to **create elaborate tools** as well as very short-lived 
 
 Every snippet in this README is run by [`tools/test/scripts/t_readme.luau`](tools/test/scripts/t_readme.luau), and every image was rendered by this port with [`tools/screenshots/make.py`](tools/screenshots/make.py).
 
-### How it works
+### How it works (Roblox backend)
 
 Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
 
@@ -132,7 +132,7 @@ The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.Sh
 
 ![style editor](docs/images/style.png) ![metrics](docs/images/metrics.png)
 
-### Getting Started & Integration
+### Getting Started & Integration (Roblox)
 
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out).
 2. Sync with [Rojo](https://rojo.space): [`default.project.json`](default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
@@ -179,7 +179,16 @@ io.Fonts:AddFontDefault()
 io.Fonts:AddFontFromFileTTF("fonts/Roboto-Medium.ttf", 16.0)
 ```
 
-### Other backends: LÖVE
+### Backends
+
+| Backend | File | Build | Renderer | Example |
+| --- | --- | --- | --- | --- |
+| Roblox (primary) | [backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua) | `python3 tools/bundle.py` | Luau software rasterizer into EditableImage tiles | [examples/example_roblox](examples/example_roblox) |
+| LÖVE 11.x | [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua) | `python3 tools/bundle.py --target love` | GPU, one `Mesh` per draw list | [examples/example_love](examples/example_love) |
+
+A backend implements the usual Dear ImGui contract (`Init`, `NewFrame`, `RenderDrawData`, input → `io:Add*Event`, texture updates via `ImTextureData`). Adding another Lua host means a new `backends/imgui_impl_<name>.lua` plus a `--target` in `tools/bundle.py`.
+
+#### LÖVE
 
 The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua):
 
@@ -212,7 +221,7 @@ The API is the same function-for-function; these are the Luau-specific conventio
 
 All exported names (`ImGui`, `ImVec2`, `ImVec4`, `IM_COL32`, every `ImGui*Flags` enum, …) are fields of the table returned by `require`.
 
-### Performance
+### Performance (Roblox)
 
 Measured headless (Luau CLI, Studio-like native code generation), demo window open:
 
@@ -236,7 +245,8 @@ python3 tools/test/run.py --main tools/test/scripts/t_tables.luau --frames 120 -
 
 - `t_drawhash` / `t_colors_hash`: checksums of all draw data; internal rewrites must keep them identical.
 - `t_composite`: composites the backend's tiles like Roblox does, to compare pixels between versions.
-- `t_click_fuzz`, `t_apps`, `t_dock*`, `t_tables`, …: behaviour tests. `--profile` + `tools/test/prof.py` for profiling.
+- `t_click_fuzz`, `t_apps`, `t_dock*`, `t_tables`, …: behaviour tests.
+- `tools/test/love/run.sh`: builds the LÖVE target, checks LuaJIT produces the same draw checksums as Luau, runs the LÖVE examples headless. `--profile` + `tools/test/prof.py` for profiling.
 
 See [docs/PORTING.md](docs/PORTING.md) for the porting rules.
 
@@ -255,7 +265,7 @@ Multi-select / box-select, typing-select, the Assets Browser example, the Item P
 
 **What's worse than Iris?** Performance, mainly. Iris lets the Roblox engine render native Instances on the GPU; this port rasterizes on the CPU in Luau and uploads pixels. The backend avoids most work (static UI and window moves cost almost nothing, scrolling only draws new rows), but large redraws (resizing a big window, heavy animated content) cost frame time Iris doesn't pay, and every frame runs Dear ImGui's full logic in Luau. Other trade-offs: EditableImage memory, text/visuals don't use Roblox's own UI features (rich text, localization, UI scaling rules), and input/clipboard need workarounds (`Active` tiles, the hidden TextBox). If you want cheap, Roblox-native widgets, Iris is a good choice; if you want Dear ImGui, this is it.
 
-**Does it work on mobile / console?** Rendering does. The backend currently handles mouse and keyboard input only; touch and gamepad are not wired up yet.
+**Does it work on mobile / console?** On Roblox, rendering does. The backend currently handles mouse and keyboard input only; touch and gamepad are not wired up yet.
 
 **Does my UI code run when nothing changes?** Yes, every frame, like Dear ImGui. Only rendering is skipped for unchanged content.
 
@@ -267,7 +277,7 @@ Multi-select / box-select, typing-select, the Assets Browser example, the Item P
 
 Dear ImGui is developed by [Omar Cornut](https://www.miracleworld.net) and [every direct or indirect contributor](https://github.com/ocornut/imgui/graphs/contributors). This repository is an unofficial port and is not affiliated with the Dear ImGui project.
 
-This port started from [GrayWolf64/imgui-lua](https://github.com/GrayWolf64/imgui-lua), a Lua port of Dear ImGui, and was extended from there to the docking branch and Roblox.
+This port started from [GrayWolf64/imgui-lua](https://github.com/GrayWolf64/imgui-lua), a Lua port of Dear ImGui, and was extended from there to the docking branch, Roblox and LÖVE.
 
 Embeds [stb_truetype, stb_textedit, stb_rectpack](https://github.com/nothings/stb) by Sean Barrett (public domain / MIT), ported to Luau.
 
