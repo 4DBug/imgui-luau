@@ -6,6 +6,7 @@
 # Why: ModuleScripts don't share globals, and the setfenv() alternative turns off Luau's fast paths / native codegen.
 # Each source file becomes a function in __FILES; IM_INCLUDE(name) runs it once and caches the result.
 # The module returns a table with every global the library defines (ImGui, ImVec2, ImGuiConfigFlags, ImGui_ImplRoblox, ...).
+# Roblox target also writes ImGuiTyped.luau (types + require(script.Impl), see tools/gen_types.py).
 import os, re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,4 +65,8 @@ NAME = "imgui_love.lua" if LOVE else "ImGui.luau"
 open(os.path.join(OUT, NAME), "w").write("\n".join(out) + "\n")
 import json
 json.dump(linemap, open(os.path.join(OUT, NAME.rsplit(".", 1)[0] + ".linemap.json"), "w"))
+if not LOVE:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_types import wrapper
+    open(os.path.join(OUT, "ImGuiTyped.luau"), "w").write(wrapper(FILES))
 print("wrote build/%s (%d files, %d exports)" % (NAME, len(FILES), len(names)))
