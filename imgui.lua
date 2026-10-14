@@ -8626,8 +8626,12 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             end
 
             if override_alpha then
-                bg_col = bit32.band(bg_col, bit32.bnot(IM_COL32_A_MASK)) or bit32.lshift(IM_F32_TO_INT8_SAT(alpha), IM_COL32_A_SHIFT)
+                bg_col = bit32.bor(bit32.band(bg_col, bit32.bnot(IM_COL32_A_MASK)), bit32.lshift(IM_F32_TO_INT8_SAT(alpha), IM_COL32_A_SHIFT))
             end
+
+            -- Render, for docked windows and host windows we ensure BG goes before decorations
+            if window.DockIsActive then window.DockNode.LastBgColor = bg_col end
+            if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) ~= 0 then bg_col = 0 end
 
             if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
                 local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)

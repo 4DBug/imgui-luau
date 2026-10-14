@@ -8637,8 +8637,12 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             end
 
             if override_alpha then
-                bg_col = bit32.band(bg_col, bit32.bnot(IM_COL32_A_MASK)) or bit32.lshift(IM_F32_TO_INT8_SAT(alpha), IM_COL32_A_SHIFT)
+                bg_col = bit32.bor(bit32.band(bg_col, bit32.bnot(IM_COL32_A_MASK)), bit32.lshift(IM_F32_TO_INT8_SAT(alpha), IM_COL32_A_SHIFT))
             end
+
+            -- Render, for docked windows and host windows we ensure BG goes before decorations
+            if window.DockIsActive then window.DockNode.LastBgColor = bg_col end
+            if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) ~= 0 then bg_col = 0 end
 
             if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
                 local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)
@@ -34092,7 +34096,8 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     end
     if rate > 0 then
         local now = os.clock()
-        if now + 0.002 < bd.NextRender then table.clear(bd.Overlays); PE(); return end
+        -- Skipped: kept pending, so if no new frame comes (the app stopped rendering) Heartbeat still draws it
+        if now + 0.002 < bd.NextRender then bd.Pending = draw_data; PE(); return end
         bd.NextRender = math.max(bd.NextRender + 1 / rate, now)
     end
 
@@ -34359,6 +34364,16 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
 
     bd.PendingChars = {}
 
+    -- Render rate cap trailing edge: the last frame submitted is always drawn, even if it was skipped and the app
+    -- then stopped calling NewFrame (e.g. it rendered one empty frame to hide its windows)
+    connect(game:GetService("RunService").Heartbeat, function()
+        local d = bd.Pending
+        if d and os.clock() + 0.002 >= bd.NextRender then
+            bd.Pending = nil
+            ImGui_ImplRoblox_RenderDrawData(d)
+        end
+    end)
+
     connect(UserInputService.WindowFocused, function() ImGui.GetIO():AddFocusEvent(true) end)
     connect(UserInputService.WindowFocusReleased, function() ImGui.GetIO():AddFocusEvent(false) end)
 end
@@ -34418,6 +34433,7 @@ function ImGui_ImplRoblox_NewFrame()
     PB("ImGui NewFrame (backend)")
     local io = ImGui.GetIO()
     local bd = ImGui_ImplRoblox_GetBackendData()
+    if bd.Pending then bd.Pending = nil; table.clear(bd.Overlays) end -- skipped frame superseded (its draw lists get reset)
 
     local screen = bd.Gui.AbsoluteSize
     local w, h = floor(screen.X * bd.Scale), floor(screen.Y * bd.Scale)
