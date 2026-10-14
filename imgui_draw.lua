@@ -1,10 +1,32 @@
 --- Dear ImGui WIP
--- (Draw Code)
+-- (drawing and font code)
 
-FONT_ATLAS_DEFAULT_TEX_DATA_W = 122
+--
+-- Index of this file:
+--
+-- [SECTION] STB libraries implementation
+-- [SECTION] Style functions
+-- [SECTION] ImDrawList
+-- [SECTION] ImTriangulator, ImDrawList concave polygon fill
+-- [SECTION] ImDrawListSplitter
+-- [SECTION] ImDrawData
+-- [SECTION] Helpers ShadeVertsXXX functions
+-- [SECTION] ImFontConfig
+-- [SECTION] ImFontAtlas, ImFontAtlasBuilder
+-- [SECTION] ImFontAtlas: backend for stb_truetype
+-- [SECTION] ImFontAtlas: glyph ranges helpers
+-- [SECTION] ImFontGlyphRangesBuilder
+-- [SECTION] ImFontBaked, ImFont
+-- [SECTION] ImGui Internal Render Helpers
+-- [SECTION] Decompression code
+-- [SECTION] Default font data (ProggyClean.ttf)
+-- [SECTION] Default font data (ProggyForever.ttf)
+--
+
+FONT_ATLAS_DEFAULT_TEX_DATA_W = 122 -- Actual texture will be 2 times that + 1 spacing.
 FONT_ATLAS_DEFAULT_TEX_DATA_H = 27
 
-local IM_DRAWLIST_TEX_LINES_WIDTH_MAX = 32
+local IM_DRAWLIST_TEX_LINES_WIDTH_MAX = 32 -- The maximum line width to bake anti-aliased textures for.
 
 local writef64, writeu32, readf64, readu32 = buffer.writef64, buffer.writeu32, buffer.readf64, buffer.readu32
 -- Write vertex i (1-based) of a VtxBuffer.Buf
@@ -14,8 +36,8 @@ local function WV(b, i, x, y, u, v, col)
 end
 local function WVP(b, i, p, uv, col) WV(b, i, p.x, p.y, uv.x, uv.y, col) end
 
-local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF
-local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE
+local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF -- ((ImU16)-1)
+local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE -- ((ImU16)-2)
 
 --- @param str string
 --- @return table
@@ -35,7 +57,9 @@ local function write_u32(buf, base, u32)
     buf[base + 3] = bit32.band(bit32.rshift(u32, 24), 0xFF)
 end
 
---- Original ImGui pixel art!
+-- A work of art lies ahead! (. = white layer, X = black layer, others are blank)
+-- The 2x2 white texels on the top left are the ones we'll use everywhere in Dear ImGui to render filled shapes.
+-- (This is used when io.MouseDrawCursor = true)
 local FONT_ATLAS_DEFAULT_TEX_DATA_PIXELS = str_to_table(
     "..-         -XXXXXXX-    X    -           X           -XXXXXXX          -          XXXXXXX-     XX          - XX       XX " ..
     "..-         -X.....X-   X.X   -          X.X          -X.....X          -          X.....X-    X..X         -X..X     X..X" ..
@@ -83,15 +107,19 @@ local FONT_ATLAS_DEFAULT_TEX_CURSOR_DATA = {
 
 local MT = ImGui.GetMetatables()
 
+-------------------------------------------------------------------------------
+-- [SECTION] STB libraries implementation (for stb_truetype and stb_rect_pack)
+-------------------------------------------------------------------------------
+
 --- @module "imstb_rectpack"
 local stbrp = IM_INCLUDE("imstb_rectpack.lua")
 
 --- @module "imstb_truetype"
 local stbtt = IM_INCLUDE("imstb_truetype.lua")
 
----------------------------------------------------------------------------------------
--- [SECTION] STYLE FUNCTIONS
----------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Style functions
+-------------------------------------------------------------------------------
 
 --- @param a ImVec4
 --- @param b ImVec4
@@ -152,8 +180,8 @@ function ImGui.StyleColorsDark(dst)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
     colors[ImGuiCol.PlotHistogramHovered]      = ImVec4(1.00, 0.60, 0.00, 1.00)
     colors[ImGuiCol.TableHeaderBg]             = ImVec4(0.19, 0.19, 0.20, 1.00)
-    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.31, 0.31, 0.35, 1.00)
-    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.23, 0.23, 0.25, 1.00)
+    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.31, 0.31, 0.35, 1.00)   -- Prefer using Alpha=1.0 here
+    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.23, 0.23, 0.25, 1.00)   -- Prefer using Alpha=1.0 here
     colors[ImGuiCol.TableRowBg]                = ImVec4(0.00, 0.00, 0.00, 0.00)
     colors[ImGuiCol.TableRowBgAlt]             = ImVec4(1.00, 1.00, 1.00, 0.06)
     colors[ImGuiCol.TextLink]                  = colors[ImGuiCol.HeaderActive]
@@ -222,8 +250,8 @@ function ImGui.StyleColorsClassic(dst)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
     colors[ImGuiCol.PlotHistogramHovered]      = ImVec4(1.00, 0.60, 0.00, 1.00)
     colors[ImGuiCol.TableHeaderBg]             = ImVec4(0.27, 0.27, 0.38, 1.00)
-    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.31, 0.31, 0.45, 1.00)
-    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.26, 0.26, 0.28, 1.00)
+    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.31, 0.31, 0.45, 1.00)   -- Prefer using Alpha=1.0 here
+    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.26, 0.26, 0.28, 1.00)   -- Prefer using Alpha=1.0 here
     colors[ImGuiCol.TableRowBg]                = ImVec4(0.00, 0.00, 0.00, 0.00)
     colors[ImGuiCol.TableRowBgAlt]             = ImVec4(1.00, 1.00, 1.00, 0.07)
     colors[ImGuiCol.TextLink]                  = colors[ImGuiCol.HeaderActive]
@@ -293,8 +321,8 @@ function ImGui.StyleColorsLight(dst)
     colors[ImGuiCol.PlotHistogram]             = ImVec4(0.90, 0.70, 0.00, 1.00)
     colors[ImGuiCol.PlotHistogramHovered]      = ImVec4(1.00, 0.45, 0.00, 1.00)
     colors[ImGuiCol.TableHeaderBg]             = ImVec4(0.78, 0.87, 0.98, 1.00)
-    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.57, 0.57, 0.64, 1.00)
-    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.68, 0.68, 0.74, 1.00)
+    colors[ImGuiCol.TableBorderStrong]         = ImVec4(0.57, 0.57, 0.64, 1.00)   -- Prefer using Alpha=1.0 here
+    colors[ImGuiCol.TableBorderLight]          = ImVec4(0.68, 0.68, 0.74, 1.00)   -- Prefer using Alpha=1.0 here
     colors[ImGuiCol.TableRowBg]                = ImVec4(0.00, 0.00, 0.00, 0.00)
     colors[ImGuiCol.TableRowBgAlt]             = ImVec4(0.30, 0.30, 0.30, 0.09)
     colors[ImGuiCol.TextLink]                  = colors[ImGuiCol.HeaderActive]
@@ -309,6 +337,11 @@ function ImGui.StyleColorsLight(dst)
     colors[ImGuiCol.ModalWindowDimBg]          = ImVec4(0.20, 0.20, 0.20, 0.35)
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Helpers ShadeVertsXXX functions
+-------------------------------------------------------------------------------
+
+-- Generic linear color gradient, write to RGB fields, leave A untouched.
 --- @param draw_list      ImDrawList
 --- @param vert_start_idx int
 --- @param vert_end_idx   int
@@ -441,10 +474,102 @@ local ImTextClassifierSetCharClassFromStr
 
 local ImTextureDataGetFormatBytesPerPixel
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontAtlas, ImFontAtlasBuilder
+-------------------------------------------------------------------------------
+-- - Default texture data encoded in ASCII
+-- - ImFontAtlas()
+-- - ImFontAtlas:Clear()
+-- - ImFontAtlas:ClearFonts()
+-- - ImFontAtlas:ClearInputData()
+-- - ImFontAtlas:ClearTexData()
+-- - ImFontAtlas:CompactCache()
+-- - ImFontAtlas:SetFontLoader()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasUpdateNewFrame()
+-- - ImFontAtlasTextureBlockConvert()
+-- - ImFontAtlasTextureBlockPostProcess()
+-- - ImFontAtlasTextureBlockPostProcessMultiply()
+-- - ImFontAtlasTextureBlockFill()
+-- - ImFontAtlasTextureBlockCopy()
+-- - ImFontAtlasTextureBlockQueueUpload()
+-------------------------------------------------------------------------------
+-- - ImFontAtlas:GetTexDataAsAlpha8() [legacy]
+-- - ImFontAtlas:GetTexDataAsRGBA32() [legacy]
+-- - ImFontAtlas:Build() [legacy]
+-------------------------------------------------------------------------------
+-- - ImFontAtlas:AddFont()
+-- - ImFontAtlas:AddFontDefault()
+-- - ImFontAtlas:AddFontDefaultBitmap()
+-- - ImFontAtlas:AddFontDefaultVector()
+-- - ImFontAtlas:AddFontFromFileTTF()
+-- - ImFontAtlas:AddFontFromMemoryTTF()
+-- - ImFontAtlas:AddFontFromMemoryCompressedTTF()
+-- - ImFontAtlas:AddFontFromMemoryCompressedBase85TTF()
+-- - ImFontAtlas:RemoveFont()
+-- - ImFontAtlasBuildNotifySetFont()
+-------------------------------------------------------------------------------
+-- - ImFontAtlas:AddCustomRect()
+-- - ImFontAtlas:RemoveCustomRect()
+-- - ImFontAtlas:GetCustomRect()
+-- - ImFontAtlas:AddCustomRectFontGlyph() [legacy]
+-- - ImFontAtlas:AddCustomRectFontGlyphForSize() [legacy]
+-- - ImFontAtlasGetMouseCursorTexData()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasBuildMain()
+-- - ImFontAtlasBuildSetupFontLoader()
+-- - ImFontAtlasBuildPreloadAllGlyphRanges()
+-- - ImFontAtlasBuildUpdatePointers()
+-- - ImFontAtlasBuildRenderBitmapFromString()
+-- - ImFontAtlasBuildAddFont()
+-- - ImFontAtlasBuildSetupFontBakedEllipsis()
+-- - ImFontAtlasBuildSetupFontBakedBlanks()
+-- - ImFontAtlasBuildSetupFontBakedFallback()
+-- - ImFontAtlasBuildSetupFontSpecialGlyphs()
+-- - ImFontAtlasBuildDiscardBakes()
+-- - ImFontAtlasBuildDiscardFontBakedGlyph()
+-- - ImFontAtlasBuildDiscardFontBaked()
+-- - ImFontAtlasBuildDiscardFontBakes()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasAddDrawListSharedData()
+-- - ImFontAtlasRemoveDrawListSharedData()
+-- - ImFontAtlasUpdateDrawListsTextures()
+-- - ImFontAtlasUpdateDrawListsSharedData()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasBuildSetTexture()
+-- - ImFontAtlasBuildUpdateTexData()
+-- - ImFontAtlasTextureAdd()
+-- - ImFontAtlasTextureRepack()
+-- - ImFontAtlasTextureGrow()
+-- - ImFontAtlasTextureMakeSpace()
+-- - ImFontAtlasTextureGetSizeEstimate()
+-- - ImFontAtlasBuildClear()
+-- - ImFontAtlasTextureCompact()
+-- - ImFontAtlasBuildInit()
+-- - ImFontAtlasBuildDestroy()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasPackInit()
+-- - ImFontAtlasPackAllocRectEntry()
+-- - ImFontAtlasPackReuseRectEntry()
+-- - ImFontAtlasPackDiscardRect()
+-- - ImFontAtlasPackAddRect()
+-- - ImFontAtlasPackGetRect()
+-------------------------------------------------------------------------------
+-- - ImFontBaked_BuildGrowIndex()
+-- - ImFontBaked_BuildLoadGlyph()
+-- - ImFontBaked_BuildLoadGlyphAdvanceX()
+-- - ImFontAtlasDebugLogTextureRequests()
+-------------------------------------------------------------------------------
+-- - ImFontAtlasGetFontLoaderForStbTruetype()
+-------------------------------------------------------------------------------
+
+-- You probably should not call this directly. It is not well specified.
+-- If you want to replace all your fonts mid-frame, most likely you should instead call ClearFonts() then load the new fonts.
+-- Calling this mid-frame will discard the CPU-side copy of the texture data which is generally unreliable as you may have textures queued for creation or updates.
 function MT.ImFontAtlas:Clear()
     IMGUI_DEBUG_LOG_FONT("[font] ImFontAtlas:Clear()")
     local backup_renderer_has_textures = self.RendererHasTextures
-    self.RendererHasTextures = false
+    self.RendererHasTextures = false -- Full Clear() is supported, but ClearTexData() only isn't.
     self:ClearFonts()
     self:ClearTexData()
     self.RendererHasTextures = backup_renderer_has_textures
@@ -464,12 +589,14 @@ function MT.ImFontAtlas:ClearInputData()
         ImFontAtlasFontDestroySourceData(self, font_cfg)
     end
     for _, font in self.Fonts:iter() do
+        -- When clearing this we lose access to the font name and other information used to build the font.
         font.Sources:clear()
         font.Flags = bit32.bor(font.Flags, ImFontFlags.NoLoadGlyphs)
     end
     self.Sources:clear()
 end
 
+-- Clear CPU-side copy of the texture data.
 function MT.ImFontAtlas:ClearTexData()
     IM_ASSERT(not self.Locked, "Cannot modify a locked ImFontAtlas!")
     IM_ASSERT(self.RendererHasTextures == false, "Not supported for dynamic atlases, but you may call Clear().")
@@ -477,6 +604,7 @@ function MT.ImFontAtlas:ClearTexData()
     for _, tex in self.TexList:iter() do
         tex:DestroyPixels()
     end
+    --self.Locked = true -- Hoped to be able to lock this down but some reload patterns may not be happy with it.
 end
 
 function MT.ImFontAtlas:CompactCache()
@@ -484,6 +612,7 @@ function MT.ImFontAtlas:CompactCache()
 end
 
 function MT.ImFontAtlas:ClearFonts()
+    -- FIXME-NEWATLAS: Illegal to remove currently bound font.
     IMGUI_DEBUG_LOG_FONT("[font] ImFontAtlas:ClearFonts()")
     IM_ASSERT(not self.Locked, "Cannot modify a locked ImFontAtlas!")
 
@@ -514,25 +643,34 @@ function ImTextureDataUpdateNewFrame(tex)
         tex.UpdateRect.w = 0     tex.UpdateRect.h = 0
     end
 
+    -- Request destroy
+    -- - Keep bool to true in order to differentiate a planned destroy vs a destroy decided by the backend.
+    -- - We don't destroy pixels right away, as backend may have an in-flight copy from RAM.
     if (tex.WantDestroyNextFrame and tex.Status ~= ImTextureStatus.Destroyed and tex.Status ~= ImTextureStatus.WantDestroy) then
         IM_ASSERT(tex.Status == ImTextureStatus.OK or tex.Status == ImTextureStatus.WantCreate or tex.Status == ImTextureStatus.WantUpdates)
         tex.Status = ImTextureStatus.WantDestroy
     end
 
+    -- If a texture has never reached the backend, they don't need to know about it.
+    -- (note: backends between 1.92.0 and 1.92.4 could set an already destroyed texture to ImTextureStatus.WantDestroy
+    --  when invalidating graphics objects twice, which would previously remove it from the list and crash.)
     if (tex.Status == ImTextureStatus.WantDestroy and tex.TexID == ImTextureID_Invalid and tex.BackendUserData == nil and tex.QueueUserData == nil) then
         tex.Status = ImTextureStatus.Destroyed
     end
 
+    -- Process texture being destroyed
     if (tex.Status == ImTextureStatus.Destroyed) then
         IM_ASSERT(tex.TexID == ImTextureID_Invalid and tex.BackendUserData == nil, "Backend set texture Status to Destroyed but did not clear TexID/BackendUserData!")
         IM_ASSERT(tex.QueueUserData == nil, "Texture queue set Status to Destroyed but did not clear QueueUserData!")
         if (tex.WantDestroyNextFrame) then
-            remove_from_list = true
+            remove_from_list = true -- Destroy was scheduled by us
         else
-            tex.Status = ImTextureStatus.WantCreate
+            tex.Status = ImTextureStatus.WantCreate -- Destroy was done was backend: recreate it (e.g. freed resources mid-run)
         end
     end
 
+    -- The backend may need defer destroying by a few frames, to handle texture used by previous in-flight rendering.
+    -- We allow the texture staying in _WantDestroy state and increment a counter which the backend can use to take its decision.
     if (tex.Status == ImTextureStatus.WantDestroy) then
         tex.UnusedFrames = tex.UnusedFrames + 1
     end
@@ -540,15 +678,24 @@ function ImTextureDataUpdateNewFrame(tex)
     return remove_from_list
 end
 
+-- Called by NewFrame() for atlases owned by a context.
+-- If you manually manage font atlases, you'll need to call this yourself.
+-- - 'frame_count' needs to be provided because we can gc/prioritize baked fonts based on their age.
+-- - 'frame_count' may not match those of all imgui contexts using this atlas, as contexts may be updated as different frequencies. But generally you can use ImGui.GetFrameCount() on one of your context.
 --- @param atlas                 ImFontAtlas
 --- @param frame_count           int
 --- @param renderer_has_textures any
 function ImFontAtlasUpdateNewFrame(atlas, frame_count, renderer_has_textures)
-    IM_ASSERT(atlas.Builder == nil or atlas.Builder.FrameCount < frame_count)
+    IM_ASSERT(atlas.Builder == nil or atlas.Builder.FrameCount < frame_count) -- Protection against being called twice.
     atlas.RendererHasTextures = renderer_has_textures
 
+    -- Update texture status and discard old textures.
+    -- (we do this first thing to handle an edge case: if user mistakenly calls ClearFonts()+SetStatus(OK) during
+    --  rendering, it would ImFontAtlasBuildMain() rebuilding before tex.Updates[] gets a chance to be cleared)
+    -- (if somehow we need to move this back lower in the function, we could manually call the code to clear Updates[]).
     local tex_n = 1
     while tex_n <= atlas.TexList.Size do
+        -- Update and remove if requested
         local tex = atlas.TexList.Data[tex_n]
 
         if (tex.Status == ImTextureStatus.WantCreate and atlas.RendererHasTextures) then
@@ -567,13 +714,14 @@ function ImFontAtlasUpdateNewFrame(atlas, frame_count, renderer_has_textures)
         tex_n = tex_n + 1
     end
 
+    -- Check that font atlas was built or backend support texture reload in which case we can build now
     if (atlas.RendererHasTextures) then
         atlas.TexIsBuilt = true
-        if (atlas.Builder == nil) then
+        if (atlas.Builder == nil) then -- This will only happen if fonts were not already loaded.
             ImFontAtlasBuildMain(atlas)
         end
     end
-
+    -- Legacy backend
     if (not atlas.RendererHasTextures) then
         IM_ASSERT_USER_ERROR(atlas.TexIsBuilt, "Backend does not support ImGuiBackendFlags.RendererHasTextures, and font atlas is not built! Update backend OR make sure you called ImGui_ImplXXXX_NewFrame() function for renderer backend, which should call io.Fonts->GetTexDataAsRGBA32() / GetTexDataAsAlpha8().")
     end
@@ -581,12 +729,15 @@ function ImFontAtlasUpdateNewFrame(atlas, frame_count, renderer_has_textures)
         IM_ASSERT_USER_ERROR(atlas.RendererHasTextures == false, "Called ImFontAtlas::Build() before ImGuiBackendFlags.RendererHasTextures got set! With new backends: you don't need to call Build().")
     end
 
+    -- Clear BakedCurrent cache, this is important because it ensure the uncached path gets taken once.
+    -- We also rely on ImFontBaked pointers never crossing frames.
     local builder = atlas.Builder
     builder.FrameCount = frame_count
     for _, font in atlas.Fonts:iter() do
         font.LastBaked = nil
     end
 
+    -- Garbage collect BakedPool
     if builder.BakedDiscardedCount > 0 then
         local dst_n = 1
 
@@ -667,8 +818,11 @@ function ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, dst_pixe
     end
 end
 
+-- Source buffer may be written to (used for in-place mods).
+-- Post-process hooks may eventually be added here.
 --- @param data ImFontAtlasPostProcessData
 function ImFontAtlasTextureBlockPostProcess(data)
+    -- Multiply operator (legacy)
     if data.FontSrc.RasterizerMultiply ~= 1.0 then
         ImFontAtlasTextureBlockPostProcessMultiply(data, data.FontSrc.RasterizerMultiply)
     end
@@ -709,6 +863,7 @@ function ImFontAtlasTextureBlockPostProcessMultiply(data, multiply_factor)
     end
 end
 
+-- Copy block from one texture to another
 --- @param src_tex ImTextureData
 --- @param src_x   int
 --- @param src_y   int
@@ -731,6 +886,7 @@ function ImFontAtlasTextureBlockCopy(src_tex, src_x, src_y, dst_tex, dst_x, dst_
     end
 end
 
+-- Queue texture block update for renderer backend
 --- @param tex   ImTextureData
 --- @param x     int
 --- @param y     int
@@ -752,6 +908,7 @@ local function ImTextureDataQueueUpload(tex, x, y, w, h)
     tex.UsedRect.w = (ImMax(tex.UsedRect.x + tex.UsedRect.w, req.x + req.w) - tex.UsedRect.x) -- (unsigned short)
     tex.UsedRect.h = (ImMax(tex.UsedRect.y + tex.UsedRect.h, req.y + req.h) - tex.UsedRect.y) -- (unsigned short)
 
+    -- No need to queue if status is == ImTextureStatus.WantCreate
     if (tex.Status == ImTextureStatus.OK or tex.Status == ImTextureStatus.WantUpdates) then
         tex.Status = ImTextureStatus.WantUpdates
         tex.Updates:push_back(req)
@@ -769,6 +926,7 @@ function ImFontAtlasTextureBlockQueueUpload(atlas, tex, x, y, w, h)
     atlas.TexIsBuilt = false
 end
 
+-- Copy to texture, post-process and queue update for backend
 --- @param atlas      ImFontAtlas
 --- @param baked      ImFontBaked
 --- @param src        ImFontConfig
@@ -789,6 +947,8 @@ local function ImFontAtlasBakedSetFontGlyphBitmap(atlas, baked, src, glyph, r, s
 end
 
 local function ImFontAtlasBuildGetOversampleFactors(src, baked)
+    -- (Only used by stb_truetype builder)
+    -- Automatically disable horizontal oversampling over size 36
     local raster_size = baked.Size * baked.RasterizerDensity * src.RasterizerDensity
     local out_oversample_h
     if src.OversampleH ~= 0 then
@@ -802,6 +962,7 @@ local function ImFontAtlasBuildGetOversampleFactors(src, baked)
     return out_oversample_h, out_oversample_v
 end
 
+-- use unused_frames==0 to discard everything.
 local function ImFontAtlasBuildDiscardBakes(atlas, unused_frames)
     local builder = atlas.Builder
 
@@ -822,6 +983,7 @@ local function ImFontAtlasBuildDiscardBakes(atlas, unused_frames)
     end
 end
 
+-- Those functions are designed to facilitate changing the underlying structures for ImFontAtlas to store an array of ImDrawListSharedData
 --- @param atlas ImFontAtlas
 --- @param data  ImDrawListSharedData
 function ImFontAtlasAddDrawListSharedData(atlas, data)
@@ -848,7 +1010,16 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
     new_tex.UseColors = old_tex.UseColors
 
     IMGUI_DEBUG_LOG_FONT("[font] Texture #%03d: resize+repack %dx%d => Texture #%03d: %dx%d", old_tex.UniqueID, old_tex.Width, old_tex.Height, new_tex.UniqueID, new_tex.Width, new_tex.Height)
+    --for baked_n = 1, builder.BakedPool.Size do
+    --    IMGUI_DEBUG_LOG_FONT("[font] - Baked %.2fpx, %d glyphs, want_destroy=%d", builder.BakedPool[baked_n].FontSize, builder.BakedPool[baked_n].Glyphs.Size, builder.BakedPool[baked_n].WantDestroy)
+    --end
+    --IMGUI_DEBUG_LOG_FONT("[font] - Old packed rects: %d, area %d px", builder.RectsPackedCount, builder.RectsPackedSurface)
+    --ImFontAtlasDebugWriteTexToDisk(old_tex, "Before Pack")
 
+    -- Repack, lose discarded rectangle, copy pixels
+    -- FIXME-NEWATLAS: This is unstable because packing order is based on RectsIndex
+    -- FIXME-NEWATLAS-V2: Repacking in batch would be beneficial to packing heuristic, and fix stability.
+    -- FIXME-NEWATLAS-TESTS: Test calling RepackTexture with size too small to fits existing rects.
     ImFontAtlasPackInit(atlas)
     local old_rects = ImVector()
     local old_index = builder.RectsIndex:copy()
@@ -867,13 +1038,15 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
 
         local new_r_id = ImFontAtlasPackAddRect(atlas, old_r.w, old_r.h, index_entry)
         if new_r_id == ImFontAtlasRectId_Invalid then
+            -- Undo, grow texture and try repacking again.
+            -- FIXME-NEWATLAS-TESTS: This is a very rarely exercised path! It needs to be automatically tested properly.
             IMGUI_DEBUG_LOG_FONT("[font] Texture #%03d: resize failed. Will grow.", new_tex.UniqueID)
 
             new_tex.WantDestroyNextFrame = true
             builder.Rects:swap(old_rects)
             builder.RectsIndex = old_index
             ImFontAtlasBuildSetTexture(atlas, old_tex)
-            ImFontAtlasTextureGrow(atlas, w, h)
+            ImFontAtlasTextureGrow(atlas, w, h) -- Recurse
 
             return
         end
@@ -889,6 +1062,7 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
     builder.RectsDiscardedCount = 0
     builder.RectsDiscardedSurface = 0
 
+    -- Patch glyphs UV
     for baked_n = 1, builder.BakedPool.Size do
         for _, glyph in builder.BakedPool[baked_n].Glyphs:iter() do
             if (glyph.PackId ~= ImFontAtlasRectId_Invalid) then
@@ -901,14 +1075,16 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
         end
     end
 
+    -- Update other cached UV
     ImFontAtlasBuildUpdateTexData(atlas)
 
     builder.LockDisableResize = false
     ImFontAtlasUpdateDrawListsSharedData(atlas)
-    -- ImFontAtlasDebugWriteTexToDisk(new_tex, "After Pack");
+    --ImFontAtlasDebugWriteTexToDisk(new_tex, "After Pack")
 end
 
 function ImFontAtlasTextureGrow(atlas, old_tex_w, old_tex_h)
+    --ImFontAtlasDebugWriteTexToDisk(atlas.TexData, "Before Grow")
     local builder = atlas.Builder
 
     old_tex_w = old_tex_w or -1
@@ -921,12 +1097,18 @@ function ImFontAtlasTextureGrow(atlas, old_tex_w, old_tex_h)
         old_tex_h = atlas.TexData.Height
     end
 
+    -- FIXME-NEWATLAS-V2: What to do when reaching limits exposed by backend?
+    -- FIXME-NEWATLAS-V2: Does ImFontAtlasFlags.NoPowerOfTwoHeight makes sense now? Allow 'lock' and 'compact' operations?
     IM_ASSERT(ImIsPowerOfTwo(old_tex_w) and ImIsPowerOfTwo(old_tex_h))
     IM_ASSERT(ImIsPowerOfTwo(atlas.TexMinWidth) and ImIsPowerOfTwo(atlas.TexMaxWidth) and ImIsPowerOfTwo(atlas.TexMinHeight) and ImIsPowerOfTwo(atlas.TexMaxHeight))
 
+    -- Grow texture so it follows roughly a square.
+    -- - Grow height before width, as width imply more packing nodes.
+    -- - Caller should be taking account of RectsDiscardedSurface and may not need to grow.
     local new_tex_w = (old_tex_h <= old_tex_w) and old_tex_w or old_tex_w * 2
     local new_tex_h = (old_tex_h <= old_tex_w) and old_tex_h * 2 or old_tex_h
 
+    -- Handle minimum size first (for pathologically large packed rects)
     local pack_padding = atlas.TexGlyphPadding
     new_tex_w = ImMax(new_tex_w, ImUpperPowerOfTwo(builder.MaxRectSize.x + pack_padding))
     new_tex_h = ImMax(new_tex_h, ImUpperPowerOfTwo(builder.MaxRectSize.y + pack_padding))
@@ -941,9 +1123,12 @@ end
 
 --- @param atlas ImFontAtlas
 local function ImFontAtlasTextureMakeSpace(atlas)
+    -- Can some baked contents be ditched?
+    --IMGUI_DEBUG_LOG_FONT("[font] ImFontAtlasBuildMakeSpace()")
     local builder = atlas.Builder
     ImFontAtlasBuildDiscardBakes(atlas, 2)
 
+    -- Currently using a heuristic for repack without growing.
     if (builder.RectsDiscardedSurface < builder.RectsPackedSurface * 0.20) then
         ImFontAtlasTextureGrow(atlas)
     else
@@ -951,6 +1136,7 @@ local function ImFontAtlasTextureMakeSpace(atlas)
     end
 end
 
+-- This is essentially a free-list pattern, it may be nice to wrap it into a dedicated type.
 --- @param atlas    ImFontAtlas
 --- @param rect_idx ImFontAtlasRectId
 local function ImFontAtlasPackAllocRectEntry(atlas, rect_idx)
@@ -964,7 +1150,7 @@ local function ImFontAtlasPackAllocRectEntry(atlas, rect_idx)
     else
         index_idx = builder.RectsIndexFreeListStart
         index_entry = builder.RectsIndex[index_idx + 1]
-        IM_ASSERT(index_entry.IsUsed == false and index_entry.Generation > 0)
+        IM_ASSERT(index_entry.IsUsed == false and index_entry.Generation > 0) -- Generation is incremented during DiscardRect
         builder.RectsIndexFreeListStart = index_entry.TargetIndex
     end
 
@@ -974,6 +1160,7 @@ local function ImFontAtlasPackAllocRectEntry(atlas, rect_idx)
     return ImFontAtlasRectId_Make(index_idx, index_entry.Generation)
 end
 
+-- Overwrite existing entry
 --- @param atlas       ImFontAtlas
 --- @param index_entry ImFontAtlasRectEntry
 local function ImFontAtlasPackReuseRectEntry(atlas, index_entry)
@@ -983,6 +1170,7 @@ local function ImFontAtlasPackReuseRectEntry(atlas, index_entry)
     return ImFontAtlasRectId_Make(index_idx, index_entry.Generation)
 end
 
+-- This is expected to be called in batches and followed by a repack
 --- @param atlas ImFontAtlas
 --- @param id    ImFontAtlasRectId
 function ImFontAtlasPackDiscardRect(atlas, id)
@@ -1001,16 +1189,18 @@ function ImFontAtlasPackDiscardRect(atlas, id)
     index_entry.TargetIndex = builder.RectsIndexFreeListStart
     index_entry.Generation = index_entry.Generation + 1
     if (index_entry.Generation == 0) then
-        index_entry.Generation = index_entry.Generation + 1
+        index_entry.Generation = index_entry.Generation + 1 -- Keep non-zero on overflow
     end
 
     local pack_padding = atlas.TexGlyphPadding
     builder.RectsIndexFreeListStart = index_idx
     builder.RectsDiscardedCount = builder.RectsDiscardedCount + 1
     builder.RectsDiscardedSurface = builder.RectsDiscardedSurface + ((rect.w + pack_padding) * (rect.h + pack_padding))
-    rect.w = 0 rect.h = 0
+    rect.w = 0 rect.h = 0 -- Clear rectangle so it won't be packed again
 end
 
+-- Important: Calling this may recreate a new texture and therefore change atlas.TexData
+-- FIXME-NEWFONTS: Expose other glyph padding settings for custom alteration (e.g. drop shadows). See #7962
 function ImFontAtlasPackAddRect(atlas, w, h, overwrite_entry)
     IM_ASSERT(w > 0 and w <= 0xFFFF)
     IM_ASSERT(h > 0 and h <= 0xFFFF)
@@ -1020,8 +1210,10 @@ function ImFontAtlasPackAddRect(atlas, w, h, overwrite_entry)
     builder.MaxRectSize.x = ImMax(builder.MaxRectSize.x, w)
     builder.MaxRectSize.y = ImMax(builder.MaxRectSize.y, h)
 
+    -- Pack
     local r = ImTextureRect(0, 0, w, h)
     for attempts_remaining = 3, 0, -1 do
+        -- Try packing
         local pack_r = stbrp.rect()
         pack_r.w = w + pack_padding
         pack_r.h = h + pack_padding
@@ -1032,12 +1224,14 @@ function ImFontAtlasPackAddRect(atlas, w, h, overwrite_entry)
             break
         end
 
+        -- If we ran out of attempts, return fallback
         if (attempts_remaining == 0 or builder.LockDisableResize) then
             IMGUI_DEBUG_LOG_FONT("[font] Failed packing %dx%d rectangle. Returning fallback.", w, h)
 
             return ImFontAtlasRectId_Invalid
         end
 
+        -- Resize or repack atlas! (this should be a rare event)
         ImFontAtlasTextureMakeSpace(atlas)
     end
 
@@ -1048,12 +1242,13 @@ function ImFontAtlasPackAddRect(atlas, w, h, overwrite_entry)
 
     builder.Rects:push_back(r)
     if (overwrite_entry ~= nil) then
-        return ImFontAtlasPackReuseRectEntry(atlas, overwrite_entry)
+        return ImFontAtlasPackReuseRectEntry(atlas, overwrite_entry) -- Write into an existing entry instead of adding one (used during repack)
     else
         return ImFontAtlasPackAllocRectEntry(atlas, builder.Rects.Size - 1)
     end
 end
 
+-- Generally for non-user facing functions: assert on invalid ID.
 --- @param atlas ImFontAtlas
 --- @param id    ImFontAtlasRectId
 --- @return ImTextureRect
@@ -1068,6 +1263,8 @@ function ImFontAtlasPackGetRect(atlas, id)
     return builder.Rects.Data[index_entry.TargetIndex + 1]
 end
 
+-- For user-facing functions: return nil on invalid ID.
+-- Important: return value is valid until next call to AddRect(), e.g. FindGlyph(), CalcTextSize() can all potentially invalidate previous rects.
 --- @param atlas ImFontAtlas
 --- @param id    ImFontAtlasRectId
 function ImFontAtlasPackGetRectSafe(atlas, id)
@@ -1090,6 +1287,8 @@ function ImFontAtlasPackGetRectSafe(atlas, id)
     return builder.Rects.Data[index_entry.TargetIndex + 1]
 end
 
+-- Important! This assume by ImFontConfig.GlyphExcludeRanges[] is a SMALL ARRAY (e.g. <10 entries)
+-- Use "Input Glyphs Overlap Detection Tool" to display a list of glyphs provided by multiple sources in order to set this array up.
 --- @param src       ImFontConfig
 --- @param codepoint ImWchar
 --- @return bool
@@ -1120,6 +1319,13 @@ function ImFontBaked_BuildGrowIndex(baked, new_size)
     baked.IndexLookup:resize(new_size, IM_FONTGLYPH_INDEX_UNUSED)
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontAtlas: backend for stb_truetype
+-------------------------------------------------------------------------------
+-- (imstb_truetype.lua in included near the top of this file)
+-------------------------------------------------------------------------------
+
+-- One for each ConfigData
 --- @class ImGui_ImplStbTrueType_FontSrcData
 --- @field FontInfo    stbtt_fontinfo
 --- @field ScaleFactor float
@@ -1147,6 +1353,7 @@ local function ImGui_ImplStbTrueType_FontSrcInit(atlas, src)
     local bd_font_data = ImGui_ImplStbTrueType_FontSrcData()
     IM_ASSERT(src.FontLoaderData == nil)
 
+    -- Initialize helper structure for font loading and verify that the TTF/OTF data is correct
     local font_offset = stbtt.GetFontOffsetForIndex(src.FontData, src.FontNo)
     if font_offset < 0 then
         bd_font_data = nil
@@ -1167,7 +1374,7 @@ local function ImGui_ImplStbTrueType_FontSrcInit(atlas, src)
 
     bd_font_data.ScaleFactor = stbtt.ScaleForPixelHeight(bd_font_data.FontInfo, 1.0)
     if (src.MergeMode and src.SizePixels ~= 0.0 and ref_size ~= 0.0) then
-        bd_font_data.ScaleFactor = bd_font_data.ScaleFactor * (src.SizePixels / ref_size)
+        bd_font_data.ScaleFactor = bd_font_data.ScaleFactor * (src.SizePixels / ref_size) -- FIXME-NEWATLAS: Should tidy up that a bit
     end
     bd_font_data.ScaleFactor = bd_font_data.ScaleFactor * src.ExtraSizeScale
 
@@ -1193,11 +1400,14 @@ local function ImGui_ImplStbTrueType_FontBakedInit(atlas, src, baked)
 
     local bd_font_data = src.FontLoaderData
     if (src.MergeMode == false) then
+        -- FIXME-NEWFONTS: reevaluate how to use sizing metrics
+        -- FIXME-NEWFONTS: make use of line gap value
         local scale_for_layout = bd_font_data.ScaleFactor * baked.Size / src.ExtraSizeScale
         local unscaled_ascent, unscaled_descent, unscaled_line_gap = stbtt.GetFontVMetrics(bd_font_data.FontInfo)
 
         baked.Ascent = ImCeil(unscaled_ascent * scale_for_layout)
         baked.Descent = ImFloor(unscaled_descent * scale_for_layout)
+        -- FIXME: round to rasterizer density? (#9348)
     end
 
     return true
@@ -1213,6 +1423,7 @@ end
 --- @return bool
 --- @return float? out_advance_x # Updated `advance_x`
 local function ImGui_ImplStbTrueType_FontBakedLoadGlyph(atlas, src, baked, _, codepoint, out_glyph, advance_x)
+    -- Search for first font which has the glyph
     local bd_font_data = src.FontLoaderData
     IM_ASSERT(bd_font_data ~= nil)
     local glyph_index = stbtt.FindGlyphIndex(bd_font_data.FontInfo, codepoint)
@@ -1220,15 +1431,18 @@ local function ImGui_ImplStbTrueType_FontBakedLoadGlyph(atlas, src, baked, _, co
         return false, advance_x
     end
 
+    -- Fonts unit to pixels
     local oversample_h, oversample_v = ImFontAtlasBuildGetOversampleFactors(src, baked)
     local scale_for_layout = bd_font_data.ScaleFactor * baked.Size
     local rasterizer_density = src.RasterizerDensity * baked.RasterizerDensity
     local scale_for_raster_x = bd_font_data.ScaleFactor * baked.Size * rasterizer_density * oversample_h
     local scale_for_raster_y = bd_font_data.ScaleFactor * baked.Size * rasterizer_density * oversample_v
 
+    -- Obtain size and advance
     local x0, y0, x1, y1 = stbtt.GetGlyphBitmapBoxSubpixel(bd_font_data.FontInfo, glyph_index, scale_for_raster_x, scale_for_raster_y, 0, 0)
     local advance, lsb = stbtt.GetGlyphHMetrics(bd_font_data.FontInfo, glyph_index)
 
+    -- Load metrics only mode
     if (advance_x ~= nil) then
         IM_ASSERT(out_glyph == nil)
         advance_x = advance * scale_for_layout
@@ -1236,9 +1450,12 @@ local function ImGui_ImplStbTrueType_FontBakedLoadGlyph(atlas, src, baked, _, co
         return true, advance_x
     end
 
+    -- Prepare glyph
     out_glyph.Codepoint = codepoint
     out_glyph.AdvanceX = advance * scale_for_layout
 
+    -- Pack and retrieve position inside texture atlas
+    -- (generally based on stbtt_PackFontRangesRenderIntoRects)
     local is_visible = (x0 ~= x1 and y0 ~= y1)
     if is_visible then
         local w = (x1 - x0 + oversample_h - 1)
@@ -1252,23 +1469,30 @@ local function ImGui_ImplStbTrueType_FontBakedLoadGlyph(atlas, src, baked, _, co
 
         local r = ImFontAtlasPackGetRect(atlas, pack_id)
 
+        -- Render
         x0, y0, x1, y1 = stbtt.GetGlyphBitmapBox(bd_font_data.FontInfo, glyph_index, scale_for_raster_x, scale_for_raster_y)
         local builder = atlas.Builder
         builder.TempBuffer:resize(w * h * 1)
         local bitmap_pixels = builder.TempBuffer.Data
         ImStd.memset(bitmap_pixels, 0, w * h * 1)
+
+        -- Render with oversampling
+        -- (those functions conveniently assert if pixels are not cleared, which is another safety layer)
         local sub_x, sub_y = stbtt.MakeGlyphBitmapSubpixelPrefilter(bd_font_data.FontInfo, bitmap_pixels, w, h, w,
             scale_for_raster_x, scale_for_raster_y, 0, 0, oversample_h, oversample_v, glyph_index)
 
         local ref_size = baked.OwnerFont.Sources[1].SizePixels
         local offsets_scale = (ref_size ~= 0.0) and (baked.Size / ref_size) or 1.0
-        local font_off_x = ImFloor(src.GlyphOffset.x * offsets_scale + 0.5)
+        local font_off_x = ImFloor(src.GlyphOffset.x * offsets_scale + 0.5) -- Snap scaled offset.
         local font_off_y = ImFloor(src.GlyphOffset.y * offsets_scale + 0.5)
         font_off_x = font_off_x + sub_x
         font_off_y = font_off_y + (sub_y + IM_ROUND(baked.Ascent))
         local recip_h = 1.0 / (oversample_h * rasterizer_density)
         local recip_v = 1.0 / (oversample_v * rasterizer_density)
 
+        -- Register glyph
+        -- r.x r.y are coordinates inside texture (in pixels)
+        -- glyph.X0, glyph.Y0 are drawing coordinates from base text position, and accounting for oversampling.
         out_glyph.X0 = x0 * recip_h + font_off_x
         out_glyph.Y0 = y0 * recip_v + font_off_y
         out_glyph.X1 = (x0 + r.w) * recip_h + font_off_x
@@ -1300,11 +1524,14 @@ end
 --- @param atlas ImFontAtlas
 --- @param baked ImFontBaked
 function ImFontAtlasBuildSetupFontBakedBlanks(atlas, baked)
+    -- Mark space as always hidden (not strictly correct/necessary. but some e.g. icons fonts don't have a space. it tends to look neater in previews)
     local space_glyph = baked:FindGlyphNoFallback(32)
     if space_glyph ~= nil then
         space_glyph.Visible = false
     end
 
+    -- Setup Tab character.
+    -- FIXME: Needs proper TAB handling but it needs to be contextualized (or we could arbitrary say that each string starts at "column 0" ?)
     if baked:FindGlyphNoFallback(9) == nil and space_glyph ~= nil then
         local tab_glyph = ImFontGlyph()
         tab_glyph.Codepoint = 9
@@ -1330,8 +1557,9 @@ function ImFontAtlasBakedAdd(atlas, font, font_size, font_rasterizer_density, ba
     baked.OwnerFont         = font
     baked.LastUsedFrame     = atlas.Builder.FrameCount
 
+    -- Initialize backend data
     local loader_data_size = 0
-    for _, src in font.Sources:iter() do
+    for _, src in font.Sources:iter() do -- Cannot easily be cached as we allow changing backend
         local loader = src.FontLoader and src.FontLoader or atlas.FontLoader
         loader_data_size = loader_data_size + loader.FontBakedSrcLoaderDataSize
     end
@@ -1349,6 +1577,7 @@ function ImFontAtlasBakedAdd(atlas, font, font_size, font_rasterizer_density, ba
     return baked
 end
 
+-- FIXME-OPT: This is not a fast query. Adding a BakedCount field in Font might allow to take a shortcut for the most common case.
 --- @param atlas                   ImFontAtlas
 --- @param font                    ImFont
 --- @param font_size               float
@@ -1367,7 +1596,7 @@ function ImFontAtlasBakedGetClosestMatch(atlas, font, font_size, font_rasterizer
                 break
             end
 
-            if (step_n == 0 and baked.RasterizerDensity ~= font_rasterizer_density) then
+            if (step_n == 0 and baked.RasterizerDensity ~= font_rasterizer_density) then -- First try with same density
                 break
             end
 
@@ -1424,9 +1653,10 @@ function ImFontAtlasBakedDiscard(atlas, font, baked)
     font.LastBaked = nil
 end
 
+-- use unused_frames==0 to discard everything.
 function ImFontAtlasFontDiscardBakes(atlas, font, unused_frames)
     local builder = atlas.Builder
-    if builder then
+    if builder then -- This can be called from font destructor
         for baked_n = 1, builder.BakedPool.Size do
             repeat
             local baked = builder.BakedPool[baked_n]
@@ -1445,6 +1675,7 @@ function ImFontAtlasFontDiscardBakes(atlas, font, unused_frames)
     end
 end
 
+-- Was tempted to lazily init FontSrc but wouldn't save much + makes it more complicated to detect invalid data at AddFont()
 function ImFontAtlasFontInitOutput(atlas, font)
     local ret = true
     for _, src in font.Sources:iter() do
@@ -1452,10 +1683,11 @@ function ImFontAtlasFontInitOutput(atlas, font)
             ret = false
         end
     end
-    IM_ASSERT(ret)
+    IM_ASSERT(ret) -- Unclear how to react to this meaningfully. Assume that result will be same as initial AddFont() call.
     return ret
 end
 
+-- Keep source/input FontData
 function ImFontAtlasFontDestroyOutput(atlas, font)
     font:ClearOutputData()
     for _, src in font.Sources:iter() do
@@ -1483,10 +1715,11 @@ end
 function ImFontAtlasFontSourceAddToFont(atlas, font, src)
     if src.MergeMode == false then
         font:ClearOutputData()
+        --font.FontSize = src.SizePixels
         font.OwnerAtlas = atlas
         IM_ASSERT(font.Sources[1] == src)
     end
-    atlas.TexIsBuilt = false
+    atlas.TexIsBuilt = false -- For legacy backends
     ImFontAtlasBuildSetupFontSpecialGlyphs(atlas, font, src)
 end
 
@@ -1505,6 +1738,8 @@ function ImFontAtlasFontDestroySourceData(atlas, src)
     src.GlyphExcludeRanges = nil
 end
 
+-- Load/identify special glyphs
+-- (note that this is called again for fonts with MergeMode)
 --- @param atlas ImFontAtlas
 --- @param font ImFont
 --- @param src ImFontConfig
@@ -1512,6 +1747,7 @@ function ImFontAtlasBuildSetupFontSpecialGlyphs(atlas, font, src)
     -- IM_UNUSED(atlas)
     IM_ASSERT(font.Sources:contains(src))
 
+    -- Find Fallback character. Actual glyph loaded in GetFontBaked().
     --- @type ImWchar[]
     local fallback_chars = {font.FallbackChar, IM_UNICODE_CODEPOINT_INVALID, 63, 32}
     if font.FallbackChar == 0 then
@@ -1524,6 +1760,9 @@ function ImFontAtlasBuildSetupFontSpecialGlyphs(atlas, font, src)
         end
     end
 
+    -- Setup Ellipsis character. It is required for rendering elided text. We prefer using U+2026 (horizontal ellipsis).
+    -- However some old fonts may contain ellipsis at U+0085. Here we auto-detect most suitable ellipsis character.
+    -- FIXME: Note that 0x2026 is rarely included in our font ranges. Because of this we are more likely to use three individual dots.
     --- @type ImWchar[]
     local ellipsis_chars = {src.EllipsisChar, 0x2026, 0x0085}
     if font.EllipsisChar == 0 then
@@ -1542,6 +1781,9 @@ function ImFontAtlasBuildSetupFontSpecialGlyphs(atlas, font, src)
     end
 end
 
+-- Create a compact, baked "..." if it doesn't exist, by using the ".".
+-- This may seem overly complicated right now but the point is to exercise and improve a technique which should be increasingly used.
+-- FIXME-NEWATLAS: This borrows too much from FontLoader's FontLoadGlyph() handlers and suggest that we should add further helpers.
 --- @param atlas ImFontAtlas
 --- @param baked ImFontBaked
 --- @return ImFontGlyph?
@@ -1556,7 +1798,7 @@ function ImFontAtlasBuildSetupFontBakedEllipsis(atlas, baked)
     if (dot_glyph == nil) then
         return nil
     end
-    local dot_r_id = dot_glyph.PackId
+    local dot_r_id = dot_glyph.PackId -- Deep copy to avoid invalidation of glyphs and rect pointers
     local dot_r = ImFontAtlasPackGetRect(atlas, dot_r_id)
     local dot_spacing = 1
     local dot_step = (dot_glyph.X1 - dot_glyph.X0) + dot_spacing
@@ -1566,7 +1808,7 @@ function ImFontAtlasBuildSetupFontBakedEllipsis(atlas, baked)
 
     local glyph = ImFontGlyph()
     glyph.Codepoint = font.EllipsisChar
-    glyph.AdvanceX = ImMax(dot_glyph.AdvanceX, dot_glyph.X0 + dot_step * 3.0 - dot_spacing)
+    glyph.AdvanceX = ImMax(dot_glyph.AdvanceX, dot_glyph.X0 + dot_step * 3.0 - dot_spacing) -- FIXME: Slightly odd for normally mono-space fonts but since this is used for trailing contents.
     glyph.X0 = dot_glyph.X0
     glyph.Y0 = dot_glyph.Y0
     glyph.X1 = dot_glyph.X0 + dot_step * 3 - dot_spacing
@@ -1586,6 +1828,8 @@ function ImFontAtlasBuildSetupFontBakedEllipsis(atlas, baked)
     return glyph
 end
 
+-- Load fallback in order to obtain its index
+-- (this is called from in hot-path so we avoid extraneous parameters to minimize impact on code size)
 --- @param baked ImFontBaked
 function ImFontAtlasBuildSetupFontBakedFallback(baked)
     IM_ASSERT(baked.FallbackGlyphIndex == -1)
@@ -1602,10 +1846,12 @@ function ImFontAtlasBuildSetupFontBakedFallback(baked)
         glyph.AdvanceX = space_glyph and space_glyph.AdvanceX or IM_ROUND(baked.Size * 0.40)
         fallback_glyph = ImFontAtlasBakedAddFontGlyph(font.OwnerAtlas, baked, nil, glyph)
     end
-    baked.FallbackGlyphIndex = baked.Glyphs:index_from_ptr(fallback_glyph) + 1
+    baked.FallbackGlyphIndex = baked.Glyphs:index_from_ptr(fallback_glyph) + 1 -- Storing index avoid need to update pointer on growth and simplify inner loop code
     baked.FallbackAdvanceX = fallback_glyph.AdvanceX
 end
 
+-- Setup main font loader for the atlas
+-- Every font source (ImFontConfig) will use this unless ImFontConfig.FontLoader specify a custom loader.
 function ImFontAtlasBuildSetupFontLoader(atlas, font_loader)
     if atlas.FontLoader == font_loader then
         return
@@ -1637,6 +1883,11 @@ function ImFontAtlasBuildSetupFontLoader(atlas, font_loader)
 end
 
 local function ImFontAtlasBuildUpdateRendererHasTexturesFromContext(atlas)
+    -- [LEGACY] Copy back the ImGuiBackendFlags.RendererHasTextures flag from ImGui context.
+    -- - This is the 1% exceptional case where that dependency if useful, to bypass an issue where otherwise at the
+    --   time of an early call to Build(), it would be impossible for us to tell if the backend supports texture update.
+    -- - Without this hack, we would have quite a pitfall as many legacy codebases have an early call to Build().
+    --   Whereas conversely, the portion of people using ImDrawList without ImGui is expected to be pathologically rare.
     for _, shared_data in atlas.DrawListSharedDatas:iter() do
         local imgui_ctx = shared_data.Context
         if (imgui_ctx) then
@@ -1656,21 +1907,27 @@ local function ImFontAtlasBuildUpdatePointers(atlas)
     -- end
 end
 
+-- Update texture identifier in all active draw lists
 --- @param atlas   ImFontAtlas
 --- @param old_tex ImTextureRef
 --- @param new_tex ImTextureRef
 local function ImFontAtlasUpdateDrawListsTextures(atlas, old_tex, new_tex)
     for _, shared_data in atlas.DrawListSharedDatas:iter() do
         repeat
+        -- If Context 2 uses font owned by Context 1 which already called EndFrame()/Render(), we don't want to mess with draw commands for Context 1
         if (shared_data.Context and not shared_data.Context.WithinFrameScope) then
             break
         end
 
         for _, draw_list in shared_data.DrawLists:iter() do
+            -- Replace in command-buffer
+            -- (there is not need to replace in ImDrawListSplitter: current channel is in ImDrawList's CmdBuffer[],
+            --  other channels will be on SetCurrentChannel() which already needs to compare CmdHeader anyhow)
             if (draw_list.CmdBuffer.Size > 0 and draw_list._CmdHeader.TexRef == old_tex) then
                 draw_list:_SetTexture(new_tex)
             end
 
+            -- Replace in stack
             for i, stacked_tex in draw_list._TextureStack:iter() do
                 if (stacked_tex == old_tex) then
                     draw_list._TextureStack.Data[i] = new_tex
@@ -1682,12 +1939,13 @@ local function ImFontAtlasUpdateDrawListsTextures(atlas, old_tex, new_tex)
     end
 end
 
+-- Set current texture. This is mostly called from AddTexture() + to handle a failed resize.
 function ImFontAtlasBuildSetTexture(atlas, tex)
     local old_tex_ref = atlas.TexRef
     atlas.TexData = tex
     atlas.TexUvScale = ImVec2(1.0 / tex.Width, 1.0 / tex.Height)
     atlas.TexRef._TexData = tex
-    -- atlas->TexRef._TexID = tex->TexID; <-- We intentionally don't do that. It would be misleading and betray promise that both fields aren't set.
+    --atlas.TexRef._TexID = tex.TexID -- <-- We intentionally don't do that. It would be misleading and betray promise that both fields aren't set.
     ImFontAtlasUpdateDrawListsTextures(atlas, old_tex_ref, atlas.TexRef)
 end
 
@@ -1697,17 +1955,28 @@ function ImFontAtlasBuildUpdateTexData(atlas)
     ImFontAtlasBuildUpdateTexDataBasic(atlas)
 end
 
+-- Create a new texture, discard previous one
 function ImFontAtlasTextureAdd(atlas, w, h)
     local old_tex = atlas.TexData
     local new_tex
 
     -- FIXME: Cannot reuse texture because old UV may have been used already (unless we remap UV).
+    --if (old_tex ~= nil and old_tex.Status == ImTextureStatus.WantCreate) then
+    --    -- Reuse texture not yet used by backend.
+    --    IM_ASSERT(old_tex.TexID == ImTextureID_Invalid and old_tex.BackendUserData == nil)
+    --    old_tex:DestroyPixels()
+    --    old_tex.Updates:clear()
+    --    new_tex = old_tex
+    --    old_tex = nil
+    --else
+    -- Add new
     new_tex = ImTextureData()
     new_tex.UniqueID = atlas.TexNextUniqueID
     atlas.TexNextUniqueID = atlas.TexNextUniqueID + 1
     atlas.TexList:push_back(new_tex)
 
     if old_tex ~= nil then
+        -- Queue old as to destroy next frame
         old_tex.WantDestroyNextFrame = true
         IM_ASSERT(old_tex.Status == ImTextureStatus.OK or old_tex.Status == ImTextureStatus.WantCreate or old_tex.Status == ImTextureStatus.WantUpdates)
     end
@@ -1732,7 +2001,7 @@ function ImFontAtlasTextureGetSizeEstimate(atlas)
     local builder = atlas.Builder
     min_w = ImMax(ImUpperPowerOfTwo(builder.MaxRectSize.x), min_w)
     min_h = ImMax(ImUpperPowerOfTwo(builder.MaxRectSize.y), min_h)
-    local surface_approx = builder.RectsPackedSurface - builder.RectsDiscardedSurface
+    local surface_approx = builder.RectsPackedSurface - builder.RectsDiscardedSurface -- Expected surface after repack
     local surface_sqrt = ImFloor(ImSqrt(surface_approx))
 
     local new_tex_w
@@ -1755,6 +2024,7 @@ function ImFontAtlasTextureGetSizeEstimate(atlas)
     return ImVec2(new_tex_w, new_tex_h) -- ImVec2i
 end
 
+-- Clear all output. Invalidates all AddCustomRect() return values!
 --- @param atlas ImFontAtlas
 function ImFontAtlasBuildClear(atlas)
     local new_tex_size = ImFontAtlasTextureGetSizeEstimate(atlas) -- ImVec2i
@@ -1771,6 +2041,8 @@ function ImFontAtlasBuildClear(atlas)
     end
 end
 
+-- You should not need to call this manually!
+-- If you think you do, let us know and we can advise about policies auto-compact.
 --- @param atlas ImFontAtlas
 function ImFontAtlasTextureCompact(atlas)
     local builder = atlas.Builder
@@ -1791,6 +2063,7 @@ function ImFontAtlasPackInit(atlas)
     local tex = atlas.TexData
     local builder = atlas.Builder
 
+    -- In theory we could decide to reduce the number of nodes, e.g. halve them, and waste a little texture space, but it doesn't seem worth it.
     local pack_node_count = ImFloor(tex.Width / 2)
     builder.PackNodes:resize(pack_node_count)
     for i = 1, builder.PackNodes.Size do builder.PackNodes.Data[i] = stbrp.node() end
@@ -1808,18 +2081,22 @@ function ImFontAtlasBuildUpdateTexDataLines(atlas)
         return
     end
 
+    -- Pack and store identifier so we can refresh UV coordinates on texture resize.
     local tex = atlas.TexData
     local builder = atlas.Builder
 
     local r = ImFontAtlasRect()
     local add_and_draw = (atlas:GetCustomRect(builder.PackIdLinesTexData, r) == false)
     if add_and_draw then
+        -- Register texture region for thick lines
+        -- The +2 here is to give space for the end caps, whilst height +1 is to accommodate the fact we have a zero-width row
         local pack_size = ImVec2(IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 2, IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1) -- ImVec2i
         builder.PackIdLinesTexData = atlas:AddCustomRect(pack_size.x, pack_size.y, r)
         IM_ASSERT(builder.PackIdLinesTexData ~= ImFontAtlasRectId_Invalid)
     end
 
-    for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX do
+    for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX do -- +1 because of the zero-width row
+        -- Each line consists of at least two empty pixels at the ends, with a line of solid pixels in the middle
         local y = n
         local line_width = n
 
@@ -1828,8 +2105,9 @@ function ImFontAtlasBuildUpdateTexDataLines(atlas)
         --- @type int
         local pad_right = r.w - (pad_left + line_width)
 
-        IM_ASSERT(pad_left + line_width + pad_right == r.w and y < r.h)
+        IM_ASSERT(pad_left + line_width + pad_right == r.w and y < r.h) -- Make sure we're inside the texture bounds before we start writing pixels
 
+        -- Write each slice
         if (add_and_draw and tex.Format == ImTextureFormat.Alpha8) then
             local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
 
@@ -1860,13 +2138,15 @@ function ImFontAtlasBuildUpdateTexDataLines(atlas)
             end
         end
 
+        -- Refresh UV coordinates
         local uv0 = ImVec2(r.x + pad_left - 1, r.y + y) * atlas.TexUvScale
         local uv1 = ImVec2(r.x + pad_left + line_width + 1, r.y + y + 1) * atlas.TexUvScale
-        local half_v = (uv0.y + uv1.y) * 0.5
+        local half_v = (uv0.y + uv1.y) * 0.5 -- Calculate a constant V in the middle of the row to avoid sampling artifacts
         atlas.TexUvLines[n] = ImVec4(uv0.x, half_v, uv1.x, half_v)
     end
 end
 
+-- Render a white-colored bitmap encoded in a string
 --- @param atlas          ImFontAtlas
 --- @param x              int
 --- @param y              int
@@ -1906,6 +2186,8 @@ end
 
 --- @param atlas ImFontAtlas
 function ImFontAtlasBuildUpdateTexDataBasic(atlas)
+    -- Pack and store identifier so we can refresh UV coordinates on texture resize.
+    -- FIXME-NEWATLAS: User/custom rects where user code wants to store UV coordinates will need to do the same thing.
     local builder = atlas.Builder
     local pack_size = (bit32.band(atlas.Flags, ImFontAtlasFlags.NoMouseCursors) ~= 0) and ImVec2(2, 2) or ImVec2(FONT_ATLAS_DEFAULT_TEX_DATA_W * 2 + 1, FONT_ATLAS_DEFAULT_TEX_DATA_H)
 
@@ -1915,9 +2197,12 @@ function ImFontAtlasBuildUpdateTexDataBasic(atlas)
         builder.PackIdMouseCursors = atlas:AddCustomRect(pack_size.x, pack_size.y, r)
         IM_ASSERT(builder.PackIdMouseCursors ~= ImFontAtlasRectId_Invalid)
 
+        -- Draw to texture
         if bit32.band(atlas.Flags, ImFontAtlasFlags.NoMouseCursors) ~= 0 then
+            -- 2x2 white pixels
             ImFontAtlasBuildRenderBitmapFromString(atlas, r.x, r.y, 2, 2, {"X", "X", "X", "X"}, "X")
         else
+            -- 2x2 white pixels + mouse cursors
             local x_for_white = r.x
             local x_for_black = r.x + FONT_ATLAS_DEFAULT_TEX_DATA_W + 1
             ImFontAtlasBuildRenderBitmapFromString(atlas, x_for_white, r.y, FONT_ATLAS_DEFAULT_TEX_DATA_W, FONT_ATLAS_DEFAULT_TEX_DATA_H, FONT_ATLAS_DEFAULT_TEX_DATA_PIXELS, ".")
@@ -1925,9 +2210,12 @@ function ImFontAtlasBuildUpdateTexDataBasic(atlas)
         end
     end
 
+    -- Refresh UV coordinates
     atlas.TexUvWhitePixel = ImVec2((r.x + 0.5) * atlas.TexUvScale.x, (r.y + 0.5) * atlas.TexUvScale.y)
 end
 
+-- Update texture coordinates in all draw list shared context
+-- FIXME-NEWATLAS FIXME-OPT: Doesn't seem necessary to update for all, only one bound to current context?
 function ImFontAtlasUpdateDrawListsSharedData(atlas)
     for _, shared_data in atlas.DrawListSharedDatas:iter() do
         if (shared_data.FontAtlas == atlas) then
@@ -1937,12 +2225,19 @@ function ImFontAtlasUpdateDrawListsSharedData(atlas)
     end
 end
 
+-- Start packing over current empty texture
 function ImFontAtlasBuildInit(atlas)
+    -- Select Backend
+    -- - Note that we do not reassign to atlas.FontLoader, since it is likely to point to static data which
+    --   may mess with some hot-reloading schemes. If you need to assign to this (for dynamic selection) AND are
+    --   using a hot-reloading scheme that messes up static data, store your own instance of FontLoader somewhere
+    --   and point to it instead of pointing directly to return value of the GetFontLoaderXXX functions.
     if atlas.FontLoader == nil then
         -- IMGUI_ENABLE_STB_TRUETYPE
         atlas:SetFontLoader(ImFontAtlasGetFontLoaderForStbTruetype())
     end
 
+    -- Create initial texture size
     if atlas.TexData == nil or atlas.TexData.Pixels == nil then
         ImFontAtlasTextureAdd(atlas, ImUpperPowerOfTwo(atlas.TexMinWidth), ImUpperPowerOfTwo(atlas.TexMinHeight))
     end
@@ -1955,15 +2250,23 @@ function ImFontAtlasBuildInit(atlas)
 
     ImFontAtlasPackInit(atlas)
 
+    -- Add required texture data
     ImFontAtlasBuildUpdateTexData(atlas)
 
+    -- Register fonts
     ImFontAtlasBuildUpdatePointers(atlas)
 
+    -- Update UV coordinates etc. stored in bound ImDrawListSharedData instance
     ImFontAtlasUpdateDrawListsSharedData(atlas)
 
+    --atlas.TexIsBuilt = true
+
+    -- Lazily initialize char/text classifier
+    -- FIXME: This could be practically anywhere, and should eventually be parameters to CalcTextSize/word-wrapping code, but there's no obvious spot now.
     ImTextInitClassifiers()
 end
 
+-- Destroy builder and all cached glyphs. Do not destroy actual fonts.
 --- @param atlas ImFontAtlas
 function ImFontAtlasBuildDestroy(atlas)
     for _, font in atlas.Fonts:iter() do
@@ -1976,6 +2279,8 @@ function ImFontAtlasBuildDestroy(atlas)
     atlas.Builder = nil
 end
 
+-- On font removal we need to remove references (otherwise we could queue removal?)
+-- We allow old_font == new_font which forces updating all values (e.g. sizes)
 --- @param atlas    ImFontAtlas
 --- @param old_font ImFont?
 --- @param new_font ImFont?
@@ -1987,9 +2292,9 @@ function ImFontAtlasBuildNotifySetFont(atlas, old_font, new_font)
         local ctx = shared_data.Context
         if ctx then
             repeat
+            -- While this should work either way, we save ourselves the bother / debugging confusion of running ImGui code so early when it is not needed.
+            -- Also fixes erroneously rewriting style.FontSizeBase during init if adding default fonts.
             if old_font == nil and ctx.Font == nil and ctx.FontSizeBase == 0.0 then
-                -- While this should work either way, we save ourselves the bother / debugging confusion of running ImGui code so early when it is not needed.
-                -- Also fixes erroneously rewriting style.FontSizeBase during init if adding default fonts.
 
                 break
             end
@@ -2019,6 +2324,7 @@ function ImFontAtlasBuildNotifySetFont(atlas, old_font, new_font)
     end
 end
 
+-- When atlas.RendererHasTextures = true, this is only called if no font were loaded.
 --- @param atlas ImFontAtlas
 function ImFontAtlasBuildMain(atlas)
     IM_ASSERT(not atlas.Locked, "Cannot modify a locked ImFontAtlas!")
@@ -2037,12 +2343,19 @@ function ImFontAtlasBuildMain(atlas)
 
     -- [LEGACY] For backends not supporting RendererHasTextures: preload all glyphs
     -- ImFontAtlasBuildUpdateRendererHasTexturesFromContext(atlas);
-    -- if atlas.RendererHasTextures == false then
+    -- if atlas.RendererHasTextures == false then -- ~ImGuiBackendFlags.RendererHasTextures
     --     ImFontAtlasBuildLegacyPreloadAllGlyphRanges(atlas)
     -- end
 
     atlas.TexIsBuilt = true
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] ImTextureData
+-------------------------------------------------------------------------------
+-- - ImTextureData:Create()
+-- - ImTextureData:DestroyPixels()
+-------------------------------------------------------------------------------
 
 function MT.ImTextureData:DestroyPixels()
     self.Pixels = nil
@@ -2080,6 +2393,10 @@ function MT.ImTextureData:Create(format, w, h)
     self.UpdateRect.h = 0
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontBaked, ImFont
+-------------------------------------------------------------------------------
+
 function MT.ImFontBaked:ClearOutputData()
     self.FallbackAdvanceX = 0.0
     self.Glyphs:clear()
@@ -2091,6 +2408,7 @@ function MT.ImFontBaked:ClearOutputData()
     self.MetricsTotalSurface = 0
 end
 
+-- Find glyph, load if necessary, return fallback if missing
 --- @param c ImWchar
 --- @return ImFontGlyph?
 function MT.ImFontBaked:FindGlyph(c)
@@ -2113,6 +2431,7 @@ function MT.ImFontBaked:IsGlyphLoaded(c)
     return self.IndexLookup.Data[c + 1] ~= IM_FONTGLYPH_INDEX_UNUSED
 end
 
+-- Attempt to load but when missing, return nil instead of FallbackGlyph
 --- @param c ImWchar
 --- @return ImFontGlyph?
 function MT.ImFontBaked:FindGlyphNoFallback(c)
@@ -2126,7 +2445,7 @@ function MT.ImFontBaked:FindGlyphNoFallback(c)
         end
     end
 
-    self.LoadNoFallback = true
+    self.LoadNoFallback = true -- This is actually a rare call, not done in hot-loop, so we prioritize not adding extra cruft to ImFontBaked_BuildLoadGlyph() call sites.
     local glyph = ImFontBaked_BuildLoadGlyph(self, c, nil)
     self.LoadNoFallback = false
     return glyph
@@ -2137,6 +2456,7 @@ function MT.ImFont:ClearOutputData()
     if atlas ~= nil then
         ImFontAtlasFontDiscardBakes(atlas, self, 0)
     end
+    --self.FallbackChar = 0 self.EllipsisChar = 0
 
     for i = 1, (IM_UNICODE_CODEPOINT_MAX + 1) / 8192 / 8 do self.Used8kPagesMap[i] = 0 end
     self.LastBaked = nil
@@ -2157,6 +2477,8 @@ end
 --- @param font_rasterizer_density float
 --- @return ImFontBaked?
 function ImFontAtlasBakedGetOrAdd(atlas, font, font_size, font_rasterizer_density)
+    -- FIXME-NEWATLAS: Design for picking a nearest size based on some criteria?
+    -- FIXME-NEWATLAS: Altering font density won't work right away.
     IM_ASSERT(font_size > 0.0 and font_rasterizer_density > 0.0)
     local baked_id = ImFontAtlasBakedGetId(font.FontId, font_size, font_rasterizer_density)
     local builder = atlas.Builder
@@ -2167,23 +2489,29 @@ function ImFontAtlasBakedGetOrAdd(atlas, font, font_size, font_rasterizer_densit
         return baked
     end
 
+    -- If atlas is locked, find closest match
+    -- FIXME-OPT: This is not an optimal query.
     if (bit32.band(font.Flags, ImFontFlags.LockBakedSizes) ~= 0 or atlas.Locked) then
         baked = ImFontAtlasBakedGetClosestMatch(atlas, font, font_size, font_rasterizer_density)
         if baked ~= nil then
             return baked
         end
         if atlas.Locked then
-            IM_ASSERT(not atlas.Locked, "Cannot use dynamic font size with a locked ImFontAtlas!")
+            IM_ASSERT(not atlas.Locked, "Cannot use dynamic font size with a locked ImFontAtlas!") -- Locked because rendering backend does not support ImGuiBackendFlags.RendererHasTextures!
             return nil
         end
     end
 
+    -- Create new
     baked = ImFontAtlasBakedAdd(atlas, font, font_size, font_rasterizer_density, baked_id)
     builder.BakedMap[baked_id] = baked
 
     return baked
 end
 
+-- x0/y0/x1/y1 are offset from the character upper-left layout position, in pixels. Therefore x0/y0 are often fairly close to zero.
+-- Not to be mistaken with texture coordinates, which are held by u0/v0/u1/v1 in normalized format (0.0..1.0 on each texture axis).
+-- - 'src' is not necessarily == 'self.Sources' because multiple source fonts+configs can be used to build one target font.
 --- @param atlas    ImFontAtlas
 --- @param baked    ImFontBaked
 --- @param src?     ImFontConfig
@@ -2193,8 +2521,9 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
     local glyph_idx = baked.Glyphs.Size + 1
     baked.Glyphs:push_back(in_glyph)
     local glyph = baked.Glyphs.Data[glyph_idx]
-    IM_ASSERT(baked.Glyphs.Size < 0xFFFE)
+    IM_ASSERT(baked.Glyphs.Size < 0xFFFE) -- IndexLookup[] hold 16-bit values and -1/-2 are reserved.
 
+    -- Set UV from packed rectangle
     if (glyph.PackId ~= ImFontAtlasRectId_Invalid) then
         local r = ImFontAtlasPackGetRect(atlas, glyph.PackId)
         IM_ASSERT(glyph.U0 == 0.0 and glyph.V0 == 0.0 and glyph.U1 == 0.0 and glyph.V1 == 0.0)
@@ -2206,6 +2535,7 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
     end
 
     if (src ~= nil) then
+        -- Clamp & recenter if needed
         local ref_size = baked.OwnerFont.Sources[1].SizePixels
         local offsets_scale = (ref_size ~= 0.0) and (baked.Size / ref_size) or 1.0
         local advance_x = ImClamp(glyph.AdvanceX, src.GlyphMinAdvanceX * offsets_scale, src.GlyphMaxAdvanceX * offsets_scale)
@@ -2215,10 +2545,12 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
             glyph.X1 = glyph.X1 + char_off_x
         end
 
+        -- Snap to pixel
         if (src.PixelSnapH) then
             advance_x = IM_ROUND(advance_x)
         end
 
+        -- Bake spacing
         glyph.AdvanceX = advance_x + src.GlyphExtraAdvanceX
     end
     if (glyph.Colored) then
@@ -2226,6 +2558,7 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
         atlas.TexPixelsUseColors = true
     end
 
+    -- Update lookup tables
     local codepoint = glyph.Codepoint
     ImFontBaked_BuildGrowIndex(baked, codepoint + 1)
     baked.IndexAdvanceX.Data[codepoint + 1] = glyph.AdvanceX
@@ -2236,6 +2569,7 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
     return glyph
 end
 
+-- FIXME: Code is duplicated with code above.
 --- @param atlas     ImFontAtlas
 --- @param baked     ImFontBaked
 --- @param src?      ImFontConfig
@@ -2244,14 +2578,17 @@ end
 function ImFontAtlasBakedAddFontGlyphAdvancedX(atlas, baked, src, codepoint, advance_x)
     -- IM_UNUSED(atlas)
     if (src ~= nil) then
+        -- Clamp & recenter if needed
         local ref_size = baked.OwnerFont.Sources[1].SizePixels
         local offsets_scale = (ref_size ~= 0.0) and (baked.Size / ref_size) or 1.0
         advance_x = ImClamp(advance_x, src.GlyphMinAdvanceX * offsets_scale, src.GlyphMaxAdvanceX * offsets_scale)
 
+        -- Snap to pixel
         if (src.PixelSnapH) then
             advance_x = IM_ROUND(advance_x)
         end
 
+        -- Bake spacing
         advance_x = advance_x + src.GlyphExtraAdvanceX
     end
 
@@ -2259,6 +2596,7 @@ function ImFontAtlasBakedAddFontGlyphAdvancedX(atlas, baked, src, codepoint, adv
     baked.IndexAdvanceX.Data[codepoint + 1] = advance_x
 end
 
+-- ImFontBaked are valid for the entire frame but shall never be kept between frames.
 --- @param size    float
 --- @param density float?
 --- @return ImFontBaked?
@@ -2268,6 +2606,8 @@ function MT.ImFont:GetFontBaked(size, density)
     --- @type ImFontBaked?
     local baked = self.LastBaked
 
+    -- Round font size
+    -- - ImGui.PushFont() will already round, but other paths calling GetFontBaked() directly also needs it (e.g. ImFontAtlasBuildPreloadAllGlyphRanges)
     size = ImGui.GetRoundedFontSize(size)
 
     if density < 0.0 then
@@ -2313,6 +2653,7 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
     local font = baked.OwnerFont
     local atlas = font.OwnerAtlas
     if atlas.Locked or bit32.band(font.Flags, ImFontFlags.NoLoadGlyphs) ~= 0 then
+        -- Lazily load fallback glyph
         if baked.FallbackGlyphIndex == -1 and baked.LoadNoFallback == false then
             ImFontAtlasBuildSetupFontBakedFallback(baked)
         end
@@ -2320,9 +2661,14 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
         return nil, only_load_advance_x
     end
 
+    -- User remapping hooks
     local src_codepoint = codepoint
     codepoint = ImFontAtlas_FontHookRemapCodepoint(atlas, font, codepoint)
 
+    --IMGUI_DEBUG_LOG("[font] BuildLoadGlyph U+%04X (%s)", codepoint, ImTextCharToUtf8(codepoint))
+
+    -- Special hook
+    -- FIXME-NEWATLAS: it would be nicer if this used a more standardized way of hooking
     if (codepoint == font.EllipsisChar and font.EllipsisAutoBake) then
         local glyph = ImFontAtlasBuildSetupFontBakedEllipsis(atlas, baked)
         if (glyph) then
@@ -2330,6 +2676,7 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
         end
     end
 
+    -- Call backend
     local loader_user_data_p = baked.FontLoaderDatas
     local src_n = 1
     for _, src in font.Sources:iter() do
@@ -2340,12 +2687,14 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
                 local glyph_buf = ImFontGlyph()
 
                 if loader.FontBakedLoadGlyph(atlas, src, baked, loader_user_data_p, codepoint, glyph_buf, nil) then
+                    -- FIXME: Add hooks for e.g. #7962
                     glyph_buf.Codepoint = src_codepoint
                     glyph_buf.SourceIdx = src_n
 
                     return ImFontAtlasBakedAddFontGlyph(atlas, baked, src, glyph_buf)
                 end
             else
+                -- Special mode but only loading glyphs metrics. Will rasterize and pack later.
                 local ret --[[@as bool]]
                 ret, only_load_advance_x = loader.FontBakedLoadGlyph(atlas, src, baked, loader_user_data_p, codepoint, nil, only_load_advance_x)
                 if ret then
@@ -2361,6 +2710,7 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
         src_n = src_n + 1
     end
 
+    -- Lazily load fallback glyph
     if (baked.LoadNoFallback) then
         return nil, only_load_advance_x
     end
@@ -2368,6 +2718,7 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
         ImFontAtlasBuildSetupFontBakedFallback(baked)
     end
 
+    -- Mark index as not found, so we don't attempt the search twice
     ImFontBaked_BuildGrowIndex(baked, codepoint + 1);
     baked.IndexAdvanceX.Data[codepoint + 1] = baked.FallbackAdvanceX
     baked.IndexLookup.Data[codepoint + 1] = IM_FONTGLYPH_INDEX_NOT_FOUND
@@ -2380,6 +2731,7 @@ end
 --- @return float
 function ImFontBaked_BuildLoadGlyphAdvanceX(baked, codepoint)
     if (baked.Size >= IMGUI_FONT_SIZE_THRESHOLD_FOR_LOADADVANCEXONLYMODE) or baked.LoadNoRenderOnLayout then
+        -- First load AdvanceX value used by CalcTextSize() API then load the rest when loaded by drawing API.
         local only_advance_x
         local glyph
         glyph, only_advance_x = ImFontBaked_BuildLoadGlyph(baked, codepoint, only_advance_x)
@@ -2391,6 +2743,7 @@ function ImFontBaked_BuildLoadGlyphAdvanceX(baked, codepoint)
     end
 end
 
+-- This is not fast query
 --- @param c ImWchar
 --- @return bool
 function MT.ImFont:IsGlyphInFont(c)
@@ -2406,10 +2759,12 @@ function MT.ImFont:IsGlyphInFont(c)
     return false
 end
 
+-- This is manually inlined in CalcTextSizeA() and CalcWordWrapPosition(), with a non-inline call to BuildLoadGlyphGetAdvanceOrFallback().
 --- @param c ImWchar
 --- @return float
 function MT.ImFontBaked:GetCharAdvance(c)
     if c < self.IndexAdvanceX.Size then
+        -- Missing glyphs fitting inside index will have stored FallbackAdvanceX already.
         local x = self.IndexAdvanceX.Data[c + 1]
         if x >= 0.0 then
             return x
@@ -2418,10 +2773,12 @@ function MT.ImFontBaked:GetCharAdvance(c)
     return ImFontBaked_BuildLoadGlyphAdvanceX(self, c)
 end
 
+-- The point of this indirection is to not be inlined in debug mode in order to not bloat inner loop.b
 function BuildLoadGlyphGetAdvanceOrFallback(baked, codepoint)
     return ImFontBaked_BuildLoadGlyphAdvanceX(baked, codepoint)
 end
 
+-- Trim trailing space and find beginning of next line
 --- @param text       ImString
 --- @param text_begin int
 --- @param text_end   int
@@ -2480,14 +2837,17 @@ function ImTextClassifierGet(_BITS, _CHAR_OFFSET)
     return bit32.band(bit32.rshift(_BITS[bit32.rshift(_CHAR_OFFSET, 4) + 1], bit32.lshift(bit32.band(_CHAR_OFFSET, 15), 1)), 0x03)
 end
 
+-- 2-bit per character
 local g_CharClassifierIsSeparator_0000_007f = {} for i = 1, 128 / 16 do g_CharClassifierIsSeparator_0000_007f[i] = 0 end
 local g_CharClassifierIsSeparator_3000_300f = {} for i = 1, 16 / 16 do g_CharClassifierIsSeparator_3000_300f[i] = 0 end
 
 function ImTextInitClassifiers()
-    if (ImTextClassifierGet(g_CharClassifierIsSeparator_0000_007f, 44) ~= 0) then
+    if (ImTextClassifierGet(g_CharClassifierIsSeparator_0000_007f, 44) ~= 0) then -- ','
         return
     end
 
+    -- List of hardcoded separators: .,;!?'"
+    -- Making this dynamic given known ranges is trivial BUT requires us to standardize where you pass them as parameters. (#3002, #8503)
     ImTextClassifierClear(g_CharClassifierIsSeparator_0000_007f, 0, 128, ImWcharClass.Other)
     ImTextClassifierSetCharClassFromStr(g_CharClassifierIsSeparator_0000_007f, 0, 128, ImWcharClass.Blank, " \t")
     ImTextClassifierSetCharClassFromStr(g_CharClassifierIsSeparator_0000_007f, 0, 128, ImWcharClass.Punct, ".,;!?\"")
@@ -2498,6 +2858,9 @@ function ImTextInitClassifiers()
     ImTextClassifierSetCharClass(g_CharClassifierIsSeparator_3000_300f, 0x3000, 0x300F, ImWcharClass.Punct, 0x3002)
 end
 
+-- Simple word-wrapping for English, not full-featured. Please submit failing cases!
+-- This will return the next location to wrap from. If no wrapping if necessary, this will fast-forward to e.g. text_end.
+-- Refer to imgui_test_suite's "drawlist_text_wordwrap_1" for tests.
 --- @param font       ImFont
 --- @param size       float
 --- @param text       ImString
@@ -2507,12 +2870,22 @@ end
 --- @param flags      ImDrawTextFlags
 --- @return int
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
+    -- For references, possible wrap point marked with ^
+    --  "aaa bbb, ccc,ddd. eee   fff. ggg!"
+    --      ^    ^    ^   ^   ^__    ^    ^
+
+    -- Skip extra blanks after a line returns (that includes not counting them in width computation)
+    -- e.g. "Hello    world" --> "Hello" "World"
+
+    -- Cut words that cannot possibly fit within one line.
+    -- e.g.: "The tropical fish" with ~5 characters worth of width --> "The tr" "opical" "fish"
+
     local baked = font:GetFontBaked(size)
     local scale = size / baked.Size
 
     local line_width = 0.0
     local blank_width = 0.0
-    wrap_width = wrap_width / scale
+    wrap_width = wrap_width / scale -- We work with unscaled widths to avoid scaling every characters
 
     local s = pos
     IM_ASSERT(text_end ~= nil)
@@ -2520,6 +2893,8 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     local prev_type = ImWcharClass.Other
     local keep_blanks = bit32.band(flags, ImDrawTextFlags.WrapKeepBlanks) ~= 0
 
+    -- Find next wrapping point
+    --local span_begin = s
     local span_end = s
     local span_width = 0.0
 
@@ -2539,20 +2914,22 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
         if c < 32 then
             if c == 10 then -- '\n'
-                return s
+                return s -- Direct return, skip "Wrap_width is too small to fit anything" path.
             end
             if c == 13 then -- '\r'
-                s = next_s
+                s = next_s -- Fast-skip
 
                 break
             end
         end
 
+        -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
         local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
         if char_width < 0.0 then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
         end
 
+        -- Classify current character
         local curr_type
         if c < 128 then
             curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_0000_007f, c)
@@ -2563,6 +2940,7 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
         end
 
         if curr_type == ImWcharClass.Blank then
+            -- End span: 'A ' or '. '
             if (prev_type ~= ImWcharClass.Blank and not keep_blanks) then
                 span_end = s
                 line_width = line_width + span_width
@@ -2571,11 +2949,13 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
             blank_width = blank_width + char_width
         else
-            if (prev_type == ImWcharClass.Punct and curr_type ~= ImWcharClass.Punct and not (c >= 48 and c <= 57)) then
+            -- End span: '.X' unless X is a digit
+            if (prev_type == ImWcharClass.Punct and curr_type ~= ImWcharClass.Punct and not (c >= 48 and c <= 57)) then -- FIXME: Digit checks might be removed if allow custom separators (#8503)
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
                 blank_width = 0.0
                 span_width = 0.0
+            -- End span: 'A ' or '. '
             elseif (prev_type == ImWcharClass.Blank and keep_blanks) then
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
@@ -2590,7 +2970,10 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
             if span_width + blank_width > wrap_width then
                 stop = true; break
             end
-
+            -- FIXME: Narrow wrapping e.g. "A quick brown" -> "Quic|k br|own", would require knowing if span is going to be longer than wrap_width.
+            --if (span_width > wrap_width and not is_blank and not was_blank) then
+            --    return s
+            --end
             return span_end
         end
 
@@ -2601,6 +2984,8 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
         if stop then break end
     end
 
+    -- Wrap_width is too small to fit anything. Force displaying 1 character to minimize the height discontinuity.
+    -- +1 may not be a character start point in UTF-8 but it's ok because caller loops use (text >= word_wrap_eol).
     if s == pos and s < text_end then
         local bytes = ImStd.ImTextCountUtf8BytesFromChar(text, s, text_end)
 
@@ -2643,7 +3028,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         cache_key = text
     end
     if not text_end then
-        text_end = #text + 1
+        text_end = #text + 1 -- FIXME-OPT: Need to avoid this.
     end
     if not text_end_display then
         text_end_display = text_end
@@ -2663,7 +3048,9 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     local stop = false
     while s < text_end_display do
         repeat
+        -- Word-wrapping
         if word_wrap_enabled then
+            -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(font, size, text, s, text_end, wrap_width - line_width, flags)
             end
@@ -2674,7 +3061,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
                 end
                 text_size.y = text_size.y + line_height
                 line_width = 0.0
-                s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags)
+                s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags) -- Wrapping skips upcoming blanks
                 if bit32.band(flags, ImDrawTextFlags.StopOnNewLine) ~= 0 then
                     stop = true; break
                 end
@@ -2684,6 +3071,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             end
         end
 
+        -- Decode and advance source
         local prev_s = s
         local c = ImStrByte(text, s)
         if c < 0x80 then
@@ -2709,6 +3097,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             break
         end
 
+        -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
         local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
         if (char_width < 0.0) then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
@@ -2730,12 +3119,12 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         text_size.x = line_width
     end
 
-    if out_offset then
+    if out_offset then -- offset allow for the possibility of sitting after a trailing \n
         out_offset.x = line_width
         out_offset.y = text_size.y + line_height
     end
 
-    if (line_width > 0 or text_size.y == 0.0) then
+    if (line_width > 0 or text_size.y == 0.0) then -- whereas size.y will ignore the trailing \n
         text_size.y = text_size.y + line_height
     end
 
@@ -2817,6 +3206,7 @@ function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
 end
 
 function MT.ImFontAtlas:AddFont(font_cfg_in)
+    -- Sanity Checks
     IM_ASSERT(not self.Locked, "Cannot modify a locked ImFontAtlas!")
     IM_ASSERT((font_cfg_in.FontData ~= nil and font_cfg_in.FontDataSize > 0) or (font_cfg_in.FontLoader ~= nil))
     IM_ASSERT(font_cfg_in.SizePixels > 0.0, "Is ImFontConfig struct correctly initialized?")
@@ -2828,10 +3218,12 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
             "Specifying glyph offset/advances requires a reference size to base it on.")
     end
 
+    -- Lazily create builder on the first call to AddFont
     if self.Builder == nil then
         ImFontAtlasBuildInit(self)
     end
 
+    -- Create new font
     local is_first_font = (self.Fonts.Size == 0)
     local font
     if not font_cfg_in.MergeMode then
@@ -2843,11 +3235,12 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
         font.CurrentRasterizerDensity = font_cfg_in.RasterizerDensity
         self.Fonts:push_back(font)
     else
-        IM_ASSERT(self.Fonts.Size > 0, "Cannot use MergeMode for the first font!")
+        IM_ASSERT(self.Fonts.Size > 0, "Cannot use MergeMode for the first font!") -- When using MergeMode make sure that a font has already been added before.
         font = (font_cfg_in.DstFont ~= nil) and font_cfg_in.DstFont or self.Fonts:back()
-        ImFontAtlasFontDiscardBakes(self, font, 0)
+        ImFontAtlasFontDiscardBakes(self, font, 0) -- Need to discard bakes if the font was already used, because baked->FontLoaderDatas[] will change size. (#9162)
     end
 
+    -- Add to list
     self.Sources:push_back(font_cfg_in)
     local font_cfg = self.Sources:back()
     if (font_cfg.DstFont == nil) then
@@ -2856,6 +3249,8 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
     font.Sources:push_back(font_cfg)
     ImFontAtlasBuildUpdatePointers(self)
 
+    -- Sanity check
+    -- We don't round cfg.SizePixels yet as relative size of merged fonts are used afterwards.
     if font_cfg.GlyphExcludeRanges ~= nil then
         local size = 0
         for _, v in ipairs(font_cfg.GlyphExcludeRanges) do if v == 0 then break end size = size + 1 end
@@ -2865,14 +3260,18 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
 
     if font_cfg.FontLoader ~= nil then
         IM_ASSERT(font_cfg.FontLoader.FontBakedLoadGlyph ~= nil)
-        IM_ASSERT(font_cfg.FontLoader.LoaderInit == nil and font_cfg.FontLoader.LoaderShutdown == nil)
+        IM_ASSERT(font_cfg.FontLoader.LoaderInit == nil and font_cfg.FontLoader.LoaderShutdown == nil) -- FIXME-NEWATLAS: Unsupported yet.
     end
+    --                             | Target w/ Implicit RefSize | Target w/ Explicit RefSize |
+    -- Adding w/ Implicit RefSize: | OK (same scale)            | OK (same scale)            |
+    -- Adding w/ Explicit RefSize: | KO                         | OK (custom scale)          |
     if font_cfg_in.MergeMode and font_cfg_in.SizePixels > 0 then
         IM_ASSERT(bit32.band(font.Flags, ImFontFlags.ImplicitRefSize) == 0, "Cannot use MergeMode with an explicit reference size when the destination font used an implicit reference size!")
     end
     IM_ASSERT(font_cfg.FontLoaderData == nil)
 
     if not ImFontAtlasFontSourceInit(self, font_cfg) then
+        -- Rollback (this is a fragile/rarely exercised code-path. TestSuite's "misc_atlas_add_invalid_font" aim to test this)
         ImFontAtlasFontDestroySourceData(self, font_cfg)
         self.Sources:pop_back()
         font.Sources:pop_back()
@@ -2891,12 +3290,16 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
     return font
 end
 
+-- This duplicates some of the logic in UpdateFontsNewFrame() which is a bit chicken-and-eggy/tricky to extract due to variety of codepaths and possible initialization ordering.
 --- @param ctx ImGuiContext
 --- @return float
 local function GetExpectedContextFontSize(ctx)
     return ((ctx.Style.FontSizeBase > 0.0) and ctx.Style.FontSizeBase or 13.0) * ctx.Style.FontScaleMain * ctx.Style.FontScaleDpi
 end
 
+-- Legacy function with heuristic to select Pixel or Vector font.
+-- The selection is based on (style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi) reaching a small threshold at the time of adding the default font.
+-- Prefer calling AddFontDefaultVector() or AddFontDefaultBitmap() based on your own logic.
 --- @param font_cfg ImFontConfig
 function MT.ImFontAtlas:AddFontDefault(font_cfg)
     if self.OwnerContext == nil or GetExpectedContextFontSize(self.OwnerContext) >= 15.0 then
@@ -2910,7 +3313,7 @@ function MT.ImFontAtlas:AddFontFromMemoryTTF(font_data, font_data_size, size_pix
     IM_ASSERT(not self.Locked, "Cannot modify a locked ImFontAtlas!")
     local font_cfg = font_cfg_template and font_cfg_template or ImFontConfig()
     IM_ASSERT(font_cfg.FontData == nil)
-    IM_ASSERT(font_data_size > 100, "Incorrect value for font_data_size!")
+    IM_ASSERT(font_data_size > 100, "Incorrect value for font_data_size!") -- Heuristic to prevent accidentally passing a wrong value to font_data_size.
     font_cfg.FontData = font_data
     font_cfg.FontDataSize = font_data_size
     font_cfg.SizePixels = (size_pixels > 0.0) and size_pixels or font_cfg.SizePixels
@@ -2940,6 +3343,7 @@ function MT.ImFontAtlas:AddFontFromFileTTF(filename, size_pixels, font_cfg_templ
 
     local font_cfg = font_cfg_template and font_cfg_template or ImFontConfig()
     if not font_cfg.Name or font_cfg.Name == "" then
+        -- Store a short copy of filename into the font name for convenience
         for i = #filename, 1, -1 do
             local c = string.byte(filename, i, i)
             if (c == 47 or c == 92) then -- '/' or '\\'
@@ -2961,31 +3365,35 @@ function GetDefaultFontDataProggyForever()
 end
 
 -- TODO: IMGUI_DISABLE_DEFAULT_FONT, IMGUI_DISABLE_DEFAULT_FONT_BITMAP
+-- Load ProggyClean.ttf. Default size 13, disable oversampling.
+-- If you want a similar font which may be better scaled, consider using AddFontDefaultVector().
 --- @param font_cfg_template ImFontConfig
 function MT.ImFontAtlas:AddFontDefaultBitmap(font_cfg_template)
     local font_cfg = font_cfg_template and font_cfg_template or ImFontConfig()
     if not font_cfg_template then
-        font_cfg.PixelSnapH = true
+        font_cfg.PixelSnapH = true -- Prevents sub-integer scaling factors at lower-level layers.
     end
     if font_cfg.SizePixels <= 0.0 then
-        font_cfg.SizePixels = 13.0
+        font_cfg.SizePixels = 13.0 -- This only serves (1) as a reference for GlyphOffset.y setting and (2) as a default for pre-1.92 backend.
         font_cfg.Flags = bit32.bor(font_cfg.Flags, ImFontFlags.ImplicitRefSize)
     end
     if not font_cfg.Name or font_cfg.Name == "" then
         font_cfg.Name = "ProggyClean.ttf"
     end
     font_cfg.EllipsisChar = 0x0085
-    font_cfg.GlyphOffset.y = font_cfg.GlyphOffset.y +  1.0 * (font_cfg.SizePixels / 13.0)
+    font_cfg.GlyphOffset.y = font_cfg.GlyphOffset.y +  1.0 * (font_cfg.SizePixels / 13.0) -- Add +1 offset per 13 units
 
     local ttf_data, ttf_data_size = GetDefaultFontDataProggyClean()
     return self:AddFontFromMemoryTTF(ttf_data, ttf_data_size, font_cfg.SizePixels, font_cfg)
 end
 
+-- Load a minimal version of ProggyForever, designed to match our good old ProggyClean, but nicely scalable.
+-- (See build script in https://github.com/ocornut/proggyforever for details)
 --- @param font_cfg_template ImFontConfig
 function MT.ImFontAtlas:AddFontDefaultVector(font_cfg_template)
     local font_cfg = font_cfg_template and font_cfg_template or ImFontConfig()
     if not font_cfg_template then
-        font_cfg.PixelSnapH = true
+        font_cfg.PixelSnapH = true -- Precisely match ProggyClean, but prevents sub-integer scaling factors at lower-level layers.
     end
     if font_cfg.SizePixels <= 0.0 then
         font_cfg.SizePixels = 13.0
@@ -2994,8 +3402,8 @@ function MT.ImFontAtlas:AddFontDefaultVector(font_cfg_template)
     if not font_cfg.Name or font_cfg.Name == "" then
         font_cfg.Name = "ProggyForever.ttf"
     end
-    font_cfg.ExtraSizeScale = font_cfg.ExtraSizeScale * 1.015
-    font_cfg.GlyphOffset.y = font_cfg.GlyphOffset.y + 0.5 * (font_cfg.SizePixels / 16.0)
+    font_cfg.ExtraSizeScale = font_cfg.ExtraSizeScale * 1.015 -- Match ProggyClean
+    font_cfg.GlyphOffset.y = font_cfg.GlyphOffset.y + 0.5 * (font_cfg.SizePixels / 16.0) -- Closer match ProggyClean + avoid descenders going too high (with current code).
 
     local ttf_data, ttf_data_size = GetDefaultFontDataProggyForever()
     return self:AddFontFromMemoryTTF(ttf_data, ttf_data_size, font_cfg.SizePixels, font_cfg)
@@ -3006,7 +3414,7 @@ function MT.ImFontAtlas:GetCustomRect(id, out_r)
     if r == nil then
         return false
     end
-    IM_ASSERT(self.TexData.Width > 0 and self.TexData.Height > 0)
+    IM_ASSERT(self.TexData.Width > 0 and self.TexData.Height > 0) -- Font atlas needs to be built before we can calculate UV coordinates
     if out_r == nil then
         return true
     end
@@ -3048,6 +3456,7 @@ function ImFontAtlasGetMouseCursorTexData(atlas, cursor_type, out_offset, out_si
     return true
 end
 
+-- At it is common to do an AddCustomRect() followed by a GetCustomRect(), we provide an optional 'out_r' argument to retrieve the info straight away.
 function MT.ImFontAtlas:AddCustomRect(width, height, out_r)
     IM_ASSERT(width > 0 and width <= 0xFFFF)
     IM_ASSERT(height > 0 and height <= 0xFFFF)
@@ -3083,7 +3492,7 @@ local function IM_NORMALIZE2F_OVER_ZERO(VX, VY)
 end
 
 local function IM_FIXNORMAL2F(VX, VY)
-    local IM_FIXNORMAL2F_MAX_INVLEN2 = 100
+    local IM_FIXNORMAL2F_MAX_INVLEN2 = 100 -- 500.0f (see #4053, #3366)
 
     local d2 = VX * VX + VY * VY
     if d2 > 0.000001 then
@@ -3097,10 +3506,14 @@ local function IM_FIXNORMAL2F(VX, VY)
     return VX, VY
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImDrawData
+-------------------------------------------------------------------------------
+
 function MT.ImDrawData:Clear()
     self.Valid = false
     self.FrameCount = 0; self.TotalIdxCount = 0; self.TotalVtxCount = 0
-    self.CmdLists:resize(0)
+    self.CmdLists:resize(0) -- The ImDrawList are NOT owned by ImDrawData but e.g. by ImGuiContext, so we don't clear them.
     self.DisplayPos       = ImVec2(0.0, 0.0)
     self.DisplaySize      = ImVec2(0.0, 0.0)
     self.FramebufferScale = ImVec2(0.0, 0.0)
@@ -3108,6 +3521,8 @@ function MT.ImDrawData:Clear()
     self.Textures         = nil
 end
 
+-- Important: 'out_list' is generally going to be draw_data.CmdLists, but may be another temporary list
+-- as long at it is expected that the result will be later merged into draw_data.CmdLists[].
 function ImGui.AddDrawListToDrawDataEx(draw_data, out_list, draw_list)
     if draw_list.CmdBuffer.Size == 0 then
         return
@@ -3116,12 +3531,15 @@ function ImGui.AddDrawListToDrawDataEx(draw_data, out_list, draw_list)
         return
     end
 
+    -- Draw list sanity check. Detect mismatch between PrimReserve() calls and incrementing _VtxCurrentIdx, _VtxWritePtr etc.
+    -- May trigger for you if you are using PrimXXX functions incorrectly.
     IM_ASSERT(draw_list.VtxBuffer.Size == 0 or draw_list._VtxWritePtr == draw_list.VtxBuffer.Size + 1)
     IM_ASSERT(draw_list.IdxBuffer.Size == 0 or draw_list._IdxWritePtr == draw_list.IdxBuffer.Size + 1)
     if (bit32.band(draw_list.Flags, ImDrawListFlags.AllowVtxOffset) == 0) then
         IM_ASSERT(draw_list._VtxCurrentIdx == draw_list.VtxBuffer.Size + 1)
     end
 
+    -- Add to output list + records state in ImDrawData
     out_list:push_back(draw_list)
     draw_data.TotalVtxCount = draw_data.TotalVtxCount + draw_list.VtxBuffer.Size
     draw_data.TotalIdxCount = draw_data.TotalIdxCount + draw_list.IdxBuffer.Size
@@ -3138,6 +3556,10 @@ local IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX = 512
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(_RAD, _MAXERROR) return ImClamp(IM_ROUNDUP_TO_EVEN(ImCeil(IM_PI / ImAcos(1 - ImMin(_MAXERROR, _RAD) / _RAD))), IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MIN, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX) end
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC_R(_N, _MAXERROR) return (_MAXERROR / (1 - ImCos(IM_PI / ImMax(_N, IM_PI)))) end
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC_ERROR(_N, _RAD)  return ((1 - ImCos(IM_PI / ImMax(_N, IM_PI))) / _RAD) end
+
+-------------------------------------------------------------------------------
+-- [SECTION] ImDrawList
+-------------------------------------------------------------------------------
 
 function MT.ImDrawListSharedData:SetCircleTessellationMaxError(max_error)
     if self.CircleTessellationMaxError == max_error then
@@ -3166,6 +3588,8 @@ function MT.ImDrawList:_SetDrawListSharedData(data)
     end
 end
 
+-- Initialize before use in a new frame. We always have a command ready in the buffer.
+-- In the majority of cases, you would want to call PushClipRect() and PushTexture() after this.
 -- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
     self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
@@ -3215,7 +3639,7 @@ end
 function MT.ImDrawList:AddDrawCmd()
     local draw_cmd = ImDrawCmd()
 
-    ImVec4_Copy(draw_cmd.ClipRect, self._CmdHeader.ClipRect) -- Same as calling ImDrawCmd_HeaderCopy()?
+    ImVec4_Copy(draw_cmd.ClipRect, self._CmdHeader.ClipRect) -- Same as calling ImDrawCmd_HeaderCopy()
     draw_cmd.TexRef = self._CmdHeader.TexRef
     draw_cmd.VtxOffset = self._CmdHeader.VtxOffset
     draw_cmd.IdxOffset = self.IdxBuffer.Size
@@ -3224,11 +3648,13 @@ function MT.ImDrawList:AddDrawCmd()
     self.CmdBuffer:push_back(draw_cmd)
 end
 
+-- Pop trailing draw command (used before merging or presenting to user)
+-- Note that this leaves the ImDrawList in a state unfit for further commands, as most code assume that CmdBuffer.Size > 0 && CmdBuffer.back().UserCallback == nil
 function MT.ImDrawList:_PopUnusedDrawCmd()
     while self.CmdBuffer.Size > 0 do
         local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
         if curr_cmd.ElemCount ~= 0 or curr_cmd.UserCallback ~= nil then
-            break
+            break -- return;// break;
         end
 
         self.CmdBuffer:pop_back()
@@ -3253,6 +3679,7 @@ function MT.ImDrawList:AddCallback(callback, userdata, userdata_size)
     curr_cmd.UserCallback = callback
     -- TODO: _CallbacksDataBuf?
     if userdata_size == 0 then
+        -- Store user data directly in command (no indirection)
         curr_cmd.UserCallbackData = userdata
 
     else
@@ -3261,7 +3688,7 @@ function MT.ImDrawList:AddCallback(callback, userdata, userdata_size)
 
     end
 
-    self:AddDrawCmd()
+    self:AddDrawCmd() -- Force a new command after us (see comment below)
 end
 
 --- Compare ClipRect, TexRef, VtxOffset
@@ -3309,6 +3736,7 @@ local function ImDrawCmd_AreSequentialIdxOffset(CMD_0, CMD_1)
     return CMD_0.IdxOffset + CMD_0.ElemCount == CMD_1.IdxOffset
 end
 
+-- Try to merge two last draw commands
 function MT.ImDrawList:_TryMergeDrawCmds()
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
@@ -3319,7 +3747,10 @@ function MT.ImDrawList:_TryMergeDrawCmds()
     end
 end
 
+-- Our scheme may appears a bit unusual, basically we want the most-common calls AddLine AddRect etc. to not have to perform any check so we always have a command ready in the stack.
+-- The cost of figuring out if a new command has to be added or if we can merge is paid in those Update** functions only.
 function MT.ImDrawList:_OnChangedClipRect()
+    -- If current command is used with different settings we need to add a new command
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     if (curr_cmd.ElemCount ~= 0 and self._CmdHeader.ClipRect ~= curr_cmd.ClipRect) then
@@ -3330,6 +3761,7 @@ function MT.ImDrawList:_OnChangedClipRect()
 
     IM_ASSERT(curr_cmd.UserCallback == nil)
 
+    -- Try to merge with previous command if it matches, else use current command
     local prev_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size - 1]
     if (curr_cmd.ElemCount == 0 and self.CmdBuffer.Size > 1 and ImDrawCmd_HeaderCompare(self._CmdHeader, prev_cmd) and ImDrawCmd_AreSequentialIdxOffset(prev_cmd, curr_cmd) and prev_cmd.UserCallback == nil) then
         self.CmdBuffer:pop_back()
@@ -3341,6 +3773,7 @@ function MT.ImDrawList:_OnChangedClipRect()
 end
 
 function MT.ImDrawList:_OnChangedTexture()
+    -- If current command is used with different settings we need to add a new command
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     if curr_cmd.ElemCount ~= 0 and curr_cmd.TexRef ~= self._CmdHeader.TexRef then
@@ -3349,10 +3782,12 @@ function MT.ImDrawList:_OnChangedTexture()
         return
     end
 
+    -- Unlike other _OnChangedXXX functions this may be called by ImFontAtlasUpdateDrawListsTextures() in more locations so we need to handle this case.
     if curr_cmd.UserCallback ~= nil then
         return
     end
 
+    -- Try to merge with previous command if it matches, else use current command
     local prev_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size - 1]
     if curr_cmd.ElemCount == 0 and self.CmdBuffer.Size > 1 and ImDrawCmd_HeaderCompare(self._CmdHeader, prev_cmd) and ImDrawCmd_AreSequentialIdxOffset(prev_cmd, curr_cmd) and prev_cmd.UserCallback == nil then
         self.CmdBuffer:pop_back()
@@ -3364,10 +3799,12 @@ function MT.ImDrawList:_OnChangedTexture()
 end
 
 function MT.ImDrawList:_OnChangedVtxOffset()
+    -- We don't need to compare curr_cmd.VtxOffset ~= _CmdHeader.VtxOffset because we know it'll be different at the time we call this.
     self._VtxCurrentIdx = 1
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
 
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
+    --IM_ASSERT(curr_cmd.VtxOffset ~= self._CmdHeader.VtxOffset) -- See #3349
     if curr_cmd.ElemCount ~= 0 then
         self:AddDrawCmd()
         return
@@ -3376,9 +3813,11 @@ function MT.ImDrawList:_OnChangedVtxOffset()
     curr_cmd.VtxOffset = self._CmdHeader.VtxOffset
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] ImDrawListSplitter
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- FIXME: This may be a little confusing, trying to be a little too low-level/optimal instead of just doing vector swap..
+-------------------------------------------------------------------------------
 -- Lua: channels swap ImVector objects with the draw list (C++ memcpy of the vector headers).
 -- Channel 0 holds nothing while it is the current channel (its buffers live in the draw list).
 
@@ -3416,11 +3855,14 @@ function MT.ImDrawListSplitter:Split(draw_list, channels_count)
     IM_ASSERT(self._Current == 0 and self._Count <= 1, "Nested channel splitting is not supported. Please use separate instances of ImDrawListSplitter.")
     local old_channels_count = self._Channels.Size
     if old_channels_count < channels_count then
-        self._Channels:reserve(channels_count)
+        self._Channels:reserve(channels_count) -- Avoid over reserving since this is likely to stay stable
         self._Channels:resize(channels_count)
     end
     self._Count = channels_count
 
+    -- Channels[] hold storage that we'll swap with draw_list._CmdBuffer/_IdxBuffer
+    -- The content of Channels[0] at this point doesn't matter. We clear it to make state tidy in a debugger but we don't strictly need to.
+    -- When we switch to the next channel, we'll copy draw_list._CmdBuffer/_IdxBuffer into Channels[0] and then Channels[1] into draw_list.CmdBuffer/_IdxBuffer
     -- Channel 0 is the draw list itself (memset to 0 in C++)
     local channels = self._Channels.Data
     channels[1] = { _CmdBuffer = nil, _IdxBuffer = nil }
@@ -3555,6 +3997,8 @@ function MT.ImDrawList:ChannelsMerge() self._Splitter:Merge(self) end
 --- @param n int # 0-based
 function MT.ImDrawList:ChannelsSetCurrent(n) self._Splitter:SetCurrentChannel(self, n) end
 
+-- - We intentionally avoid using ImVec2 and its math operators here to reduce cost to a minimum for debug/non-inlined builds.
+-- - Filled shapes must always use clockwise winding order. The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
 --- @param points       ImVec2[]
 --- @param points_count int
 --- @param col          ImU32
@@ -3582,6 +4026,7 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             self._IdxWritePtr = idx_write_ptr + 3
         end
 
+        -- Compute normals
         self._Data.TempBuffer:reserve_discard(points_count)
         local temp_normals = self._Data.TempBuffer.Data
 
@@ -3658,6 +4103,7 @@ function MT.ImDrawList:PopTexture()
     self:_OnChangedTexture()
 end
 
+-- This is used by ImGui.PushFont()/PopFont(). It works because we never use _TextureIdStack[] elsewhere than in PushTexture()/PopTexture().
 function MT.ImDrawList:_SetTexture(tex_ref)
     if (self._CmdHeader.TexRef == tex_ref) then
         return
@@ -3667,11 +4113,18 @@ function MT.ImDrawList:_SetTexture(tex_ref)
     self:_OnChangedTexture()
 end
 
+-- Reserve space for a number of vertices and indices.
+-- You must finish filling your reserved data before calling PrimReserve() again, as it may reallocate or
+-- submit the intermediate results. PrimUnreserve() can be used to release unused allocations.
 @native
 function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
+    -- Large mesh support (when enabled)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
     if (self._VtxCurrentIdx + vtx_count >= bit32.lshift(1, 16)) and (bit32.band(self.Flags, ImDrawListFlags.AllowVtxOffset) ~= 0) then
+        -- FIXME: In theory we should be testing that vtx_count <64k here.
+        -- In practice, RenderText() relies on reserving ahead for a worst case scenario so it is currently useful for us
+        -- to not make that check until we rework the text functions to handle clipping and large horizontal lines better.
         self._CmdHeader.VtxOffset = self.VtxBuffer.Size + 1
         self:_OnChangedVtxOffset()
     end
@@ -3688,6 +4141,7 @@ function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
     self._IdxWritePtr = idx_buffer_old_size + 1
 end
 
+-- Release the number of reserved vertices/indices from the end of the last reservation made with PrimReserve().
 function MT.ImDrawList:PrimUnreserve(idx_count, vtx_count)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
@@ -3701,6 +4155,7 @@ function MT.ImDrawList:PrimUnreserve(idx_count, vtx_count)
     self._IdxWritePtr = self.IdxBuffer.Size + 1
 end
 
+-- Fully unrolled with inline call to keep our debug builds decently fast.
 --- @param a   ImVec2
 --- @param c   ImVec2
 --- @param col ImU32
@@ -3778,6 +4233,10 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
     local opaque_uv = self._Data.TexUvWhitePixel
     local count = closed and points_count or points_count - 1 -- Number of line segments
     local thick_line = thickness > self._FringeScale
+    -- If this assert triggers on legacy code:
+    -- - 1.92.8 (2025/05): swapped two last parameters order: flags, thickness --> thickness, flags. This should normally be caught by compile-time type-checking.
+    -- - 1.92.8 (2025/05): changed value of ImDrawList_Closed which was previously guaranteed to be == 1. Hardcoded use of 1 or true should be replaced.
+    -- Read more details near AddRect() + see "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
     IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?")
 
     if bit32.band(self.Flags, ImDrawListFlags.AntiAliasedLines) ~= 0 then
@@ -4043,6 +4502,8 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     end
 end
 
+-- p_min = upper-left, p_max = lower-right
+-- Note: this does not support anti-aliasing when provided non-integer vertices.
 --- @param p_min         ImVec2
 --- @param p_max         ImVec2
 --- @param col_upr_left  ImU32
@@ -4064,6 +4525,7 @@ function MT.ImDrawList:AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_u
     self:PrimWriteVtx(ImVec2(p_min.x, p_max.y), uv, col_bot_left)
 end
 
+-- p_min = upper-left, p_max = lower-right
 --- @param p_min      ImVec2
 --- @param p_max      ImVec2
 --- @param col        ImU32
@@ -4075,7 +4537,16 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     if thickness == nil then thickness = 1.0 end
     if flags     == nil then flags     = 0   end
 
-    IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?")
+    -- If this assert triggers on legacy code:
+    -- - 1.92.8 (2025/05): swapped two last parameters order: flags, thickness --> thickness, flags. This should normally be caught by compile-time type-checking.
+    -- - 1.92.8 (2025/05): changed value of ImDrawList_Closed which was previously guaranteed to be == 1. Hardcoded use of 1 or true should be replaced.
+    -- - 1.82.0 (2021/03): changed ImDrawCornerFlags to ImDrawFlags_RoundXXX values.
+    --   If you used hard-coded 1 to 15 or ~0 in flags to configure corner rounding use the new flags!
+    --   - Hard coded support for ~0 == ImDrawFlags_RoundAll.
+    --   - Hard coded support for values 0x01 to 0x0F (matching 15 out of 16 old flags combinations) --> see FixRectCornerFlags() in <1.90 code.
+    --   - Hard coded 0x00 with 'float rounding > 0.0f' --> replace with ImDrawFlags_RoundNone or use 'float rounding = 0.0f'.
+    --   See "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
+    IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?") -- Or misuse of legacy hard-coded ImDrawCornerFlags values
 
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
@@ -4094,7 +4565,7 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     if bit32.band(self.Flags, ImDrawListFlags.AntiAliasedLines) ~= 0 then
         self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.50, 0.50), rounding, flags)
     else
-        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.49, 0.49), rounding, flags)
+        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.49, 0.49), rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
     end
 
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
@@ -4257,10 +4728,13 @@ function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text
 
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
 
+    -- Accept null ranges
     if text_begin == text_end then
         return
     end
+    -- No need to strlen() here: font:RenderText() will do it and may early out.
 
+    -- Pull default font/size from the shared ImDrawListSharedData instance
     if font == nil then
         font = self._Data.Font
     end
@@ -4321,7 +4795,7 @@ function MT.ImDrawList:AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, co
         return
     end
 
-    IM_ASSERT(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!")
+    IM_ASSERT(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!") -- If this assert triggers on legacy code: see comments in ImDrawList:PathRect().
     if bit32.band(flags, ImDrawFlags.RoundCornersMask_) == 0 then
         flags = bit32.bor(flags, ImDrawFlags.RoundCornersAll)
     end
@@ -4349,22 +4823,24 @@ end
 
 --- @param radius float
 function MT.ImDrawList:_CalcCircleAutoSegmentCount(radius)
-    local radius_idx = ImFloor(radius + 0.999) + 1
+    -- Automatic segment count
+    local radius_idx = ImFloor(radius + 0.999) + 1 -- ceil to never reduce accuracy
 
     if radius_idx >= 1 and radius_idx <= 64 then -- IM_COUNTOF(_Data->CircleSegmentCounts)
-        return self._Data.CircleSegmentCounts[radius_idx]
+        return self._Data.CircleSegmentCounts[radius_idx] -- Use cached value
     else
         return IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, self._Data.CircleTessellationMaxError)
     end
 end
 
+-- Render-level scissoring. This is passed down to your render function but not used for CPU-side coarse clipping. Prefer using higher-level ImGui.PushClipRect() to affect logic (hit-testing and widget culling)
 function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_rect)
     local cr = ImVec4(cr_min.x, cr_min.y, cr_max.x, cr_max.y)
 
     if intersect_with_current_clip_rect then
         local current = self._CmdHeader.ClipRect
 
-        if cr.x < current.x then cr.x = current.x end
+        if cr.x < current.x then cr.x = current.x end -- = ClipWith(). Note that passing inverted range wouldn't be fixed here.
         if cr.y < current.y then cr.y = current.y end
         if cr.z > current.z then cr.z = current.z end
         if cr.w > current.w then cr.w = current.w end
@@ -4400,10 +4876,12 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
         return
     end
 
+    -- Calculate arc auto segment step size
     if a_step <= 0 then
         a_step = math.floor(IM_DRAWLIST_ARCFAST_SAMPLE_MAX / self:_CalcCircleAutoSegmentCount(radius))
     end
 
+    -- Make sure we never do steps larger than one quarter of the circle
     a_step = ImClamp(a_step, 1, math.floor(IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4))
 
     local sample_range = ImAbs(a_max_sample - a_min_sample)
@@ -4419,6 +4897,8 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
             extra_max_sample = true
             samples = samples + 1
 
+            -- When we have overstep to avoid awkwardly looking one long line and one tiny one at the end,
+            -- distribute first step range evenly between them by reducing first step size.
             if sample_range > 0 then
                 a_step = a_step - math.floor((a_step - overstep) / 2)
             end
@@ -4439,6 +4919,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     if a_max_sample >= a_min_sample then
         local a = a_min_sample
         while a <= a_max_sample do
+            -- a_step is clamped to IM_DRAWLIST_ARCFAST_SAMPLE_MAX, so we have guaranteed that it will not wrap over range twice or more
             if sample_index >= IM_DRAWLIST_ARCFAST_SAMPLE_MAX then
                 sample_index = sample_index - IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
@@ -4454,6 +4935,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     else
         local a = a_min_sample
         while a >= a_max_sample do
+            -- a_step is clamped to IM_DRAWLIST_ARCFAST_SAMPLE_MAX, so we have guaranteed that it will not wrap over range twice or more
             if sample_index < 0 then
                 sample_index = sample_index + IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
@@ -4482,6 +4964,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     IM_ASSERT_PARANOID(self._Path.Size == out_ptr - 1)
 end
 
+-- 0: East, 3: South, 6: West, 9: North, 12: East
 @native
 function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
     if radius < 0.5 then
@@ -4530,9 +5013,12 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
         return
     end
 
+    -- Automatic segment count
     if radius <= self._Data.ArcFastRadiusCutoff then
         local a_is_reverse = a_max < a_min
 
+        -- We are going to use precomputed values for mid samples.
+        -- Determine first and last sample in lookup table that belong to the arc.
         local a_min_sample_f = IM_DRAWLIST_ARCFAST_SAMPLE_MAX * a_min / (IM_PI * 2.0)
         local a_max_sample_f = IM_DRAWLIST_ARCFAST_SAMPLE_MAX * a_max / (IM_PI * 2.0)
 
@@ -4559,7 +5045,8 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
     end
 end
 
--- Not recommended to call this directly!
+-- Note: as with every ImDrawList drawing function, this expects that the font atlas texture is bound.
+-- DO NOT CALL DIRECTLY THIS WILL CHANGE WILDLY IN 2026. Use ImDrawList:AddText().
 --- @param draw_list   ImDrawList
 --- @param size        float
 --- @param pos         ImVec2
@@ -4575,6 +5062,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     if wrap_width == nil then wrap_width = .0 end
     if flags      == nil then flags      = 0  end
 
+    -- Align to be pixel perfect
     local x = pos.x
     local y = pos.y
     if y > clip_rect.w then
@@ -4595,11 +5083,15 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     local origin_x = x
     local word_wrap_enabled = (wrap_width > 0.0)
 
+    -- Fast-forward to first visible line
     local s = text_begin
     if y + line_height < clip_rect.y then
         while y + line_height < clip_rect.y and s < text_end do
             local line_end = ImMemchr(text, '\n', s)
             if word_wrap_enabled then
+                -- FIXME-OPT: This is not optimal as do first do a search for \n before calling CalcWordWrapPosition().
+                -- If the specs for CalcWordWrapPosition() were reworked to optionally return on \n we could combine both.
+                -- However it is still better than nothing performing the fast-forward!
                 s = ImFontCalcWordWrapPositionEx(self, size, text, s, (line_end ~= nil) and line_end or text_end, wrap_width, flags)
                 s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags)
             else
@@ -4610,6 +5102,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         end
     end
 
+    -- For large text, scan for the last visible line in order to avoid over-reserving in the call to PrimReserve()
+    -- Note that very large horizontal line will still be affected by the issue (e.g. a one megabyte string buffer without a newline will likely crash atm)
     if text_end - s > 1e4 and not word_wrap_enabled then
         local s_end = s
         local y_end = y
@@ -4626,6 +5120,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         return
     end
 
+    -- Reserve vertices for remaining worse case (over-reserving is useful and easily amortized)
     local vtx_count_max = (text_end - s) * 4
     local idx_count_max = (text_end - s) * 6
     local idx_expected_size = draw_list.IdxBuffer.Size + idx_count_max
@@ -4648,6 +5143,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     while s < text_end do
         repeat
         if word_wrap_enabled then
+            -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(self, size, text, s, text_end, wrap_width - (x - origin_x), flags)
             end
@@ -4656,15 +5152,16 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                 x = origin_x
                 y = y + line_height
                 if y > clip_rect.w then
-                    stop = true; break
+                    stop = true; break -- break out of main loop
                 end
                 word_wrap_eol = nil
-                s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags)
+                s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags) -- Wrapping skips upcoming blanks
 
                 break
             end
         end
 
+        -- Decode and advance source
         local c
         if text_is_str then c = string.byte(text, s) else c = text[s] end
         if c < 0x80 then
@@ -4680,7 +5177,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                 x = origin_x
                 y = y + line_height
                 if y > clip_rect.w then
-                    stop = true; break
+                    stop = true; break -- break out of main loop
                 end
 
                 break
@@ -4702,16 +5199,19 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
 
         local char_width = glyph.AdvanceX * scale
         if glyph.Visible then
+            -- We don't do a second finer clipping test on the Y axis as we've already skipped anything before clip_rect.y and exit once we pass clip_rect.w
             local x1 = x + glyph.X0 * scale
             local x2 = x + glyph.X1 * scale
             local y1 = y + glyph.Y0 * scale
             local y2 = y + glyph.Y1 * scale
             if x1 <= clip_rect.z and x2 >= clip_rect.x then
+                -- Render a character
                 local u1 = glyph.U0
                 local v1 = glyph.V0
                 local u2 = glyph.U1
                 local v2 = glyph.V1
 
+                -- CPU side clipping used to fit text in their frame when the frame is too small. Only does clipping for axis aligned quads.
                 if (cpu_fine_clip) then
                     if (x1 < clip_rect.x) then
                         u1 = u1 + (1.0 - (x2 - clip_rect.x) / (x2 - x1)) * (u2 - u1)
@@ -4736,8 +5236,10 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
                     end
                 end
 
+                -- Support for untinted glyphs
                 local glyph_col = glyph.Colored and color_untinted or col
 
+                -- We are NOT calling PrimRectUV() here because non-inlined causes too much overhead in a debug builds. Inlined here:
                 do
                     local o = (vtx_write - 1) * 36
                     writef64(vtx_data, o, x1); writef64(vtx_data, o + 8, y1); writef64(vtx_data, o + 16, u1); writef64(vtx_data, o + 24, v1); writeu32(vtx_data, o + 32, glyph_col)
@@ -4759,7 +5261,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         if stop then break end
     end
 
-    -- Edge case: calling RenderText() with unloaded glyphs triggering texture change. It doesn't happen via ImGui.* calls because CalcTextSize() is always used
+    -- Edge case: calling RenderText() with unloaded glyphs triggering texture change. It doesn't happen via ImGui.* calls because CalcTextSize() is always used.
     if cmd_count ~= draw_list.CmdBuffer.Size then
         IM_ASSERT(draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size].ElemCount == 0)
         draw_list.CmdBuffer:pop_back()
@@ -4769,7 +5271,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         return self:RenderText(draw_list, size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, flags) -- was `goto begin`
     end
 
-    draw_list.VtxBuffer.Size = vtx_write - 1
+    -- Give back unused vertices (clipped ones, blanks) ~ this is essentially a PrimUnreserve() action.
+    draw_list.VtxBuffer.Size = vtx_write - 1 -- Same as calling shrink()
     draw_list.IdxBuffer.Size = idx_write - 1
     draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size].ElemCount = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size].ElemCount - (idx_expected_size - draw_list.IdxBuffer.Size)
     draw_list._VtxWritePtr = vtx_write
@@ -4777,6 +5280,22 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     draw_list._VtxCurrentIdx = vtx_index
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImGui Internal Render Helpers
+-------------------------------------------------------------------------------
+-- Vaguely redesigned to stop accessing ImGui global state:
+-- - RenderArrow()
+-- - RenderBullet()
+-- - RenderCheckMark()
+-- - RenderArrowPointingAt()
+-- - RenderRectFilledInRangeH()
+-- - RenderRectFilledWithHole()
+-------------------------------------------------------------------------------
+-- Function in need of a redesign (legacy mess)
+-- - RenderColorRectWithAlphaCheckerboard()
+-------------------------------------------------------------------------------
+
+-- Render an arrow aimed to be aligned with text (p_min is a position in the same space text would be positioned). To e.g. denote expanded/collapsed state
 --- @param draw_list ImDrawList
 --- @param pos       ImVec2
 --- @param color     ImU32
@@ -4817,7 +5336,7 @@ end
 --- @param pos       ImVec2
 --- @param col       ImU32
 function ImGui.RenderBullet(draw_list, pos, col)
-    -- FIXME-OPT: This should be baked in font now that it's easier
+    -- FIXME-OPT: This should be baked in font now that it's easier.
     local font_size = draw_list._Data.FontSize
     draw_list:AddCircleFilled(pos, font_size * 0.20, col, (font_size < 22) and 8 or ((font_size < 40) and 12 or 0)) -- Hardcode optimal/nice tessellation threshold
 end
@@ -4841,7 +5360,7 @@ function ImGui.RenderCheckMark(draw_list, pos, col, sz)
     draw_list:PathStroke(col, thickness)
 end
 
--- Render an arrow. 'pos' is position of the arrow tip. half_sz.x is length from base to tip. half_sz.y is length on each side
+-- Render an arrow. 'pos' is position of the arrow tip. half_sz.x is length from base to tip. half_sz.y is length on each side.
 --- @param draw_list ImDrawList
 --- @param pos       ImVec2
 --- @param half_sz   ImVec2
@@ -4856,7 +5375,7 @@ function ImGui.RenderArrowPointingAt(draw_list, pos, half_sz, direction, col)
         draw_list:AddTriangleFilled(ImVec2(pos.x + half_sz.x, pos.y + half_sz.y), ImVec2(pos.x - half_sz.x, pos.y + half_sz.y), pos, col)
     elseif direction == ImGuiDir.Down then
         draw_list:AddTriangleFilled(ImVec2(pos.x - half_sz.x, pos.y - half_sz.y), ImVec2(pos.x + half_sz.x, pos.y - half_sz.y), pos, col)
-    elseif direction == ImGuiDir.None or direction == ImGuiDir.COUNT then
+    elseif direction == ImGuiDir.None or direction == ImGuiDir.COUNT then -- Fix warnings
     end
 end
 
@@ -4864,9 +5383,12 @@ local function ImAcos01(x)
     if x <= 0.0 then return IM_PI * 0.5 end
     if x >= 1.0 then return 0.0 end
     return ImAcos(x)
+    --return (-0.69813170079773212 * x * x - 0.87266462599716477) * x + 1.5707963267948966 -- Cheap approximation, may be enough for what we do.
 end
 
--- FIXME: Cleanup and move code to ImDrawList
+-- FIXME: Cleanup and move code to ImDrawList.
+-- - Before 2025-12-04: RenderRectFilledRangeH()   with 'float x_start_norm, float x_end_norm` <- normalized
+-- - After  2025-12-04: RenderRectFilledInRangeH() with 'float x1, float x2'                   <- absolute coords!!
 --- @param draw_list ImDrawList
 --- @param rect      ImRect
 --- @param col       ImU32
@@ -5002,7 +5524,7 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
                     break
                 end
 
-                cell_flags = ImDrawFlags.RoundCornersNone
+                cell_flags = ImDrawFlags.RoundCornersNone -- FIXME: Could use CalcRoundingFlagsForRectInRect()
                 if y1 <= p_min.y then
                     if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundCornersTopLeft) end
                     if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundCornersTopRight) end
@@ -5055,14 +5577,14 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
     if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- Extra primitives (Ngon, Ellipse, Bezier, concave fill)
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [port] These follow the 1.92 stroker this port uses (no ImDrawFlags_StrokeXXX placement flags).
 
 function MT.ImDrawList:PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments)
     if num_segments == nil or num_segments <= 0 then
-        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y))
+        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) -- A bit pessimistic, maybe there's a better computation to do here.
     end
     local cos_rot, sin_rot = ImCos(rot), ImSin(rot)
     for i = 0, num_segments do
@@ -5084,6 +5606,7 @@ function ImBezierQuadraticCalc(p1, p2, p3, t)
     return ImVec2(w1 * p1.x + w2 * p2.x + w3 * p3.x, w1 * p1.y + w2 * p2.y + w3 * p3.y)
 end
 
+-- Closely mimics ImBezierCubicClosestPointCasteljau() in imgui.cpp
 local function PathBezierCubicCurveToCasteljau(path, x1, y1, x2, y2, x3, y3, x4, y4, tess_tol, level)
     local dx, dy = x4 - x1, y4 - y1
     local d2 = math.abs((x2 - x4) * dy - (y2 - y4) * dx)
@@ -5119,7 +5642,7 @@ end
 function MT.ImDrawList:PathBezierCubicCurveTo(p2, p3, p4, num_segments)
     local p1 = self._Path:back()
     if num_segments == nil or num_segments == 0 then
-        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, self._Data.CurveTessellationTol, 0)
+        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, self._Data.CurveTessellationTol, 0) -- Auto-tessellated
     else
         local t_step = 1.0 / num_segments
         for i_step = 1, num_segments do self._Path:push_back(ImBezierCubicCalc(p1, p2, p3, p4, t_step * i_step)) end
@@ -5129,33 +5652,39 @@ end
 function MT.ImDrawList:PathBezierQuadraticCurveTo(p2, p3, num_segments)
     local p1 = self._Path:back()
     if num_segments == nil or num_segments == 0 then
-        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, self._Data.CurveTessellationTol, 0)
+        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, self._Data.CurveTessellationTol, 0) -- Auto-tessellated
     else
         local t_step = 1.0 / num_segments
         for i_step = 1, num_segments do self._Path:push_back(ImBezierQuadraticCalc(p1, p2, p3, t_step * i_step)) end
     end
 end
 
+-- Guaranteed to honor 'num_segments'
 function MT.ImDrawList:AddNgon(center, radius, col, num_segments, thickness)
     if thickness == nil then thickness = 1.0 end
     if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
     local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
     self:PathArcTo(center, radius - 0.5, 0.0, a_max, num_segments - 1)
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
 end
 
+-- Guaranteed to honor 'num_segments'
 function MT.ImDrawList:AddNgonFilled(center, radius, col, num_segments)
     if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
     local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
     self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
     self:PathFillConvex(col)
 end
 
+-- Ellipse
 function MT.ImDrawList:AddEllipse(center, radius, col, rot, num_segments, thickness)
     if rot == nil then rot = 0.0 end
     if thickness == nil then thickness = 1.0 end
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end -- A bit pessimistic, maybe there's a better computation to do here.
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
     local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
     self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
@@ -5164,12 +5693,14 @@ end
 function MT.ImDrawList:AddEllipseFilled(center, radius, col, rot, num_segments)
     if rot == nil then rot = 0.0 end
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end
+    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end -- A bit pessimistic, maybe there's a better computation to do here.
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
     local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
     self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
     self:PathFillConvex(col)
 end
 
+-- Cubic Bezier takes 4 controls points
 function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
     self:PathLineTo(p1)
@@ -5177,6 +5708,7 @@ function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segmen
     self:PathStroke(col, thickness or 1.0)
 end
 
+-- Quadratic Bezier takes 3 controls points
 function MT.ImDrawList:AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
     self:PathLineTo(p1)

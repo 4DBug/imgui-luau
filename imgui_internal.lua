@@ -1,5 +1,32 @@
---- Dear ImGui WIP
+-- dear imgui, v1.93.0 WIP
 -- (internal structures/api)
+
+-- You may use this file to debug, understand or extend Dear ImGui features but we don't provide any guarantee of forward compatibility.
+
+-- Index of this file:
+--
+-- [SECTION] Context pointer
+-- [SECTION] Macros
+-- [SECTION] Generic helpers
+-- [SECTION] ImDrawList support
+-- [SECTION] Style support
+-- [SECTION] Data types support
+-- [SECTION] Widgets support: flags, enums, data structures
+-- [SECTION] Popup support
+-- [SECTION] Inputs support
+-- [SECTION] Navigation support
+-- [SECTION] Viewport support
+-- [SECTION] Settings support
+-- [SECTION] Localization support
+-- [SECTION] Metrics, Debug tools
+-- [SECTION] ImGuiContext (main imgui context)
+-- [SECTION] ImGuiWindowTempData, ImGuiWindow
+-- [SECTION] Tab bar, Tab item support
+-- [SECTION] ImGui internal API
+-- [SECTION] ImFontLoader
+-- [SECTION] ImFontAtlas internal API
+--
+-- PORT: the order of declarations in this file does not strictly follow upstream's imgui_internal.h.
 
 --- @meta
 
@@ -34,6 +61,9 @@ function ImGui._ByteArrayToString(buf, buf_begin, buf_end)
 end
 
 
+-- Helper: ImPool<>
+-- Basic keyed storage for contiguous instances, slow/amortized insertion, O(1) indexable, O(Log N) queries by ID over a dense/hot buffer,
+-- Indexes have the same lifetime as the associated object.
 --- ImPool<T>: pool of objects keyed by ID. Public indices are 0-based like upstream (Buf is stored 1-based).
 --- `ctor` creates a new element. Removed slots are recycled via FreeIdx (-1 = none; free slots chain through `_NextFree`).
 local IM_POOL = {}
@@ -71,8 +101,13 @@ end
 function IM_POOL:Reserve(n) end
 -- NOTE: removed slots hold `false`; iterate with `for i = 0, pool:GetMapSize() - 1 do local t = pool:GetByIndex(i) if t then ... end end`
 
+-------------------------------------------------------------------------------
+-- [SECTION] Context pointer
+-- See implementation of this variable in imgui.cpp for comments and details.
+-------------------------------------------------------------------------------
+
 --- @type ImGuiContext?
-local GImGui
+local GImGui -- Current implicit context pointer
 
 -- Sets local `GImGui` in this file(imgui_internal.lua).
 -- This is currently only used in main code `ImGui.SetCurrentContext()`
@@ -85,6 +120,10 @@ local setmetatable = setmetatable
 
 local MT = ImGui.GetMetatables()
 
+-------------------------------------------------------------------------------
+-- [SECTION] Macros
+-------------------------------------------------------------------------------
+
 IM_TABSIZE = 4
 
 FLT_MIN = 1.1754943508223e-38
@@ -94,13 +133,22 @@ INT_MIN = -0x7fffffff - 1
 INT_MAX = 0x7fffffff
 UINT_MAX = 0x7fffffff * 2 + 1
 
-NAV_WINDOWING_HIGHLIGHT_DELAY = 0.5
-NAV_ACTIVATE_HIGHLIGHT_TIMER = 0.10
-NAV_ACTIVATE_INPUT_WITH_GAMEPAD_DELAY = 0.60
+NAV_WINDOWING_HIGHLIGHT_DELAY = 0.5 -- Time before the highlight and screen dimming starts fading in
+NAV_ACTIVATE_HIGHLIGHT_TIMER = 0.10 -- Time to highlight an item activated by a shortcut.
+NAV_ACTIVATE_INPUT_WITH_GAMEPAD_DELAY = 0.60 -- Time to hold activation button (e.g. FaceDown) to turn the activation into a text input.
 
 IM_PI  = math.pi
-ImPow  = math.pow
-ImLog  = math.log
+
+-------------------------------------------------------------------------------
+-- [SECTION] Generic helpers
+-- Note that the ImXXX helpers functions are lower-level than ImGui functions.
+-- ImGui functions or the ImGui context are never called/used from other ImXXX functions.
+-------------------------------------------------------------------------------
+
+-- Helpers: Maths
+-- - Wrapper for standard libs functions. (Note that imgui_demo.cpp does _not_ use them to keep the code easy to copy)
+ImPow  = math.pow -- DragBehaviorT/SliderBehaviorT uses ImPow with either float/double and need the precision
+ImLog  = math.log -- DragBehaviorT/SliderBehaviorT uses ImLog with either float/double and need the precision
 ImAbs  = math.abs
 ImFabs = math.abs
 ImFmod = function(a, b) if b < 0 then b = -b end; if a < 0 then return -(-a % b) else return a % b end; end
@@ -138,6 +186,7 @@ function ImSubClampOverflow(a, b, mn, mx)
     return a - b
 end
 
+-- - ImMin/ImMax/ImClamp/ImLerp/ImSwap are used by widgets which support variety of types: signed/unsigned int/long long float/double
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
 @native
@@ -154,6 +203,7 @@ function ImMax(lhs, rhs)
     return ImVec2(mathMax(lhs.x, rhs.x), mathMax(lhs.y, rhs.y))
 end
 
+-- Helpers: Sorting
 --- @param base     table
 --- @param count    int
 --- @param cmp_func fun(lhs, rhs): bool
@@ -191,6 +241,7 @@ end
 
 ImTrunc64 = _Trunc
 
+-- Consider using the bit-hack version (search for "0x1p120f").
 --- @param f float
 function ImCeilFast(f)
     local i
@@ -203,10 +254,11 @@ function IM_ROUNDUP_TO_EVEN(n) return (ImCeil((n) / 2) * 2) end
 function ImRsqrt(x)            return (1 / ImSqrt(x))       end
 
 function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
-function IM_ROUND(VAL) return math.floor(VAL + 0.5) end
+function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
 
-function ImFloor(f) if f >= 0 or math.floor(f) == f then return math.floor(f) else return math.floor(f) - 1 end end
+function ImFloor(f) if f >= 0 or math.floor(f) == f then return math.floor(f) else return math.floor(f) - 1 end end -- Decent replacement for floorf()
 
+-- Helpers: Bit manipulation
 --- @param v int
 function ImIsPowerOfTwo(v)
     return (v ~= 0) and (bitAnd(v, (v - 1)) == 0)
@@ -326,8 +378,8 @@ end
 
 function ImSaturate(f) return ((f < 0.0 and 0.0) or (f > 1.0 and 1.0) or f) end
 
-IM_F32_TO_INT8_UNBOUND = function(val) return math.floor(val * 255.0 + (val >= 0 and 0.5 or -0.5)) end
-IM_F32_TO_INT8_SAT = function(val) return math.floor(ImSaturate(val) * 255.0 + 0.5) end
+IM_F32_TO_INT8_UNBOUND = function(val) return math.floor(val * 255.0 + (val >= 0 and 0.5 or -0.5)) end -- Unsaturated, for display purpose
+IM_F32_TO_INT8_SAT = function(val) return math.floor(ImSaturate(val) * 255.0 + 0.5) end -- Saturated, always output 0..255
 
 --- @param s ImString
 --- @param i int
@@ -340,6 +392,7 @@ function ImStrByte(s, i)
     end
 end
 
+-- Stacked color modifier, backup of modified data so we can restore it
 --- @class ImGuiColorMod
 --- @field Col         ImGuiCol
 --- @field BackupValue ImVec4
@@ -434,20 +487,27 @@ IMGUI_FONT_SIZE_THRESHOLD_FOR_LOADADVANCEXONLYMODE = 128.0
 
 IMGUI_WINDOW_HARD_MIN_SIZE = 4.0
 
-IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48
-IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE
+-- ImDrawList: Lookup tables
+IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48 -- Number of samples in adaptive arc drawing lookup table.
+IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE -- Sample index _PathArcToFastEx() for 360 angle.
 
+-- Macros used by Recoverable Error handling
+-- - Only dispatch error if _EXPR: evaluate as assert (similar to an assert macro).
+-- - The message will always be a string literal, in order to increase likelihood of being display by an assert handler.
+-- - See 'Demo->Configuration->Error Handling' and ImGuiIO definitions for details on error handling.
+-- - Read https://github.com/ocornut/imgui/wiki/Error-Handling for details on error handling.
 -- Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
-function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end
+function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end -- Recoverable User Error
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
+-- Debug Logging for ShowDebugLogWindow(). This is designed for relatively rare events so please don't spam.
 local function DebugLogIf(flag, fmt, ...)
     local g = GImGui
     if g and bitAnd(g.DebugLogFlags, flag) ~= 0 then ImGui.DebugLog(fmt, ...) end
 end
 function IMGUI_DEBUG_LOG_ACTIVEID(...) DebugLogIf(ImGuiDebugLogFlags.EventActiveId, ...) end
 function IMGUI_DEBUG_LOG_POPUP(...) DebugLogIf(ImGuiDebugLogFlags.EventPopup, ...) end
-function IMGUI_DEBUG_LOG_FONT(...) DebugLogIf(ImGuiDebugLogFlags.EventFont, ...) end
+function IMGUI_DEBUG_LOG_FONT(...) DebugLogIf(ImGuiDebugLogFlags.EventFont, ...) end -- Called from ImFontAtlas function which may operate without a context.
 function IMGUI_DEBUG_LOG_VIEWPORT(...) DebugLogIf(ImGuiDebugLogFlags.EventViewport, ...) end
 function IMGUI_DEBUG_LOG_FOCUS(...) DebugLogIf(ImGuiDebugLogFlags.EventFocus, ...) end
 function IMGUI_DEBUG_LOG_NAV(...) DebugLogIf(ImGuiDebugLogFlags.EventNav, ...) end
@@ -462,9 +522,17 @@ function IMGUI_DEBUG_LOG_ERROR(...) DebugLogIf(ImGuiDebugLogFlags.EventError, ..
 --- @alias ImGuiSelectionUserData any
 ImGuiSelectionUserData_Invalid = -1
 
-ImGuiKeyOwner_Any     = 0
-ImGuiKeyOwner_NoOwner = 4294967295
+-- Input function taking an 'ImGuiID owner_id' argument defaults to (ImGuiKeyOwner_Any == 0) aka don't test ownership, which matches legacy behavior.
+ImGuiKeyOwner_Any     = 0 -- Accept key that have an owner, UNLESS a call to SetKeyOwner() explicitly used ImGuiInputFlags.LockThisFrame or ImGuiInputFlags.LockUntilRelease.
+ImGuiKeyOwner_NoOwner = 4294967295 -- Require key to have no owner.
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImGui internal API
+-- No guarantee of forward compatibility here!
+-------------------------------------------------------------------------------
+
+-- Inputs
+-- FIXME: Eventually we should aim to move e.g. IsActiveIdUsingKey() into IsKeyXXX functions.
 --- @param button ImGuiMouseButton
 --- @return ImGuiKey
 function ImGui.MouseButtonToKey(button) IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) return ImGuiKey.MouseLeft + button end
@@ -520,6 +588,17 @@ function ImGui.ConvertSingleModFlagToKey(key)
     return key
 end
 
+-- [EXPERIMENTAL] Low-Level: Key/Input Ownership
+-- - The idea is that instead of "eating" a given input, we can link to an owner id.
+-- - Ownership is most often claimed as a result of reacting to a press/down event (but occasionally may be claimed ahead).
+-- - Input queries can then read input by specifying ImGuiKeyOwner_Any (== 0), ImGuiKeyOwner_NoOwner (== -1) or a custom ID.
+-- - Legacy input queries (without specifying an owner or _Any or _None) are equivalent to using ImGuiKeyOwner_Any (== 0).
+-- - Input ownership is automatically released on the frame after a key is released. Therefore:
+--   - for ownership registration happening as a result of a down/press event, the SetKeyOwner() call may be done once (common case).
+--   - for ownership registration happening ahead of a down/press event, the SetKeyOwner() call needs to be made every frame (happens if e.g. claiming ownership on hover).
+-- - SetItemKeyOwner() is a shortcut for common simple case. A custom widget will probably want to call SetKeyOwner() multiple times directly based on its interaction state.
+-- - This is marked experimental because not all widgets are fully honoring the Set/Test idioms. We will need to move forward step by step.
+--   Please open a GitHub Issue to submit your usage scenario or if there's a use case you need solved.
 --- @param ctx ImGuiContext
 --- @param key ImGuiKey
 function ImGui.GetKeyOwnerData(ctx, key)
@@ -528,6 +607,8 @@ function ImGui.GetKeyOwnerData(ctx, key)
     return ctx.KeysOwnerData[key - ImGuiKey.NamedKey_BEGIN]
 end
 
+-- This extends ImGuiKeyData but only for named keys (legacy keys don't support the new features)
+-- Stored in main context (1 per named key). In the future it might be merged into ImGuiKeyData.
 --- @class ImGuiKeyOwnerData
 
 --- @return ImGuiKeyOwnerData
@@ -536,8 +617,8 @@ function ImGuiKeyOwnerData()
     return {
         OwnerCurr        = ImGuiKeyOwner_NoOwner,
         OwnerNext        = ImGuiKeyOwner_NoOwner,
-        LockThisFrame    = false,
-        LockUntilRelease = false
+        LockThisFrame    = false, -- Reading this key requires explicit owner id (until end of frame). Set by ImGuiInputFlags.LockThisFrame.
+        LockUntilRelease = false  -- Reading this key requires explicit owner id (until key is released). Set by ImGuiInputFlags.LockUntilRelease. When this is true LockThisFrame is always true as well.
     }
 end
 
@@ -580,22 +661,22 @@ function ImCharIsBlankW(c) return c == 32 or c == 9 or c == 0x3000 end
 ImGuiNavMoveFlags =
 {
     None                  = 0,
-    LoopX                 = bitLShift(1, 0),
+    LoopX                 = bitLShift(1, 0), -- On failed request, restart from opposite side
     LoopY                 = bitLShift(1, 1),
-    WrapX                 = bitLShift(1, 2),
-    WrapY                 = bitLShift(1, 3),
-    AllowCurrentNavId     = bitLShift(1, 4),
-    AlsoScoreVisibleSet   = bitLShift(1, 5),
-    ScrollToEdgeY         = bitLShift(1, 6),
+    WrapX                 = bitLShift(1, 2), -- On failed request, request from opposite side one line down (when NavDir==right) or one line up (when NavDir==left)
+    WrapY                 = bitLShift(1, 3), -- This is not super useful but provided for completeness
+    AllowCurrentNavId     = bitLShift(1, 4), -- Allow scoring and considering the current NavId as a move target candidate. This is used when the move source is offset (e.g. pressing PageDown actually needs to send a Up move request, if we are pressing PageDown from the bottom-most item we need to stay in place)
+    AlsoScoreVisibleSet   = bitLShift(1, 5), -- Store alternate result in NavMoveResultLocalVisible that only comprise elements that are already fully visible (used by PageUp/PageDown)
+    ScrollToEdgeY         = bitLShift(1, 6), -- Force scrolling to min/max (used by Home/End) -- FIXME-NAV: Aim to remove or reword as ImGuiScrollFlags
     Forwarded             = bitLShift(1, 7),
-    DebugNoResult         = bitLShift(1, 8),
-    FocusApi              = bitLShift(1, 9),
-    IsTabbing             = bitLShift(1, 10),
-    IsPageMove            = bitLShift(1, 11),
-    Activate              = bitLShift(1, 12),
-    NoSelect              = bitLShift(1, 13),
-    NoSetNavCursorVisible = bitLShift(1, 14),
-    NoClearActiveId       = bitLShift(1, 15),
+    DebugNoResult         = bitLShift(1, 8), -- Dummy scoring for debug purpose, don't apply result
+    FocusApi              = bitLShift(1, 9), -- Requests from focus API can land/focus/activate items even if they are marked with _NoTabStop (see NavProcessItemForTabbingRequest() for details)
+    IsTabbing             = bitLShift(1, 10), -- == Focus + Activate if item is Inputable + DontChangeNavHighlight
+    IsPageMove            = bitLShift(1, 11), -- Identify a PageDown/PageUp request.
+    Activate              = bitLShift(1, 12), -- Activate/select target item.
+    NoSelect              = bitLShift(1, 13), -- Don't trigger selection by not setting g.NavJustMovedTo
+    NoSetNavCursorVisible = bitLShift(1, 14), -- Do not alter the nav cursor visible state
+    NoClearActiveId       = bitLShift(1, 15), -- (Experimental) Do not clear active id when applying move result
 }
 
 ImGuiNavMoveFlags.WrapMask_ = bitOr(ImGuiNavMoveFlags.LoopX, ImGuiNavMoveFlags.LoopY, ImGuiNavMoveFlags.WrapX, ImGuiNavMoveFlags.WrapY)
@@ -603,40 +684,54 @@ ImGuiNavMoveFlags.WrapMask_ = bitOr(ImGuiNavMoveFlags.LoopX, ImGuiNavMoveFlags.L
 --- @enum ImGuiNavLayer
 ImGuiNavLayer =
 {
-    Main  = 0,
-    Menu  = 1,
+    Main  = 0, -- Main scrolling layer
+    Menu  = 1, -- Menu layer (access with Alt)
     COUNT = 2
 }
 
-ImGuiItemFlags.ReadOnly               = bitLShift(1, 11)
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets support: flags, enums, data structures
+-------------------------------------------------------------------------------
+
+-- Extend ImGuiItemFlags
+-- - input: PushItemFlag() manipulates g.CurrentItemFlags, g.NextItemData.ItemFlags, ItemAdd() calls may add extra flags too.
+-- - output: stored in g.LastItemData.ItemFlags
+
+-- Controlled by user
+ImGuiItemFlags.ReadOnly               = bitLShift(1, 11) -- false -- [ALPHA] Allow hovering interactions but underlying value is not changed.
 ImGuiItemFlags.MixedValue             = bitLShift(1, 12)
-ImGuiItemFlags.NoWindowHoverableCheck = bitLShift(1, 13)
-ImGuiItemFlags.AllowOverlap           = bitLShift(1, 14)
-ImGuiItemFlags.NoNavDisableMouseHover = bitLShift(1, 15)
-ImGuiItemFlags.NoMarkEdited           = bitLShift(1, 16)
-ImGuiItemFlags.NoFocus                = bitLShift(1, 17)
+ImGuiItemFlags.NoWindowHoverableCheck = bitLShift(1, 13) -- false -- Disable hoverable check in ItemHoverable()
+ImGuiItemFlags.AllowOverlap           = bitLShift(1, 14) -- false -- Allow being overlapped by another widget. Not-hovered to Hovered transition deferred by a frame.
+ImGuiItemFlags.NoNavDisableMouseHover = bitLShift(1, 15) -- false -- Nav keyboard/gamepad mode doesn't disable hover highlight (behave as if NavHighlightItemUnderNav==false).
+ImGuiItemFlags.NoMarkEdited           = bitLShift(1, 16) -- false -- Skip calling MarkItemEdited()
+ImGuiItemFlags.NoFocus                = bitLShift(1, 17) -- false -- [EXPERIMENTAL: Not very well specced] Clicking doesn't take focus. Automatically sets ImGuiButtonFlags.NoFocus + ImGuiButtonFlags.NoNavFocus in ButtonBehavior().
 
-ImGuiItemFlags.Inputable            = bitLShift(1, 20)
-ImGuiItemFlags.HasSelectionUserData = bitLShift(1, 21)
-ImGuiItemFlags.IsMultiSelect        = bitLShift(1, 22)
+-- Controlled by widget code
+ImGuiItemFlags.Inputable            = bitLShift(1, 20) -- false -- [WIP] Auto-activate input mode when tab focused. Currently only used and supported by a few items before it becomes a generic feature.
+ImGuiItemFlags.HasSelectionUserData = bitLShift(1, 21) -- false -- Set by SetNextItemSelectionUserData()
+ImGuiItemFlags.IsMultiSelect        = bitLShift(1, 22) -- false -- Set by SetNextItemSelectionUserData()
 
-ImGuiItemFlags.Default_ = bitOr(ImGuiItemFlags.AutoClosePopups, ImGuiItemFlags.LiveEditOnInputText)
+ImGuiItemFlags.Default_ = bitOr(ImGuiItemFlags.AutoClosePopups, ImGuiItemFlags.LiveEditOnInputText) -- Please don't change, use PushItemFlag() instead.
 
+-- Helpers: High-level text functions (DO NOT USE!!! THIS IS A MINIMAL SUBSET OF LARGER UPCOMING CHANGES)
 --- @enum ImDrawTextFlags
 ImDrawTextFlags =
 {
     None           = 0,
-    CpuFineClip    = bitLShift(1, 0),
+    CpuFineClip    = bitLShift(1, 0), -- Must be == 1/true for legacy with 'bool cpu_fine_clip' arg to RenderText()
     WrapKeepBlanks = bitLShift(1, 1),
     StopOnNewLine  = bitLShift(1, 2)
 }
 
+-- Flags for FocusWindow(). This is not called ImGuiFocusFlags to avoid confusion with public-facing ImGuiFocusedFlags.
+-- FIXME: Once we finishing replacing more uses of GetTopMostPopupModal()+IsWindowWithinBeginStackOf()
+-- and FindBlockingModal() with this, we may want to change the flag to be opt-out instead of opt-in.
 --- @enum ImGuiFocusRequestFlags
 ImGuiFocusRequestFlags =
 {
     None                = 0,
-    RestoreFocusedChild = bitLShift(1, 0),
-    UnlessBelowModal    = bitLShift(1, 1)
+    RestoreFocusedChild = bitLShift(1, 0), -- Find last focused child (if any) and focus it instead.
+    UnlessBelowModal    = bitLShift(1, 1)  -- Do not set focus if the window is below a modal.
 }
 
 --- @enum ImGuiTextFlags
@@ -646,6 +741,7 @@ ImGuiTextFlags =
     NoWidthForLargeClippedText = bitLShift(1, 0)
 }
 
+-- Character classification for word-wrapping logic
 --- @enum ImWcharClass
 ImWcharClass =
 {
@@ -654,6 +750,8 @@ ImWcharClass =
     Other = 2
 }
 
+-- Helper: ImVec1 (1D vector)
+-- (this odd construct is used to facilitate the transition between 1D and 2D, and the maintenance of some branches/patches)
 --- @class ImVec1
 --- @field x number
 local IM_VEC1 = {}
@@ -669,11 +767,13 @@ function ImVec1_Copy(dest, src)
     dest.x = src.x
 end
 
+-- Helper: ImRect (2D axis aligned bounding-box)
+-- NB: we can't rely on ImVec2 math operators being available here!
 --- @class ImRect
 --- @field [1] ImVec2
 --- @field [2] ImVec2
---- @field Min ImVec2
---- @field Max ImVec2
+--- @field Min ImVec2 # Upper-left
+--- @field Max ImVec2 # Lower-right
 local IM_RECT = {}
 setmetatable(IM_RECT, { __index = function(_, k) if k ~= "Min" and k ~= "Max" then error("ImRect: unknown key " .. tostring(k), 2) end end })
 
@@ -725,20 +825,22 @@ function IM_RECT:GetHeight() return self.Max.y - self.Min.y end
 function IM_RECT:GetSize() return ImVec2(self.Max.x - self.Min.x, self.Max.y - self.Min.y) end
 
 --- @nodiscard
-function IM_RECT:GetTL() return ImVec2(self.Min.x, self.Min.y) end
+function IM_RECT:GetTL() return ImVec2(self.Min.x, self.Min.y) end -- Top-left
 --- @nodiscard
-function IM_RECT:GetTR() return ImVec2(self.Max.x, self.Min.y) end
+function IM_RECT:GetTR() return ImVec2(self.Max.x, self.Min.y) end -- Top-right
 --- @nodiscard
-function IM_RECT:GetBL() return ImVec2(self.Min.x, self.Max.y) end
+function IM_RECT:GetBL() return ImVec2(self.Min.x, self.Max.y) end -- Bottom-left
 --- @nodiscard
-function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end
+function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end -- Bottom-right
 
+-- Simple version, may lead to an inverted rectangle, which is fine for Contains/Overlaps test but not for display.
 --- @param r ImRect
 @native
 function IM_RECT:ClipWith(r)
     ImVec2_Copy(self.Min, ImMax(self.Min, r.Min)); ImVec2_Copy(self.Max, ImMin(self.Max, r.Max))
 end
 
+-- Full version, ensure both points are fully clipped.
 --- @param r ImRect
 @native
 function IM_RECT:ClipWithFull(r)
@@ -819,12 +921,15 @@ function ImRect_CopyFromV4(dest, src)
     dest.Max.x = src.z; dest.Max.y = src.w
 end
 
+-- Helper: ImBitArray
+-- Macro version of ImBitArrayTestBit(): ensure args have side-effect or are costly!
 --- @param _ARRAY ImU32[]
 --- @param _N     int
 function IM_BITARRAY_TESTBIT(_ARRAY, _N)
     return bitAnd(_ARRAY[bitRShift(_N - 1, 5) + 1], bitLShift(1, bitAnd(_N - 1, 31))) ~= 0
 end
 
+-- Macro version of ImBitArrayClearBit(): ensure args have side-effect or are costly!
 --- @param _ARRAY ImU32[]
 --- @param _N     int
 function IM_BITARRAY_CLEARBIT(_ARRAY, _N)
@@ -840,8 +945,11 @@ function ImBitArraySetBit(arr, n)
     arr[idx] = bitOr(arr[idx], mask)
 end
 
+-- Bit array for named keys
 --- @alias ImBitArrayForNamedKeys ImBitArray
 
+-- Helper: ImBitArray class (wrapper over ImBitArray functions)
+-- Store 1-bit per value.
 --- NOTE: This struct is expensive to create
 --- @class ImBitArray<BITCOUNT, OFFSET>
 --- @field Data ImU32[]
@@ -868,6 +976,9 @@ function ImBitArray(BITCOUNT, OFFSET)
     return this
 end
 
+-- Stateful path API, add points then finish with PathFillConvex() or PathStroke()
+-- - Important: filled shapes must always use clockwise winding order! The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
+--   so e.g. 'PathArcTo(center, radius, PI * -0.5, PI)' is ok, whereas 'PathArcTo(center, radius, PI, PI * -0.5)' won't have correct anti-aliasing when followed by PathFillConvex().
 function MT.ImDrawList:PathClear() self._Path:clear() end
 
 --- @param pos ImVec2
@@ -905,24 +1016,32 @@ function ImGui.SetNextItemColorMarker(col)
     g.NextItemData.ColorMarker = col
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImDrawList support
+-------------------------------------------------------------------------------
+
+-- Data shared between all ImDrawList instances
+-- Conceptually this could have been called e.g. ImDrawListSharedContext
+-- Typically one ImGui context would create and maintain one of this.
+-- You may want to create your own instance of you try to ImDrawList completely without ImGui. In that case, watch out for future changes to this structure.
 --- @class ImDrawListSharedData
---- @field TexUvWhitePixel       ImVec2
---- @field TexUvLines            ImVec4[]
---- @field FontAtlas             ImFontAtlas
---- @field Font                  ImFont
---- @field FontSize              float
---- @field FontScale             float
+--- @field TexUvWhitePixel       ImVec2 # UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
+--- @field TexUvLines            ImVec4[] # UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+--- @field FontAtlas             ImFontAtlas # Current font atlas
+--- @field Font                  ImFont # Current font (used for simplified AddText overload)
+--- @field FontSize              float # Current font size (used for simplified AddText overload)
+--- @field FontScale             float # Current font scale (== FontSize / Font->FontSize)
 --- @field CurveTessellationTol  float
---- @field CircleTessellationMaxError float
+--- @field CircleTessellationMaxError float # Number of circle segments to use per pixel of radius for AddCircle() etc
 --- @field InitialFringeScale    float
 --- @field InitialFlags          ImDrawListFlags
---- @field ClipRectFullscreen?   ImVec4
---- @field TempBuffer            ImVector<ImVec2>
---- @field DrawLists             ImVector<ImDrawList>
---- @field Context?              ImGuiContext
---- @field ArcFastVtx            table<ImVec2>        # 1-based table
---- @field ArcFastRadiusCutoff   float
---- @field CircleSegmentCounts   table<int>           # 1-based table
+--- @field ClipRectFullscreen?   ImVec4 # Value for PushClipRectFullscreen()
+--- @field TempBuffer            ImVector<ImVec2> # Temporary write buffer
+--- @field DrawLists             ImVector<ImDrawList> # All draw lists associated to this ImDrawListSharedData
+--- @field Context?              ImGuiContext # [OPTIONAL] Link to Dear ImGui context. 99% of ImDrawList/ImFontAtlas can function without an ImGui context, but this facilitate handling one legacy edge case.
+--- @field ArcFastVtx            table<ImVec2>        # 1-based table. Sample points on the quarter of the circle.
+--- @field ArcFastRadiusCutoff   float # Cutoff radius after which arc drawing will fallback to slower PathArcTo()
+--- @field CircleSegmentCounts   table<int>           # 1-based table. Precomputed segment count for given radius before we calculate it dynamically (to avoid calculation overhead)
 MT.ImDrawListSharedData = {}
 MT.ImDrawListSharedData.__index = MT.ImDrawListSharedData
 
@@ -930,28 +1049,29 @@ MT.ImDrawListSharedData.__index = MT.ImDrawListSharedData
 --- @nodiscard
 function ImDrawListSharedData()
     local this = setmetatable({
-        TexUvWhitePixel = nil,
-        TexUvLines      = nil,
-        FontAtlas       = nil,
+        TexUvWhitePixel = nil, -- UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
+        TexUvLines      = nil, -- UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+        FontAtlas       = nil, -- Current font atlas
 
-        Font      = nil,
-        FontSize  = 0,
-        FontScale = 0,
+        Font      = nil, -- Current font (used for simplified AddText overload)
+        FontSize  = 0,   -- Current font size (used for simplified AddText overload)
+        FontScale = 0,   -- Current font scale (== FontSize / Font->FontSize)
 
         CurveTessellationTol  = 0,
-        CircleTessellationMaxError = 0,
+        CircleTessellationMaxError = 0, -- Number of circle segments to use per pixel of radius for AddCircle() etc
         InitialFringeScale    = 1,
 
         InitialFlags          = 0,
-        ClipRectFullscreen    = nil,
-        TempBuffer            = ImVector(ImVec2),
-        DrawLists             = ImVector(),
+        ClipRectFullscreen    = nil, -- Value for PushClipRectFullscreen()
+        TempBuffer            = ImVector(ImVec2), -- Temporary write buffer
+        DrawLists             = ImVector(), -- All draw lists associated to this ImDrawListSharedData
 
-        ArcFastVtx          = {},
-        ArcFastRadiusCutoff = nil,
-        CircleSegmentCounts = {},
+        -- Lookup tables
+        ArcFastVtx          = {},  -- Sample points on the quarter of the circle.
+        ArcFastRadiusCutoff = nil, -- Cutoff radius after which arc drawing will fallback to slower PathArcTo()
+        CircleSegmentCounts = {},  -- Precomputed segment count for given radius before we calculate it dynamically (to avoid calculation overhead)
 
-        Context = nil
+        Context = nil -- [OPTIONAL] Link to Dear ImGui context. 99% of ImDrawList/ImFontAtlas can function without an ImGui context, but this facilitate handling one legacy edge case.
     }, MT.ImDrawListSharedData)
 
     for i = 1, IM_DRAWLIST_ARCFAST_TABLE_SIZE do
@@ -962,6 +1082,7 @@ function ImDrawListSharedData()
     return this
 end
 
+-- Internal storage for incrementally packing and building a ImFontAtlas
 --- @class ImFontAtlasBuilder
 --- @field PackContext              stbrp_context
 --- @field PackNodes                ImVector<stbrp_node>
@@ -991,27 +1112,29 @@ function ImFontAtlasBuilder()
     --- @type ImFontAtlasBuilder
     local this = setmetatable({}, MT.ImFontAtlasBuilder)
 
-    this.PackContext              = nil -- struct stbrp_context_opaque { char data[80]; };
+    this.PackContext              = nil -- struct stbrp_context_opaque { char data[80]; }; -- Actually 'stbrp_context' but we don't want to define this in the header file.
     this.PackNodes                = ImVector()
     this.Rects                    = ImVector()
-    this.RectsIndex               = ImVector()
-    this.TempBuffer               = ImVector()
-    this.RectsIndexFreeListStart  = -1
-    this.RectsPackedCount         = 0
-    this.RectsPackedSurface       = 0
+    this.RectsIndex               = ImVector() -- ImFontAtlasRectId -> index into Rects[]
+    this.TempBuffer               = ImVector() -- Misc scratch buffer
+    this.RectsIndexFreeListStart  = -1 -- First unused entry
+    this.RectsPackedCount         = 0 -- Number of packed rectangles.
+    this.RectsPackedSurface       = 0 -- Number of packed pixels. Used when compacting to heuristically find the ideal texture size.
     this.RectsDiscardedCount      = 0
     this.RectsDiscardedSurface    = 0
-    this.FrameCount               = -1
-    this.MaxRectSize              = ImVec2()
-    this.MaxRectBounds            = ImVec2()
-    this.LockDisableResize        = false
-    this.PreloadedAllGlyphsRanges = false
+    this.FrameCount               = -1 -- Current frame count
+    this.MaxRectSize              = ImVec2() -- Largest rectangle to pack (de-facto used as a "minimum texture size")
+    this.MaxRectBounds            = ImVec2() -- Bottom-right most used pixels
+    this.LockDisableResize        = false -- Disable resizing texture
+    this.PreloadedAllGlyphsRanges = false -- Set when missing ImGuiBackendFlags.RendererHasTextures features forces atlas to preload everything.
 
+    -- Cache of all ImFontBaked
     this.BakedPool           = ImVector() -- ImStableVector<ImFontBaked,32>
-    this.BakedMap            = {}
+    this.BakedMap            = {} -- BakedId --> ImFontBaked
     this.BakedDiscardedCount = 0
 
-    this.PackIdMouseCursors = -1
+    -- Custom rectangle identifiers
+    this.PackIdMouseCursors = -1 -- White pixel + mouse cursors. Also happen to be fallback in case of packing failure.
     this.PackIdLinesTexData = -1
 
     return this
@@ -1019,8 +1142,8 @@ end
 
 --- @class ImFontStackData
 --- @field Font                  ImFont
---- @field FontSizeBeforeScaling float
---- @field FontSizeAfterScaling  float
+--- @field FontSizeBeforeScaling float # ~~ style.FontSizeBase
+--- @field FontSizeAfterScaling  float # ~~ g.FontSize
 
 --- @return ImFontStackData
 --- @param font                     ImFont
@@ -1030,14 +1153,18 @@ end
 function ImFontStackData(font, font_size_before_scaling, font_size_after_scaling)
     return {
         Font                  = font,
-        FontSizeBeforeScaling = font_size_before_scaling,
-        FontSizeAfterScaling  = font_size_after_scaling
+        FontSizeBeforeScaling = font_size_before_scaling, -- ~~ style.FontSizeBase
+        FontSizeAfterScaling  = font_size_after_scaling   -- ~~ g.FontSize
     }
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Style support
+-------------------------------------------------------------------------------
+
 --- `GetVarPtr()` is currently only used on `g.Style` in Dear ImGui, and we don't have pointers!
 --- @class ImGuiStyleVarInfo
---- @field Count    ImU32
+--- @field Count    ImU32         # 1+
 --- @field DataType ImGuiDataType
 --- @field Key      string        # key in parent structure. Note that the cpp Dear ImGui uses `ImU32 Offset`!
 
@@ -1050,6 +1177,7 @@ function ImGuiStyleVarInfo(count, data_type, key)
     return { Count = count, DataType = data_type, Key = key }
 end
 
+-- Stacked style modifier, backup of modified data so we can restore it. Data type inferred from the variable.
 --- @class ImGuiStyleMod
 --- @field VarIdx       ImGuiStyleVar
 --- @field BackupVal    table
@@ -1069,36 +1197,42 @@ function ImGuiStyleMod(idx, v)
     return this
 end
 
---- Type information associated to one ImGuiDataType. Retrieve with DataTypeGetInfo()
+-------------------------------------------------------------------------------
+-- [SECTION] Data types support
+-------------------------------------------------------------------------------
+
+-- Type information associated to one ImGuiDataType. Retrieve with DataTypeGetInfo().
 --- @class ImGuiDataTypeInfo
 --- @field Size     size_t # Size in bytes
 --- @field Name     string # Short descriptive name for the type, for debugging
 --- @field PrintFmt string # Default printf format for the type
 --- @field ScanFmt  string # Default scanf format for the type
 
+-- Status storage for the last submitted item
 --- @class ImGuiLastItemData
 --- @field ID          ImGuiID
---- @field ItemFlags   ImGuiItemFlags
---- @field StatusFlags ImGuiItemStatusFlags
---- @field Rect        ImRect
---- @field NavRect     ImRect
---- @field DisplayRect ImRect
---- @field ClipRect    ImRect
---- @field Shortcut    ImGuiKeyChord
+--- @field ItemFlags   ImGuiItemFlags       # See ImGuiItemFlags (called 'InFlags' before v1.91.4).
+--- @field StatusFlags ImGuiItemStatusFlags # See ImGuiItemStatusFlags
+--- @field Rect        ImRect               # Full rectangle
+--- @field NavRect     ImRect               # Navigation scoring rectangle (not displayed)
+--- @field DisplayRect ImRect               # Display rectangle. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasDisplayRect) is set.
+--- @field ClipRect    ImRect               # Clip rectangle at the time of submitting item. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasClipRect) is set..
+--- @field Shortcut    ImGuiKeyChord        # Shortcut at the time of submitting item. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasShortcut) is set..
 
 --- @return ImGuiLastItemData
 --- @nodiscard
 function ImGuiLastItemData()
     return {
         ID          = 0,
-        ItemFlags   = 0,
-        StatusFlags = 0,
-        Rect        = ImRect(),
-        NavRect     = ImRect(),
+        ItemFlags   = 0,        -- See ImGuiItemFlags (called 'InFlags' before v1.91.4).
+        StatusFlags = 0,        -- See ImGuiItemStatusFlags
+        Rect        = ImRect(), -- Full rectangle
+        NavRect     = ImRect(), -- Navigation scoring rectangle (not displayed)
 
-        DisplayRect = ImRect(),
-        ClipRect    = ImRect(),
-        Shortcut    = 0
+        -- Rarely used fields are not explicitly cleared, only valid when the corresponding ImGuiItemStatusFlags are set.
+        DisplayRect = ImRect(), -- Display rectangle. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasDisplayRect) is set.
+        ClipRect    = ImRect(), -- Clip rectangle at the time of submitting item. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasClipRect) is set..
+        Shortcut    = 0         -- Shortcut at the time of submitting item. ONLY VALID IF (StatusFlags & ImGuiItemStatusFlags.HasShortcut) is set..
     }
 end
 
@@ -1115,6 +1249,10 @@ function ImGuiLastItemData_Copy(dest, src)
     dest.Shortcut = src.Shortcut
 end
 
+-- Store data emitted by TreeNode() for usage by TreePop()
+-- - To implement ImGuiTreeNodeFlags.NavLeftJumpsToParent: store the minimum amount of data
+--   which we can't infer in TreePop(), to perform the equivalent of NavApplyItemToResult().
+--   Only stored when the node is a potential candidate for landing on a Left arrow jump.
 --- @class ImGuiTreeNodeStackData
 --- @field ID                   ImGuiID
 --- @field TreeFlags            ImGuiTreeNodeFlags
@@ -1130,14 +1268,15 @@ local function ImGuiTreeNodeStackData()
     return {
         ID                   = nil,
         TreeFlags            = nil,
-        ItemFlags            = nil,
-        NavRect              = ImRect(),
+        ItemFlags            = nil,      -- Used for nav landing
+        NavRect              = ImRect(), -- Used for nav landing
         DrawLinesX1          = nil,
         DrawLinesToNodesY2   = nil,
         DrawLinesTableColumn = nil
     }
 end
 
+-- Storage for SetNextItem** functions
 --- @class ImGuiNextItemData
 --- @field HasFlags          ImGuiNextItemDataFlags
 --- @field ItemFlagsSet      ImGuiItemFlags
@@ -1154,6 +1293,7 @@ end
 local IMGUI_NEXT_ITEM_DATA = {}
 IMGUI_NEXT_ITEM_DATA.__index = IMGUI_NEXT_ITEM_DATA
 
+-- Also cleared manually by ItemAdd()!
 function IMGUI_NEXT_ITEM_DATA:ClearFlags()
     self.HasFlags = ImGuiNextItemDataFlags.None
     self.ItemFlagsSet = ImGuiItemFlags.None
@@ -1163,22 +1303,24 @@ end
 --- @nodiscard
 function ImGuiNextItemData()
     return setmetatable({
-        HasFlags          = 0,
-        ItemFlagsSet      = 0,
+        HasFlags          = 0, -- Called HasFlags instead of Flags to avoid mistaking this
+        ItemFlagsSet      = 0, -- Currently only tested/used for ImGuiItemFlags.AllowOverlap and ImGuiItemFlags.HasSelectionUserData.
 
-        FocusScopeId      = 0,
-        SelectionUserData = -1,
-        Width             = 0.0,
-        Shortcut          = 0,
-        ShortcutFlags     = 0,
-        OpenVal           = false,
-        OpenCond          = 0,
-        RefVal            = 0,
-        StorageId         = 0,
-        ColorMarker       = 0
+        -- Members below are NOT cleared by ItemAdd() meaning they are still valid during e.g. NavProcessItem(). Always rely on HasFlags.
+        FocusScopeId      = 0,     -- Set by SetNextItemSelectionUserData()
+        SelectionUserData = -1,    -- Set by SetNextItemSelectionUserData() (note that nil/0 is a valid value, we use -1 == ImGuiSelectionUserData_Invalid to mark invalid values)
+        Width             = 0.0,   -- Set by SetNextItemWidth()
+        Shortcut          = 0,     -- Set by SetNextItemShortcut()
+        ShortcutFlags     = 0,     -- Set by SetNextItemShortcut()
+        OpenVal           = false, -- Set by SetNextItemOpen()
+        OpenCond          = 0,     -- Set by SetNextItemOpen()
+        RefVal            = 0,     -- Not exposed yet, for ImGuiInputTextFlags.ParseEmptyAsRefVal
+        StorageId         = 0,     -- Set by SetNextItemStorageID()
+        ColorMarker       = 0      -- Set by SetNextItemColorMarker(). Not exposed yet, supported by DragScalar,SliderScalar and for ImGuiSliderFlags.ColorMarkers.
     }, IMGUI_NEXT_ITEM_DATA)
 end
 
+-- Storage for SetNexWindow** functions
 --- @class ImGuiNextWindowData
 --- @field HasFlags             ImGuiNextWindowDataFlags
 --- @field PosCond              ImGuiCond
@@ -1211,6 +1353,7 @@ function ImGuiNextWindowData()
     return setmetatable({
         HasFlags = 0,
 
+        -- Members below are NOT cleared. Always rely on HasFlags.
         PosCond              = 0,
         SizeCond             = 0,
         CollapsedCond        = 0,
@@ -1221,9 +1364,9 @@ function ImGuiNextWindowData()
         ScrollVal            = ImVec2(),
         WindowFlags          = nil,
         ChildFlags           = nil,
-        WindowFlagsSet       = 0,
+        WindowFlagsSet       = 0, -- Flags to set. Use SetNextWindowFlags()!
         WindowFlagsClear     = 0,
-        ChildFlagsSet        = 0,
+        ChildFlagsSet        = 0, -- Flags to set. Use SetNextWindowChildFlags().
         ChildFlagsClear      = 0,
         ViewportId           = 0,
         DockId               = 0,
@@ -1234,8 +1377,8 @@ function ImGuiNextWindowData()
         SizeConstraintRect   = nil,
         SizeCallback         = nil,
         SizeCallbackUserData = nil,
-        BgAlphaVal           = nil,
-        MenuBarOffsetMinVal  = ImVec2(),
+        BgAlphaVal           = nil, -- Override background alpha
+        MenuBarOffsetMinVal  = ImVec2(), -- (Always on) This is not exposed publicly, so we don't clear it and it doesn't have a corresponding flag (could we? for consistency?)
         RefreshFlagsVal      = nil,
         CacheKeySet          = false, -- [Port] SetNextWindowCached()
         CacheKeyVal          = nil
@@ -1245,7 +1388,7 @@ end
 --- @enum ImGuiWindowBgClickFlags
 ImGuiWindowBgClickFlags = {
     None = 0,
-    Move = bitLShift(1, 0),
+    Move = bitLShift(1, 0), -- Click on bg/void + drag to move window. Cleared by default when using io.ConfigWindowsMoveFromTitleBarOnly.
 }
 
 --- @enum ImGuiNextWindowDataFlags
@@ -1267,6 +1410,8 @@ ImGuiNextWindowDataFlags = {
     HasWindowClass    = bitLShift(1, 13)
 }
 
+-- FIXME: this is in development, not exposed/functional as a generic feature yet.
+-- Horizontal/Vertical enums are fixed to 0/1 so they may be used to index ImVec2
 --- @enum ImGuiLayoutType
 ImGuiLayoutType =
 {
@@ -1280,7 +1425,7 @@ ImGuiSeparatorFlags =
     None           = 0,
     Horizontal     = bitLShift(1, 0), -- Axis default to current layout type, so generally Horizontal unless e.g. in a menu bar
     Vertical       = bitLShift(1, 1),
-    SpanAllColumns = bitLShift(1, 2)  -- Make separator cover all columns of a legacy Columns() set
+    SpanAllColumns = bitLShift(1, 2)  -- Make separator cover all columns of a legacy Columns() set.
 }
 
 --- @class ImGuiStyle
@@ -1292,111 +1437,114 @@ MT.ImGuiStyle.__index = MT.ImGuiStyle
 function ImGuiStyle()
     --- @type ImGuiStyle
     local this = {
-        FontSizeBase  = 0.0,
-        FontScaleMain = 1.0,
-        FontScaleDpi  = 1.0,
+        FontSizeBase  = 0.0, -- Will default to io.Fonts.Fonts[0] on first frame.
+        FontScaleMain = 1.0, -- Main scale factor. May be set by application once, or exposed to end-user.
+        FontScaleDpi  = 1.0, -- Additional scale factor from viewport/monitor contents scale. When io.ConfigDpiScaleFonts is enabled, this is automatically overwritten when changing monitor DPI.
 
-        Alpha = 1.0,
-        DisabledAlpha = 0.60,
+        Alpha = 1.0, -- Global alpha applies to everything in Dear ImGui.
+        DisabledAlpha = 0.60, -- Additional alpha multiplier applied by BeginDisabled(). Multiply over current value of Alpha.
 
-        FramePadding = ImVec2(4, 3),
-        FrameRounding = 0.0,
-        FrameBorderSize = 0.0,
-        WindowPadding = ImVec2(8, 8),
+        FramePadding = ImVec2(4, 3), -- Padding within a framed rectangle (used by most widgets)
+        FrameRounding = 0.0, -- Radius of frame corners rounding. Set to 0.0 to have rectangular frames (used by most widgets).
+        FrameBorderSize = 0.0, -- Thickness of border around frames. Generally set to 0.0 or 1.0. Other values not well tested.
+        WindowPadding = ImVec2(8, 8), -- Padding within a window
 
-        TouchExtraPadding = ImVec2(0, 0),
-        IndentSpacing = 21.0,
+        TouchExtraPadding = ImVec2(0, 0), -- Expand reactive bounding box for touch-based system where touch position is not accurate enough. Unfortunately we don't sort widgets so priority on overlap will always be given to the first widget. So don't grow this too much!
+        IndentSpacing = 21.0, -- Horizontal spacing when e.g. entering a tree node. Generally == (FontSize + FramePadding.x*2).
 
-        WindowRounding = 0,
-        WindowBorderSize = 1,
+        WindowRounding = 0, -- Radius of window corners rounding. Set to 0.0 to have rectangular windows. Large values tend to lead to variety of artifacts and are not recommended.
+        WindowBorderSize = 1, -- Thickness of border around windows. Generally set to 0.0 or 1.0. Other values not well tested.
 
-        ScrollbarSize     = 14.0,
-        ScrollbarRounding = 9.0,
-        ScrollbarPadding  = 2.0,
-        GrabMinSize = 12.0,
-        GrabRounding = 0.0,
-        ImageRounding = 0.0,
-        ImageBorderSize = 0.0,
+        ScrollbarSize     = 14.0, -- Width of the vertical scrollbar, Height of the horizontal scrollbar
+        ScrollbarRounding = 9.0, -- Radius of grab corners rounding for scrollbar
+        ScrollbarPadding  = 2.0, -- Padding of scrollbar grab within its frame (same for both axes)
+        GrabMinSize = 12.0, -- Minimum width/height of a grab box for slider/scrollbar
+        GrabRounding = 0.0, -- Radius of grabs corners rounding. Set to 0.0 to have rectangular slider grabs.
+        ImageRounding = 0.0, -- Rounding of Image() calls.
+        ImageBorderSize = 0.0, -- Thickness of border around Image() calls.
 
-        WindowBorderHoverPadding = 4.0,
+        WindowBorderHoverPadding = 4.0, -- Hit-testing extent outside/inside resizing border. Also extend determination of hovered window. Generally meaningfully larger than WindowBorderSize to make it easy to reach borders.
 
         TreeLinesFlags = ImGuiTreeNodeFlags.DrawLinesNone,
-        TreeLinesSize  = 1.0,
-        TreeLinesRounding = 0.0,
-        MenuItemRounding = 0.0,
-        SelectableRounding = 0.0,
+        TreeLinesSize  = 1.0, -- Thickness of outlines when using ImGuiTreeNodeFlags.DrawLines.
+        TreeLinesRounding = 0.0, -- Radius of lines connecting child nodes to the vertical line.
+        MenuItemRounding = 0.0, -- Radius of MenuItem, BeginMenu rounding.
+        SelectableRounding = 0.0, -- Radius of selectable rounding. MODIFYING THIS IS DISCOURAGED. CONTIGUOUS SELECTIONS WILL NOT LOOK RIGHT. (#7589)
 
-        ColorMarkerSize = 3.0,
-        ColorButtonPosition = ImGuiDir.Right,
+        ColorMarkerSize = 3.0, -- Size of R/G/B/A color markers for ColorEdit4() and for Drags/Sliders when using ImGuiSliderFlags.ColorMarkers.
+        ColorButtonPosition = ImGuiDir.Right, -- Side of the color button in the ColorEdit4 widget (left/right). Defaults to ImGuiDir.Right.
 
-        InputTextCursorSize = 1.0,
-        SeparatorSize           = 1.0,
-        SeparatorTextBorderSize = 3.0,
-        SeparatorTextAlign      = ImVec2(0.0, 0.5),
-        SeparatorTextPadding    = ImVec2(20.0, 3.0),
+        InputTextCursorSize = 1.0, -- Thickness of cursor/caret in InputText().
+        SeparatorSize           = 1.0, -- Thickness of border in Separator().
+        SeparatorTextBorderSize = 3.0, -- Thickness of border in SeparatorText().
+        SeparatorTextAlign      = ImVec2(0.0, 0.5), -- Alignment of text within the separator. Defaults to (0.0, 0.5) (left aligned, center).
+        SeparatorTextPadding    = ImVec2(20.0, 3.0), -- Horizontal offset of text from each edge of the separator + spacing on other axis. Generally small values. .y is recommended to be == FramePadding.y.
 
-        DisplaySafeAreaPadding = ImVec2(3, 3),
-        DisplayWindowPadding = ImVec2(19, 19),
+        DisplaySafeAreaPadding = ImVec2(3, 3), -- If you cannot see the edge of your screen (e.g. on a TV) increase the safe area padding. Covers popups/tooltips as well regular windows.
+        DisplayWindowPadding = ImVec2(19, 19), -- Window position are clamped to be visible within the display area or monitors by at least this amount. Only applies to regular windows.
 
-        AntiAliasedLines = true,
-        AntiAliasedLinesUseTex = true,
-        AntiAliasedFill = true,
+        -- Rendering & Tessellation
+        AntiAliasedLines = true, -- Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedLines in all draw-lists.
+        AntiAliasedLinesUseTex = true, -- Enable anti-aliased lines/borders using textures for legacy strokes. Require backend to render with bilinear filtering (NOT point/nearest filtering).
+        AntiAliasedFill = true, -- Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedFill in all draw-lists.
 
-        CurveTessellationTol       = 1.25,
-        CircleTessellationMaxError = 0.30,
+        CurveTessellationTol       = 1.25, -- Tessellation tolerance when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
+        CircleTessellationMaxError = 0.30, -- Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
 
-        HoverStationaryDelay = 0.15,
-        HoverDelayShort = 0.15,
-        HoverDelayNormal = 0.40,
+        -- Behaviors
+        HoverStationaryDelay = 0.15, -- Delay for IsItemHovered(ImGuiHoveredFlags.Stationary). Time required to consider mouse stationary.
+        HoverDelayShort = 0.15, -- Delay for IsItemHovered(ImGuiHoveredFlags.DelayShort). Usually used along with HoverStationaryDelay.
+        HoverDelayNormal = 0.40, -- Delay for IsItemHovered(ImGuiHoveredFlags.DelayNormal). "
 
         Colors = {},
 
-        ButtonTextAlign = ImVec2(0.5, 0.5),
-        SelectableTextAlign = ImVec2(0.0, 0.0),
+        ButtonTextAlign = ImVec2(0.5, 0.5), -- Alignment of button text when button is larger than text.
+        SelectableTextAlign = ImVec2(0.0, 0.0), -- Alignment of selectable text. Defaults to (0.0, 0.0) (top-left aligned). It's generally important to keep this left-aligned if you want to lay multiple items on a same line.
 
-        WindowMinSize = ImVec2(32, 32),
-        WindowTitleAlign = ImVec2(0.0, 0.5),
-        WindowMenuButtonPosition = ImGuiDir.Left,
-        ChildRounding = 0.0,
-        ChildBorderSize = 1.0,
-        PopupRounding = 0.0,
-        PopupBorderSize = 1.0,
+        WindowMinSize = ImVec2(32, 32), -- Minimum window size
+        WindowTitleAlign = ImVec2(0.0, 0.5), -- Alignment for title bar text
+        WindowMenuButtonPosition = ImGuiDir.Left, -- Position of the collapsing/docking button in the title bar (left/right). Defaults to ImGuiDir.Left.
+        ChildRounding = 0.0, -- Radius of child window corners rounding. Set to 0.0 to have rectangular child windows
+        ChildBorderSize = 1.0, -- Thickness of border around child windows. Generally set to 0.0 or 1.0. Other values not well tested.
+        PopupRounding = 0.0, -- Radius of popup window corners rounding. Set to 0.0 to have rectangular child windows
+        PopupBorderSize = 1.0, -- Thickness of border around popup or tooltip windows. Generally set to 0.0 or 1.0. Other values not well tested.
 
-        DockingSeparatorSize = 2.0,
-        DockingNodeHasCloseButton = true,
-        MouseCursorScale = 1.0,
+        DockingSeparatorSize = 2.0, -- Thickness of resizing border between docked windows
+        DockingNodeHasCloseButton = true, -- Docking nodes have their own CloseButton() to close all docked windows.
+        MouseCursorScale = 1.0, -- Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
 
-        ItemSpacing = ImVec2(8, 4),
-        ItemInnerSpacing = ImVec2(4, 4),
-        CellPadding = ImVec2(4, 2),
+        ItemSpacing = ImVec2(8, 4), -- Horizontal and vertical spacing between widgets/lines
+        ItemInnerSpacing = ImVec2(4, 4), -- Horizontal and vertical spacing between within elements of a composed widget (e.g. a slider and its label)
+        CellPadding = ImVec2(4, 2), -- Padding within a table cell. Cellpadding.x is locked for entire table. CellPadding.y may be altered between different rows.
 
-        ColumnsMinSpacing = 6.0,
+        ColumnsMinSpacing = 6.0, -- Minimum horizontal spacing between two columns. Preferably > (FramePadding.x + 1).
 
-        LogSliderDeadzone = 4.0,
+        LogSliderDeadzone = 4.0, -- The size in pixels of the dead-zone around zero on logarithmic sliders that cross zero.
 
-        TabRounding = 5.0,
-        TabBorderSize = 0.0,
-        TabMinWidthBase = 1.0,
-        TabMinWidthShrink = 80.0,
-        TabCloseButtonMinWidthSelected = -1.0,
-        TabCloseButtonMinWidthUnselected = 0.0,
-        TabBarBorderSize = 1.0,
-        TabBarOverlineSize = 1.0,
-        TableAngledHeadersAngle = 35.0 * (IM_PI / 180.0),
-        TableAngledHeadersTextAlign = ImVec2(0.5, 0.0),
+        TabRounding = 5.0, -- Radius of upper corners of a tab. Set to 0.0 to have rectangular tabs.
+        TabBorderSize = 0.0, -- Thickness of border around tabs.
+        TabMinWidthBase = 1.0, -- Minimum tab width, to make tabs larger than their contents. TabBar buttons are not affected.
+        TabMinWidthShrink = 80.0, -- Minimum tab width after shrinking, when using ImGuiTabBarFlags.FittingPolicyMixed policy. FLT_MAX: never shrink, will behave like ImGuiTabBarFlags.FittingPolicyScroll.
+        TabCloseButtonMinWidthSelected = -1.0, -- -1: always visible. 0.0: visible when hovered. >0.0: visible when hovered if minimum width.
+        TabCloseButtonMinWidthUnselected = 0.0, -- -1: always visible. 0.0: visible when hovered. >0.0: visible when hovered if minimum width. FLT_MAX: never show close button when unselected.
+        TabBarBorderSize = 1.0, -- Thickness of tab-bar separator, which takes on the tab active color to denote focus.
+        TabBarOverlineSize = 1.0, -- Thickness of tab-bar overline, which highlights the selected tab-bar.
+        TableAngledHeadersAngle = 35.0 * (IM_PI / 180.0), -- Angle of angled headers (supported values range from -50 degrees to +50 degrees).
+        TableAngledHeadersTextAlign = ImVec2(0.5, 0.0), -- Alignment of angled headers within the cell
 
-        DragDropTargetRounding = 0.0,
-        DragDropTargetBorderSize = 2.0,
-        DragDropTargetPadding = 3.0,
+        DragDropTargetRounding = 0.0, -- Radius of the drag and drop target frame.
+        DragDropTargetBorderSize = 2.0, -- Thickness of the drag and drop target border.
+        DragDropTargetPadding = 3.0, -- Size to expand the drag and drop target from actual target item size.
 
-        HoverFlagsForTooltipMouse = bitOr(ImGuiHoveredFlags.Stationary, ImGuiHoveredFlags.DelayShort, ImGuiHoveredFlags.AllowWhenDisabled),
-        HoverFlagsForTooltipNav = bitOr(ImGuiHoveredFlags.NoSharedDelay, ImGuiHoveredFlags.DelayNormal, ImGuiHoveredFlags.AllowWhenDisabled),
+        HoverFlagsForTooltipMouse = bitOr(ImGuiHoveredFlags.Stationary, ImGuiHoveredFlags.DelayShort, ImGuiHoveredFlags.AllowWhenDisabled), -- Default flags when using IsItemHovered(ImGuiHoveredFlags.ForTooltip) or BeginItemTooltip()/SetItemTooltip() while using mouse.
+        HoverFlagsForTooltipNav = bitOr(ImGuiHoveredFlags.NoSharedDelay, ImGuiHoveredFlags.DelayNormal, ImGuiHoveredFlags.AllowWhenDisabled), -- Default flags when using IsItemHovered(ImGuiHoveredFlags.ForTooltip) or BeginItemTooltip()/SetItemTooltip() while using keyboard/gamepad.
 
         -- [Internal]
         _MainScale = 1.0,
         _NextFrameFontSizeBase = 0.0
     }
 
+    -- Default theme
     ImGui.StyleColorsDark(this)
 
     setmetatable(this, MT.ImGuiStyle)
@@ -1404,6 +1552,7 @@ function ImGuiStyle()
     return this
 end
 
+-- Storage for each window pushed into the stack.
 --- @class ImGuiWindowStackData
 
 --- @return ImGuiWindowStackData
@@ -1412,12 +1561,13 @@ function ImGuiWindowStackData()
     return {
         Window                              = nil,
         ParentLastItemDataBackup            = ImGuiLastItemData(),
-        StackSizesInBegin                   = nil,
-        DisabledOverrideReenable            = nil,
+        StackSizesInBegin                   = nil, -- Store size of various stacks for asserting
+        DisabledOverrideReenable            = nil, -- Non-child window override disabled flag
         DisabledOverrideReenableAlphaBackup = nil
     }
 end
 
+-- Storage data for BeginComboPreview()/EndComboPreview()
 --- @class ImGuiComboPreviewData
 --- @field PreviewRect                  ImRect
 --- @field BackupCursorPos              ImVec2
@@ -1443,10 +1593,12 @@ end
 
 --- @alias ImStbTexteditState STB_TexteditState
 
+-- Internal state of the currently focused/edited text input box
+-- For a given item ID, access with ImGui.GetInputTextState()
 --- @class ImGuiInputTextState
 --- @field Ctx                  ImGuiContext        # parent UI context (needs to be set explicitly by parent)
 --- @field Stb                  ImStbTexteditState  # State for stb_textedit.lua
---- @field Flags                ImGuiInputTextFlags
+--- @field Flags                ImGuiInputTextFlags # copy of InputText() flags. may be used to check if e.g. ImGuiInputTextFlags.Password is set.
 --- @field ID                   ImGuiID             # widget id owning the text state
 --- @field TextLen              int                 # UTF-8 length of the string in TextA (in bytes)
 --- @field TextSrc              ImStringBuffer      # == TextA.Data unless read-only, in which case == buf passed to InputText(). For _ReadOnly fields, pointer will be null outside the InputText() call
@@ -1468,33 +1620,35 @@ MT.ImGuiInputTextState.__index = MT.ImGuiInputTextState
 
 local function ImGuiInputTextState()
     local this = {
-        Ctx   = nil,
-        Stb   = STB_TexteditState(), -- FIXME: no global!
-        Flags = 0,
-        ID    = 0,
+        Ctx   = nil, -- parent UI context (needs to be set explicitly by parent).
+        Stb   = STB_TexteditState(), -- FIXME: no global! -- State for stb_textedit.h
+        Flags = 0, -- copy of InputText() flags. may be used to check if e.g. ImGuiInputTextFlags.Password is set.
+        ID    = 0, -- widget id owning the text state
 
-        TextLen            = 0,
-        TextSrc            = nil,
-        TextA              = ImVector(),
-        TextToRevertTo     = ImVector(),
-        CallbackTextBackup = ImVector(),
+        TextLen            = 0,          -- UTF-8 length of the string in TextA (in bytes)
+        TextSrc            = nil,        -- == TextA.Data unless read-only, in which case == buf passed to InputText(). For _ReadOnly fields, pointer will be null outside the InputText() call.
+        TextA              = ImVector(), -- main UTF8 buffer. TextA.Size is a buffer size! Should always be >= buf_size passed by user (and of course >= CurLenA + 1).
+        TextToRevertTo     = ImVector(), -- value to revert to when pressing Escape = backup of end-user buffer at the time of focus (in UTF-8, unaltered)
+        CallbackTextBackup = ImVector(), -- temporary storage for callback to support automatic reconcile of undo-stack
 
-        BufCapacity = 0,
-        Scroll      = ImVec2(),
-        LineCount   = 0,
-        WrapWidth   = 0.0,
+        BufCapacity = 0,        -- end-user buffer capacity (include zero terminator)
+        Scroll      = ImVec2(), -- horizontal offset (managed manually) + vertical scrolling (pulled from child window's own Scroll.y)
+        LineCount   = 0,        -- last line count (solely for debugging)
+        WrapWidth   = 0.0,      -- word-wrapping width
 
-        CursorAnim    = 0.0,
-        CursorFollow  = false,
-        CursorCenterY = false,
-        SelectedAllMouseLock = false,
-        EditedBefore = false,
-        EditedThisFrame = false,
+        CursorAnim    = 0.0,   -- timer for cursor blink, reset on every user action so the cursor reappears immediately
+        CursorFollow  = false, -- set when we want scrolling to follow the current cursor position (not always!)
+        CursorCenterY = false, -- set when we want scrolling to be centered over the cursor position (while resizing a word-wrapping field)
+        SelectedAllMouseLock = false, -- after a double-click to select all, we ignore further mouse drags to update selection
+        EditedBefore = false,    -- edited since activated
+        EditedThisFrame = false, -- edited this frame
     }
 
     return setmetatable(this, MT.ImGuiInputTextState)
 end
 
+-- Internal temporary state for deactivating InputText() instances.
+-- Store as part of ImGuiDeactivatedItemData?
 --- @class ImGuiInputTextDeactivatedState
 --- @field ID          ImGuiID        # widget id owning the text state (which just got deactivated)
 --- @field ElapseFrame int
@@ -1512,19 +1666,20 @@ end
 --- @nodiscard
 local function ImGuiInputTextDeactivatedState()
     return setmetatable({
-        ID          = 0,
+        ID          = 0,         -- widget id owning the text state (which just got deactivated)
         ElapseFrame = 0,
-        TextA       = ImVector()
+        TextA       = ImVector() -- text buffer
     }, IMGUI_INPUT_TEXT_DEACTIVATED_STATE)
 end
 
 --- @alias ImGuiKeyRoutingIndex ImS16
 
+-- Routing table entry (sizeof() == 16 bytes)
 --- @class ImGuiKeyRoutingData
 --- @field NextEntryIndex   ImGuiKeyRoutingIndex
---- @field Mods             ImU16
---- @field RoutingCurrScore ImU16
---- @field RoutingNextScore ImU16
+--- @field Mods             ImU16 # Technically we'd only need 4-bits but for simplify we store ImGuiMod_ values which need 16-bits.
+--- @field RoutingCurrScore ImU16 # [DEBUG] For debug display
+--- @field RoutingNextScore ImU16 # Lower is better (0: perfect score)
 --- @field RoutingCurr      ImGuiID
 --- @field RoutingNext      ImGuiID
 
@@ -1533,18 +1688,20 @@ end
 function ImGuiKeyRoutingData()
     return {
         NextEntryIndex = -1,
-        Mods = 0,
-        RoutingCurrScore = 0,
-        RoutingNextScore = 0,
+        Mods = 0, -- Technically we'd only need 4-bits but for simplify we store ImGuiMod_ values which need 16-bits.
+        RoutingCurrScore = 0, -- [DEBUG] For debug display
+        RoutingNextScore = 0, -- Lower is better (0: perfect score)
         RoutingCurr = ImGuiKeyOwner_NoOwner,
         RoutingNext = ImGuiKeyOwner_NoOwner
     }
 end
 
+-- Routing table: maintain a desired owner for each possible key-chord (key + mods), and setup owner in NewFrame() when mods are matching.
+-- Stored in main context (1 instance)
 --- @class ImGuiKeyRoutingTable
---- @field Index       ImGuiKeyRoutingIndex[]
+--- @field Index       ImGuiKeyRoutingIndex[] # Index of first entry in Entries[]
 --- @field Entries     ImVector<ImGuiKeyRoutingData>
---- @field EntriesNext ImVector<ImGuiKeyRoutingData>
+--- @field EntriesNext ImVector<ImGuiKeyRoutingData> # Double-buffer to avoid reallocation (could use a shared buffer)
 local _ImGuiKeyRoutingTable = {}
 _ImGuiKeyRoutingTable.__index = _ImGuiKeyRoutingTable
 
@@ -1557,9 +1714,9 @@ end
 --- @return ImGuiKeyRoutingTable
 local function ImGuiKeyRoutingTable()
     local this = setmetatable({
-        Index       = {},
+        Index       = {}, -- Index of first entry in Entries[]
         Entries     = ImVector(),
-        EntriesNext = ImVector()
+        EntriesNext = ImVector() -- Double-buffer to avoid reallocation (could use a shared buffer)
     }, _ImGuiKeyRoutingTable)
 
     this:Clear()
@@ -1567,9 +1724,11 @@ local function ImGuiKeyRoutingTable()
     return this
 end
 
+-- Helper: ImGuiTextIndex
+-- Maintain a line index for a text buffer. This is a strong candidate to be moved into the public API.
 --- @class ImGuiTextIndex
 --- @field Offsets   ImVector<int>
---- @field EndOffset int
+--- @field EndOffset int # Because we don't own text buffer we need to maintain EndOffset (may bake in LineOffsets?)
 local IMGUI_TEXT_INDEX = {}
 IMGUI_TEXT_INDEX.__index = IMGUI_TEXT_INDEX
 
@@ -1599,18 +1758,18 @@ local function ImGuiDebugAllocEntry()
 end
 
 --- @class ImGuiDebugAllocInfo
---- @field TotalAllocCount int
+--- @field TotalAllocCount int # Number of call to MemAlloc().
 --- @field TotalFreeCount  int
---- @field LastEntriesIdx  ImS16
---- @field LastEntriesBuf  ImGuiDebugAllocEntry[]
+--- @field LastEntriesIdx  ImS16 # Current index in buffer
+--- @field LastEntriesBuf  ImGuiDebugAllocEntry[] # Track last 6 frames that had allocations
 
 --- @return ImGuiDebugAllocInfo
 local function ImGuiDebugAllocInfo()
     local this = {
-        TotalAllocCount = 0,
+        TotalAllocCount = 0, -- Number of call to MemAlloc().
         TotalFreeCount = 0,
-        LastEntriesIdx = 1,
-        LastEntriesBuf = {nil, nil, nil, nil, nil, nil},
+        LastEntriesIdx = 1, -- Current index in buffer
+        LastEntriesBuf = {nil, nil, nil, nil, nil, nil}, -- Track last 6 frames that had allocations
     }
 
     for i = 1, 6 do
@@ -1631,16 +1790,17 @@ local function ImGuiMetricsConfig()
     }
 end
 
+-- Storage for navigation query/results
 --- @class ImGuiNavItemData
---- @field Window             ImGuiWindow?
---- @field ID                 ImGuiID
---- @field FocusScopeId       ImGuiID
---- @field RectRel            ImRect
---- @field ItemFlags          ImGuiItemFlags
---- @field SelectionUserData  ImGuiSelectionUserData
---- @field DistBox            float
---- @field DistCenter         float
---- @field DistAxial          float
+--- @field Window             ImGuiWindow?           # Init,Move -- Best candidate window (result->ItemWindow->RootWindowForNav == request->Window)
+--- @field ID                 ImGuiID                # Init,Move -- Best candidate item ID
+--- @field FocusScopeId       ImGuiID                # Init,Move -- Best candidate focus scope ID
+--- @field RectRel            ImRect                 # Init,Move -- Best candidate bounding box in window relative space
+--- @field ItemFlags          ImGuiItemFlags         # ????,Move -- Best candidate item flags
+--- @field SelectionUserData  ImGuiSelectionUserData # I+Mov -- Best candidate SetNextItemSelectionUserData() value. Valid if (ItemFlags & ImGuiItemFlags.HasSelectionUserData)
+--- @field DistBox            float                  # Move -- Best candidate box distance to current NavId
+--- @field DistCenter         float                  # Move -- Best candidate center distance to current NavId
+--- @field DistAxial          float                  # Move -- Best candidate axial distance to current NavId
 local IMGUI_NAV_ITEM_DATA = {}
 IMGUI_NAV_ITEM_DATA.__index = IMGUI_NAV_ITEM_DATA
 
@@ -1663,10 +1823,14 @@ local function ImGuiNavItemData()
     return this
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImGuiContext (main Dear ImGui context)
+-------------------------------------------------------------------------------
+
 --- @class ImGuiContext
 --- @field Initialized                        bool
---- @field WithinFrameScope                   bool
---- @field WithinFrameScopeWithImplicitWindow bool
+--- @field WithinFrameScope                   bool # Set by NewFrame(), cleared by EndFrame()
+--- @field WithinFrameScopeWithImplicitWindow bool # Set by NewFrame(), cleared by EndFrame() when the implicit debug window has been pushed
 --- @field FrameCount                         int
 --- @field FrameCountEnded                    int
 --- @field CurrentWindow                      ImGuiWindow
@@ -1726,49 +1890,54 @@ end
 --- @field DebugAllocInfo                     ImGuiDebugAllocInfo
 --- @field TempBuffer                         ImVector<char>
 
-----------------------------------------------------------------
--- [SECTION] Tab bar, Tab item support (public flags from imgui.h + private extensions)
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Tab bar, Tab item support
+-- PORT: public flags from imgui.h + private extensions
+-------------------------------------------------------------------------------
 
+-- Flags for ImGui.BeginTabBar()
 --- @enum ImGuiTabBarFlags
 ImGuiTabBarFlags = {
     None                         = 0,
-    Reorderable                  = bitLShift(1, 0),
-    AutoSelectNewTabs            = bitLShift(1, 1),
-    TabListPopupButton           = bitLShift(1, 2),
-    NoCloseWithMiddleMouseButton = bitLShift(1, 3),
-    NoTabListScrollingButtons    = bitLShift(1, 4),
-    NoTooltip                    = bitLShift(1, 5),
-    DrawSelectedOverline         = bitLShift(1, 6),
-    FittingPolicyMixed           = bitLShift(1, 7),
-    FittingPolicyShrink          = bitLShift(1, 8),
-    FittingPolicyScroll          = bitLShift(1, 9),
+    Reorderable                  = bitLShift(1, 0), -- Allow manually dragging tabs to re-order them + New tabs are appended at the end of list
+    AutoSelectNewTabs            = bitLShift(1, 1), -- Automatically select new tabs when they appear
+    TabListPopupButton           = bitLShift(1, 2), -- Disable buttons to open the tab list popup
+    NoCloseWithMiddleMouseButton = bitLShift(1, 3), -- Disable behavior of closing tabs (that are submitted with p_open ~= nil) with middle mouse button. You may handle this behavior manually on user's side with if (IsItemHovered() && IsMouseClicked(2)) p_open = false.
+    NoTabListScrollingButtons    = bitLShift(1, 4), -- Disable scrolling buttons (apply when fitting policy is ImGuiTabBarFlags.FittingPolicyScroll)
+    NoTooltip                    = bitLShift(1, 5), -- Disable tooltips when hovering a tab
+    DrawSelectedOverline         = bitLShift(1, 6), -- Draw selected overline markers over selected tab
+
+    -- Fitting/Resize policy
+    FittingPolicyMixed           = bitLShift(1, 7), -- Shrink down tabs when they don't fit, until width is style.TabMinWidthShrink, then enable scrolling. Setting TabMinWidthShrink to FLT_MAX makes this behave like ImGuiTabBarFlags.FittingPolicyScroll.
+    FittingPolicyShrink          = bitLShift(1, 8), -- Shrink down tabs when they don't fit
+    FittingPolicyScroll          = bitLShift(1, 9), -- Enable scrolling buttons when tabs don't fit
     -- Private
-    DockNode                     = bitLShift(1, 20),
+    DockNode                     = bitLShift(1, 20), -- Part of a dock node [we don't use this in the master branch but it facilitate branch syncing to keep this around]
     IsFocused                    = bitLShift(1, 21),
-    SaveSettings                 = bitLShift(1, 22),
+    SaveSettings                 = bitLShift(1, 22), -- FIXME: Settings are handled by the docking system, this only request the tab bar to mark settings dirty when reordering tabs
 }
 ImGuiTabBarFlags.FittingPolicyMask_       = bitOr(ImGuiTabBarFlags.FittingPolicyMixed, ImGuiTabBarFlags.FittingPolicyShrink, ImGuiTabBarFlags.FittingPolicyScroll)
 ImGuiTabBarFlags.FittingPolicyDefault_    = ImGuiTabBarFlags.FittingPolicyMixed
-ImGuiTabBarFlags.FittingPolicyResizeDown  = ImGuiTabBarFlags.FittingPolicyShrink
+ImGuiTabBarFlags.FittingPolicyResizeDown  = ImGuiTabBarFlags.FittingPolicyShrink -- Renamed in 1.92.2
 
+-- Flags for ImGui.BeginTabItem()
 --- @enum ImGuiTabItemFlags
 ImGuiTabItemFlags = {
     None                         = 0,
-    UnsavedDocument              = bitLShift(1, 0),
-    SetSelected                  = bitLShift(1, 1),
-    NoCloseWithMiddleMouseButton = bitLShift(1, 2),
-    NoPushId                     = bitLShift(1, 3),
-    NoTooltip                    = bitLShift(1, 4),
-    NoReorder                    = bitLShift(1, 5),
-    Leading                      = bitLShift(1, 6),
-    Trailing                     = bitLShift(1, 7),
-    NoAssumedClosure             = bitLShift(1, 8),
+    UnsavedDocument              = bitLShift(1, 0), -- Display a dot next to the title + set ImGuiTabItemFlags.NoAssumedClosure.
+    SetSelected                  = bitLShift(1, 1), -- Trigger flag to programmatically make the tab selected when calling BeginTabItem()
+    NoCloseWithMiddleMouseButton = bitLShift(1, 2), -- Disable behavior of closing tabs (that are submitted with p_open ~= nil) with middle mouse button. You may handle this behavior manually on user's side with if (IsItemHovered() && IsMouseClicked(2)) p_open = false.
+    NoPushId                     = bitLShift(1, 3), -- Don't call PushID()/PopID() on BeginTabItem()/EndTabItem()
+    NoTooltip                    = bitLShift(1, 4), -- Disable tooltip for the given tab
+    NoReorder                    = bitLShift(1, 5), -- Disable reordering this tab or having another tab cross over this tab
+    Leading                      = bitLShift(1, 6), -- Enforce the tab position to the left of the tab bar (after the tab list popup button)
+    Trailing                     = bitLShift(1, 7), -- Enforce the tab position to the right of the tab bar (before the scrolling buttons)
+    NoAssumedClosure             = bitLShift(1, 8), -- Tab is selected when trying to close + closure is not immediately assumed (will wait for user to stop submitting the tab). Otherwise closure is assumed when pressing the X, so if you keep submitting the tab may reappear at end of tab bar.
     -- Private
-    NoCloseButton                = bitLShift(1, 20),
-    Button                       = bitLShift(1, 21),
-    Invisible                    = bitLShift(1, 22),
-    Unsorted                     = bitLShift(1, 23),
+    NoCloseButton                = bitLShift(1, 20), -- Track whether p_open was set or not (we'll need this info on the next frame to recompute ContentWidth during layout)
+    Button                       = bitLShift(1, 21), -- Used by TabItemButton, change the tab item behavior to mimic a button
+    Invisible                    = bitLShift(1, 22), -- To reserve space e.g. with ImGuiTabItemFlags.Leading
+    Unsorted                     = bitLShift(1, 23), -- [Docking] Trailing tabs with the _Unsorted flag will be sorted based on the DockOrder of their Window.
 }
 ImGuiTabItemFlags.SectionMask_ = bitOr(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)
 
@@ -1777,13 +1946,17 @@ ImGuiTabItemFlags.SectionMask_ = bitOr(ImGuiTabItemFlags.Leading, ImGuiTabItemFl
 --- @return ImGuiTabItem
 function ImGuiTabItem()
     return {
-        ID = 0, Flags = 0, Window = nil,
-        LastFrameVisible = -1, LastFrameSelected = -1,
+        ID = 0, Flags = 0, Window = nil, -- Window: When TabItem is part of a DockNode's TabBar, we hold on to a window.
+        LastFrameVisible = -1, LastFrameSelected = -1, -- LastFrameSelected: This allows us to infer an ordered list of the last activated tabs with little maintenance
+        -- Offset: Position relative to beginning of tab bar
+        -- Width: Width currently displayed
+        -- ContentWidth: Width of label + padding, stored during BeginTabItem() call (misnamed as "Content" would normally imply width of label only)
+        -- RequestedWidth: Width optionally requested by caller, -1.0 is unused
         Offset = 0.0, Width = 0.0, ContentWidth = 0.0, RequestedWidth = -1.0,
         NameOffset = -1, Name = nil,
-        BeginOrder = -1,        -- 0-based
-        IndexDuringLayout = -1, -- 0-based
-        WantClose = false,
+        BeginOrder = -1,        -- 0-based -- BeginTabItem() order, used to re-order tabs after toggling ImGuiTabBarFlags.Reorderable
+        IndexDuringLayout = -1, -- 0-based -- Index only used during TabBarLayout(). Tabs gets reordered so 'Tabs[n].IndexDuringLayout == n' but may mismatch during additions.
+        WantClose = false, -- Marked as closed by SetTabItemClosed()
     }
 end
 
@@ -1792,19 +1965,24 @@ end
 --- @return ImGuiTabBar
 function ImGuiTabBar()
     return {
-        Window = nil, Tabs = ImVector(), Flags = 0, ID = 0,
+        Window = nil, Tabs = ImVector(), Flags = 0, ID = 0, -- ID: Zero for tab-bars used by docking
+        -- SelectedTabId: Selected tab/window
+        -- NextSelectedTabId: Next selected tab/window. Will also trigger a scrolling animation
+        -- VisibleTabId: Can occasionally be != SelectedTabId (e.g. when previewing contents for Ctrl+Tab preview)
         SelectedTabId = 0, NextSelectedTabId = 0, NextScrollToTabId = 0, VisibleTabId = 0,
         CurrFrameVisible = -1, PrevFrameVisible = -1,
-        BarRect = ImRect(), BarRectPrevWidth = 0.0,
-        CurrTabsContentsHeight = 0.0, PrevTabsContentsHeight = 0.0,
+        BarRect = ImRect(), BarRectPrevWidth = 0.0, -- BarRectPrevWidth: Backup of previous width. When width change we enforce keep horizontal scroll on focused tab.
+        CurrTabsContentsHeight = 0.0, PrevTabsContentsHeight = 0.0, -- PrevTabsContentsHeight: Record the height of contents submitted below the tab bar
+        -- WidthAllTabs: Actual width of all tabs (locked during layout)
+        -- WidthAllTabsIdeal: Ideal width if all tabs were visible and not clipped
         WidthAllTabs = 0.0, WidthAllTabsIdeal = 0.0,
         ScrollingAnim = 0.0, ScrollingTarget = 0.0, ScrollingTargetDistToVisibility = 0.0, ScrollingSpeed = 0.0,
         ScrollingRectMinX = 0.0, ScrollingRectMaxX = 0.0, SeparatorMinX = 0.0, SeparatorMaxX = 0.0,
         ReorderRequestTabId = 0, ReorderRequestOffset = 0, BeginCount = 0,
-        WantLayout = false, VisibleTabWasSubmitted = false, TabsAddedNew = false, ScrollButtonEnabled = false,
-        TabsActiveCount = 0,
-        LastTabItemIdx = -1, -- 0-based
-        ItemSpacingY = 0.0, FramePadding = ImVec2(), BackupCursorPos = ImVec2(),
+        WantLayout = false, VisibleTabWasSubmitted = false, TabsAddedNew = false, ScrollButtonEnabled = false, -- TabsAddedNew: Set to true when a new tab item or button has been added to the tab bar during last frame
+        TabsActiveCount = 0, -- Number of tabs submitted this frame.
+        LastTabItemIdx = -1, -- 0-based -- Index of last BeginTabItem() tab for use by EndTabItem()
+        ItemSpacingY = 0.0, FramePadding = ImVec2(), BackupCursorPos = ImVec2(), -- FramePadding: style.FramePadding locked at the time of BeginTabBar()
     }
 end
 
@@ -1817,86 +1995,86 @@ function ImGuiShrinkWidthItem() return { Index = 0, Width = 0.0, InitialWidth = 
 function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this structure
     local this = {
         Style = ImGuiStyle(),
-        ColorStack = ImVector(),
-        StyleVarStack = ImVector(),
+        ColorStack = ImVector(), -- Stack for PushStyleColor()/PopStyleColor() - inherited by Begin()
+        StyleVarStack = ImVector(), -- Stack for PushStyleVar()/PopStyleVar() - inherited by Begin()
 
         Config = nil,
         Initialized = false,
-        WithinFrameScope = false,
-        WithinFrameScopeWithImplicitWindow = false,
+        WithinFrameScope = false, -- Set by NewFrame(), cleared by EndFrame()
+        WithinFrameScopeWithImplicitWindow = false, -- Set by NewFrame(), cleared by EndFrame() when the implicit debug window has been pushed
 
         Windows = ImVector(), -- Windows sorted in display order, back to front
         WindowsById = {}, -- Map window's ID to window ref
 
-        WindowsBorderHoverPadding = 0,
+        WindowsBorderHoverPadding = 0, -- Padding around resizable windows for which hovering on counts as hovering the window == ImMax(style.TouchExtraPadding, style.WindowBorderHoverPadding). This isn't so multi-dpi friendly.
 
-        WindowsActiveCount = 0,
+        WindowsActiveCount = 0, -- Number of unique windows submitted by frame
 
-        WindowsTempSortBuffer = ImVector(),
+        WindowsTempSortBuffer = ImVector(), -- Temporary buffer used in EndFrame() to reorder windows so parents are kept before their child
         CurrentWindowStack = ImVector(),
-        CurrentWindow = nil,
+        CurrentWindow = nil, -- Window being drawn into
 
-        WindowsFocusOrder = ImVector(),
+        WindowsFocusOrder = ImVector(), -- Root windows, sorted in focus order, back to front.
 
         IO = ImGuiIO(),
         PlatformIO = ImGuiPlatformIO(),
 
-        ConfigFlagsCurrFrame = ImGuiConfigFlags.None,
+        ConfigFlagsCurrFrame = ImGuiConfigFlags.None, -- = g.IO.ConfigFlags at the time of NewFrame()
         ConfigFlagsLastFrame = ImGuiConfigFlags.None,
 
         MouseLastValidPos = ImVec2(),
 
-        KeysMayBeCharInput = ImBitArray(ImGuiKey.NamedKey_COUNT, -ImGuiKey.NamedKey_BEGIN),
+        KeysMayBeCharInput = ImBitArray(ImGuiKey.NamedKey_COUNT, -ImGuiKey.NamedKey_BEGIN), -- Lookup to tell if a key can emit char input, see IsKeyChordPotentiallyCharInput().
         KeysOwnerData = {}, -- size = ImGuiKey.NamedKey_COUNT
         KeysRoutingTable = ImGuiKeyRoutingTable(),
 
-        InputEventsQueue = ImVector(),
+        InputEventsQueue = ImVector(), -- Input events which will be trickled/written into IO structure.
 
         InputEventsNextMouseSource = ImGuiMouseSource.Mouse,
         InputEventsNextEventId = 1,
 
-        MovingWindow = nil,
+        MovingWindow = nil, -- Track the window we clicked on (in order to preserve focus). The actual window that is moved is generally MovingWindow.RootWindowDockTree.
 
-        WheelingWindow = nil,
-        WheelingWindowStartFrame = -1, WheelingWindowScrolledFrame = -1,
+        WheelingWindow = nil, -- Track the window we started mouse-wheeling on. Until a timer elapse or mouse has moved, generally keep scrolling the same window even if during the course of scrolling the mouse ends up hovering a child window.
+        WheelingWindowStartFrame = -1, WheelingWindowScrolledFrame = -1, -- This may be set one frame before WheelingWindow is ~= nil
         WheelingWindowReleaseTimer = 0.0,
         WheelingWindowRefMousePos = ImVec2(),
         WheelingWindowWheelRemainder = ImVec2(),
         WheelingAxisAvg = ImVec2(),
 
-        ActiveIdClickOffset = ImVec2(),
+        ActiveIdClickOffset = ImVec2(), -- Clicked offset from upper-left corner, if applicable (currently only set by ButtonBehavior)
 
-        HoveredWindow = nil,
-        HoveredWindowUnderMovingWindow = nil,
-        HoveredIdIsDisabled = false,
+        HoveredWindow = nil, -- Window the mouse is hovering. Will typically catch mouse inputs.
+        HoveredWindowUnderMovingWindow = nil, -- Hovered window ignoring MovingWindow. Only set if MovingWindow is set.
+        HoveredIdIsDisabled = false, -- At least one widget passed the rect test, but has been discarded by disabled flag or popup inhibit. May be true even if HoveredId == 0.
 
         ActiveIdFromShortcut = false,
 
         AnyIdHasBeenEditedThisFrame = false,
-        ActiveId = 0,
+        ActiveId = 0, -- Active widget
         ActiveIdWindow = nil,
 
         ActiveIdMouseButton = -1,
 
-        ActiveIdIsJustActivated = false,
+        ActiveIdIsJustActivated = false, -- Set at the time of activation for one frame
 
-        ActiveIdWasSelected = false, ActiveIdWasSoleSelected = false,
+        ActiveIdWasSelected = false, ActiveIdWasSoleSelected = false, -- Active ID was selected at the time of activating
         LastActiveIdWasSelected = false, LastActiveIdWasSoleSelected = false,
 
-        ActiveIdNoClearOnFocusLoss = false,
-        ActiveIdHasBeenPressedBefore = false,
+        ActiveIdNoClearOnFocusLoss = false, -- Disable losing active id if the active id window gets unfocused.
+        ActiveIdHasBeenPressedBefore = false, -- Track whether the active id led to a press (this is to allow changing between PressOnClick and PressOnRelease without pressing twice). Used by range_select branch.
 
-        ActiveIdIsAlive = nil,
+        ActiveIdIsAlive = nil, -- Active widget has been seen this frame (we can't use a bool as the ActiveId may change within the frame)
 
         ActiveIdPreviousFrame = 0,
 
         ActiveIdTimer = 0.0,
 
-        LastActiveId = 0,
-        LastActiveIdTimer = 0.0,
+        LastActiveId = 0, -- Store the last non-zero ActiveId, useful for animation.
+        LastActiveIdTimer = 0.0, -- Store the last non-zero ActiveId timer since the beginning of activation, useful for animation.
 
-        ActiveIdUsingNavDirMask = 0x00,
-        ActiveIdUsingAllKeyboardKeys = false,
+        ActiveIdUsingNavDirMask = 0x00, -- Active widget will want to read those nav move requests (e.g. can activate a button and move away from it)
+        ActiveIdUsingAllKeyboardKeys = false, -- Active widget will want to read all keyboard keys inputs. (this is a shortcut for not taking ownership of 100+ keys, frequently used by drag operations)
 
         DeactivatedItemData = {
             ID = 0,
@@ -1905,64 +2083,64 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
             IsAlive = false
         },
 
-        HoveredId = 0,
-        HoveredIdTimer = 0.0,
-        HoveredIdNotActiveTimer = 0.0,
+        HoveredId = 0, -- Hovered widget, filled during the frame
+        HoveredIdTimer = 0.0, -- Measure contiguous hovering time
+        HoveredIdNotActiveTimer = 0.0, -- Measure contiguous hovering time where the item has not been active
         HoveredIdAllowOverlap = false,
 
         HoverItemDelayId = 0, HoverItemDelayIdPreviousFrame = 0, HoverItemUnlockedStationaryId = 0, HoverWindowUnlockedStationaryId = 0,
-        HoverItemDelayTimer = 0.0, HoverItemDelayClearTimer = 0.0,
+        HoverItemDelayTimer = 0.0, HoverItemDelayClearTimer = 0.0, -- Currently used by IsItemHovered()
 
-        ActiveIdAllowOverlap = false,
+        ActiveIdAllowOverlap = false, -- Active widget allows another widget to steal active id (generally for overlapping widgets, but not always)
 
-        NavLayer = ImGuiNavLayer.Main,
-        NavId = 0,
+        NavLayer = ImGuiNavLayer.Main, -- Focused layer (main scrolling layer, or menu/title bar layer)
+        NavId = 0, -- Focused item for navigation
         NavOpenContextMenuItemId = 0, NavOpenContextMenuWindowId = 0,
-        NavWindow = nil,
+        NavWindow = nil, -- Focused window for navigation. Could be called 'FocusedWindow'
         NavHighlightActivatedId = 0,
         NavHighlightActivatedTimer = 0.0,
-        NavCursorVisible = false,
+        NavCursorVisible = false, -- Nav focus cursor/rectangle is visible? We hide it after a mouse click. We show it after a nav move.
         NavCursorHideFrames = 0,
-        NavHighlightItemUnderNav = false,
-        NavIdIsAlive = false,
-        NavInputSource = ImGuiInputSource.Keyboard,
-        NavWindowingTarget = nil, NavWindowingTargetAnim = nil, NavWindowingListWindow = nil,
+        NavHighlightItemUnderNav = false, -- Disable mouse hovering highlight. Highlight navigation focused item instead of mouse hovered item.
+        NavIdIsAlive = false, -- Nav widget has been seen this frame ~~ NavRectRel is valid
+        NavInputSource = ImGuiInputSource.Keyboard, -- Keyboard or Gamepad mode? THIS CAN ONLY BE ImGuiInputSource.Keyboard or ImGuiInputSource.Gamepad
+        NavWindowingTarget = nil, NavWindowingTargetAnim = nil, NavWindowingListWindow = nil, -- Target window when doing Ctrl+Tab (or Pad Menu + FocusPrev/Next), this window is temporarily displayed top-most!
         NavWindowingTimer = 0.0, NavWindowingHighlightAlpha = 0.0,
-        NavWindowingToggleLayer = false,
-        NavWindowingToggleKey = ImGuiKey.None,
+        NavWindowingToggleLayer = false, -- Set while Alt or GamepadMenu is held, may be cleared by other operations, and processed when releasing the key.
+        NavWindowingToggleKey = ImGuiKey.None, -- Keyboard/gamepad key used when toggling to menu layer.
         NavWindowingInputSource = ImGuiInputSource.None,
         NavWindowingAccumDeltaPos = ImVec2(0.0, 0.0), NavWindowingAccumDeltaSize = ImVec2(0.0, 0.0),
-        DimBgRatio = 0.0,
-        LastKeyboardKeyPressTime = -1.0, LastKeyModsChangeTime = -1.0, LastKeyModsChangeFromNoneTime = -1.0,
-        ConfigNavWindowingKeyNext = bit32.bor(ImGuiMod_Ctrl, ImGuiKey.Tab),
-        ConfigNavWindowingKeyPrev = bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift, ImGuiKey.Tab),
-        ConfigNavWindowingWithGamepad = true,
+        DimBgRatio = 0.0, -- 0.0..1.0 animation when fading in a dimming background (for modal window and Ctrl+Tab list)
+        LastKeyboardKeyPressTime = -1.0, LastKeyModsChangeTime = -1.0, LastKeyModsChangeFromNoneTime = -1.0, -- Record the last time a keyboard key (ignore mouse/gamepad ones) was pressed.
+        ConfigNavWindowingKeyNext = bit32.bor(ImGuiMod_Ctrl, ImGuiKey.Tab), -- = ImGuiMod_Ctrl | ImGuiKey.Tab (or ImGuiMod_Super | ImGuiKey.Tab on OS X). Set to 0 to disable. For reconfiguration (see #4828)
+        ConfigNavWindowingKeyPrev = bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift, ImGuiKey.Tab), -- = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey.Tab (or ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey.Tab on OS X)
+        ConfigNavWindowingWithGamepad = true, -- = true. Enable Ctrl+Tab by holding ImGuiKey.GamepadFaceLeft (== ImGuiKey.NavGamepadMenu). When false, the button may still be used to toggle Menu layer.
 
-        NavFocusRoute = ImVector(),
+        NavFocusRoute = ImVector(), -- Reversed copy focus scope stack for NavId (should contains NavFocusScopeId). This essentially follow the window.ParentWindowForFocusRoute chain.
 
-        NavAnyRequest = false,
-        NavInitRequest = false,
+        NavAnyRequest = false, -- ~~ NavMoveRequest || NavInitRequest this is to perform early out in ItemAdd()
+        NavInitRequest = false, -- Init request for appearing window to select first item
         NavInitRequestFromMove = false,
-        NavInitResult = ImGuiNavItemData(),
-        NavMoveSubmitted = false,
-        NavMoveScoringItems = false,
+        NavInitResult = ImGuiNavItemData(), -- Init request result (first item of the window, or one for which SetItemDefaultFocus() was called)
+        NavMoveSubmitted = false, -- Move request submitted, will process result on next NewFrame()
+        NavMoveScoringItems = false, -- Move request submitted, still scoring incoming items
         NavMoveForwardToNextFrame = false,
         NavMoveFlags = ImGuiNavMoveFlags.None,
         NavMoveScrollFlags = ImGuiScrollFlags.None,
         NavMoveKeyMods = ImGuiMod_None,
-        NavMoveDir = ImGuiDir.None, NavMoveDirForDebug = ImGuiDir.None, NavMoveClipDir = ImGuiDir.None,
-        NavMoveResultLocal = ImGuiNavItemData(),
-        NavMoveResultOther = ImGuiNavItemData(),
-        NavMoveResultLocalVisible = ImGuiNavItemData(),
-        NavTabbingResultFirst = ImGuiNavItemData(),
-        NavScoringRect = ImRect(),
-        NavScoringNoClipRect = ImRect(),
-        ConfigNavEnableTabbing = true,
-        NavTabbingCounter = 0,
-        NavTabbingDir = 0,
-        NavNextActivateId = 0,
+        NavMoveDir = ImGuiDir.None, NavMoveDirForDebug = ImGuiDir.None, NavMoveClipDir = ImGuiDir.None, -- Direction of the move request (left/right/up/down)
+        NavMoveResultLocal = ImGuiNavItemData(), -- Best move request candidate within NavWindow
+        NavMoveResultOther = ImGuiNavItemData(), -- Best move request candidate within NavWindow's flattened hierarchy (when using ImGuiWindowFlags.NavFlattened flag)
+        NavMoveResultLocalVisible = ImGuiNavItemData(), -- Best move request candidate within NavWindow that are mostly visible (when using ImGuiNavMoveFlags.AlsoScoreVisibleSet flag)
+        NavTabbingResultFirst = ImGuiNavItemData(), -- First tabbing request candidate within NavWindow and flattened hierarchy
+        NavScoringRect = ImRect(), -- Rectangle used for scoring, in screen space. Based of window.NavRectRel[], modified for directional navigation scoring.
+        NavScoringNoClipRect = ImRect(), -- Some nav operations (such as PageUp/PageDown) enforce a region which clipper will attempt to always keep submitted. Unset/invalid if inverted.
+        ConfigNavEnableTabbing = true, -- = true. Enable tabbing (Tab, Shift+Tab). PLEASE LET ME KNOW IF YOU USE THIS.
+        NavTabbingCounter = 0, -- >0 when counting items for tabbing
+        NavTabbingDir = 0, -- Generally -1 or +1, 0 when tabbing without a nav id
+        NavNextActivateId = 0, -- Set by ActivateItemByID(), queued until next frame.
         NavNextActivateFlags = ImGuiActivateFlags.None,
-        NavActivateId = 0, NavActivateDownId = 0, NavActivatePressedId = 0,
+        NavActivateId = 0, NavActivateDownId = 0, NavActivatePressedId = 0, -- ~~ (g.ActiveId == 0) && (IsKeyPressed(ImGuiKey.Space) || IsKeyDown(ImGuiKey.Enter) || IsKeyPressed(ImGuiKey.NavGamepadActivate)) ? NavId : 0, also set when calling ActivateItemByID()
         NavActivateFlags = ImGuiActivateFlags.None,
 
         FrameCount = -1,
@@ -1973,67 +2151,67 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         Time = 0,
 
-        NextItemData = ImGuiNextItemData(),
-        LastItemData = ImGuiLastItemData(),
-        NextWindowData = ImGuiNextWindowData(),
+        NextItemData = ImGuiNextItemData(), -- Storage for SetNextItem** functions
+        LastItemData = ImGuiLastItemData(), -- Storage for last submitted item (setup by ItemAdd)
+        NextWindowData = ImGuiNextWindowData(), -- Storage for SetNextWindow** functions
 
-        Viewports = ImVector(),
+        Viewports = ImVector(), -- Active viewports (always 1+, and generally 1 unless multi-viewports are enabled). Each viewports hold their copy of ImDrawData.
 
-        FallbackMonitor = nil,
+        FallbackMonitor = nil, -- Virtual monitor used as fallback if backend doesn't provide monitor information.
 
-        GcCompactAll = false,
+        GcCompactAll = false, -- Request full GC
 
         CurrentViewport = nil,
         MouseViewport = nil, MouseLastHoveredViewport = nil,
         PlatformLastFocusedViewportId = 1,
-        ViewportCreatedCount = 0, PlatformWindowsCreatedCount = 0,
-        ViewportFocusedStampCount = 0,
+        ViewportCreatedCount = 0, PlatformWindowsCreatedCount = 0, -- Unique sequential creation counter (mostly for testing/debugging)
+        ViewportFocusedStampCount = 0, -- Every time the front-most window changes, we stamp its viewport with an incrementing counter
 
-        Font = nil,
-        FontSize = 0.0,
-        FontSizeBase = 0.0,
-        CurrentDpiScale = 0.0,
+        Font = nil, -- Currently bound font. (== FontStack.back().Font)
+        FontSize = 0.0, -- Currently bound font size == line height (== FontSizeBase + externals scales applied in the UpdateCurrentFontSize() function).
+        FontSizeBase = 0.0, -- Font size before scaling == style.FontSizeBase == value passed to PushFont() when specified.
+        CurrentDpiScale = 0.0, -- Current window/viewport DpiScale == CurrentViewport.DpiScale
 
         FontRefSize = 0.0,
 
         FontRasterizerDensity = 1.0,
 
-        FontAtlases = ImVector(),
+        FontAtlases = ImVector(), -- List of font atlases used by the context (generally only contains g.IO.Fonts aka the main font atlas)
 
-        FontStack = ImVector(),
+        FontStack = ImVector(), -- Stack for PushFont()/PopFont() - inherited by Begin()
 
-        OpenPopupStack = ImVector(),
-        BeginPopupStack = ImVector(),
+        OpenPopupStack = ImVector(), -- Which popups are open (persistent)
+        BeginPopupStack = ImVector(), -- Which level of BeginPopup() we are in (reset every frame)
 
         TreeNodeStack = ImVector(ImGuiTreeNodeStackData),
 
-        WithinEndChildID = 0, WithinEndPopupID = 0,
+        WithinEndChildID = 0, WithinEndPopupID = 0, -- Set within EndChild()
 
         BeginMenuDepth = 0, BeginComboDepth = 0,
 
-        ColorEditCurrentID = 0, ColorEditSavedID = 0,
-        ColorEditSavedHue = 0.0, ColorEditSavedSat = 0.0,
-        ColorEditSavedColor = 0,
-        ColorPickerRef = ImVec4(),
+        ColorEditCurrentID = 0, ColorEditSavedID = 0, -- Set temporarily while inside of the parent-most ColorEdit4/ColorPicker4 (because they call each others).
+        ColorEditSavedHue = 0.0, ColorEditSavedSat = 0.0, -- Backup of last Hue associated to LastColor, so we can restore Hue in lossy RGB<>HSV round trips
+        ColorEditSavedColor = 0, -- RGB value with alpha set to 0.
+        ColorPickerRef = ImVec4(), -- Initial/reference color at the time of opening the color picker.
 
-        MenusIdSubmittedThisFrame = ImVector(),
+        MenusIdSubmittedThisFrame = ImVector(), -- A list of menu IDs that were rendered at least once
 
         DrawListSharedData = ImDrawListSharedData(),
 
         StackSizesInBeginForCurrentWindow = nil,
 
         MouseCursor = ImGuiMouseCursor.Arrow,
-        MouseStationaryTimer = 0.0,
+        MouseStationaryTimer = 0.0, -- Time the mouse has been stationary (with some loose heuristic)
 
         InputTextState = ImGuiInputTextState(),
-        InputTextLineIndex = ImGuiTextIndex(),
+        InputTextLineIndex = ImGuiTextIndex(), -- Temporary storage
         InputTextDeactivatedState = ImGuiInputTextDeactivatedState(),
         InputTextPasswordFontBackupBaked = ImFontBaked(),
-        InputTextReactivateId = 0,
-        TempInputId = 0,
+        InputTextReactivateId = 0, -- ID of InputText to reactivate on next frame (for io.ConfigInputTextEnterKeepActive behavior)
+        TempInputId = 0, -- Temporary text input when using Ctrl+Click on a slider, etc.
 
-        ActiveIdValueOnActivation = 0,
-        DataTypeZeroValue = 0,
+        ActiveIdValueOnActivation = 0, -- Backup of initial value at the time of activation. ONLY SET BY SPECIFIC WIDGETS: DragXXX and SliderXXX.
+        DataTypeZeroValue = 0, -- 0 for all data types
 
         ComboPreviewData = ImGuiComboPreviewData(),
 
@@ -2042,97 +2220,97 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         -- Docking
         DockContext = ImGuiDockContext(),
         DockNodeWindowMenuHandler = nil,
-        DebugHoveredDockNode = nil,
+        DebugHoveredDockNode = nil, -- Hovered dock node.
         CurrentTabBarStack = ImVector(), -- holds ImGuiTabBar references directly (no ImGuiPtrOrIndex needed in Lua)
         ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
 
-        WindowResizeBorderExpectedRect = ImRect(),
+        WindowResizeBorderExpectedRect = ImRect(), -- Expected border rect, switch to relative edit if moving
         WindowResizeRelativeMode = false,
 
-        ScrollbarSeekMode = 0,
-        ScrollbarClickDeltaToGrabCenter = 0.0,
+        ScrollbarSeekMode = 0, -- 0: scroll to clicked location, -1/+1: prev/next page.
+        ScrollbarClickDeltaToGrabCenter = 0.0, -- When scrolling to mouse location: distance between mouse and center of grab box, normalized in parent space.
 
         SliderGrabClickOffset = 0.0,
-        SliderCurrentAccum = 0.0,
-        SliderCurrentAccumDirty = false,
+        SliderCurrentAccum = 0.0, -- Accumulated slider delta when using navigation controls.
+        SliderCurrentAccumDirty = false, -- Has the accumulated slider delta changed since last time we tried to apply it?
         DragCurrentAccumDirty = false,
-        DragCurrentAccum = 0.0,
-        DragSpeedDefaultRatio = 1.0 / 100.0,
+        DragCurrentAccum = 0.0, -- Accumulator for dragging modification. Always high-precision, not rounded by end-user precision settings
+        DragSpeedDefaultRatio = 1.0 / 100.0, -- If speed == 0.0, uses (max-min) * DragSpeedDefaultRatio
 
         TooltipOverrideCount = 0,
-        TooltipPreviousWindow = nil,
+        TooltipPreviousWindow = nil, -- Window of last tooltip submitted during the frame
 
-        FocusScopeStack = ImVector(),
-        CurrentFocusScopeId = 0,
-        CurrentItemFlags = ImGuiItemFlags.None,
+        FocusScopeStack = ImVector(), -- Stack for PushFocusScope()/PopFocusScope() - inherited by BeginChild(), pushed into by Begin()
+        CurrentFocusScopeId = 0, -- Value for currently appending items == g.FocusScopeStack.back(). Not to be mistaken with g.NavFocusScopeId.
+        CurrentItemFlags = ImGuiItemFlags.None, -- Value for currently appending items == g.ItemFlagsStack.back()
 
-        DisabledAlphaBackup = 0.0,
+        DisabledAlphaBackup = 0.0, -- Backup for style.Alpha for BeginDisabled()
         DisabledStackSize = 0,
 
-        ItemFlagsStack = ImVector(),
-        GroupStack = ImVector(),
+        ItemFlagsStack = ImVector(), -- Stack for PushItemFlag()/PopItemFlag() - inherited by Begin()
+        GroupStack = ImVector(), -- Stack for BeginGroup()/EndGroup() - not inherited by Begin()
 
-        PlatformImeData = ImGuiPlatformImeData(),
-        PlatformImeDataPrev = ImGuiPlatformImeData(),
+        PlatformImeData = ImGuiPlatformImeData(), -- Data updated by current frame. Will be applied at end of the frame. For some backends, this is required to have WantVisible=true in order to receive text message.
+        PlatformImeDataPrev = ImGuiPlatformImeData(), -- Previous frame data. When changed we call the platform_io.Platform_SetImeDataFn() handler.
 
         -- Extensions
-        UserTextures = ImVector(),
+        UserTextures = ImVector(), -- List of textures created/managed by user or third-party extension. Automatically appended into platform_io.Textures[].
 
         -- Settings
         SettingsLoaded = false,
-        SettingsDirtyTimer = 0.0,
+        SettingsDirtyTimer = 0.0, -- Save .ini Settings to memory when time reaches zero
         SettingsIniData = "",          -- In memory .ini settings (string)
         SettingsHandlers = ImVector(), -- List of .ini settings handlers
-        SettingsWindows = ImVector(),
-        SettingsTables = ImVector(),
+        SettingsWindows = ImVector(), -- ImGuiWindow .ini settings entries
+        SettingsTables = ImVector(), -- ImGuiTable .ini settings entries
 
         -- Hooks
-        Hooks = ImVector(),
-        HookIdNext = 0,
+        Hooks = ImVector(), -- Hooks for extensions (e.g. test engine)
+        HookIdNext = 0, -- Next available HookId
 
         -- Drag and Drop
         DragDropActive = false,
-        DragDropWithinSource = false,
-        DragDropWithinTarget = false,
+        DragDropWithinSource = false, -- Set when within a BeginDragDropXXX/EndDragDropXXX block for a drag source.
+        DragDropWithinTarget = false, -- Set when within a BeginDragDropXXX/EndDragDropXXX block for a drag target.
         DragDropSourceFlags = 0,
         DragDropSourceFrameCount = -1,
         DragDropMouseButton = -1,
         DragDropPayload = ImGuiPayload(),
-        DragDropTargetRect = ImRect(),
-        DragDropTargetClipRect = ImRect(),
+        DragDropTargetRect = ImRect(), -- Store rectangle of current target candidate (we favor small targets when overlapping)
+        DragDropTargetClipRect = ImRect(), -- Store ClipRect at the time of item's drawing
         DragDropTargetId = 0,
         DragDropTargetFullViewport = 0,
         DragDropAcceptFlagsCurr = 0, DragDropAcceptFlagsPrev = 0,
-        DragDropAcceptIdCurrRectSurface = 0.0,
-        DragDropAcceptFrameCount = -1,
-        DragDropHoldJustPressedId = 0,
+        DragDropAcceptIdCurrRectSurface = 0.0, -- Target item surface (we resolve overlapping targets by prioritizing the smaller surface)
+        DragDropAcceptFrameCount = -1, -- Last time a target expressed a desire to accept the source
+        DragDropHoldJustPressedId = 0, -- Set when holding a payload just made ButtonBehavior() return a press.
 
-        DragDropAcceptIdPrev = 0, DragDropAcceptIdCurr = 0,
+        DragDropAcceptIdPrev = 0, DragDropAcceptIdCurr = 0, -- Target item id from previous frame (we need to store this to allow for overlapping drag and drop targets)
 
         -- Clipper
         ClipperTempDataStacked = 0,
         ClipperTempData = ImVector(),
 
         -- Logging
-        LogEnabled = false,
+        LogEnabled = false, -- Currently capturing
         LogLineFirstItem = false,
-        LogFlags = 0,
+        LogFlags = 0, -- Capture flags/type
         LogWindow = nil,
-        LogFile = nil,
-        LogBuffer = ImGuiTextBuffer(),
-        LogNextPrefix = nil, LogNextSuffix = nil,
+        LogFile = nil, -- If ~= nil log to stdout/ file
+        LogBuffer = ImGuiTextBuffer(), -- Accumulation buffer when log to clipboard.
+        LogNextPrefix = nil, LogNextSuffix = nil, -- See comment in LogSetNextTextDecoration(): doesn't copy underlying data, use carefully!
         LogLinePosY = FLT_MAX,
         LogDepthRef = 0,
         LogDepthToExpand = 2, LogDepthToExpandDefault = 2,
 
         -- Error handling
-        ErrorCallback = nil, ErrorCallbackUserData = nil,
+        ErrorCallback = nil, ErrorCallbackUserData = nil, -- = nil. May be exposed in public API eventually.
         ErrorTooltipLockedPos = ImVec2(),
         ErrorFirst = true,
-        ErrorCountCurrentFrame = 0,
-        StackSizesInNewFrame = nil,
-        ContextName = "",
-        DebugBreakInWindow = 0,
+        ErrorCountCurrentFrame = 0, -- [Internal] Number of errors submitted this frame.
+        StackSizesInNewFrame = nil, -- [Internal]
+        ContextName = "", -- Storage for a context name (to facilitate debugging multi-context setups)
+        DebugBreakInWindow = 0, -- Set to break in Begin() call.
 
         LocalizationTable = {},
 
@@ -2140,7 +2318,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         DebugFlashStyleColorIdx = nil,
 
         DebugMetricsConfig = ImGuiMetricsConfig(),
-        DebugHookIdInfoId = 0,
+        DebugHookIdInfoId = 0, -- Will call core hooks: DebugHookIdInfo() from GetID functions, used by ID Stack Tool
         DebugAllocInfo = ImGuiDebugAllocInfo(),
 
         --- Misc
@@ -2149,16 +2327,16 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         FramerateSecPerFrameCount = 0,
         FramerateSecPerFrameAccum = 0,
 
-        WantCaptureMouseNextFrame = -1,
-        WantCaptureKeyboardNextFrame = -1,
-        WantTextInputNextFrame = -1,
-        TempBuffer = ImVector(),
+        WantCaptureMouseNextFrame = -1, -- Explicit capture override via SetNextFrameWantCaptureMouse()/SetNextFrameWantCaptureKeyboard(). Default to -1.
+        WantCaptureKeyboardNextFrame = -1, -- "
+        WantTextInputNextFrame = -1, -- Copied in EndFrame() from g.PlatformImeData.WantTextInput. Needs to be set for some backends (SDL3) to emit character inputs.
+        TempBuffer = ImVector(), -- Temporary text buffer
 
         -- Tables (imgui_tables.lua)
         CurrentTable = nil,
-        DebugBreakInTable = 0,
-        TablesTempDataStacked = 0,
-        TablesTempData = ImVector(),
+        DebugBreakInTable = 0, -- Set to break in BeginTable() call.
+        TablesTempDataStacked = 0, -- Temporary table data size (because we leave previous instances undestructed, we generally don't use TablesTempData.Size)
+        TablesTempData = ImVector(), -- Temporary table data (buffers reused/shared across instances, support nesting)
         Tables = ImPool(),                 -- ImPool<ImGuiTable>, 0-based indices (imgui_tables.lua)
         TablesLastTimeActive = ImVector(), -- [table_idx + 1] = float
         DrawChannelsTempMergeBuffer = ImVector(),
@@ -2184,6 +2362,11 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
     return this
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Settings support
+-------------------------------------------------------------------------------
+
+-- Windows data saved in imgui.ini file
 --- @class ImGuiWindowSettings
 --- @field ID           int     # Window ID
 --- @field Pos          ImVec2  # Window position
@@ -2203,22 +2386,23 @@ end
 function ImGuiWindowSettings()
     return setmetatable({
         ID           = 0,
-        Pos          = ImVec2(0, 0),
+        Pos          = ImVec2(0, 0), -- NB: Settings position are stored RELATIVE to the viewport! Whereas runtime ones are absolute positions.
         Size         = ImVec2(0, 0),
         Collapsed    = false,
         IsChild      = false,
-        WantApply    = false,
-        WantDelete   = false,
+        WantApply    = false, -- Set when loaded from .ini data (to enable merging/loading .ini data into an already running context)
+        WantDelete   = false, -- Set to invalidate/delete the settings entry
         Name         = "",
         ViewportId   = 0,
         ViewportPos  = ImVec2(0, 0),
-        DockId       = 0,
-        DockOrder    = -1,
-        ClassId      = 0,
+        DockId       = 0, -- ID of last known DockNode (even if the DockNode is invisible because it has only 1 active window), or 0 if none.
+        DockOrder    = -1, -- Order of the last time the window was visible within its DockNode. This is used to reorder windows that are reappearing on the same frame. Same value between windows that were active and windows that were none are possible.
+        ClassId      = 0, -- ID of window class if specified
         LastUsedDate = 0,
     }, IMGUI_WINDOW_SETTINGS)
 end
 
+-- Simple column measurement, currently used for MenuItem() only.. This is very short-sighted/throw-away code and NOT a generic helper.
 --- @class ImGuiMenuColumns
 --- @field TotalWidth     ImU32
 --- @field NextTotalWidth ImU32
@@ -2237,14 +2421,20 @@ local function ImGuiMenuColumns()
         TotalWidth     = 0,
         NextTotalWidth = 0,
         Spacing        = 0,
-        OffsetIcon     = 0,
-        OffsetLabel    = 0,
+        OffsetIcon     = 0, -- Always zero for now
+        OffsetLabel    = 0, -- Offsets are locked in Update()
         OffsetShortcut = 0,
         OffsetMark     = 0,
-        Widths         = {0, 0, 0, 0}
+        Widths         = {0, 0, 0, 0} -- Width of:   Icon, Label, Shortcut, Mark  (accumulators for current frame)
     }, MT.ImGuiMenuColumns)
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImGuiWindowTempData, ImGuiWindow
+-------------------------------------------------------------------------------
+
+-- Transient per-window data, reset at the beginning of the frame. This used to be called ImGuiDrawContext, hence the DC variable name in ImGuiWindow.
+-- (That's theory, in practice the delimitation between ImGuiWindow and ImGuiWindowTempData is quite tenuous and could be reconsidered..)
 --- @class ImGuiWindowTempData
 --- @field CursorPos                     ImVec2
 --- @field CursorPosPrevLine             ImVec2
@@ -2278,48 +2468,49 @@ local function ImGuiWindowTempData()
     return {
         DockTabItemStatusFlags = 0,
         DockTabItemRect = ImRect(),
-        CursorPos         = ImVec2(),
+        CursorPos         = ImVec2(), -- Current emitting position, in absolute coordinates.
         CursorPosPrevLine = ImVec2(),
-        CursorStartPos    = ImVec2(),
-        CursorMaxPos      = ImVec2(),
-        IdealMaxPos       = ImVec2(),
+        CursorStartPos    = ImVec2(), -- Initial position after Begin(), generally ~ window position + WindowPadding.
+        CursorMaxPos      = ImVec2(), -- Used to implicitly calculate ContentSize at the beginning of next frame, for scrolling range and auto-resize. Always growing during the frame.
+        IdealMaxPos       = ImVec2(), -- Used to implicitly calculate ContentSizeIdeal at the beginning of next frame, for auto-resize only. Always growing during the frame.
         CurrLineSize      = ImVec2(),
         PrevLineSize      = ImVec2(),
 
-        CurrLineTextBaseOffset = 0,
+        CurrLineTextBaseOffset = 0, -- Baseline offset (0.0 by default on a new line, generally == style.FramePadding.y when a framed item has been added).
         PrevLineTextBaseOffset = 0,
 
         IsSameLine = false,
         IsSetPos = false,
-        NavLayersActiveMask = 0, NavLayersActiveMaskNext = 0,
+        NavLayersActiveMask = 0, NavLayersActiveMaskNext = 0, -- Which layers have been written to (result from previous frame)
 
-        Indent                  = ImVec1(),
-        ColumnsOffset           = ImVec1(),
+        Indent                  = ImVec1(), -- Indentation / start position from left of window (increased by TreePush/TreePop, etc.)
+        ColumnsOffset           = ImVec1(), -- Offset to the current column (if ColumnsCurrent > 0). FIXME: This and the above should be a stack to allow use cases like Tree.Column.Tree. Need revamp columns API.
         GroupOffset             = ImVec1(),
-        CursorStartPosLossyness = ImVec2(),
+        CursorStartPosLossyness = ImVec2(), -- Record the loss of precision of CursorStartPos due to really large scrolling amount. This is used by clipper to compensate and fix the most common use case of large scroll area.
 
-        ItemWidth = 0,
+        ItemWidth = 0, -- Current item width (>0.0: width in pixels, <0.0: align xx pixels to the right of window).
         ItemWidthDefault = 0,
-        TextWrapPos = 0,
-        ItemWidthStack = ImVector(),
-        TextWrapPosStack = ImVector(),
+        TextWrapPos = 0, -- Current text wrap pos.
+        ItemWidthStack = ImVector(), -- Store item widths to restore (attention: .back() is not == ItemWidth)
+        TextWrapPosStack = ImVector(), -- Store text wrap pos to restore (attention: .back() is not == TextWrapPos)
 
         MenuBarAppending = false, -- FIXME: Remove this
-        MenuBarOffset = ImVec2(),
-        MenuColumns = ImGuiMenuColumns(),
-        TreeDepth = 0,
-        TreeHasStackDataDepthMask = nil,
-        TreeRecordsClippedNodesY2Mask = nil,
+        MenuBarOffset = ImVec2(), -- MenuBarOffset.x is sort of equivalent of a per-layer CursorPos.x, saved/restored as we switch to the menu bar. The only situation when MenuBarOffset.y is > 0 if when (SafeAreaPadding.y > FramePadding.y), often used on TVs.
+        MenuColumns = ImGuiMenuColumns(), -- Simplified columns storage for menu items measurement
+        TreeDepth = 0, -- Current tree depth.
+        TreeHasStackDataDepthMask = nil, -- Store whether given depth has ImGuiTreeNodeStackData data. Could be turned into a ImU64 if necessary. Sync any changes with TREE_NODE_MAX_DEPTH/TREE_NODE_GET_DEPTH_MASK!
+        TreeRecordsClippedNodesY2Mask = nil, -- Store whether we should keep recording Y2. Cleared when passing clip max. Equivalent TreeHasStackDataDepthMask value should always be set.
 
         ChildWindows = ImVector(),
         CurrentTableIdx = -1,  -- 0-based index into g.Tables, -1 if none
         CurrentColumns = nil,  -- ImGuiOldColumns (legacy Columns API)
-        StateStorage = nil,
+        StateStorage = nil, -- Current persistent per-window storage (store e.g. tree node open/close state)
 
         LayoutType = nil
     }
 end
 
+-- Storage for one window
 --- @class ImGuiWindow
 --- @field Ctx                                ImGuiContext
 --- @field Name                               string
@@ -2363,6 +2554,7 @@ end
 MT.ImGuiWindow = {}
 MT.ImGuiWindow.__index = MT.ImGuiWindow
 
+-- We don't use g.FontSize because the window may be != g.CurrentWindow.
 --- @return ImRect
 --- @nodiscard
 function MT.ImGuiWindow:Rect()
@@ -2386,58 +2578,58 @@ end
 --- @nodiscard
 function ImGuiWindow(ctx, name)
     local this = {
-        ID = 0,
+        ID = 0, -- == ImHashStr(Name)
 
-        MoveId = 0,
+        MoveId = 0, -- == window.GetID("#MOVE")
 
-        Ctx = ctx,
-        Name = name,
+        Ctx = ctx, -- Parent UI context (needs to be set explicitly by parent).
+        Name = name, -- Window name
 
         Flags = 0,
 
-        ChildFlags = 0,
-        WindowClass = ImGuiWindowClass(),
+        ChildFlags = 0, -- Set when window is a child window. See enum ImGuiChildFlags
+        WindowClass = ImGuiWindowClass(), -- Advanced users only. Set with SetNextWindowClass()
 
-        Pos = ImVec2(),
+        Pos = ImVec2(), -- Position (always rounded-up to nearest pixel)
         Size = ImVec2(), -- Current size (==SizeFull or collapsed title bar size)
-        SizeFull = ImVec2(),
+        SizeFull = ImVec2(), -- Size when non collapsed
 
-        Active = false,
+        Active = false, -- Set to true on Begin(), unless Collapsed
         WasActive = false,
 
-        Collapsed = false,
+        Collapsed = false, -- Set when collapsing window to become only title-bar
 
-        SkipItems = false,
+        SkipItems = false, -- Set when items can safely be all clipped (e.g. window not visible or collapsed)
 
-        SkipRefresh = false,
+        SkipRefresh = false, -- [EXPERIMENTAL] Reuse previous frame drawn contents, Begin() returns false.
         CacheSnap = nil, -- [Port] SetNextWindowCached(): state at the last refresh
         CacheSkipItemsBackup = nil,
 
-        Appearing = false,
+        Appearing = false, -- Set during the frame where the window is appearing (or re-appearing)
 
-        Hidden = false,
-        IsFallbackWindow = false,
+        Hidden = false, -- Do not display (== HiddenFrames*** > 0)
+        IsFallbackWindow = false, -- Set on the "Debug##Default" window.
 
-        IsExplicitChild = nil,
+        IsExplicitChild = nil, -- Set when passed _ChildWindow, left to false by BeginDocked()
 
-        ResizeBorderHovered = -1,
-        ResizeBorderHeld = -1,
+        ResizeBorderHovered = -1, -- Current border being hovered for resize (-1: none, otherwise 0-3)
+        ResizeBorderHeld = -1, -- Current border being held for resize (-1: none, otherwise 0-3)
 
-        BeginCount = 0,
-        BeginCountPreviousFrame = 0,
-        BeginOrderWithinParent = 0,
-        BeginOrderWithinContext = 0,
+        BeginCount = 0, -- Number of Begin() during the current frame (generally 0 or 1, 1+ if appending via multiple Begin/End pairs)
+        BeginCountPreviousFrame = 0, -- Number of Begin() during the previous frame
+        BeginOrderWithinParent = 0, -- Begin() order within immediate parent window, if we are a child window. Otherwise 0.
+        BeginOrderWithinContext = 0, -- Begin() order within entire imgui context. This is mostly used for debugging submission order related issues.
 
-        FocusOrder = nil,
+        FocusOrder = nil, -- Order within WindowsFocusOrder[], altered when windows are focused.
 
-        HiddenFramesCanSkipItems = 0,
-        HiddenFramesCannotSkipItems = 0,
-        HiddenFramesForRenderOnly = 0,
+        HiddenFramesCanSkipItems = 0, -- Hide the window for N frames
+        HiddenFramesCannotSkipItems = 0, -- Hide the window for N frames while allowing items to be submitted so we can measure their size
+        HiddenFramesForRenderOnly = 0, -- Hide the window until frame N at Render() time only
 
-        DisableInputsFrames = 0,
+        DisableInputsFrames = 0, -- Disable window interactions for N frames
 
-        WindowRounding = 0,
-        WindowBorderSize = 1,
+        WindowRounding = 0, -- Window rounding at the time of Begin(). May be clamped lower to avoid rendering artifacts with title bar, menu bar etc.
+        WindowBorderSize = 1, -- Window border size at the time of Begin().
 
         TitleBarHeight = 0, MenuBarHeight = 0,
 
@@ -2445,83 +2637,83 @@ function ImGuiWindow(ctx, name)
         DecoOuterSizeX2 = 0, DecoOuterSizeY2 = 0,
         DecoInnerSizeX1 = 0, DecoInnerSizeY1 = 0,
 
-        ContentSize = ImVec2(),
+        ContentSize = ImVec2(), -- Size of contents/scrollable client area (calculated from the extents reach of the cursor) from previous frame. Does not include window decoration or window padding.
         ContentSizeIdeal = ImVec2(),
-        ContentSizeExplicit = ImVec2(),
+        ContentSizeExplicit = ImVec2(), -- Size of contents/scrollable client area explicitly request by the user via SetNextWindowContentSize().
 
         AutoFitFramesX = -1, AutoFitFramesY = -1,
         AutoFitOnlyGrows = false,
 
-        HasCloseButton = true,
+        HasCloseButton = true, -- Set when the window has a close button (p_open ~= nil)
 
-        BgClickFlags = 0,
+        BgClickFlags = 0, -- Configure behavior of click+dragging on window bg/void or over items. Default sets by io.ConfigWindowsMoveFromTitleBarOnly. If you use this please report in #3379.
 
-        SetWindowPosAllowFlags = 0, SetWindowSizeAllowFlags = 0, SetWindowCollapsedAllowFlags = 0,
-        SetWindowPosVal = ImVec2(FLT_MAX, FLT_MAX),
-        SetWindowPosPivot = ImVec2(FLT_MAX, FLT_MAX),
+        SetWindowPosAllowFlags = 0, SetWindowSizeAllowFlags = 0, SetWindowCollapsedAllowFlags = 0, -- store acceptable condition flags for SetNextWindowPos() use.
+        SetWindowPosVal = ImVec2(FLT_MAX, FLT_MAX), -- store window position when using a non-zero Pivot (position set needs to be processed when we know the window size)
+        SetWindowPosPivot = ImVec2(FLT_MAX, FLT_MAX), -- store window pivot for positioning. ImVec2(0, 0) when positioning from top-left corner; ImVec2(0.5, 0.5) for centering; ImVec2(1, 1) for bottom right.
 
-        SettingsOffset = -1,
+        SettingsOffset = -1, -- Offset into SettingsWindows[] (offsets are always valid as we only grow the array from the back)
 
-        ScrollbarSizes = ImVec2(),
+        ScrollbarSizes = ImVec2(), -- Size taken by each scrollbars on their smaller axis. Pay attention! ScrollbarSizes.x == width of the vertical scrollbar, ScrollbarSizes.y = height of the horizontal scrollbar.
         Scroll = ImVec2(),
 
         ScrollbarX = false,
-        ScrollbarY = false,
+        ScrollbarY = false, -- Are scrollbars visible?
         ScrollMax = ImVec2(),
-        ScrollTarget = ImVec2(FLT_MAX, FLT_MAX),
-        ScrollTargetCenterRatio = ImVec2(0.5, 0.5),
-        ScrollTargetEdgeSnapDist = ImVec2(),
+        ScrollTarget = ImVec2(FLT_MAX, FLT_MAX), -- target scroll position. stored as cursor position with scrolling canceled out, so the highest point is always 0.0. (FLT_MAX for no change)
+        ScrollTargetCenterRatio = ImVec2(0.5, 0.5), -- 0.0 = scroll so that target position is at top, 0.5 = scroll so that target position is centered
+        ScrollTargetEdgeSnapDist = ImVec2(), -- 0.0 = no snapping, >0.0 snapping threshold
 
-        ScrollbarXStabilizeToggledHistory = 0,
+        ScrollbarXStabilizeToggledHistory = 0, -- Used to stabilize scrollbar visibility in case of feedback loops
 
-        DrawList = nil,
+        DrawList = nil, -- == DrawListInst
         DrawListInst = ImDrawList(ctx.DrawListSharedData),
 
-        RootWindow = nil,
-        RootWindowPopupTree = nil,
-        RootWindowDockTree = nil,
+        RootWindow = nil, -- Point to ourself or first ancestor that is not a child window. Doesn't cross through popups/dock nodes.
+        RootWindowPopupTree = nil, -- Point to ourself or first ancestor that is not a child window. Cross through popups parent<>child.
+        RootWindowDockTree = nil, -- Point to ourself or first ancestor that is not a child window. Cross through dock nodes.
 
-        ParentWindow = nil,
+        ParentWindow = nil, -- If we are a child _or_ popup _or_ docked window, this is pointing to our parent. Otherwise nil.
         ParentWindowInBeginStack = nil,
 
-        IDStack = ImVector(),
+        IDStack = ImVector(), -- ID stack. ID are hashes seeded with the value at the top of the stack. (In theory this should be in the TempData structure)
 
-        ViewportAllowPlatformMonitorExtend = -1,
-        Viewport = nil,
-        ViewportId = 0,
-        ViewportPos = ImVec2(FLT_MAX, FLT_MAX),
+        ViewportAllowPlatformMonitorExtend = -1, -- Reset to -1 every frame (index is guaranteed to be valid between NewFrame..EndFrame), only used in the Appearing frame of a tooltip/popup to enforce clamping to a given monitor
+        Viewport = nil, -- Always set in Begin(). Inactive windows may have a nil value here if their viewport was discarded.
+        ViewportId = 0, -- We backup the viewport id (since the viewport may disappear or never be created if the window is inactive)
+        ViewportPos = ImVec2(FLT_MAX, FLT_MAX), -- We backup the viewport position (since the viewport may disappear or never be created if the window is inactive)
         ViewportOwned = nil,
 
-        DC = ImGuiWindowTempData(),
+        DC = ImGuiWindowTempData(), -- Temporary per-window data, reset at the beginning of the frame. This used to be called ImGuiDrawContext, hence the "DC" variable name.
 
-        OuterRectClipped  = ImRect(),
-        InnerRect         = ImRect(),
-        InnerClipRect     = ImRect(),
-        WorkRect          = ImRect(),
-        ParentWorkRect    = ImRect(),
-        ContentRegionRect = ImRect(),
+        OuterRectClipped  = ImRect(), -- == Window.Rect() just after setup in Begin(). == window.Rect() for root window.
+        InnerRect         = ImRect(), -- Inner rectangle (omit title bar, menu bar, scroll bar)
+        InnerClipRect     = ImRect(), -- == InnerRect shrunk by WindowPadding*0.5 on each side, clipped within viewport or parent clip rect.
+        WorkRect          = ImRect(), -- Initially covers the whole scrolling region. Reduced by containers e.g columns/tables when active. Shrunk by WindowPadding*1.0 on each side. This is meant to replace ContentRegionRect over time (from 1.71+ onward).
+        ParentWorkRect    = ImRect(), -- Backup of WorkRect before entering a container such as columns/tables. Used by e.g. SpanAllColumns functions to easily access. Stacked containers are responsible for maintaining this. -- FIXME-WORKRECT: Could be a stack?
+        ContentRegionRect = ImRect(), -- FIXME: This is currently confusing/misleading. It is essentially WorkRect but not handling of scrolling. We currently rely on it as right/bottom aligned sizing operation need some size to rely on.
 
-        ClipRect = ImRect(),
+        ClipRect = ImRect(), -- Current clipping/scissoring rectangle, evolve as we are using PushClipRect(), etc. == DrawList.clip_rect_stack.back().
 
-        LastFrameActive = -1,
-        LastFrameJustFocused = -1,
-        LastTimeActive = -1.0,
+        LastFrameActive = -1, -- Last frame number the window was Active.
+        LastFrameJustFocused = -1, -- Last frame number the window was made Focused.
+        LastTimeActive = -1.0, -- Last timestamp the window was Active (using float as we don't need high precision there)
 
         StateStorage = {},
         ColumnsStorage = ImVector(), -- ImVector<ImGuiOldColumns>
 
-        WriteAccessed = false,
+        WriteAccessed = false, -- Set to true when any widget access the current window
 
-        FontWindowScale = 1.0,
+        FontWindowScale = 1.0, -- User scale multiplier per-window, via SetWindowFontScale()
         FontWindowScaleParents = 1.0,
 
-        HitTestHoleSize = ImVec2(),
+        HitTestHoleSize = ImVec2(), -- Define an optional rectangular hole where mouse will pass-through the window.
 
-        NavLastChildNavWindow = nil,
+        NavLastChildNavWindow = nil, -- When going to the menu bar, we remember the child window we came from. (This could probably be made implicit if we kept g.Windows sorted by last focused including child window.)
         NavLastIds = {[0] = 0, [1] = 0}, -- FIXME: 1-based instead
-        NavRectRel = {[0] = ImRect(), [1] = ImRect()},
-        NavPreferredScoringPosRel = {[0] = ImVec2(), [1] = ImVec2()},
-        NavRootFocusScopeId = 0
+        NavRectRel = {[0] = ImRect(), [1] = ImRect()}, -- Reference rectangle, in window relative space
+        NavPreferredScoringPosRel = {[0] = ImVec2(), [1] = ImVec2()}, -- Preferred X/Y position updated when moving on a given axis, reset to FLT_MAX.
+        NavRootFocusScopeId = 0 -- Focus Scope ID at the time of Begin()
     }
 
     this.DrawList = this.DrawListInst
@@ -2532,27 +2724,27 @@ function ImGuiWindow(ctx, name)
     this.ID = ImHashStr(name)
     this.IDStack:push_back(this.ID)
     this.MoveId = this:GetID("#MOVE")
-    this.TabId = this:GetID("#TAB")
+    this.TabId = this:GetID("#TAB") -- == window.GetID("#TAB")
     -- Docking
-    this.ChildId = this.ChildId or 0
-    this.SetWindowDockAllowFlags = 0
-    this.ParentWindowForFocusRoute = nil
-    this.DockIsActive = false
+    this.ChildId = this.ChildId or 0 -- ID of corresponding item in parent window (for navigation to return from child window to parent window)
+    this.SetWindowDockAllowFlags = 0 -- store acceptable condition flags for SetNextWindowDock() use.
+    this.ParentWindowForFocusRoute = nil -- Set to manual link a window to its logical parent so that Shortcut() chain are honored (e.g. Tool linked to Document)
+    this.DockIsActive = false -- When docking artifacts are actually visible. When this is set, DockNode is guaranteed to be != nil. ~~ (DockNode != nil) && (DockNode.Windows.Size > 1).
     this.DockNodeIsVisible = false
-    this.DockTabIsVisible = false
+    this.DockTabIsVisible = false -- Is our window visible this frame? ~~ is the corresponding tab selected?
     this.DockTabWantClose = false
-    this.DockOrder = -1
+    this.DockOrder = -1 -- Order of the last time the window was visible within its DockNode. This is used to reorder windows that are reappearing on the same frame. Same value between windows that were active and windows that were none are possible.
     this.DockStyle = { Colors = {} }
     for i = 0, 8 do this.DockStyle.Colors[i] = 0 end
-    this.DockNode = nil
-    this.DockNodeAsHost = nil
-    this.DockId = 0
+    this.DockNode = nil -- Which node are we docked into. Important: Prefer testing DockIsActive in many cases as this will still be set when the dock node is hidden.
+    this.DockNodeAsHost = nil -- Which node are we owning (for parent windows)
+    this.DockId = 0 -- Backup of last valid DockNode.ID, so single window remember their dock node id even when they are not bound any more
 
     return this
 end
 
 --- @class ImDrawDataBuilder
---- @field Layers     [ImVector<ImDrawList>?, ImVector<ImDrawList>?]
+--- @field Layers     [ImVector<ImDrawList>?, ImVector<ImDrawList>?] # Pointers to global layers for: regular, tooltip. LayersP[0] is owned by DrawData.
 --- @field LayerData1 ImVector<ImDrawList>
 
 --- @return ImDrawDataBuilder
@@ -2560,11 +2752,17 @@ end
 local function ImDrawDataBuilder()
     return
     {
-        Layers     = {nil, nil},
+        Layers     = {nil, nil}, -- Pointers to global layers for: regular, tooltip. LayersP[0] is owned by DrawData.
         LayerData1 = ImVector()
     }
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Viewport support
+-------------------------------------------------------------------------------
+
+-- ImGuiViewport Private/Internals fields (cardinal sin: we are using inheritance!)
+-- Every instance of ImGuiViewport is in fact a ImGuiViewportP.
 --- @class ImGuiViewportP : ImGuiViewport
 --- @field Window?                     ImGuiWindow
 --- @field Idx                         int                      # Initial value = -1, then becomes 1-based index
@@ -2599,6 +2797,7 @@ function IMGUI_VIEWPORT_P:ClearRequestFlags()
     self.PlatformRequestResize = false
 end
 
+-- Calculate work rect pos/size given a set of offset (we have 1 pair of offset for rect locked from last frame data, and 1 pair for currently building rect)
 function IMGUI_VIEWPORT_P:CalcWorkRectPos(inset_min)
     return ImVec2(self.Pos.x + inset_min.x, self.Pos.y + inset_min.y)
 end
@@ -2607,11 +2806,13 @@ function IMGUI_VIEWPORT_P:CalcWorkRectSize(inset_min, inset_max)
     return ImVec2(ImMax(0.0, self.Size.x - inset_min.x - inset_max.x), ImMax(0.0, self.Size.y - inset_min.y - inset_max.y))
 end
 
+-- Update public fields
 function IMGUI_VIEWPORT_P:UpdateWorkRect()
     self.WorkPos = self:CalcWorkRectPos(self.WorkInsetMin)
     self.WorkSize = self:CalcWorkRectSize(self.WorkInsetMin, self.WorkInsetMax)
 end
 
+-- Helpers to retrieve ImRect (we don't need to store BuildWorkRect as every access tend to change it, hence the code asymmetry)
 --- @nodiscard
 function IMGUI_VIEWPORT_P:GetMainRect()
     return ImRect(self.Pos.x, self.Pos.y,
@@ -2638,38 +2839,49 @@ end
 function ImGuiViewportP()
     local this = setmetatable(ImGuiViewport(), IMGUI_VIEWPORT_P) --- @cast this ImGuiViewportP
 
-    this.Window = nil
+    this.Window = nil -- Set when the viewport is owned by a window (and ImGuiViewportFlags.CanHostOtherWindows is NOT set)
     this.Idx = -1
 
-    this.LastFrameActive       = -1
-    this.LastFocusedStampCount = -1
+    this.LastFrameActive       = -1 -- Last frame number this viewport was activated by a window
+    this.LastFocusedStampCount = -1 -- Last stamp number from when a window hosted by this viewport was focused (by comparing this value between two viewport we have an implicit viewport z-order we use as fallback)
     this.LastNameHash          = 0
     this.LastPos               = ImVec2() -- ImGuiViewport() { memset(this, 0, sizeof(*this)); }
     this.LastSize              = ImVec2()
 
-    this.Alpha     = 1.0
+    this.Alpha     = 1.0 -- Window opacity (when dragging dockable windows/viewports we make them transparent)
     this.LastAlpha = 1.0
 
-    this.LastFocusedHadNavWindow = false
+    this.LastFocusedHadNavWindow = false -- Instead of maintaining a LastFocusedWindow (which may harder to correctly maintain), we merely store weither NavWindow ~= nil last time the viewport was focused.
     this.PlatformMonitor = -1
 
-    this.BgFgDrawListsLastTimeActive = {-1, -1}
-    this.BgFgDrawLists = {nil, nil}
+    this.BgFgDrawListsLastTimeActive = {-1, -1} -- Timestamps for Gc.
+    this.BgFgDrawLists = {nil, nil} -- Convenience background [1] and foreground [2] draw lists. We use them to draw software mouser cursor when io.MouseDrawCursor is set and to draw most debug overlays.
     this.DrawDataP = ImDrawData()
-    this.DrawDataBuilder = ImDrawDataBuilder()
+    this.DrawDataBuilder = ImDrawDataBuilder() -- Temporary data while building final ImDrawData
 
     this.LastPlatformPos  = ImVec2(FLT_MAX, FLT_MAX)
     this.LastPlatformSize = ImVec2(FLT_MAX, FLT_MAX)
     this.LastRendererSize = ImVec2(FLT_MAX, FLT_MAX)
 
-    this.WorkInsetMin = ImVec2(0, 0)
-    this.WorkInsetMax = ImVec2(0, 0)
-    this.BuildWorkInsetMin = ImVec2(0, 0)
-    this.BuildWorkInsetMax = ImVec2(0, 0)
+    -- Per-viewport work area
+    -- - Insets are >= 0.0 values, distance from viewport corners to work area.
+    -- - BeginMainMenuBar() and DockspaceOverViewport() tend to use work area to avoid stepping over existing contents.
+    -- - Generally 'safeAreaInsets' in iOS land, 'DisplayCutout' in Android land.
+    this.WorkInsetMin = ImVec2(0, 0) -- Work Area inset locked for the frame. GetWorkRect() always fits within GetMainRect().
+    this.WorkInsetMax = ImVec2(0, 0) -- "
+    this.BuildWorkInsetMin = ImVec2(0, 0) -- Work Area inset accumulator for current frame, to become next frame's WorkInset
+    this.BuildWorkInsetMax = ImVec2(0, 0) -- "
 
     return this
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontLoader
+-------------------------------------------------------------------------------
+
+-- Hooks and storage for a given font backend.
+-- This structure is likely to evolve as we add support for incremental atlas updates.
+-- Conceptually this could be public, but API is still going to be evolve.
 --- @class ImFontLoader
 --- @field Name                       string
 --- @field LoaderInit?                fun(atlas: ImFontAtlas): bool
@@ -2698,13 +2910,24 @@ function ImFontLoader()
     this.FontSrcContainsGlyph = nil
     this.FontBakedInit        = nil
     this.FontBakedDestroy     = nil
-    this.FontBakedLoadGlyph   = nil
+    this.FontBakedLoadGlyph   = nil -- Required
 
+    -- Size of backend data, Per Baked * Per Source. Buffers are managed by core to avoid excessive allocations.
+    -- FIXME: At this point the two other types of buffers may be managed by core to be consistent?
     this.FontBakedSrcLoaderDataSize = 0
 
     return this
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontAtlas internal API
+-------------------------------------------------------------------------------
+
+-- Packed rectangle lookup entry (we need an indirection to allow removing/reordering rectangles)
+-- User are returned ImFontAtlasRectId values which are meant to be persistent.
+-- We handle this with an indirection. While Rects[] may be in theory shuffled, compacted etc., RectsIndex[] cannot it is keyed by ImFontAtlasRectId.
+-- RectsIndex[] is used both as an index into Rects[] and an index into itself. This is basically a free-list. See ImFontAtlasBuildAllocRectIndexEntry() code.
+-- Having this also makes it easier to e.g. sort rectangles during repack.
 --- @class ImFontAtlasRectEntry
 --- @field TargetIndex int          # 0-based! When IsUsed = true, TargetIndex = this rect's index in Rects; IsUsed = false, TargetIndex = the next unused RectsIndex entry's index
 --- @field Generation  unsigned_int # How many times this entry is reused
@@ -2720,8 +2943,9 @@ function ImFontAtlasRectEntry()
     }
 end
 
-local ImFontAtlasRectId_IndexMask_       = 0x0007FFFF
-local ImFontAtlasRectId_GenerationMask_  = 0x3FF00000
+-- Refer to ImFontAtlasPackGetRect() to better understand how this works.
+local ImFontAtlasRectId_IndexMask_       = 0x0007FFFF -- 20-bits signed: index to access builder.RectsIndex[].
+local ImFontAtlasRectId_GenerationMask_  = 0x3FF00000 -- 10-bits: entry generation, so each ID is unique and get can safely detected old identifiers.
 local ImFontAtlasRectId_GenerationShift_ = 20
 
 --- @param id ImFontAtlasRectId # Expects 0-based!
@@ -2740,6 +2964,7 @@ function ImFontAtlasRectId_Make(index_idx, gen_idx)
     return bitOr(index_idx, bitLShift(gen_idx, ImFontAtlasRectId_GenerationShift_))
 end
 
+-- Data available to potential texture post-processing functions
 --- @class ImFontAtlasPostProcessData
 --- @field FontAtlas   ImFontAtlas
 --- @field Font        ImFont
@@ -2774,6 +2999,7 @@ function ImFontAtlasPostProcessData(atlas, font, font_src, font_baked, glyph, pi
         FontBaked = font_baked,
         Glyph     = glyph,
 
+        -- Pixel data
         Pixels = pixels,
         _PixelsBase = pixels_base,
         Format = format,
@@ -2783,10 +3009,14 @@ function ImFontAtlasPostProcessData(atlas, font, font_src, font_baked, glyph, pi
     }
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Inputs support
+-------------------------------------------------------------------------------
+
 --- @enum ImGuiInputSource
 ImGuiInputSource = {
     None     = 0,
-    Mouse    = 1,
+    Mouse    = 1, -- Note: may be Mouse or TouchScreen or Pen. See io.MouseSource to distinguish them.
     Keyboard = 2,
     Gamepad  = 3,
     COUNT    = 4
@@ -2871,7 +3101,7 @@ function ImGuiInputEvent()
     return {
         Type    = 0,
         Source  = 0,
-        EventId = 0,
+        EventId = 0, -- Unique, sequential increasing integer to identify an event (if you need to correlate them to other data).
 
         -- union
         MousePos      = nil, -- if Type == ImGuiInputEventType.MousePos
@@ -2884,6 +3114,7 @@ function ImGuiInputEvent()
     }
 end
 
+-- [Internal] Key ranges
 ImGuiKey_Keyboard_BEGIN = ImGuiKey.NamedKey_BEGIN
 ImGuiKey_Keyboard_END   = ImGuiKey.GamepadStart
 ImGuiKey_Gamepad_BEGIN  = ImGuiKey.GamepadStart
@@ -2893,12 +3124,13 @@ ImGuiKey_Mouse_END      = ImGuiKey.MouseWheelY + 1
 ImGuiKey_Aliases_BEGIN  = ImGuiKey_Mouse_BEGIN
 ImGuiKey_Aliases_END    = ImGuiKey_Mouse_END
 
+-- [Internal] Named shortcuts for Navigation
 ImGuiKey.NavKeyboardTweakSlow = ImGuiMod_Ctrl
 ImGuiKey.NavKeyboardTweakFast = ImGuiMod_Shift
 ImGuiKey.NavGamepadTweakSlow = ImGuiKey.GamepadL1
 ImGuiKey.NavGamepadTweakFast = ImGuiKey.GamepadR1
-ImGuiKey.NavGamepadMenu = ImGuiKey.GamepadFaceLeft
-ImGuiKey.NavGamepadContextMenu = ImGuiKey.GamepadFaceUp
+ImGuiKey.NavGamepadMenu = ImGuiKey.GamepadFaceLeft -- Toggle menu layer. Hold to enable Windowing.
+ImGuiKey.NavGamepadContextMenu = ImGuiKey.GamepadFaceUp -- Open context menu (same as Shift+F10)
 
 --- @enum ImGuiInputEventType
 ImGuiInputEventType = {
@@ -2913,19 +3145,33 @@ ImGuiInputEventType = {
     COUNT         = 8
 }
 
-ImGuiInputFlags.RepeatRateDefault                = bitLShift(1, 1)
-ImGuiInputFlags.RepeatRateNavMove                = bitLShift(1, 2)
-ImGuiInputFlags.RepeatRateNavTweak               = bitLShift(1, 3)
-ImGuiInputFlags.RepeatUntilRelease               = bitLShift(1, 4)
-ImGuiInputFlags.RepeatUntilKeyModsChange         = bitLShift(1, 5)
-ImGuiInputFlags.RepeatUntilKeyModsChangeFromNone = bitLShift(1, 6)
-ImGuiInputFlags.RepeatUntilOtherKeyPress         = bitLShift(1, 7)
-ImGuiInputFlags.LockThisFrame                    = bitLShift(1, 20)
-ImGuiInputFlags.LockUntilRelease                 = bitLShift(1, 21)
-ImGuiInputFlags.CondHovered                      = bitLShift(1, 22)
-ImGuiInputFlags.CondActive                       = bitLShift(1, 23)
+-- Extend ImGuiInputFlags
+-- Flags for extended versions of IsKeyPressed(), IsMouseClicked(), Shortcut(), SetKeyOwner(), SetItemKeyOwner()
+-- Don't mistake with ImGuiInputTextFlags! (which is for ImGui.InputText() function)
+
+-- Flags for IsKeyPressed(), IsKeyChordPressed(), IsMouseClicked(), Shortcut()
+-- - Repeat mode: Repeat rate selection
+ImGuiInputFlags.RepeatRateDefault                = bitLShift(1, 1) -- Repeat rate: Regular (default)
+ImGuiInputFlags.RepeatRateNavMove                = bitLShift(1, 2) -- Repeat rate: Fast
+ImGuiInputFlags.RepeatRateNavTweak               = bitLShift(1, 3) -- Repeat rate: Faster
+-- - Repeat mode: Specify when repeating key pressed can be interrupted.
+-- - In theory ImGuiInputFlags.RepeatUntilOtherKeyPress may be a desirable default, but it would break too many behavior so everything is opt-in.
+ImGuiInputFlags.RepeatUntilRelease               = bitLShift(1, 4) -- Stop repeating when released (default for all functions except Shortcut). This only exists to allow overriding Shortcut() default behavior.
+ImGuiInputFlags.RepeatUntilKeyModsChange         = bitLShift(1, 5) -- Stop repeating when released OR if keyboard mods are changed (default for Shortcut)
+ImGuiInputFlags.RepeatUntilKeyModsChangeFromNone = bitLShift(1, 6) -- Stop repeating when released OR if keyboard mods are leaving the None state. Allows going from Mod+Key to Key by releasing Mod.
+ImGuiInputFlags.RepeatUntilOtherKeyPress         = bitLShift(1, 7) -- Stop repeating when released OR if any other keyboard key is pressed during the repeat
+
+-- Flags for SetKeyOwner(), SetItemKeyOwner()
+-- - Locking key away from non-input aware code. Locking is useful to make input-owner-aware code steal keys from non-input-owner-aware code. If all code is input-owner-aware locking would never be necessary.
+ImGuiInputFlags.LockThisFrame                    = bitLShift(1, 20) -- Further accesses to key data will require EXPLICIT owner ID (ImGuiKeyOwner_Any/0 will NOT accepted for polling). Cleared at end of frame.
+ImGuiInputFlags.LockUntilRelease                 = bitLShift(1, 21) -- Further accesses to key data will require EXPLICIT owner ID (ImGuiKeyOwner_Any/0 will NOT accepted for polling). Cleared when the key is released or at end of each frame if key is released.
+
+-- - Condition for SetItemKeyOwner()
+ImGuiInputFlags.CondHovered                      = bitLShift(1, 22) -- Only set if item is hovered (default to both)
+ImGuiInputFlags.CondActive                       = bitLShift(1, 23) -- Only set if item is active (default to both)
 
 ImGuiInputFlags.CondDefault_                   = bitOr(ImGuiInputFlags.CondHovered, ImGuiInputFlags.CondActive)
+-- [Internal] Mask of which function support which flags
 ImGuiInputFlags.RepeatRateMask_                = bitOr(ImGuiInputFlags.RepeatRateDefault, ImGuiInputFlags.RepeatRateNavMove, ImGuiInputFlags.RepeatRateNavTweak)
 ImGuiInputFlags.RepeatUntilMask_               = bitOr(ImGuiInputFlags.RepeatUntilRelease, ImGuiInputFlags.RepeatUntilKeyModsChange, ImGuiInputFlags.RepeatUntilKeyModsChangeFromNone, ImGuiInputFlags.RepeatUntilOtherKeyPress)
 ImGuiInputFlags.RepeatMask_                    = bitOr(ImGuiInputFlags.Repeat, ImGuiInputFlags.RepeatRateMask_, ImGuiInputFlags.RepeatUntilMask_)
@@ -2954,32 +3200,39 @@ ImGuiPlotType =
     Histogram = 1
 }
 
+-------------------------------------------------------------------------------
+-- [SECTION] Navigation support
+-------------------------------------------------------------------------------
+
 --- @enum ImGuiActivateFlags
 ImGuiActivateFlags = {
     None               = 0,
-    PreferInput        = bitLShift(1, 0),
-    PreferTweak        = bitLShift(1, 1),
-    TryToPreserveState = bitLShift(1, 2),
-    FromTabbing        = bitLShift(1, 3),
-    FromShortcut       = bitLShift(1, 4),
-    FromFocusApi       = bitLShift(1, 5)
+    PreferInput        = bitLShift(1, 0), -- Favor activation that requires keyboard text input (e.g. for Slider/Drag). Default for Enter key.
+    PreferTweak        = bitLShift(1, 1), -- Favor activation for tweaking with arrows or gamepad (e.g. for Slider/Drag). Default for Space key and if keyboard is not used.
+    TryToPreserveState = bitLShift(1, 2), -- Request widget to preserve state if it can (e.g. InputText will try to preserve cursor/selection)
+    FromTabbing        = bitLShift(1, 3), -- Activation requested by a tabbing request (ImGuiNavMoveFlags.IsTabbing)
+    FromShortcut       = bitLShift(1, 4), -- Activation requested by an item shortcut via SetNextItemShortcut() function.
+    FromFocusApi       = bitLShift(1, 5)  -- Activation requested by an api request (ImGuiNavMoveFlags.FocusApi)
 }
 
+-- Early work-in-progress API for ScrollToItem()
+-- FIXME: Missing flags to request making both edges visible when possible.
 --- @enum ImGuiScrollFlags
 ImGuiScrollFlags = {
     None               = 0,
-    KeepVisibleEdgeX   = bitLShift(1, 0),
-    KeepVisibleEdgeY   = bitLShift(1, 1),
-    KeepVisibleCenterX = bitLShift(1, 2),
-    KeepVisibleCenterY = bitLShift(1, 3),
-    AlwaysCenterX      = bitLShift(1, 4),
-    AlwaysCenterY      = bitLShift(1, 5),
-    NoScrollParent     = bitLShift(1, 6),
+    KeepVisibleEdgeX   = bitLShift(1, 0), -- If item is not visible: scroll as little as possible on X axis to bring item back into view [default for X axis]
+    KeepVisibleEdgeY   = bitLShift(1, 1), -- If item is not visible: scroll as little as possible on Y axis to bring item back into view [default for Y axis for windows that are already visible]
+    KeepVisibleCenterX = bitLShift(1, 2), -- If item is not visible: scroll to make the item centered on X axis [rarely used]
+    KeepVisibleCenterY = bitLShift(1, 3), -- If item is not visible: scroll to make the item centered on Y axis
+    AlwaysCenterX      = bitLShift(1, 4), -- Always center the result item on X axis [rarely used]
+    AlwaysCenterY      = bitLShift(1, 5), -- Always center the result item on Y axis [default for Y axis for appearing window)
+    NoScrollParent     = bitLShift(1, 6), -- Disable forwarding scrolling to parent window if required to keep item/rect visible (only scroll window the function was applied to).
 }
 
 ImGuiScrollFlags.MaskX_ = bitOr(ImGuiScrollFlags.KeepVisibleEdgeX, ImGuiScrollFlags.KeepVisibleCenterX, ImGuiScrollFlags.AlwaysCenterX)
 ImGuiScrollFlags.MaskY_ = bitOr(ImGuiScrollFlags.KeepVisibleEdgeY, ImGuiScrollFlags.KeepVisibleCenterY, ImGuiScrollFlags.AlwaysCenterY)
 
+-- Stacked storage data for BeginGroup()/EndGroup()
 --- @class ImGuiGroupData
 --- @field WindowID                          ImGuiID
 --- @field BackupCursorPos                   ImVec2
@@ -3022,8 +3275,12 @@ end
 ImGuiTooltipFlags =
 {
     None             = 0,
-    OverridePrevious = bitLShift(1, 1)
+    OverridePrevious = bitLShift(1, 1) -- Clear/ignore previously submitted tooltip (defaults to append)
 }
+
+-------------------------------------------------------------------------------
+-- [SECTION] Popup support
+-------------------------------------------------------------------------------
 
 --- @enum ImGuiPopupPositionPolicy
 ImGuiPopupPositionPolicy =
@@ -3033,6 +3290,7 @@ ImGuiPopupPositionPolicy =
     Tooltip  = 2
 }
 
+-- Storage for popup stacks (g.OpenPopupStack and g.BeginPopupStack)
 --- @class ImGuiPopupData
 --- @field PopupId          ImGuiID
 --- @field Window           ImGuiWindow
@@ -3047,32 +3305,38 @@ ImGuiPopupPositionPolicy =
 --- @nodiscard
 function ImGuiPopupData()
     return {
-        PopupId          = 0,
-        Window           = nil,
-        RestoreNavWindow = nil,
-        ParentNavLayer   = -1,
-        OpenFrameCount   = -1,
-        OpenParentId     = 0,
-        OpenPopupPos     = ImVec2(),
-        OpenMousePos     = ImVec2()
+        PopupId          = 0,   -- Set on OpenPopup()
+        Window           = nil, -- Resolved on BeginPopup() - may stay unresolved if user never calls OpenPopup()
+        RestoreNavWindow = nil, -- Set on OpenPopup(), a NavWindow that will be restored on popup close
+        ParentNavLayer   = -1,  -- Resolved on BeginPopup(). Actually a ImGuiNavLayer type (declared down below), initialized to -1 which is not part of an enum, but serves well-enough as "not any of layers" value
+        OpenFrameCount   = -1,  -- Set on OpenPopup()
+        OpenParentId     = 0,   -- Set on OpenPopup(), we need this to differentiate multiple menu sets from each others (e.g. inside menu bar vs loose menu items)
+        OpenPopupPos     = ImVec2(), -- Set on OpenPopup(), preferred popup position (typically == OpenMousePos when using mouse)
+        OpenMousePos     = ImVec2()  -- Set on OpenPopup(), copy of mouse position at the time of opening popup
     }
 end
 
 --- @enum ImGuiWindowRefreshFlags
 ImGuiWindowRefreshFlags = {
     None              = 0,
-    TryToAvoidRefresh = bitLShift(1, 0),
-    RefreshOnHover    = bitLShift(1, 1),
-    RefreshOnFocus    = bitLShift(1, 2)
+    TryToAvoidRefresh = bitLShift(1, 0), -- [EXPERIMENTAL] Try to keep existing contents, USER MUST NOT HONOR BEGIN() RETURNING FALSE AND NOT APPEND.
+    RefreshOnHover    = bitLShift(1, 1), -- [EXPERIMENTAL] Always refresh on hover
+    RefreshOnFocus    = bitLShift(1, 2)  -- [EXPERIMENTAL] Always refresh on focus
+    -- Refresh policy/frequency, Load Balancing etc.
 }
 
 --- @enum ImGuiNavRenderCursorFlags
 ImGuiNavRenderCursorFlags = {
     None       = 0,
     Compact    = bitLShift(1, 1), -- Compact highlight, no padding/distance from focused item
-    AlwaysDraw = bitLShift(1, 2), -- Draw rectangular highlight if (g.NavId == id) even when g.NavCursorVisible == false, aka even when using the mouse
+    AlwaysDraw = bitLShift(1, 2), -- Draw rectangular highlight if (g.NavId == id) even when g.NavCursorVisible == false, aka even when using the mouse.
 }
 
+-------------------------------------------------------------------------------
+-- [SECTION] Metrics, Debug Tools
+-------------------------------------------------------------------------------
+
+-- See IMGUI_DEBUG_LOG() and IMGUI_DEBUG_LOG_XXX() macros.
 --- @enum ImGuiDebugLogFlags
 ImGuiDebugLogFlags = {
     -- Event types
@@ -3091,7 +3355,7 @@ ImGuiDebugLogFlags = {
     EventViewport     = bitLShift(1, 11),
     EventTable        = bitLShift(1, 12),
 
-    OutputToTTY        = bitLShift(1, 20),
+    OutputToTTY        = bitLShift(1, 20), -- Also send output to TTY
     OutputToDebugger   = bitLShift(1, 21),
     OutputToTestEngine = bitLShift(1, 22),
 }
@@ -3112,6 +3376,11 @@ ImGuiDebugLogFlags.EventMask_ = bitOr(
     ImGuiDebugLogFlags.EventViewport
 )
 
+-------------------------------------------------------------------------------
+-- [SECTION] Localization support
+-------------------------------------------------------------------------------
+
+-- This is experimental and not officially supported, it'll probably fall short of features, if/when it does we may backtrack.
 --- @enum ImGuiLocKey
 ImGuiLocKey = {
     VersionStr                    = 1,
@@ -3150,6 +3419,7 @@ function ImGui.TempInputIsActive(id)
     return (g.TempInputId == id and g.ActiveId == id) or (g.InputTextDeactivatedState.ID == id)
 end
 
+-- Get input text state if active
 --- @param id ImGuiID
 --- @return ImGuiInputTextState?
 function ImGui.GetInputTextState(id)

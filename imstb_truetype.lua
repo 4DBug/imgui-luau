@@ -1,6 +1,164 @@
 --- Dear ImGui
 -- This is a Lua port of original `imstb_truetype.h`
 
+-- [DEAR IMGUI]
+-- This is a slightly modified version of stb_truetype.h 1.26.
+-- Mostly fixing for compiler and static analyzer warnings.
+-- Grep for [DEAR IMGUI] to find the changes.
+
+-- stb_truetype.h - v1.26 - public domain
+-- authored from 2009-2021 by Sean Barrett / RAD Game Tools
+--
+-- =======================================================================
+--
+--    NO SECURITY GUARANTEE -- DO NOT USE THIS ON UNTRUSTED FONT FILES
+--
+-- This library does no range checking of the offsets found in the file,
+-- meaning an attacker can use it to read arbitrary memory.
+--
+-- =======================================================================
+--
+--   This library processes TrueType files:
+--        parse files
+--        extract glyph metrics
+--        extract glyph shapes
+--        render glyphs to one-channel bitmaps with antialiasing (box filter)
+--
+--   Todo:
+--        non-MS cmaps
+--        crashproof on bad data
+--        hinting? (no longer patented)
+--        cleartype-style AA?
+--        optimize: build edge-list directly from curves
+--        optimize: rasterize directly from curves?
+--
+-- ADDITIONAL CONTRIBUTORS
+--
+--   Mikko Mononen: compound shape support, more cmap formats
+--   Tor Andersson: kerning, subpixel rendering
+--   Dougall Johnson: OpenType / Type 2 font handling
+--   Daniel Ribeiro Maciel: basic GPOS-based kerning
+--
+--   Misc other:
+--       Ryan Gordon
+--       Simon Glass
+--       github:IntellectualKitty
+--       Imanol Celaya
+--       Daniel Ribeiro Maciel
+--
+--   Bug/warning reports/fixes:
+--       "Zer" on mollyrocket       Fabian "ryg" Giesen   github:NiLuJe
+--       Cass Everitt               Martins Mozeiko       github:aloucks
+--       stoiko (Haemimont Games)   Cap Petschulat        github:oyvindjam
+--       Brian Hook                 Omar Cornut           github:vassvik
+--       Walter van Niftrik         Ryan Griege
+--       David Gow                  Peter LaValle
+--       David Given                Sergey Popov
+--       Ivan-Assen Ivanov          Giumo X. Clanjor
+--       Anthony Pesch              Higor Euripedes
+--       Johan Duparc               Thomas Fields
+--       Hou Qiming                 Derek Vinyard
+--       Rob Loach                  Cort Stratton
+--       Kenney Phillis Jr.         Brian Costabile
+--       Ken Voskuil (kaesve)
+--
+-- USAGE
+--
+--   "Load" a font file from a memory buffer (you have to keep the buffer loaded)
+--           stbtt_InitFont()
+--           stbtt_GetFontOffsetForIndex()        -- indexing for TTC font collections
+--
+--   Character advance/positioning
+--           stbtt_GetFontVMetrics()
+--
+--   Starting with version 1.06, the rasterizer was replaced with a new,
+--   faster and generally-more-precise rasterizer. The new rasterizer more
+--   accurately measures pixel coverage for anti-aliasing, except in the case
+--   where multiple shapes overlap, in which case it overestimates the AA pixel
+--   coverage. Thus, anti-aliasing of intersecting shapes may look wrong.
+--   (This port only implements the new rasterizer.)
+--
+-- ADDITIONAL DOCUMENTATION
+--
+--   Some important concepts to understand to use this library:
+--
+--      Codepoint
+--         Characters are defined by unicode codepoints, e.g. 65 is
+--         uppercase A, 231 is lowercase c with a cedilla, 0x7e30 is
+--         the hiragana for "ma".
+--
+--      Glyph
+--         A visual character shape (every codepoint is rendered as
+--         some glyph)
+--
+--      Glyph index
+--         A font-specific integer ID representing a glyph
+--
+--      Baseline
+--         Glyph shapes are defined relative to a baseline, which is the
+--         bottom of uppercase characters. Characters extend both above
+--         and below the baseline.
+--
+--      Current Point
+--         As you draw text to the screen, you keep track of a "current point"
+--         which is the origin of each character. The current point's vertical
+--         position is the baseline. Even "baked fonts" use this model.
+--
+--      Vertical Font Metrics
+--         The vertical qualities of the font, used to vertically position
+--         and space the characters. See docs for stbtt_GetFontVMetrics.
+--
+--      Font Size in Pixels or Points
+--         The preferred interface for specifying font sizes in stb_truetype
+--         is to specify how tall the font's vertical extent should be in pixels.
+--
+-- DETAILED USAGE:
+--
+--  Scale:
+--    Select how high you want the font to be, in pixels.
+--    Call ScaleForPixelHeight to compute a scale factor SF that will be
+--    used by all other functions.
+--
+--  Current point:
+--    Set the current point where the first character will appear. The
+--    first character could extend left of the current point; this is font
+--    dependent. You can either choose a current point that is the leftmost
+--    point and hope, or add some padding, or check the bounding box or
+--    left-side-bearing of the first character to be displayed and set
+--    the current point based on that.
+--
+--  Displaying a character:
+--    Compute the bounding box of the character. It will contain signed values
+--    relative to <current_point, baseline>. I.e. if it returns x0,y0,x1,y1,
+--    then the character should be displayed in the rectangle from
+--    <current_point+SF*x0, baseline+SF*y0> to <current_point+SF*x1,baseline+SF*y1).
+--
+--  Advancing for the next character:
+--    Call GlyphHMetrics, and compute 'current_point += SF * advance'.
+--
+--
+-- ADVANCED USAGE
+--
+--   Quality:
+--
+--    - Use the functions with Subpixel at the end to allow your characters
+--      to have subpixel positioning. Since the font is anti-aliased, not
+--      hinted, this is very import for quality. (This is not possible with
+--      baked fonts.)
+--
+--   Performance:
+--
+--    - Convert Unicode codepoints to glyph indexes and operate on the glyphs;
+--      if you don't do this, stb_truetype is forced to do the conversion on
+--      every call.
+--
+-- NOTES
+--
+--   The system uses the raw data found in the .ttf file without changing it
+--   and without building auxiliary data structures. This is a bit inefficient
+--   on little-endian systems (the data is big-endian), but assuming you're
+--   caching the bitmaps or glyph shapes this shouldn't be a big deal.
+
 --- STBTT_RASTERIZER_VERSION == 2
 
 local stbtt_fontinfo
@@ -21,7 +179,7 @@ local stbtt_FindGlyphIndex
 local STBTT_MAX_OVERSAMPLE = 8
 
 --- @enum STBTT_PLATFORM_ID
-local STBTT_PLATFORM_ID = {
+local STBTT_PLATFORM_ID = { -- platformID
     UNICODE   = 0,
     MAC       = 1,
     ISO       = 2,
@@ -29,7 +187,7 @@ local STBTT_PLATFORM_ID = {
 }
 
 --- @enum STBTT_MS_EID
-local STBTT_MS_EID = {
+local STBTT_MS_EID = { -- encodingID for STBTT_PLATFORM_ID_MICROSOFT
     SYMBOL       = 0,
     UNICODE_BMP  = 1,
     SHIFTJIS     = 2,
@@ -75,6 +233,7 @@ local stbtt_int8    = ImS8
 local stbtt_uint8   = ImU8
 local unsigned_char = stbtt_uint8
 
+-- private structure
 --- @class stbtt__buf
 --- @field data?  table # 1-based byte table
 --- @field offset int   # Every access to `data` will be offset by this
@@ -93,6 +252,8 @@ local function stbtt__buf(initial_offset)
     }
 end
 
+-- The following structure is defined publicly so you can declare one on
+-- the stack or as a global or etc, but you should treat it as opaque.
 --- @class stbtt_fontinfo
 --- @field userdata         any
 --- @field data             table       # pointer to .ttf file
@@ -283,6 +444,7 @@ local function stbtt__new_active(e, off_x, start_point)
     return z
 end
 
+-- @TODO: don't expose this structure
 --- @class stbtt__bitmap
 --- @field w      int
 --- @field h      int
@@ -496,7 +658,7 @@ end
 -------------------------------------
 -------------------------------------
 ---
---- Accessors to parse data from file
+--- accessors to parse data from file
 ---
 ---
 
@@ -535,14 +697,16 @@ local function stbtt_tag4(p, c0, c1, c2, c3, offset) offset = offset or 0; retur
 local function stbtt_tag(p, str, offset) local c0, c1, c2, c3 = string.byte(str, 1, 4); return stbtt_tag4(p, c0, c1, c2, c3, offset) end
 
 local function stbtt__isfont(font)
-    if stbtt_tag4(font, 49, 0, 0, 0) then return true end
-    if stbtt_tag(font, "typ1") then return true end
-    if stbtt_tag(font, "OTTO") then return true end
-    if stbtt_tag4(font, 0, 1, 0, 0) then return true end
-    if stbtt_tag(font, "true") then return true end
+    -- check the version number
+    if stbtt_tag4(font, 49, 0, 0, 0) then return true end -- TrueType 1
+    if stbtt_tag(font, "typ1") then return true end -- TrueType with type 1 font -- we don't support this!
+    if stbtt_tag(font, "OTTO") then return true end -- OpenType with CFF
+    if stbtt_tag4(font, 0, 1, 0, 0) then return true end -- OpenType 1.0
+    if stbtt_tag(font, "true") then return true end -- Apple specification for TrueType fonts
     return false
 end
 
+-- @OPTIMIZE: binary search
 local function stbtt__find_table(data, font_start, tag)
     local num_tables = ttUSHORT(data, font_start + 4)
     local tabledir = font_start + 12
@@ -556,11 +720,14 @@ local function stbtt__find_table(data, font_start, tag)
 end
 
 local function stbtt_GetFontOffsetForIndex_internal(font_collection, index)
+    -- if it's just a font, there's only one valid index
     if stbtt__isfont(font_collection) then
         if index == 0 then return 0 else return -1 end
     end
 
+    -- check if it's a TTC
     if stbtt_tag(font_collection, "ttcf") then
+        -- version 1?
         if ttULONG(font_collection, 4) == 0x00010000 or ttULONG(font_collection, 4) == 0x00020000 then
             local n = ttLONG(font_collection, 8)
             if index >= n then
@@ -598,23 +765,25 @@ local function stbtt_InitFont_internal(info, data, fontstart)
     info.fontstart = fontstart
     info.cff = stbtt__new_buf(nil, 0)
 
-    cmap = stbtt__find_table(data, fontstart, "cmap")
-    info.loca = stbtt__find_table(data, fontstart, "loca")
-    info.head = stbtt__find_table(data, fontstart, "head")
-    info.glyf = stbtt__find_table(data, fontstart, "glyf")
-    info.hhea = stbtt__find_table(data, fontstart, "hhea")
-    info.hmtx = stbtt__find_table(data, fontstart, "hmtx")
-    info.kern = stbtt__find_table(data, fontstart, "kern")
-    info.gpos = stbtt__find_table(data, fontstart, "GPOS")
+    cmap = stbtt__find_table(data, fontstart, "cmap")      -- required
+    info.loca = stbtt__find_table(data, fontstart, "loca") -- required
+    info.head = stbtt__find_table(data, fontstart, "head") -- required
+    info.glyf = stbtt__find_table(data, fontstart, "glyf") -- required
+    info.hhea = stbtt__find_table(data, fontstart, "hhea") -- required
+    info.hmtx = stbtt__find_table(data, fontstart, "hmtx") -- required
+    info.kern = stbtt__find_table(data, fontstart, "kern") -- not required
+    info.gpos = stbtt__find_table(data, fontstart, "GPOS") -- not required
 
     if (cmap == 0 or info.head == 0 or info.hhea == 0 or info.hmtx == 0) then
         return false
     end
     if info.glyf ~= 0 then
+        -- required for truetype
         if info.loca == 0 then
             return false
         end
     else
+        -- initialization for CFF / Type2 fonts (OTF)
         local cff = stbtt__find_table(data, fontstart, "CFF ")
         if cff == 0 then
             return false
@@ -623,14 +792,16 @@ local function stbtt_InitFont_internal(info, data, fontstart)
         info.fontdicts = stbtt__new_buf(nil, 0)
         info.fdselect = stbtt__new_buf(nil, 0)
 
-        info.cff = stbtt__new_buf(data, 64 * 1024 * 1024, cff) -- TODO: this should use size from table
+        -- @TODO this should use size from table (not 512MB)
+        info.cff = stbtt__new_buf(data, 64 * 1024 * 1024, cff) -- PORT: 64MB here instead of 512MB
         local b = info.cff
 
         -- read the header
         stbtt__buf_skip(b, 2)
-        stbtt__buf_seek(b, stbtt__buf_get8(b))
+        stbtt__buf_seek(b, stbtt__buf_get8(b)) -- hdrsize
 
-        -- TODO: the name INDEX could list multiple fonts, but we just use the first one.
+        -- @TODO the name INDEX could list multiple fonts,
+        -- but we just use the first one.
         stbtt__cff_get_index(b) -- name INDEX
         local topdictidx = stbtt__cff_get_index(b)
         local topdict = stbtt__cff_index_get(topdictidx, 0)
@@ -643,6 +814,7 @@ local function stbtt_InitFont_internal(info, data, fontstart)
         local fdselectoff = stbtt__dict_get_ints(topdict, bit32.bor(0x100, 37), 1)
         info.subrs = stbtt__get_subrs(b, topdict)
 
+        -- we only support Type 2 charstrings
         if cstype[1] ~= 2 then
             return false
         end
@@ -651,6 +823,7 @@ local function stbtt_InitFont_internal(info, data, fontstart)
         end
 
         if fdarrayoff[1] ~= 0 then
+            -- looks like a CID font
             if fdselectoff[1] == 0 then
                 return false
             end
@@ -673,19 +846,26 @@ local function stbtt_InitFont_internal(info, data, fontstart)
 
     info.svg = -1
 
+    -- find a cmap encoding table we understand *now* to avoid searching
+    -- later. (todo: could make this installable)
+    -- the same regardless of glyph.
     numTables = ttUSHORT(data, cmap + 2)
     info.index_map = 0
     for i = 0, numTables - 1 do
         local encoding_record = cmap + 4 + 8 * i
+        -- find an encoding we understand:
         local platform_id = ttUSHORT(data, encoding_record)
 
         if platform_id == STBTT_PLATFORM_ID.MICROSOFT then
             local ms_eid = ttUSHORT(data, encoding_record + 2)
 
             if ms_eid == STBTT_MS_EID.UNICODE_BMP or ms_eid == STBTT_MS_EID.UNICODE_FULL then
+                -- MS/Unicode
                 info.index_map = cmap + ttULONG(data, encoding_record + 4)
             end
         elseif platform_id == STBTT_PLATFORM_ID.UNICODE then
+            -- Mac/iOS has these
+            -- all the encodingIDs are unicode, so we don't bother to check it
             info.index_map = cmap + ttULONG(data, encoding_record + 4)
         end
     end
@@ -697,6 +877,11 @@ local function stbtt_InitFont_internal(info, data, fontstart)
     return true
 end
 
+-- If you're going to perform multiple operations on the same character
+-- and you want a speed-up, call this function with the character you're
+-- going to process, then use glyph-based functions instead of the
+-- codepoint-based functions.
+-- Returns 0 if the character codepoint is not defined in the font.
 --- @param info              stbtt_fontinfo
 --- @param unicode_codepoint int
 function stbtt_FindGlyphIndex(info, unicode_codepoint)
@@ -704,7 +889,7 @@ function stbtt_FindGlyphIndex(info, unicode_codepoint)
     local index_map = info.index_map
 
     local format = ttUSHORT(data, index_map + 0)
-    if format == 0 then
+    if format == 0 then -- apple byte encoding
         local bytes = ttUSHORT(data, index_map + 2)
         if unicode_codepoint < bytes - 6 then
             return ttBYTE(data, index_map + 6 + unicode_codepoint)
@@ -718,14 +903,15 @@ function stbtt_FindGlyphIndex(info, unicode_codepoint)
         end
         return 0
     elseif format == 2 then
-        STBTT_assert(false) -- TODO: high-byte mapping for japanese/chinese/korean
+        STBTT_assert(false) -- @TODO: high-byte mapping for japanese/chinese/korean
         return 0
-    elseif format == 4 then
+    elseif format == 4 then -- standard mapping for windows fonts: binary search collection of ranges
         local segcount = bit32.rshift(ttUSHORT(data, index_map + 6), 1)
         local searchRange = bit32.rshift(ttUSHORT(data, index_map + 8), 1)
         local entrySelector = ttUSHORT(data, index_map + 10)
         local rangeShift = bit32.rshift(ttUSHORT(data, index_map + 12), 1)
 
+        -- do a binary search of the segments
         local endCount = index_map + 14
         local search = endCount
 
@@ -733,10 +919,13 @@ function stbtt_FindGlyphIndex(info, unicode_codepoint)
             return 0
         end
 
+        -- they lie from endCount .. endCount + segCount
+        -- but searchRange is the nearest power of two, so...
         if unicode_codepoint >= ttUSHORT(data, search + rangeShift * 2) then
             search = search + rangeShift * 2
         end
 
+        -- now decrement to bias correctly to find smallest
         search = search - 2
         while entrySelector ~= 0 do
             searchRange = bit32.rshift(searchRange, 1)
@@ -768,8 +957,9 @@ function stbtt_FindGlyphIndex(info, unicode_codepoint)
         local ngroups = ttULONG(data, index_map + 12)
         local low = 0
         local high = ngroups
+        -- Binary search the right group.
         while low < high do
-            local mid = low + bit32.rshift(high - low, 1)
+            local mid = low + bit32.rshift(high - low, 1) -- rounds down, so low <= mid < high
             local start_char = ttULONG(data, index_map + 16 + mid * 12)
             local end_char = ttULONG(data, index_map + 16 + mid * 12 + 4)
             if unicode_codepoint < start_char then
@@ -785,10 +975,10 @@ function stbtt_FindGlyphIndex(info, unicode_codepoint)
                 end
             end
         end
-        return 0
+        return 0 -- not found
     end
 
-    -- TODO:
+    -- @TODO
     STBTT_assert(false)
     return 0
 end
@@ -810,8 +1000,8 @@ end
 local function stbtt__GetGlyfOffset(info, glyph_index)
     STBTT_assert(info.cff.size == 0)
 
-    if glyph_index >= info.numGlyphs then return -1 end
-    if info.indexToLocFormat >= 2 then return -1 end
+    if glyph_index >= info.numGlyphs then return -1 end -- glyph index out of range
+    if info.indexToLocFormat >= 2 then return -1 end -- unknown index->glyph map format
 
     local g1, g2
     if info.indexToLocFormat == 0 then
@@ -822,9 +1012,10 @@ local function stbtt__GetGlyfOffset(info, glyph_index)
         g2 = info.glyf + ttULONG(info.data, info.loca + glyph_index * 4 + 4)
     end
 
-    if g1 == g2 then return -1 else return g1 end
+    if g1 == g2 then return -1 else return g1 end -- if length is 0, return -1
 end
 
+-- Gets the bounding box of the visible part of the glyph, in unscaled coordinates
 --- @return integer, integer?, integer?, integer?, integer?
 local function stbtt_GetGlyphBox(info, glyph_index)
     local n, x0, y0, x1, y1
@@ -896,7 +1087,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
         local points = (endPtsOfContours + numberOfContours * 2 + 2 + ins) + 1 -- 1-based idx
 
         local n = 1 + ttUSHORT(data, endPtsOfContours + numberOfContours * 2 - 2)
-        local m = n + 2 * numberOfContours
+        local m = n + 2 * numberOfContours -- a loose bound on how many vertices we might need
 
         vertices = {}
         for i = 1, m do vertices[i] = stbtt_vertex() end
@@ -907,7 +1098,11 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
         local next_move = 0
         local flagcount = 0
 
-        local off = m - n
+        -- in first pass, we load uninterpreted data into the allocated array
+        -- above, shifted to the end of the array so we won't overwrite it when
+        -- we create our final data starting from the front
+
+        local off = m - n -- starting offset for uninterpreted data, regardless of how m ends up being calculated
 
         -- first load flags
         local flags = 0
@@ -934,7 +1129,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
             if bit32.band(flags, 2) ~= 0 then
                 local dx = data[points]
                 points = points + 1
-                if bit32.band(flags, 16) ~= 0 then
+                if bit32.band(flags, 16) ~= 0 then -- ???
                     x = x + dx
                 else
                     x = x - dx
@@ -956,7 +1151,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
             if bit32.band(flags, 4) ~= 0 then
                 local dy = data[points]
                 points = points + 1
-                if bit32.band(flags, 32) ~= 0 then
+                if bit32.band(flags, 32) ~= 0 then -- ???
                     y = y + dy
                 else
                     y = y - dy
@@ -987,15 +1182,19 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                 -- now start the new one
                 start_off = (bit32.band(flags, 1) == 0)
                 if start_off then
+                    -- if we start off with an off-curve point, then when we need to find a point on the curve
+                    -- where we can start, and we need to save some state for when we wraparound.
                     scx = x
                     scy = y
                     if bit32.band(vertices[off + i + 1].type, 1) == 0 then
+                        -- next point is also a curve point, so interpolate an on-point curve
                         sx = bit32.rshift(x + stbtt_int32(vertices[off + i + 1].x), 1)
                         sy = bit32.rshift(y + stbtt_int32(vertices[off + i + 1].y), 1)
                     else
+                        -- otherwise just use the next point as our start point
                         sx = stbtt_int32(vertices[off + i + 1].x)
                         sy = stbtt_int32(vertices[off + i + 1].y)
-                        i = i + 1
+                        i = i + 1 -- we're using point i+1 as the starting point, so skip it
                     end
                 else
                     sx = x
@@ -1007,8 +1206,8 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                 next_move = 1 + ttUSHORT(data, endPtsOfContours + j * 2)
                 j = j + 1
             else
-                if bit32.band(flags, 1) == 0 then
-                    if was_off then
+                if bit32.band(flags, 1) == 0 then -- if it's a curve
+                    if was_off then -- two off-curve control points in a row means interpolate an on-curve midpoint
                         stbtt_setvertex(vertices[num_vertices + 1], STBTT_VTX.CURVE, bit32.rshift(cx + x, 1), bit32.rshift(cy + y, 1), cx, cy)
                         num_vertices = num_vertices + 1
                     end
@@ -1032,6 +1231,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
 
         num_vertices = stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx, sy, scx, scy, cx, cy)
     elseif numberOfContours < 0 then
+        -- Compound shapes.
         local more = 1
         local comp = g + 10
         num_vertices = 0
@@ -1047,8 +1247,8 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
             flags = ttSHORT(data, comp) comp = comp + 2
             gidx = ttSHORT(data, comp) comp = comp + 2
 
-            if bit32.band(flags, 2) ~= 0 then
-                if bit32.band(flags, 1) ~= 0 then
+            if bit32.band(flags, 2) ~= 0 then -- XY values
+                if bit32.band(flags, 1) ~= 0 then -- shorts
                     mtx[5] = ttSHORT(data, comp) comp = comp + 2
                     mtx[6] = ttSHORT(data, comp) comp = comp + 2
                 else
@@ -1056,7 +1256,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                     mtx[6] = ttCHAR(data, comp) comp = comp + 1
                 end
             else
-                -- TODO: handle matching point
+                -- @TODO handle matching point
                 STBTT_assert(false)
             end
 
@@ -1083,11 +1283,14 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                 mtx[4] = ttSHORT(data, comp) / 16384.0 comp = comp + 2
             end
 
+            -- Find transformation scales.
             m = STBTT_sqrt(mtx[1] * mtx[1] + mtx[2] * mtx[2])
             n = STBTT_sqrt(mtx[3] * mtx[3] + mtx[4] * mtx[4])
 
+            -- Get indexed glyph.
             comp_num_vertices, comp_verts = stbtt_GetGlyphShape(info, gidx)
             if comp_num_vertices > 0 then
+                -- Transform vertices.
                 for i = 1, comp_num_vertices do
                     local v = comp_verts[i]
                     local x = v.x
@@ -1100,6 +1303,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                     v.cy = stbtt_int16(n * (mtx[2] * x + mtx[4] * y + mtx[6]))
                 end
 
+                -- Append vertices.
                 if num_vertices == 0 then -- LUA: No malloc
                     vertices = comp_verts
                 else
@@ -1111,6 +1315,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                 num_vertices = num_vertices + comp_num_vertices
             end
 
+            -- More components ?
             more = bit32.band(flags, bit32.lshift(1, 5))
         end
     end
@@ -1266,7 +1471,7 @@ local function stbtt__run_charstring(info, glyph_index, c)
         clear_stack = 1
         b0 = stbtt__buf_get8(b)
 
-        -- TODO: implement hinting
+        -- @TODO implement hinting
         if b0 == 0x13 or b0 == 0x14 then -- hintmask or cntrmask
             if in_header then
                 maskbits = maskbits + trunc(sp / 2)  -- implicit "vstem"
@@ -1415,6 +1620,8 @@ local function stbtt__run_charstring(info, glyph_index, c)
         elseif b0 == 0x0C then -- two-byte escape
             local b1 = stbtt__buf_get8(b)
 
+            -- @TODO These "flex" implementations ignore the flex-depth and resolution,
+            -- and always draw beziers.
             if b1 == 0x22 then -- hflex
                 if sp < 7 then return STBTT__CSERR("hflex stack") end
                 local dx1 = s[0]
@@ -1547,6 +1754,15 @@ function stbtt__GetGlyphInfoT2(info, glyph_index)
     return ((r ~= 0) and c.num_vertices or 0), x0, y0, x1, y1
 end
 
+-- returns # of vertices and fills *vertices with the pointer to them
+--   these are expressed in "unscaled" coordinates
+--
+-- The shape is a series of contours. Each one starts with
+-- a STBTT_moveto, then consists of a series of mixed
+-- STBTT_lineto and STBTT_curveto segments. A lineto
+-- draws a line from previous endpoint to its x,y; a curveto
+-- draws a quadratic bezier from previous endpoint to
+-- its x,y, using cx,cy as the bezier control point.
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
 function stbtt_GetGlyphShape(info, glyph_index)
@@ -1557,6 +1773,9 @@ function stbtt_GetGlyphShape(info, glyph_index)
     end
 end
 
+-- leftSideBearing is the offset from the current horizontal position to the left edge of the character
+-- advanceWidth is the offset from the current horizontal position to the next horizontal position
+--   these are expressed in unscaled coordinates
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
 function stbtt_GetGlyphHMetrics(info, glyph_index)
@@ -1574,6 +1793,12 @@ function stbtt_GetGlyphHMetrics(info, glyph_index)
     return advanceWidth, leftSideBearing
 end
 
+-- ascent is the coordinate above the baseline the font extends; descent
+-- is the coordinate below the baseline the font extends (i.e. it is typically negative)
+-- lineGap is the spacing between one row's descent and the next row's ascent...
+-- so you should advance the vertical position by "ascent - descent + lineGap"
+--   these are expressed in unscaled coordinates, so you must multiply by
+--   the scale factor for a given size
 --- @param info stbtt_fontinfo
 function stbtt_GetFontVMetrics(info)
     local ascent = ttSHORT(info.data, info.hhea + 4)
@@ -1583,6 +1808,12 @@ function stbtt_GetFontVMetrics(info)
     return ascent, descent, lineGap
 end
 
+-- computes a scale factor to produce a font whose "height" is 'pixels' tall.
+-- Height is measured as the distance from the highest ascender to the lowest
+-- descender; in other words, it's equivalent to calling stbtt_GetFontVMetrics
+-- and computing:
+--       scale = pixels / (ascent - descent)
+-- so if you prefer to measure height by the ascent only, use a similar calculation.
 --- @param info   stbtt_fontinfo
 --- @param height float
 function stbtt_ScaleForPixelHeight(info, height)
@@ -1593,10 +1824,12 @@ end
 ------------------------------------
 ------------------------------------
 ---
---- Antialiasing software rasterizer
+--- antialiasing software rasterizer
 ---
 ---
 
+-- same as stbtt_GetGlyphBitmapBox, but you can specify a subpixel
+-- shift for the character
 --- @param font    stbtt_fontinfo
 --- @param glyph   int
 --- @param scale_x float
@@ -1624,6 +1857,11 @@ function stbtt_GetGlyphBitmapBoxSubpixel(font, glyph, scale_x, scale_y, shift_x,
     return ix0, iy0, ix1, iy1
 end
 
+-- get the bbox of the bitmap centered around the glyph origin; so the
+-- bitmap width is ix1-ix0, height is iy1-iy0, and location to place
+-- the bitmap top left is (leftSideBearing*scale,iy0).
+-- (Note that the bitmap uses y-increases-down, but the shape uses
+-- y-increases-up, so GlyphBitmapBox and GlyphBox are inverted.)
 --- @param font    stbtt_fontinfo
 --- @param glyph   int
 --- @param scale_x float
@@ -1646,6 +1884,8 @@ end
 ---     stbtt_MakeGlyphBitmap
 ---     stbtt_GetGlyphBitmapSubpixel
 
+-- the edge passed in here does not cross the vertical line at x or the vertical line at x+1
+-- (i.e. it has already been clipped to those)
 --- @param scanline float[]
 --- @param x        int
 --- @param e        stbtt__active_edge
@@ -1687,7 +1927,7 @@ local function stbtt__handle_clipped_edge(scanline, x, e, x0, y0, x1, y1)
         -- do nothing
     else
         STBTT_assert(x0 >= x and x0 <= x + 1 and x1 >= x and x1 <= x + 1)
-        scanline[x] = scanline[x] + e.direction * (y1 - y0) * (1 - ((x0 - x) + (x1 - x)) / 2)
+        scanline[x] = scanline[x] + e.direction * (y1 - y0) * (1 - ((x0 - x) + (x1 - x)) / 2) -- coverage = 1 - average x position
     end
 end
 
@@ -1725,6 +1965,7 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
 
     while e do
         -- brute force every pixel
+
         -- compute intersection points with top & bottom
         STBTT_assert(e.ey >= y_top)
 
@@ -1768,8 +2009,8 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
             if x_top >= 0 and x_bottom >= 0 and x_top < len and x_bottom < len then
                 -- from here on, we don't have to range check x values
                 if trunc(x_top) == trunc(x_bottom) then
-                    -- simple case, only spans one pixel
                     local height
+                    -- simple case, only spans one pixel
                     local x = trunc(x_top)
                     height = (sy1 - sy0) * e.direction
                     STBTT_assert(x >= 0 and x < len)
@@ -1801,8 +2042,25 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
                     -- compute intersection with y axis at x2
                     y_final = y_top + dy * (x2 - x0)
 
+                    --           x1    x_top                            x2    x_bottom
+                    --     y_top  +------|-----+------------+------------+--------|---+------------+
+                    --            |            |            |            |            |            |
+                    --            |            |            |            |            |            |
+                    --       sy0  |      Txxxxx|............|............|............|............|
+                    -- y_crossing |            *xxxxx.......|............|............|............|
+                    --            |            |     xxxxx..|............|............|............|
+                    --            |            |     /-   xx*xxxx........|............|............|
+                    --            |            | dy <       |    xxxxxx..|............|............|
+                    --   y_final  |            |     \-     |          xx*xxx.........|............|
+                    --       sy1  |            |            |            |   xxxxxB...|............|
+                    --            |            |            |            |            |            |
+                    --            |            |            |            |            |            |
+                    --  y_bottom  +------------+------------+------------+------------+------------+
+                    --
+                    -- goal is to measure the area covered by '.' in each pixel
+
                     -- if x2 is right at the right edge of x1, y_crossing can blow up, github #1057
-                    -- TODO: maybe test against sy1 rather than y_bottom?
+                    -- @TODO: maybe test against sy1 rather than y_bottom?
                     if y_crossing > y_bottom then
                         y_crossing = y_bottom
                     end
@@ -1824,6 +2082,16 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
                         end
                     end
 
+                    -- in second pixel, area covered by line segment found in first pixel
+                    -- is always a rectangle 1 wide * the height of that line segment; this
+                    -- is exactly what the variable 'area' stores. it also gets a contribution
+                    -- from the line segment within it. the THIRD pixel will get the first
+                    -- pixel's rectangle contribution, the second pixel's rectangle contribution,
+                    -- and its own contribution. the 'own contribution' is the same in every pixel except
+                    -- the leftmost and rightmost, a trapezoid that slides down in each pixel.
+                    -- the second pixel's contribution to the third pixel will be the
+                    -- rectangle 1 wide times the height change in the second pixel, which is dy.
+
                     step = sign * dy * 1 -- dy is dy/dx, change in y for every 1 change in x,
                     -- which multiplied by 1-pixel-width is how much pixel area changes for each step in x
                     -- so the area advances by 'step' every time
@@ -1843,7 +2111,27 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
                     scanline_fill[x2 + 1] = scanline_fill[x2 + 1] + sign * (sy1 - sy0)
                 end
             else
+                -- if edge goes outside of box we're drawing, we require
+                -- clipping logic. since this does not match the intended use
+                -- of this library, we use a different, very slow brute
+                -- force implementation
+                -- note though that this does happen some of the time because
+                -- x_top and x_bottom can be extrapolated at the top & bottom of
+                -- the shape and actually lie outside the bounding box
                 for x = 0, len - 1 do
+                    -- cases:
+                    --
+                    -- there can be up to two intersections with the pixel. any intersection
+                    -- with left or right edges can be handled by splitting into two (or three)
+                    -- regions. intersections with top & bottom do not necessitate case-wise logic.
+                    --
+                    -- the old way of doing this found the intersections with the left & right edges,
+                    -- then used some simple logic to produce up to three segments in sorted order
+                    -- from top-to-bottom. however, this had a problem: if an x edge was epsilon
+                    -- across the x border, then the corresponding y position might not be distinct
+                    -- from the other y segment, and it might ignored as an empty segment. to avoid
+                    -- that, we need to explicitly produce segments based on x positions.
+
                     -- rename variables to clearly-defined pairs
                     local y0 = y_top
                     local x1 = x
@@ -1887,6 +2175,7 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
     end
 end
 
+-- directly AA rasterize edges w/o supersampling
 --- @param result     stbtt__bitmap
 --- @param e          stbtt__edge
 --- @param n          int
@@ -1914,28 +2203,33 @@ local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, of
         for i = 0, result.w - 1 do scanline[i] = 0 end
         for i = 0, result.w do scanline2[i] = 0 end
 
+        -- update all active edges;
+        -- remove all active edges that terminate before the top of this scanline
         local prev = nil
         local curr = active
         while curr do
             local next = curr.next
             if curr.ey <= scan_y_top then
-                if prev then prev.next = next
+                if prev then prev.next = next -- delete from list
                 else          active   = next end
                 curr.direction = 0
             else
-                prev = curr
+                prev = curr -- advance through list
             end
             curr = next
         end
 
+        -- insert all edges that start before the bottom of this scanline
         local edge = e[p]
         while edge.y0 <= scan_y_bottom do
             if edge.y0 ~= edge.y1 then
                 local z = stbtt__new_active(edge, off_x, scan_y_top)
                 if j == 0 and off_y ~= 0 and z.ey < scan_y_top then
+                    -- this can happen due to subpixel positioning and some kind of fp rounding error i think
                     z.ey = scan_y_top
                 end
-                STBTT_assert(z.ey >= scan_y_top)
+                STBTT_assert(z.ey >= scan_y_top) -- if we get really unlucky a tiny bit of an edge can be out of bounds
+                -- insert at front
                 z.next = active
                 active = z
             end
@@ -1943,6 +2237,7 @@ local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, of
             edge = e[p]
         end
 
+        -- now process all active edges
         if active then
             stbtt__fill_active_edges_new(scanline, scanline2, result.w, active, scan_y_top)
         end
@@ -1961,10 +2256,11 @@ local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, of
             end
         end
 
+        -- advance all the edges
         step = active
         while step do
-            step.fx = step.fx + step.fdx
-            step = step.next
+            step.fx = step.fx + step.fdx -- advance to position for current scanline
+            step = step.next -- advance through list
         end
 
         y = y + 1
@@ -1999,6 +2295,7 @@ end
 local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y, shift_x, shift_y, off_x, off_y, invert)
     local y_scale_inv = (invert) and -scale_y or scale_y
     local vsubsample = 1 -- STBTT_RASTERIZER_VERSION == 2
+    -- vsubsample should divide 255 evenly; otherwise we won't reach full opacity
 
     -- now we have to blow out the windings into explicit edge lists
     local n = 0
@@ -2066,8 +2363,7 @@ local function stbtt__add_point(points, n, x, y)
     points[n + 1].y = y
 end
 
--- tessellate until threshold p is happy...
--- TODO: warped to compensate for non-linear stretching
+-- tessellate until threshold p is happy... @TODO warped to compensate for non-linear stretching
 --- @param points?                   stbtt__point[]
 --- @param num_points                int
 --- @param x0                        float
@@ -2116,7 +2412,7 @@ end
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
 local function stbtt__tesselate_cubic(points, num_points, x0, y0, x1, y1, x2, y2, x3, y3, objspace_flatness_squared, n)
-    -- TODO: this "flatness" calculation is just made-up nonsense that seems to work well enough
+    -- @TODO this "flatness" calculation is just made-up nonsense that seems to work well enough
     local dx0 = x1 - x0
     local dy0 = y1 - y0
     local dx1 = x2 - x1
@@ -2159,6 +2455,7 @@ local function stbtt__tesselate_cubic(points, num_points, x0, y0, x1, y1, x2, y2
     return num_points
 end
 
+-- returns number of contours
 --- @param vertices          stbtt_vertex[]
 --- @param num_verts         int
 --- @param objspace_flatness float
@@ -2235,6 +2532,7 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     return points, num_contours, contour_lengths
 end
 
+-- rasterize a shape with quadratic beziers into a bitmap
 --- @param result             stbtt__bitmap
 --- @param flatness_in_pixels float
 --- @param vertices           stbtt_vertex[]
@@ -2258,6 +2556,11 @@ local function stbtt_Rasterize(result, flatness_in_pixels, vertices, num_verts, 
     end
 end
 
+-- renders the glyph into storage you pass in for the bitmap,
+-- in the form of 'output', with row spacing of 'out_stride' bytes. the bitmap
+-- is clipped to out_w/out_h bytes. Call stbtt_GetGlyphBitmapBox to get the
+-- width and height and positioning info for it first. You can also specify
+-- a subpixel shift for the character.
 --- @param info       stbtt_fontinfo
 --- @param output     unsigned_char[]
 --- @param out_w      int
@@ -2286,7 +2589,7 @@ end
 -----------------
 -----------------
 ---
---- Bitmap baking
+--- bitmap baking
 ---
 ---
 
@@ -2298,7 +2601,7 @@ end
 ---------------------------
 ---------------------------
 ---
---- Bitmap baking / packing
+--- bitmap baking / packing
 ---
 ---
 
@@ -2380,9 +2683,16 @@ local function stbtt__oversample_shift(oversample)
     if oversample == 0 then
         return 0.0
     end
+
+    -- The prefilter is a box filter of width "oversample",
+    -- which shifts phase by (oversample - 1)/2 pixels in
+    -- oversampled space. We want to shift in the opposite
+    -- direction to counter this.
     return -(oversample - 1) / (2.0 * oversample)
 end
 
+-- same as stbtt_MakeGlyphBitmapSubpixel, but prefiltering
+-- is performed. Returns (sub_x, sub_y).
 --- @param info        stbtt_fontinfo
 --- @param output      unsigned_char[]
 --- @param out_w       int
@@ -2415,7 +2725,7 @@ end
 -------------------
 -------------------
 ---
---- SDF computation
+--- sdf computation
 ---
 ---
 
@@ -2441,10 +2751,20 @@ end
 ---     stbtt__matchpair
 ---     stbtt__matches
 
+-- Each .ttf/.ttc file may have more than one font. Each font has a sequential
+-- index number starting from 0. Call this function to get the font offset for
+-- a given index; it returns -1 if the index is out of range. A regular .ttf
+-- file will only define one font and it always be at offset 0, so it will
+-- return '0' for index 0, and -1 for all other indices.
 --- @param data  table
 --- @param index int
 function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForIndex_internal(data, index) end
 
+-- Given an offset into the file that defines a font, this function builds
+-- the necessary cached info for the rest of the system. You must allocate
+-- the stbtt_fontinfo yourself (see stbtt_fontinfo()), and stbtt_InitFont will fill it out. You don't
+-- need to do anything special to free it, because the contents are pure
+-- value data with no additional data structures. Returns false on failure.
 --- @param info   stbtt_fontinfo
 --- @param data   table
 --- @param offset int

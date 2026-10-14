@@ -1,5 +1,28 @@
 --- Dear ImGui WIP
--- (Widgets Code)
+-- (widgets code)
+
+--
+-- Index of this file:
+--
+-- [SECTION] Widgets: Text, etc.
+-- [SECTION] Widgets: Value helpers
+-- [SECTION] Widgets: Main (Button, Image, Checkbox, RadioButton, ProgressBar, Bullet, etc.)
+-- [SECTION] Widgets: Low-level Layout helpers (Spacing, Dummy, NewLine, Separator, etc.)
+-- [SECTION] Widgets: ComboBox
+-- [SECTION] Data Type and Data Formatting Helpers
+-- [SECTION] Widgets: DragScalar, DragFloat, DragInt, etc.
+-- [SECTION] Widgets: SliderScalar, SliderFloat, SliderInt, etc.
+-- [SECTION] Widgets: InputScalar, InputFloat, InputInt, etc.
+-- [SECTION] Widgets: InputText, InputTextMultiline
+-- [SECTION] Widgets: ColorEdit, ColorPicker, ColorButton, etc.
+-- [SECTION] Widgets: TreeNode, CollapsingHeader, etc.
+-- [SECTION] Widgets: Selectable
+-- [SECTION] Widgets: ListBox
+-- [SECTION] Widgets: PlotLines, PlotHistogram
+-- [SECTION] Widgets: MenuItem, BeginMenu, EndMenu, etc.
+-- [SECTION] Widgets: BeginTabBar, EndTabBar, etc.
+-- [SECTION] Widgets: BeginTabItem, EndTabItem, etc.
+--
 
 --- @type ImGuiContext?
 local GImGui
@@ -11,8 +34,13 @@ function ImGui._SetCurrentContext_Widgets(ctx)
     GImGui = ctx
 end
 
-local DRAGDROP_HOLD_TO_OPEN_TIMER = 0.70 -- Time for drag-hold to activate items accepting the ImGuiButtonFlags.PressedOnDragDropHold button behavior
-local DRAG_MOUSE_THRESHOLD_FACTOR = 0.50 -- Multiplier for the default value of io.MouseDragThreshold to make DragFloat/DragInt react faster to mouse drags
+-------------------------------------------------------------------------------
+-- Data
+-------------------------------------------------------------------------------
+
+-- Widgets
+local DRAGDROP_HOLD_TO_OPEN_TIMER = 0.70 -- Time for drag-hold to activate items accepting the ImGuiButtonFlags.PressedOnDragDropHold button behavior.
+local DRAG_MOUSE_THRESHOLD_FACTOR = 0.50 -- Multiplier for the default value of io.MouseDragThreshold to make DragFloat/DragInt react faster to mouse drags.
 
 local IM_S8_MIN = -128
 local IM_S8_MAX = 127
@@ -22,14 +50,25 @@ local IM_S16_MIN = -32768
 local IM_S16_MAX = 32767
 local IM_U16_MIN = 0
 local IM_U16_MAX = 0xFFFF
-local IM_S32_MIN = INT_MIN
-local IM_S32_MAX = INT_MAX
+local IM_S32_MIN = INT_MIN -- (-2147483647 - 1), (0x80000000);
+local IM_S32_MAX = INT_MAX -- (2147483647), (0x7FFFFFFF)
 local IM_U32_MIN = 0
-local IM_U32_MAX = UINT_MAX
+local IM_U32_MAX = UINT_MAX -- (0xFFFFFFFF)
 
-----------------------------------------------------------------
--- [SECTION] TEXT
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Text, etc.
+-------------------------------------------------------------------------------
+-- - TextEx() [Internal]
+-- - TextUnformatted()
+-- - Text()
+-- - TextV()
+-- - TextColored()
+-- - TextDisabled()
+-- - TextWrapped()
+-- - TextAligned()
+-- - LabelText()
+-- - BulletText()
+-------------------------------------------------------------------------------
 
 --- @param text      string
 --- @param text_end? int
@@ -44,11 +83,13 @@ function ImGui.TextEx(text, text_end, flags)
         return
     end
 
+    -- Accept null ranges
     if not text or text == "" then
         text = ""
         text_end = 1
     end
 
+    -- Calculate length
     if text_end == nil then
         text_end = #text + 1
     end
@@ -57,6 +98,7 @@ function ImGui.TextEx(text, text_end, flags)
     local wrap_pos_x = window.DC.TextWrapPos
     local wrap_enabled = (wrap_pos_x >= 0.0)
     if (text_end - 1 <= 2000) or wrap_enabled then
+        -- Common case
         local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(window.DC.CursorPos, wrap_pos_x) or 0.0
         local text_size = ImGui.CalcTextSize(text, text_end, false, wrap_width)
 
@@ -66,12 +108,18 @@ function ImGui.TextEx(text, text_end, flags)
             return
         end
 
+        -- Render (we don't hide text after ## in this end-user function)
         ImGui.RenderTextWrapped(bb.Min, text, text_end, wrap_width)
     else
+        -- Long text!
+        -- Perform manual coarse clipping to optimize for long multi-line text
+        -- - From this point we will only compute the width of lines that are visible. Optimization only available when word-wrapping is disabled.
+        -- - We also don't vertically center the text within the line full height, which is unlikely to matter because we are likely the biggest and only item on the line.
         local line = 1
         local line_height = ImGui.GetTextLineHeight()
         local text_size = ImVec2(0, 0)
 
+        -- Lines to skip (can't skip when logging text)
         local pos = ImVec2(text_pos.x, text_pos.y)
         if not g.LogEnabled then
             local lines_skippable = ImFloor((window.ClipRect.Min.y - text_pos.y) / line_height)
@@ -93,6 +141,7 @@ function ImGui.TextEx(text, text_end, flags)
             end
         end
 
+        -- Lines to render
         if line < text_end then
             local line_rect = ImRect(pos, pos + ImVec2(FLT_MAX, line_height))
             while line < text_end do
@@ -114,6 +163,7 @@ function ImGui.TextEx(text, text_end, flags)
                 pos.y = pos.y + line_height
             end
 
+            -- Count remaining lines
             local lines_skipped = 0
             while line < text_end do
                 local line_end = ImMemchr(text, "\n", line)
@@ -189,7 +239,7 @@ end
 --- @param ... any
 function ImGui.TextWrapped(fmt, ...)
     local g = GImGui
-    local need_backup = (g.CurrentWindow.DC.TextWrapPos < 0.0)
+    local need_backup = (g.CurrentWindow.DC.TextWrapPos < 0.0) -- Keep existing wrap position if one is already set
     if need_backup then
         ImGui.PushTextWrapPos(0.0)
     end
@@ -200,8 +250,8 @@ function ImGui.TextWrapped(fmt, ...)
 end
 
 -- align_x: 0.0f = left, 0.5f = center, 1.0f = right.
--- size_x : 0.0f = shortcut for GetContentRegionAvail().x
--- FIXME-WIP: Works but API is likely to be reworked. This is designed for 1 item on the line. (#7024)
+-- size_x < 0.0f (e.g. -FLT_MIN): shortcut for GetContentRegionAvail().x
+-- FIXME-WIP: Works but API is likely to be reworked. This is designed for 1 item on the line. (#7024, #9455)
 --- @param align_x float
 --- @param size_x  float
 --- @param fmt     string
@@ -231,7 +281,7 @@ function ImGui.TextAligned(align_x, size_x, fmt, ...)
     ImVec2_Copy(backup_max_pos, window.DC.CursorMaxPos)
     ImGui.ItemSize(size)
     ImGui.ItemAdd(ImRect(pos, pos + size), 0)
-    window.DC.CursorMaxPos.x = backup_max_pos.x -- Cancel out extending content size because right-aligned text would otherwise mess it up
+    window.DC.CursorMaxPos.x = backup_max_pos.x -- Cancel out extending content to 'size' to use 'text_size' allowing auto-resize to function with align_x > 0.0f
 
     if size_x < text_size.x and ImGui.IsItemHovered(bit32.bor(ImGuiHoveredFlags.NoNavOverride, ImGuiHoveredFlags.AllowWhenDisabled, ImGuiHoveredFlags.ForTooltip)) then
         ImGui.SetTooltip("%.*s", text_end - 1, text)
@@ -274,6 +324,7 @@ function ImGui.LabelText(label, fmt, ...)
     end
 end
 
+-- Text with a little bullet aligned to the typical tree node.
 --- @param fmt string
 --- @param ... any
 function ImGui.BulletText(fmt, ...)
@@ -312,6 +363,13 @@ ImGui.TextAlignedV = ImGui.TextAligned
 ImGui.LabelTextV = ImGui.LabelText
 ImGui.BulletTextV = ImGui.BulletText
 
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Value helpers
+-- Those is not very useful, legacy API.
+-------------------------------------------------------------------------------
+-- - Value()
+-------------------------------------------------------------------------------
+
 -- Value(prefix, b) / Value(prefix, int) / Value(prefix, float, float_format)
 -- Lua can't tell int from float: integers without float_format print as %d, otherwise %.3f
 function ImGui.Value(prefix, v, float_format)
@@ -326,10 +384,94 @@ function ImGui.Value(prefix, v, float_format)
     end
 end
 
-----------------------------------------------------------------
--- [SECTION] MAIN: BUTTONS, SCROLLBARS, ...
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Main
+-------------------------------------------------------------------------------
+-- - ButtonBehavior() [Internal]
+-- - Button()
+-- - SmallButton()
+-- - InvisibleButton()
+-- - ArrowButton()
+-- - CloseButton() [Internal]
+-- - CollapseButton() [Internal]
+-- - GetWindowScrollbarID() [Internal]
+-- - GetWindowScrollbarRect() [Internal]
+-- - Scrollbar() [Internal]
+-- - ScrollbarEx() [Internal]
+-- - Image()
+-- - ImageButton()
+-- - Checkbox()
+-- - CheckboxFlagsT() [Internal]
+-- - CheckboxFlags()
+-- - RadioButton()
+-- - ProgressBar()
+-- - Bullet()
+-- - Hyperlink()
+-------------------------------------------------------------------------------
 
+-- The ButtonBehavior() function is key to many interactions and used by many/most widgets.
+-- Because we handle so many cases (keyboard/gamepad navigation, drag and drop) and many specific behavior (via ImGuiButtonFlags),
+-- this code is a little complex.
+-- By far the most common path is interacting with the Mouse using the default ImGuiButtonFlags.PressedOnClickRelease button behavior.
+-- See the series of events below and the corresponding state reported by dear imgui:
+-------------------------------------------------------------------------------
+-- with PressedOnClickRelease:             return-value  IsItemHovered()  IsItemActive()  IsItemActivated()  IsItemDeactivated()  IsItemClicked()
+--   Frame N+0 (mouse is outside bb)        -             -                -               -                  -                    -
+--   Frame N+1 (mouse moves inside bb)      -             true             -               -                  -                    -
+--   Frame N+2 (mouse button is down)       -             true             true            true               -                    true
+--   Frame N+3 (mouse button is down)       -             true             true            -                  -                    -
+--   Frame N+4 (mouse moves outside bb)     -             -                true            -                  -                    -
+--   Frame N+5 (mouse moves inside bb)      -             true             true            -                  -                    -
+--   Frame N+6 (mouse button is released)   true          true             -               -                  true                 -
+--   Frame N+7 (mouse button is released)   -             true             -               -                  -                    -
+--   Frame N+8 (mouse moves outside bb)     -             -                -               -                  -                    -
+-------------------------------------------------------------------------------
+-- with PressedOnClick:                    return-value  IsItemHovered()  IsItemActive()  IsItemActivated()  IsItemDeactivated()  IsItemClicked()
+--   Frame N+2 (mouse button is down)       true          true             true            true               -                    true
+--   Frame N+3 (mouse button is down)       -             true             true            -                  -                    -
+--   Frame N+6 (mouse button is released)   -             true             -               -                  true                 -
+--   Frame N+7 (mouse button is released)   -             true             -               -                  -                    -
+-------------------------------------------------------------------------------
+-- with PressedOnRelease:                  return-value  IsItemHovered()  IsItemActive()  IsItemActivated()  IsItemDeactivated()  IsItemClicked()
+--   Frame N+2 (mouse button is down)       -             true             -               -                  -                    true
+--   Frame N+3 (mouse button is down)       -             true             -               -                  -                    -
+--   Frame N+6 (mouse button is released)   true          true             -               -                  -                    -
+--   Frame N+7 (mouse button is released)   -             true             -               -                  -                    -
+-------------------------------------------------------------------------------
+-- with PressedOnDoubleClick:              return-value  IsItemHovered()  IsItemActive()  IsItemActivated()  IsItemDeactivated()  IsItemClicked()
+--   Frame N+0 (mouse button is down)       -             true             -               -                  -                    true
+--   Frame N+1 (mouse button is down)       -             true             -               -                  -                    -
+--   Frame N+2 (mouse button is released)   -             true             -               -                  -                    -
+--   Frame N+3 (mouse button is released)   -             true             -               -                  -                    -
+--   Frame N+4 (mouse button is down)       true          true             true            true               -                    true
+--   Frame N+5 (mouse button is down)       -             true             true            -                  -                    -
+--   Frame N+6 (mouse button is released)   -             true             -               -                  true                 -
+--   Frame N+7 (mouse button is released)   -             true             -               -                  -                    -
+-------------------------------------------------------------------------------
+-- Note that some combinations are supported,
+-- - PressedOnDragDropHold can generally be associated with any flag.
+-- - PressedOnDoubleClick can be associated by PressedOnClickRelease/PressedOnRelease, in which case the second release event won't be reported.
+-------------------------------------------------------------------------------
+-- The behavior of the return-value changes when ImGuiItemFlags.ButtonRepeat is set:
+--                                         Repeat+                  Repeat+           Repeat+             Repeat+
+--                                         PressedOnClickRelease    PressedOnClick    PressedOnRelease    PressedOnDoubleClick
+-------------------------------------------------------------------------------
+--   Frame N+0 (mouse button is down)       -                        true              -                   true
+--   ...                                    -                        -                 -                   -
+--   Frame N + RepeatDelay                  true                     true              -                   true
+--   ...                                    -                        -                 -                   -
+--   Frame N + RepeatDelay + RepeatRate*N   true                     true              -                   true
+-------------------------------------------------------------------------------
+
+-- - FIXME: For refactor we could output flags, incl mouse hovered vs nav keyboard vs nav triggered etc.
+--   And better standardize how widgets use 'GetColor32((held && hovered) ? ... : hovered ? ...)' vs 'GetColor32(held ? ... : hovered ? ...);'
+--   For mouse feedback we typically prefer the 'held && hovered' test, but for nav feedback not always. Outputting hovered=true on Activation may be misleading.
+-- - Since v1.91.2 (Sept 2024) we included io.ConfigDebugHighlightIdConflicts feature.
+--   One idiom which was previously valid which will now emit a warning is when using multiple overlaid ButtonBehavior()
+--   with same ID and different MouseButton (see #8030). You can fix it by:
+--       (1) switching to use a single ButtonBehavior() with multiple _MouseButton flags.
+--    or (2) surrounding those calls with PushItemFlag(ImGuiItemFlags.AllowDuplicateId, true); ... PopItemFlag()
+-- Returns (pressed, hovered, held).
 --- @param bb     ImRect
 --- @param id     ImGuiID
 --- @param flags? ImGuiButtonFlags
@@ -341,6 +483,8 @@ function ImGui.ButtonBehavior(bb, id, flags)
 
     local window = g.CurrentWindow
 
+    -- Default behavior inherited from item flags
+    -- Note that _both_ ButtonFlags and ItemFlags are valid sources, so copy one into the item_flags and only check that.
     local item_flags = (g.LastItemData.ID == id) and g.LastItemData.ItemFlags or g.CurrentItemFlags
     if bit32.band(flags, ImGuiButtonFlags.AllowOverlap) ~= 0 then
         item_flags = bit32.bor(item_flags, ImGuiItemFlags.AllowOverlap)
@@ -367,6 +511,9 @@ function ImGui.ButtonBehavior(bb, id, flags)
 
     local pressed = false
     local hovered = ImGui.ItemHoverable(bb, id, item_flags)
+
+    -- Special mode for Drag and Drop used by openables (tree nodes, tabs etc.)
+    -- where holding the button pressed for a long time while drag a payload item triggers the button.
     if g.DragDropActive then
         if (bit32.band(flags, ImGuiButtonFlags.PressedOnDragDropHold) ~= 0) and (bit32.band(g.DragDropSourceFlags, ImGuiDragDropFlags.SourceNoHoldToOpenOthers) == 0) and ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem) then
             hovered = true
@@ -388,10 +535,14 @@ function ImGui.ButtonBehavior(bb, id, flags)
         g.HoveredWindow = backup_hovered_window
     end
 
+    -- Mouse handling
     local test_owner_id = (bit32.band(flags, ImGuiButtonFlags.NoTestKeyOwner) ~= 0) and ImGuiKeyOwner_Any or id
     if hovered then
-        IM_ASSERT(id ~= 0)
+        IM_ASSERT(id ~= 0) -- Lazily check inside rare path.
 
+        -- Poll mouse buttons
+        -- - 'mouse_button_clicked' is generally carried into ActiveIdMouseButton when setting ActiveId.
+        -- - Technically we only need some values in one code path, but since this is gated by hovered test this is fine.
         local mouse_button_clicked = -1
         local mouse_button_released = -1
         for button = 0, 2 do
@@ -401,6 +552,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
             end
         end
 
+        -- Process initial action
         local mods_ok = (bit32.band(flags, ImGuiButtonFlags.NoKeyModsAllowed) == 0) or (not g.IO.KeyCtrl and not g.IO.KeyShift and not g.IO.KeyAlt)
         if mods_ok then
             if mouse_button_clicked ~= -1 and g.ActiveId ~= id then
@@ -418,7 +570,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
                         ImGui.SetFocusID(id, window)
                         ImGui.FocusWindow(window)
                     elseif bit32.band(flags, ImGuiButtonFlags.NoFocus) == 0 then
-                        ImGui.FocusWindow(window, ImGuiFocusRequestFlags.RestoreFocusedChild)
+                        ImGui.FocusWindow(window, ImGuiFocusRequestFlags.RestoreFocusedChild) -- Still need to focus and bring to front, but try to avoid losing NavId when navigating a child
                     end
                 end
 
@@ -428,7 +580,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
                     if bit32.band(flags, ImGuiButtonFlags.NoHoldingActiveId) ~= 0 then
                         ImGui.ClearActiveID()
                     else
-                        ImGui.SetActiveID(id, window)
+                        ImGui.SetActiveID(id, window) -- Hold on ID
                     end
 
                     g.ActiveIdMouseButton = mouse_button_clicked
@@ -437,12 +589,12 @@ function ImGui.ButtonBehavior(bb, id, flags)
                         ImGui.SetFocusID(id, window)
                         ImGui.FocusWindow(window)
                     elseif bit32.band(flags, ImGuiButtonFlags.NoFocus) == 0 then
-                        ImGui.FocusWindow(window, ImGuiFocusRequestFlags.RestoreFocusedChild)
+                        ImGui.FocusWindow(window, ImGuiFocusRequestFlags.RestoreFocusedChild) -- Still need to focus and bring to front, but try to avoid losing NavId when navigating a child
                     end
                 end
 
                 if bit32.band(flags, ImGuiButtonFlags.PressedOnRelease) ~= 0 then
-                    -- FIXME: Traditionally ImGuiButtonFlags.PressedOnRelease never took ActiveId. Adding it in 2026-03-20 since ImGuiButtonFlags_NoHoldingActiveId can always be added.
+                    -- FIXME: Traditionally ImGuiButtonFlags.PressedOnRelease never took ActiveId. Adding it in 2026-03-20 since ImGuiButtonFlags.NoHoldingActiveId can always be added.
                     -- We don't yet perform an explicit ClearActiveID() to reduce scope of change, but this possibility could be investigated.
                     if bit32.band(flags, ImGuiButtonFlags.NoHoldingActiveId) == 0 then
                         ImGui.SetActiveID(id, window) -- Hold on ID
@@ -453,14 +605,14 @@ function ImGui.ButtonBehavior(bb, id, flags)
 
             if bit32.band(flags, ImGuiButtonFlags.PressedOnRelease) ~= 0 then
                 if mouse_button_released ~= -1 then
-                    local has_repeated_at_least_once = (bit32.band(item_flags, ImGuiItemFlags.ButtonRepeat) ~= 0) and g.IO.MouseDownDurationPrev[mouse_button_released] >= g.IO.KeyRepeatDelay
+                    local has_repeated_at_least_once = (bit32.band(item_flags, ImGuiItemFlags.ButtonRepeat) ~= 0) and g.IO.MouseDownDurationPrev[mouse_button_released] >= g.IO.KeyRepeatDelay -- Repeat mode trumps on release behavior
 
                     if not has_repeated_at_least_once then
                         pressed = true
                     end
 
                     if bit32.band(flags, ImGuiButtonFlags.NoNavFocus) == 0 then
-                        ImGui.SetFocusID(id, window)  -- FIXME: Lack of FocusWindow() call here is inconsistent with other paths. Research why.
+                        ImGui.SetFocusID(id, window) -- FIXME: Lack of FocusWindow() call here is inconsistent with other paths. Research why.
                     end
 
                     ImGui.ClearActiveID()
@@ -482,7 +634,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
     end
 
     -- Keyboard/Gamepad navigation handling
-    -- We report navigated and navigation-activated items as hovered but we don't set g.HoveredId to not interfere with mouse
+    -- We report navigated and navigation-activated items as hovered but we don't set g.HoveredId to not interfere with mouse.
     if bit32.band(item_flags, ImGuiItemFlags.Disabled) == 0 then
         if g.NavId == id and g.NavCursorVisible and g.NavHighlightItemUnderNav then
             if bit32.band(flags, ImGuiButtonFlags.NoHoveredOnFocus) == 0 then
@@ -515,6 +667,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
         end
     end
 
+    -- Process while held
     local held = false
     if g.ActiveId == id then
         if g.ActiveIdSource == ImGuiInputSource.Mouse then
@@ -536,7 +689,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
                     -- Report as pressed when releasing the mouse (this is the most common path)
                     local is_double_click_release = (bit32.band(flags, ImGuiButtonFlags.PressedOnDoubleClick) ~= 0) and g.IO.MouseReleased[mouse_button] and g.IO.MouseClickedLastCount[mouse_button] == 2
 
-                    local is_repeating_already = (bit32.band(item_flags, ImGuiItemFlags.ButtonRepeat) ~= 0) and g.IO.MouseDownDurationPrev[mouse_button] >= g.IO.KeyRepeatDelay
+                    local is_repeating_already = (bit32.band(item_flags, ImGuiItemFlags.ButtonRepeat) ~= 0) and g.IO.MouseDownDurationPrev[mouse_button] >= g.IO.KeyRepeatDelay -- Repeat mode trumps <on release>
 
                     local is_button_avail_or_owned = ImGui.TestKeyOwner(ImGui.MouseButtonToKey(mouse_button), test_owner_id)
 
@@ -554,7 +707,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
         elseif g.ActiveIdSource == ImGuiInputSource.Keyboard or g.ActiveIdSource == ImGuiInputSource.Gamepad then
             -- When activated using Nav, we hold on the ActiveID until activation button is released
             if g.NavActivateDownId == id then
-                held = true  -- hovered == true not true as we are already likely hovered on direct activation.
+                held = true -- hovered == true not true as we are already likely hovered on direct activation.
             else
                 ImGui.ClearActiveID()
             end
@@ -565,6 +718,7 @@ function ImGui.ButtonBehavior(bb, id, flags)
         end
     end
 
+    -- Activation highlight (this may be a remote activation)
     if g.NavHighlightActivatedId == id and (bit32.band(item_flags, ImGuiItemFlags.Disabled) == 0) then
         hovered = true
     end
@@ -594,7 +748,7 @@ function ImGui.ButtonEx(label, size_arg, flags)
 
     local pos = ImVec2() -- Don't modify the cursor!
     ImVec2_Copy(pos, window.DC.CursorPos)
-    if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and style.FramePadding.y < window.DC.CurrLineTextBaseOffset then
+    if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and style.FramePadding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
         pos.y = pos.y + window.DC.CurrLineTextBaseOffset - style.FramePadding.y
     end
     local size = ImGui.CalcItemSize(size_arg, label_size.x + style.FramePadding.x * 2.0, label_size.y + style.FramePadding.y * 2.0)
@@ -607,6 +761,7 @@ function ImGui.ButtonEx(label, size_arg, flags)
 
     local pressed, hovered, held = ImGui.ButtonBehavior(bb, id, flags)
 
+    -- Render
     local col
     if held and hovered then
         col = ImGui.GetColorU32(ImGuiCol.ButtonActive)
@@ -638,6 +793,7 @@ function ImGui.Button(label, size_arg)
     return ImGui.ButtonEx(label, size_arg, ImGuiButtonFlags.None)
 end
 
+-- Small buttons fits within text without additional vertical spacing.
 --- @param label string
 --- @return bool
 function ImGui.SmallButton(label)
@@ -649,6 +805,8 @@ function ImGui.SmallButton(label)
     return pressed
 end
 
+-- Tip: use ImGui.PushID()/PopID() to push indices or pointers in the ID stack.
+-- Then you can keep 'str_id' empty or the same for all your buttons (instead of creating a string based on a non-string id)
 --- @param str_id   string
 --- @param size_arg ImVec2
 --- @param flags?   ImGuiButtonFlags
@@ -720,6 +878,7 @@ function ImGui.ArrowButton(str_id, dir)
     return ImGui.ArrowButtonEx(str_id, dir, ImVec2(sz, sz), ImGuiButtonFlags.None)
 end
 
+-- Button to close a window
 --- @param id  ImGuiID
 --- @param pos ImVec2
 --- @return bool
@@ -728,6 +887,8 @@ function ImGui.CloseButton(id, pos)
 
     local window = g.CurrentWindow
 
+    -- Tweak 1: Shrink hit-testing area if button covers an abnormally large proportion of the visible region. That's in order to facilitate moving the window away. (#3825)
+    -- This may better be applied as a general hit-rect reduction mechanism for all widgets to ensure the area to move window is always accessible?
     local bb = ImRect(pos, pos + ImVec2(g.FontSize, g.FontSize))
     local bb_interact = ImRect()
     ImRect_Copy(bb_interact, bb)
@@ -737,6 +898,8 @@ function ImGui.CloseButton(id, pos)
         bb_interact:Expand(ImTrunc(bb_interact:GetSize() * -0.25))
     end
 
+    -- Tweak 2: We intentionally allow interaction when clipped so that a mechanical Alt,Right,Activate sequence can always close a window.
+    -- (this isn't the common behavior of buttons, but it doesn't affect the user because navigation tends to keep items visible in scrolling layer).
     local is_clipped = not ImGui.ItemAdd(bb_interact, id)
 
     local pressed, hovered, held = ImGui.ButtonBehavior(bb, id)
@@ -744,6 +907,7 @@ function ImGui.CloseButton(id, pos)
         return pressed
     end
 
+    -- Render
     local bg_col
     if held then
         bg_col = ImGui.GetColorU32(ImGuiCol.ButtonActive)
@@ -777,6 +941,7 @@ function ImGui.CollapseButton(id, pos)
 
     local pressed, hovered = ImGui.ButtonBehavior(bb, id)
 
+    -- Render
     if hovered then
         window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.ButtonHovered))
     end
@@ -801,6 +966,7 @@ function ImGui.GetWindowScrollbarID(window, axis)
     end
 end
 
+-- Return scrollbar rectangle, must only be called for corresponding axis if window.ScrollbarX/Y is set.
 --- @param window ImGuiWindow
 --- @param axis   ImGuiAxis
 --- @return ImRect
@@ -841,6 +1007,12 @@ function ImGui.ExtendHitBoxWhenNearViewportEdge(window, bb, threshold, axis)
     end
 end
 
+-- Vertical/Horizontal scrollbar
+-- The entire piece of code below is rather confusing because:
+-- - We handle absolute seeking (when first clicking outside the grab) and relative manipulation (afterward or when clicking inside the grab)
+-- - We store values as normalized ratio and in a form that allows the window content to change while we are holding on a scrollbar
+-- - We handle both horizontal and vertical scrollbars, which makes the terminology not ideal.
+-- Still, the code should probably be made simpler..
 --- @param bb_frame            ImRect
 --- @param id                  ImGuiID
 --- @param axis                ImGuiAxis
@@ -863,6 +1035,7 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
         return false, p_scroll_v
     end
 
+    -- When we are too small, start hiding and disabling the grab (this reduce visual noise on very small window and facilitate using the window resize grab)
     local alpha = 1.0
     if axis == ImGuiAxis.Y and bb_frame_height < bb_frame_width then
         alpha = ImSaturate(bb_frame_height / ImMax(bb_frame_width * 2.0, 1.0))
@@ -892,7 +1065,9 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
         return false, p_scroll_v
     end
 
-    IM_ASSERT(ImMax(size_contents_v, size_visible_v) > 0.0)
+    -- Calculate the height of our grabbable box. It generally represent the amount visible (vs the total scrollable amount)
+    -- But we maintain a minimum size in pixel to allow for the user to still aim inside.
+    IM_ASSERT(ImMax(size_contents_v, size_visible_v) > 0.0) -- Adding this assert to check if the ImMax(XXX,1.0f) is still needed. PLEASE CONTACT ME if this triggers.
     local win_size_v = ImMax(ImMax(size_contents_v, size_visible_v), 1)
     local grab_h_minsize = ImMin(bb:GetSize()[axis], style.GrabMinSize)
     local grab_h_pixels = ImTrunc(ImClamp(scrollbar_size_v * (size_visible_v / win_size_v), grab_h_minsize, scrollbar_size_v))
@@ -903,15 +1078,18 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
     ImRect_Copy(bb_hit, bb_frame)
     ImGui.ExtendHitBoxWhenNearViewportEdge(window, bb_hit, g.Style.WindowBorderSize, ImGuiAxis.X + ImGuiAxis.Y - axis) -- swap axis here
 
+    -- Handle input right away. None of the code of Begin() is relying on scrolling position before calling Scrollbar().
     ImGui.ItemAdd(bb_frame, id, nil, ImGuiItemFlags.NoNav)
     local pressed, hovered, held = ImGui.ButtonBehavior(bb_hit, id, ImGuiButtonFlags.NoNavFocus)
 
     local scroll_max = ImMax(1, size_contents_v - size_visible_v)
     local scroll_ratio = ImSaturate(p_scroll_v / scroll_max)
-    local grab_v_norm = scroll_ratio * (scrollbar_size_v - grab_h_pixels) / scrollbar_size_v
+    local grab_v_norm = scroll_ratio * (scrollbar_size_v - grab_h_pixels) / scrollbar_size_v -- Grab position in normalized space
     if held and allow_interaction and grab_h_norm < 1.0 then
         local scrollbar_pos_v = bb.Min[axis]
         local mouse_pos_v = g.IO.MousePos[axis]
+
+        -- Click position in scrollbar normalized space (0.0f->1.0f)
         local clicked_v_norm = ImSaturate((mouse_pos_v - scrollbar_pos_v) / scrollbar_size_v)
 
         local held_dir
@@ -923,6 +1101,7 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
             held_dir = 0
         end
         if g.ActiveIdIsJustActivated then
+            -- On initial click when held_dir == 0 (clicked over grab): calculate the distance between mouse and the center of the grab
             local scroll_to_clicked_location = (g.IO.ConfigScrollbarScrollByPage == false) or g.IO.KeyShift or held_dir == 0
 
             if scroll_to_clicked_location then
@@ -938,10 +1117,14 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
             end
         end
 
+        -- Apply scroll (p_scroll_v will generally point on one member of window.Scroll)
+        -- It is ok to modify Scroll here because we are being called in Begin() after the calculation of ContentSize and before setting up our starting position
         if g.ScrollbarSeekMode == 0 then
+            -- Absolute seeking
             scroll_v_norm = ImSaturate((clicked_v_norm - g.ScrollbarClickDeltaToGrabCenter - grab_h_norm * 0.5) / (1.0 - grab_h_norm))
             p_scroll_v = scroll_v_norm * scroll_max
         else
+            -- Page by page
             if ImGui.IsMouseClickedEx(ImGuiMouseButton.Left, ImGuiInputFlags.Repeat) and held_dir == g.ScrollbarSeekMode then
                 local page_dir
                 if g.ScrollbarSeekMode > 0.0 then
@@ -953,10 +1136,16 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
             end
         end
 
+        -- Update values for rendering
         scroll_ratio = ImSaturate(p_scroll_v / scroll_max)
         grab_v_norm = scroll_ratio * (scrollbar_size_v - grab_h_pixels) / scrollbar_size_v
+
+        -- Update distance to grab now that we have seek'ed and saturated
+        --if (seek_absolute)
+        --    g.ScrollbarClickDeltaToGrabCenter = clicked_v_norm - grab_v_norm - grab_h_norm * 0.5f;
     end
 
+    -- Render
     local bg_col = ImGui.GetColorU32(ImGuiCol.ScrollbarBg)
     local grab_col
     if held then
@@ -998,7 +1187,8 @@ function ImGui.Scrollbar(axis)
     window.Scroll[axis] = scroll
 end
 
--- - `uv0` and `uv1` are texture coordinates
+-- - Read about ImTextureID/ImTextureRef here: https://github.com/ocornut/imgui/wiki/Image-Loading-and-Displaying-Examples
+-- - 'uv0' and 'uv1' are texture coordinates. Read about them from the same link above.
 --- @param tex_ref    ImTextureRef
 --- @param image_size ImVec2
 --- @param uv0?       ImVec2
@@ -1090,7 +1280,7 @@ function ImGui.ImageButtonEx(id, tex_ref, image_size, uv0, uv1, bg_col, tint_col
     return pressed
 end
 
--- - ImageButton() adds style.FramePadding*2.0 to provided size. This is in order to facilitate fitting an image in a button.
+-- - ImageButton() adds style.FramePadding*2.0f to provided size. This is in order to facilitate fitting an image in a button.
 -- - ImageButton() draws a background based on regular Button() color + optionally an inner background if specified. (#8165) -- FIXME: Maybe that's not the best design?
 --- @param str_id     string
 --- @param tex_ref    ImTextureRef
@@ -1141,12 +1331,13 @@ function ImGui.Checkbox(label, v)
     local is_visible = ImGui.ItemAdd(total_bb, id)
     local is_multi_select = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0)
     if not is_visible then
-        if not is_multi_select or not g.BoxSelectState.UnclipMode or not g.BoxSelectState.UnclipRect:Overlaps(total_bb) then  -- Extra layer of "no logic clip" for box-select support
+        if not is_multi_select or not g.BoxSelectState.UnclipMode or not g.BoxSelectState.UnclipRect:Overlaps(total_bb) then -- Extra layer of "no logic clip" for box-select support
             -- IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable | (*v ? ImGuiItemStatusFlags_Checked : 0))
             return false, v
         end
     end
 
+    -- Range-Selection/Multi-selection support (header)
     local checked = v
     if is_multi_select then
         -- TODO: MultiSelectItemHeader()
@@ -1154,6 +1345,7 @@ function ImGui.Checkbox(label, v)
 
     local pressed, hovered, held = ImGui.ButtonBehavior(total_bb, id)
 
+    -- Range-Selection/Multi-selection support (footer)
     if is_multi_select then
         -- TODO: MultiSelectItemFooter()
     elseif pressed then
@@ -1162,7 +1354,7 @@ function ImGui.Checkbox(label, v)
 
     if v ~= checked then
         v = checked
-        pressed = true
+        pressed = true -- return value
         ImGui.MarkItemEdited(id)
     end
 
@@ -1333,8 +1525,8 @@ function ImGui.ProgressBar(fraction, size_arg, overlay)
         return
     end
 
-    -- Fraction < 0.0 will display an indeterminate progress bar animation
-    -- The value must be animated along with time, so e.g. passing '-1.0 * ImGui.GetTime()' as fraction works
+    -- Fraction < 0.0f will display an indeterminate progress bar animation
+    -- The value must be animated along with time, so e.g. passing '-1.0f * ImGui.GetTime()' as fraction works.
     local is_indeterminate = (fraction < 0.0)
     if not is_indeterminate then
         fraction = ImSaturate(fraction)
@@ -1398,6 +1590,10 @@ function ImGui.Bullet()
     ImGui.SameLine(0, style.FramePadding.x * 2.0)
 end
 
+-- This is provided as a convenience for being an often requested feature.
+-- FIXME-STYLE: we delayed adding as there is a larger plan to revamp the styling system.
+-- Because of this we currently don't provide many styling options for this widget
+-- (e.g. hovered/active colors are automatically inferred from a single color).
 --- @param label string
 function ImGui.TextLink(label)
     local window = ImGui.GetCurrentWindow()
@@ -1442,7 +1638,7 @@ function ImGui.TextLink(label)
     end
 
     local line_y = bb.Max.y + ImFloor(g.FontBaked.Descent * g.FontBakedScale * 0.20)
-    window.DrawList:AddLineH(bb.Min.x, bb.Max.x, line_y, ImGui.GetColorU32(line_colf), 1.0 * ImTrunc(g.Style._MainScale)) -- FIXME-DPI
+    window.DrawList:AddLineH(bb.Min.x, bb.Max.x, line_y, ImGui.GetColorU32(line_colf), 1.0 * ImTrunc(g.Style._MainScale)) -- FIXME-TEXT: Underline mode -- FIXME-DPI
 
     ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(text_colf))
     ImGui.RenderText(bb.Min, label, 1, label_end, false)
@@ -1464,7 +1660,7 @@ function ImGui.TextLinkOpenURL(label, url)
         g.PlatformIO.Platform_OpenInShellFn(g, url)
     end
 
-    ImGui.SetItemTooltip(ImGui.LocalizeGetMsg(ImGuiLocKey.OpenLink_s), url)
+    ImGui.SetItemTooltip(ImGui.LocalizeGetMsg(ImGuiLocKey.OpenLink_s), url) -- It is more reassuring for user to _always_ display URL when it is the same as the label.
 
     if ImGui.BeginPopupContextItem() then
         if ImGui.MenuItem(ImGui.LocalizeGetMsg(ImGuiLocKey.CopyLink)) then
@@ -1476,9 +1672,16 @@ function ImGui.TextLinkOpenURL(label, url)
     return pressed
 end
 
-----------------------------------------------------------------
--- [SECTION] Low-level Layout helpers
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Low-level Layout helpers
+-------------------------------------------------------------------------------
+-- - Spacing()
+-- - Dummy()
+-- - NewLine()
+-- - AlignTextToFramePadding()
+-- - SeparatorEx() [Internal]
+-- - Separator()
+-------------------------------------------------------------------------------
 
 function ImGui.Spacing()
     local window = ImGui.GetCurrentWindow()
@@ -1511,8 +1714,7 @@ function ImGui.NewLine()
     window.DC.LayoutType = ImGuiLayoutType.Vertical
     window.DC.IsSameLine = false
 
-    if window.DC.CurrLineSize.y > 0.0 then
-        -- In the event that we are on a line with items that is smaller that FontSize high, we will preserve its height.
+    if window.DC.CurrLineSize.y > 0.0 then -- In the event that we are on a line with items that is smaller that FontSize high, we will preserve its height.
         ImGui.ItemSize(ImVec2(0, 0))
     else
         ImGui.ItemSize(ImVec2(0.0, g.FontSize))
@@ -1532,6 +1734,9 @@ function ImGui.AlignTextToFramePadding()
     window.DC.CurrLineTextBaseOffset = ImMax(window.DC.CurrLineTextBaseOffset, g.Style.FramePadding.y)
 end
 
+-- Horizontal/vertical separating line
+-- FIXME: Surprisingly, this seemingly trivial widget is a victim of many different legacy/tricky layout issues.
+-- Note how thickness == 1.0f is handled specifically as not moving CursorPos by 'thickness', but other values are.
 --- @param flags     ImGuiSeparatorFlags
 --- @param thickness float
 function ImGui.SeparatorEx(flags, thickness)
@@ -1571,13 +1776,18 @@ function ImGui.SeparatorEx(flags, thickness)
         -- We currently don't need to provide the same feature for tables because tables naturally have border features.
         local columns = (bit32.band(flags, ImGuiSeparatorFlags.SpanAllColumns) ~= 0) and window.DC.CurrentColumns or nil
         if columns then
-            x1 = window.Pos.x + window.DC.Indent.x  -- Used to be Pos.x before 2023/10/03
+            x1 = window.Pos.x + window.DC.Indent.x -- Used to be Pos.x before 2023/10/03
             x2 = window.Pos.x + window.Size.x
             ImGui.PushColumnsBackground()
         end
 
         -- We don't provide our width to the layout so that it doesn't get feed back into AutoFit
         -- FIXME: This prevents ->CursorMaxPos based bounding box evaluation from working (e.g. TableEndCell)
+
+        -- Between 1.71 and 1.92.7, we maintained a hack where a 1.0f thin Separator() would not impact layout.
+        -- This was mostly chosen to allow backward compatibility with user's code assuming zero-height when calculating height for layout (e.g. bottom alignment of a status bar).
+        -- In order to handle scaling we need to scale separator thickness and it would not makes sense to have a disparity depending on height.
+        ----float thickness_for_layout = (thickness == 1.0f) ? 0.0f : thickness; // FIXME: See 1.70/1.71 Separator() change: makes legacy 1-px separator not affect layout yet. Should change.
         local bb = ImRect(ImVec2(x1, window.DC.CursorPos.y), ImVec2(x2, window.DC.CursorPos.y + thickness))
         ImGui.ItemSize(ImVec2(0.0, thickness))
 
@@ -1636,7 +1846,7 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
     local min_size = ImVec2(label_size.x + extra_w + padding.x * 2.0, ImMax(label_size.y + padding.y * 2.0, separator_thickness))
 
     local bb = ImRect(pos, ImVec2(window.WorkRect.Max.x, pos.y + min_size.y))
-    local text_baseline_y = ImTrunc((bb:GetHeight() - label_size.y) * style.SeparatorTextAlign.y + 0.999)  -- ImMax(padding.y, ImTrunc((style.SeparatorTextSize - label_size.y) * 0.5f))
+    local text_baseline_y = ImTrunc((bb:GetHeight() - label_size.y) * style.SeparatorTextAlign.y + 0.999) --ImMax(padding.y, ImTrunc((style.SeparatorTextSize - label_size.y) * 0.5f))
 
     ImGui.ItemSize(min_size, text_baseline_y)
     if not ImGui.ItemAdd(bb, id) then
@@ -1648,7 +1858,7 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
     local seps_y = ImTrunc((bb.Min.y + bb.Max.y) * 0.5 + 0.999)
 
     local label_avail_w = ImMax(0.0, sep2_x2 - sep1_x1 - padding.x * 2.0)
-    local label_pos = ImVec2(pos.x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x), pos.y + text_baseline_y)  -- FIXME-ALIGN
+    local label_pos = ImVec2(pos.x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x), pos.y + text_baseline_y) -- FIXME-ALIGN
 
     -- This allows using SameLine() to position something in the 'extra_w'
     window.DC.CursorPosPrevLine.x = label_pos.x + label_size.x
@@ -1690,12 +1900,26 @@ function ImGui.SeparatorText(label)
         return
     end
 
+    -- The SeparatorText() vs SeparatorTextEx() distinction is designed to be considerate that we may want:
+    -- - allow separator-text to be draggable items (would require a stable ID + a noticeable highlight)
+    -- - this high-level entry point to allow formatting? (which in turns may require ID separate from formatted string)
+    -- - because of this we probably can't turn 'string label' into 'string fmt, ...'
+    -- Otherwise, we can decide that users wanting to drag this would layout a dedicated drag-item,
+    -- and then we can turn this into a format function.
     ImGui.SeparatorTextEx(0, label, ImGui.FindRenderedTextEnd(label), 0.0)
 end
 
-----------------------------------------------------------------
--- [SECTION] COMBO BOX
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: ComboBox
+-------------------------------------------------------------------------------
+-- - CalcMaxPopupHeightFromItemCount() [Internal]
+-- - BeginCombo()
+-- - BeginComboPopup() [Internal]
+-- - EndCombo()
+-- - BeginComboPreview() [Internal]
+-- - EndComboPreview() [Internal]
+-- - Combo()
+-------------------------------------------------------------------------------
 
 --- @param items_count float
 --- @return float
@@ -1717,7 +1941,7 @@ function ImGui.BeginCombo(label, preview_value, flags)
     local window = ImGui.GetCurrentWindow()
 
     local backup_next_window_data_flags = g.NextWindowData.HasFlags
-    g.NextWindowData:ClearFlags()
+    g.NextWindowData:ClearFlags() -- We behave like Begin() and need to consume those values
     if window.SkipItems then
         return false
     end
@@ -1764,6 +1988,7 @@ function ImGui.BeginCombo(label, preview_value, flags)
         return false
     end
 
+    -- Open on click
     local pressed, hovered, held = ImGui.ButtonBehavior(bb, id)
     local popup_id = ImHashStr("##ComboPopup", nil, id)
     local popup_open = ImGui.IsPopupOpen(popup_id, ImGuiPopupFlags.None)
@@ -1832,6 +2057,7 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
         return false
     end
 
+    -- Set popup size
     local w = bb:GetWidth()
     if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSizeConstraint) ~= 0 then
         g.NextWindowData.SizeConstraintRect.Min.x = ImMax(g.NextWindowData.SizeConstraintRect.Min.x, w)
@@ -1839,7 +2065,7 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
         if bit32.band(flags, ImGuiComboFlags.HeightMask_) == 0 then
             flags = bit32.bor(flags, ImGuiComboFlags.HeightRegular)
         end
-        IM_ASSERT(ImIsPowerOfTwo(bit32.band(flags, ImGuiComboFlags.HeightMask_)))
+        IM_ASSERT(ImIsPowerOfTwo(bit32.band(flags, ImGuiComboFlags.HeightMask_))) -- Only one
         local popup_max_height_in_items = -1
         if bit32.band(flags, ImGuiComboFlags.HeightRegular) ~= 0 then
             popup_max_height_in_items = 8
@@ -1850,7 +2076,7 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
         end
         local constraint_min = ImVec2(0.0, 0.0)
         local constraint_max = ImVec2(FLT_MAX, FLT_MAX)
-        if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSize) == 0 or g.NextWindowData.SizeVal.x <= 0.0 then
+        if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSize) == 0 or g.NextWindowData.SizeVal.x <= 0.0 then -- Don't apply constraints if user specified a size
             constraint_min.x = w
         end
         if bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSize) == 0 or g.NextWindowData.SizeVal.y <= 0.0 then
@@ -1860,7 +2086,7 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
     end
 
     -- This is essentially a specialized version of BeginPopupEx()
-    local name = ImFormatString("##Combo_%02d", g.BeginComboDepth)
+    local name = ImFormatString("##Combo_%02d", g.BeginComboDepth) -- Recycle windows based on depth
 
     -- Set position given a custom constraint (peak into expected window size so we can position it)
     -- FIXME: This might be easier to express with an hypothetical SetNextWindowPosConstraints() function?
@@ -1870,7 +2096,7 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
         if popup_window.WasActive then
             -- Always override 'AutoPosLastDirection' to not leave a chance for a past value to affect us.
             local size_expected = ImGui.CalcWindowNextAutoFitSize(popup_window)
-            popup_window.AutoPosLastDirection = (bit32.band(flags, ImGuiComboFlags.PopupAlignLeft) ~= 0) and ImGuiDir.Left or ImGuiDir.Down
+            popup_window.AutoPosLastDirection = (bit32.band(flags, ImGuiComboFlags.PopupAlignLeft) ~= 0) and ImGuiDir.Left or ImGuiDir.Down -- Left = "Below, Toward Left", Down = "Below, Toward Right (default)"
             local r_outer = ImGui.GetPopupAllowedExtentRect(popup_window)
             local pos
             pos, popup_window.AutoPosLastDirection = ImGui.FindBestWindowPosForPopupEx(bb:GetBL(), size_expected, popup_window.AutoPosLastDirection, r_outer, bb, ImGuiPopupPositionPolicy.ComboBox)
@@ -1910,8 +2136,11 @@ function ImGui.EndCombo()
     ImGui.EndPopup()
 end
 
--- Call directly after the BeginCombo/EndCombo block. The preview is designed to only host non-interactive elements
--- (Experimental, see GitHub issues: #1658, #4168)
+-- Submit preview contents for BeginCombo()/EndCombo(), to display contents that's more than just a text label.
+-- - [BETA] See GitHub issues: #1658, #4168.
+-- - Call directly after the BeginCombo/EndCombo block (requires ImGuiComboFlags.CustomPreview).
+-- - The preview is designed to only host non-interactive elements.
+-- - Not compatible with ImGuiComboFlags.WidthFitPreview.
 function ImGui.BeginComboPreview()
     local g = GImGui
     local window = g.CurrentWindow
@@ -1949,6 +2178,7 @@ function ImGui.EndComboPreview()
     local window = g.CurrentWindow
     local preview_data = g.ComboPreviewData
 
+    -- FIXME: Using CursorMaxPos approximation instead of correct AABB which we will store in ImDrawCmd in the future
     local draw_list = window.DrawList
     if window.DC.CursorMaxPos.x < preview_data.PreviewRect.Max.x and window.DC.CursorMaxPos.y < preview_data.PreviewRect.Max.y then
         if draw_list.CmdBuffer.Size > 1 then -- Unlikely case that the PushClipRect() didn't create a command
@@ -1961,7 +2191,7 @@ function ImGui.EndComboPreview()
     ImGui.PopClipRect()
 
     ImVec2_Copy(window.DC.CursorPos, preview_data.BackupCursorPos)
-    ImVec2_Copy(window.DC.CursorMaxPos, ImMax(window.DC.CursorMaxPos, preview_data.BackupCursorMaxPos))
+    ImVec2_Copy(window.DC.CursorMaxPos, ImMax(window.DC.CursorMaxPos, preview_data.BackupCursorMaxPos)) -- No need to do the same with IdealMaxPos
     ImVec2_Copy(window.DC.CursorPosPrevLine, preview_data.BackupCursorPosPrevLine)
     window.DC.PrevLineTextBaseOffset = preview_data.BackupPrevLineTextBaseOffset
     window.DC.LayoutType = preview_data.BackupLayout
@@ -2024,6 +2254,7 @@ function ImGui.Combo(label, current_item, a, b, c, d)
     local getter, user_data, items_count, popup_max_height_in_items = Items_ResolveArgs(a, b, c, d)
     if popup_max_height_in_items == nil then popup_max_height_in_items = -1 end
 
+    -- Call the getter to obtain the preview string which is a parameter to BeginCombo()
     local preview_value = nil
     if bit32.band(bit32.bor(g.NextItemData.ItemFlagsSet, g.CurrentItemFlags), ImGuiItemFlags.MixedValue) ~= 0 then
         preview_value = ""
@@ -2031,6 +2262,7 @@ function ImGui.Combo(label, current_item, a, b, c, d)
         preview_value = getter(user_data, current_item)
     end
 
+    -- The old Combo() API exposed "popup_max_height_in_items". The new more general BeginCombo() API doesn't have/need it, but we emulate it here.
     if popup_max_height_in_items ~= -1 and bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSizeConstraint) == 0 then
         ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, CalcMaxPopupHeightFromItemCount(popup_max_height_in_items)))
     end
@@ -2039,6 +2271,7 @@ function ImGui.Combo(label, current_item, a, b, c, d)
         return current_item, false
     end
 
+    -- Display items
     local value_changed = false
     local clipper = ImGuiListClipper()
     clipper:Begin(items_count)
@@ -2071,9 +2304,18 @@ function ImGui.Combo(label, current_item, a, b, c, d)
     return current_item, value_changed
 end
 
-----------------------------------------------------------------
--- [SECTION] DATA TYPE & DATA FORMATTING [Internal]
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Data Type and Data Formatting Helpers [Internal]
+-------------------------------------------------------------------------------
+-- - DataTypeGetInfo()
+-- - DataTypeFormatString()
+-- - DataTypeApplyOp()
+-- - DataTypeApplyFromText()
+-- - DataTypeCompare()
+-- - DataTypeClamp()
+-- - GetMinimumStepAtDecimalPrecision
+-- - RoundScalarWithFormat<>()
+-------------------------------------------------------------------------------
 
 local function float(val) return val end
 local function double(val) return val end
@@ -2094,16 +2336,16 @@ local function ImGuiDataTypeInfo(size, name, print_fmt, scan_fmt)
 end
 
 local GDataTypeInfo = {
-    ImGuiDataTypeInfo(1, "S8",     "%d",   "%d"),
+    ImGuiDataTypeInfo(1, "S8",     "%d",   "%d"), -- ImGuiDataType.S8
     ImGuiDataTypeInfo(1, "U8",     "%u",   "%u"),
-    ImGuiDataTypeInfo(2, "S16",    "%d",   "%d"),
+    ImGuiDataTypeInfo(2, "S16",    "%d",   "%d"), -- ImGuiDataType.S16
     ImGuiDataTypeInfo(2, "U16",    "%u",   "%u"),
-    ImGuiDataTypeInfo(4, "S32",    "%d",   "%d"),
+    ImGuiDataTypeInfo(4, "S32",    "%d",   "%d"), -- ImGuiDataType.S32
     ImGuiDataTypeInfo(4, "U32",    "%u",   "%u"),
-    ImGuiDataTypeInfo(4, "float",  "%.3f", "%f"),
-    ImGuiDataTypeInfo(8, "double", "%f",   "%lf"),
-    ImGuiDataTypeInfo(1, "bool",   "%d",   "%d"),
-    ImGuiDataTypeInfo(0, "string", "%s",   "%s")
+    ImGuiDataTypeInfo(4, "float",  "%.3f", "%f"), -- ImGuiDataType.Float
+    ImGuiDataTypeInfo(8, "double", "%f",   "%lf"), -- ImGuiDataType.Double
+    ImGuiDataTypeInfo(1, "bool",   "%d",   "%d"), -- ImGuiDataType.Bool
+    ImGuiDataTypeInfo(0, "string", "%s",   "%s") -- ImGuiDataType.String
 }
 
 --- @param data_type ImGuiDataType
@@ -2203,12 +2445,15 @@ end
 
 local ImParseFormatSanitizeForScanning
 
+-- User can input math operators (e.g. +100) to edit a numerical values.
+-- NB: This is _not_ a full expression evaluator. We should probably add one and replace this dumb mess..
 --- @param buf              char[]
 --- @param data_type        ImGuiDataType
 --- @param data             number
 --- @param format           string
 --- @param data_when_empty? number
 function ImGui.DataTypeApplyFromText(buf, data_type, data, format, data_when_empty)
+    -- Copy the value so we can compare at the end of the function if it changed at all.
     local type_info = ImGui.DataTypeGetInfo(data_type)
     local data_backup = data
 
@@ -2224,16 +2469,19 @@ function ImGui.DataTypeApplyFromText(buf, data_type, data, format, data_when_emp
         return data, false
     end
 
+    -- Sanitize format
+    -- - For float/double we have to ignore format with precision (e.g. "%.2f") because sscanf doesn't take them in, so force them into %f and %lf
     local format_sanitized, format_sanitized_size = {}, 32
     if (data_type == ImGuiDataType.Float or data_type == ImGuiDataType.Double) then
         format = type_info.ScanFmt
     else
         format = ImParseFormatSanitizeForScanning(format, format_sanitized, format_sanitized_size)
         if format[1] == 0 then
-            format = type_info.ScanFmt
+            format = type_info.ScanFmt -- Format doesn't want us to show the number currently, but we still need to parse the resulting input
         end
     end
 
+    -- Small types need a 32-bit buffer to receive the result from scanf()
     local v32 = 0
     local res = {}
     if ImStd.sscanf(buf, 1, format, res) < 1 then
@@ -2294,6 +2542,7 @@ end
 --- @param v_max? T
 --- @return T, boolean
 local function DataTypeClampT(v, v_min, v_max)
+    -- Clamp, both sides are optional, return true if modified
     if v_min and v < v_min then return v_min, true end
     if v_max and v > v_max then return v_max, true end
     return v, false
@@ -2358,16 +2607,37 @@ function ImGui.RoundScalarWithFormatT(format, data_type, v)
 
     -- TODO: Sanitize format
 
+    -- Format value with our rounding, and read back
     local str = ImFormatString(format, v)
 
     v = ImAtof(str) or v
     return v
 end
 
-----------------------------------------------------------------
--- [SECTION] INPUTXXX
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: InputScalar, InputFloat, InputInt, etc.
+-------------------------------------------------------------------------------
+-- - ImParseFormatFindStart() [Internal]
+-- - ImParseFormatFindEnd() [Internal]
+-- - ImParseFormatTrimDecorations() [Internal]
+-- - ImParseFormatSanitizeForScanning() [Internal]
+-- - ImParseFormatPrecision() [Internal]
+-- - TempInputText() [Internal]
+-- - TempInputScalar() [Internal]
+-- - InputScalar()
+-- - InputScalarN()
+-- - InputFloat()
+-- - InputFloat2()
+-- - InputFloat3()
+-- - InputFloat4()
+-- - InputInt()
+-- - InputInt2()
+-- - InputInt3()
+-- - InputInt4()
+-- - InputDouble()
+-------------------------------------------------------------------------------
 
+-- We don't use strchr() because our strings are usually very short and often start with '%'
 --- @param fmt string
 function ImParseFormatFindStart(fmt)
     local len = #fmt
@@ -2388,7 +2658,7 @@ end
 --- @param fmt string
 --- @param pos int
 local function ImParseFormatFindEnd(fmt, pos)
-    -- Printf/scanf types modifiers: I/L/h/j/l/t/w/z. Other uppercase letters qualify as types aka end of the format
+    -- Printf/scanf types modifiers: I/L/h/j/l/t/w/z. Other uppercase letters qualify as types aka end of the format.
     if string.byte(fmt, pos) ~= 37 then -- '%'
         return pos
     end
@@ -2408,6 +2678,10 @@ local function ImParseFormatFindEnd(fmt, pos)
     return len + 1
 end
 
+-- Extract the format out of a format string with leading or trailing decorations
+--  fmt = "blah blah"  -> return ""
+--  fmt = "%.3f"       -> return "%.3f"
+--  fmt = "hello %.3f" -> return "%.3f"
 -- TODO: temporary patch. does not look good
 --- @param fmt string
 local function ImParseFormatTrimDecorations(fmt)
@@ -2423,13 +2697,14 @@ local function ImParseFormatTrimDecorations(fmt)
     return string.sub(fmt, fmt_start, fmt_end)
 end
 
+-- - For scanning we need to remove all width and precision fields and flags "%+3.7f" -> "%f". BUT don't strip types like "%I64d" which includes digits. ! "%07I64d" -> "%I64d"
 --- @param fmt_in       string
 --- @param fmt_out      char[]
 --- @param fmt_out_size size_t
 function ImParseFormatSanitizeForScanning(fmt_in, fmt_out, fmt_out_size)
     local fmt_end = ImParseFormatFindEnd(fmt_in, 1)
     -- IM_UNUSED(fmt_out_size)
-    IM_ASSERT(fmt_end < fmt_out_size)
+    IM_ASSERT(fmt_end < fmt_out_size) -- Format is too long, let us know if this happens to you!
     local has_type = false
     local fmt_in_begin = 1
     local fmt_out_begin = 1
@@ -2442,15 +2717,15 @@ function ImParseFormatSanitizeForScanning(fmt_in, fmt_out, fmt_out_size)
             break
         end
 
-        has_type = has_type or ((c >= 97 and c <= 122) or (c >= 65 and c <= 90))
-        if c ~= 39 and c ~= 36 and c ~= 95 then
+        has_type = has_type or ((c >= 97 and c <= 122) or (c >= 65 and c <= 90)) -- Stop skipping digits
+        if c ~= 39 and c ~= 36 and c ~= 95 then -- Custom flags provided by stb_sprintf.h. POSIX 2008 also supports '.
             fmt_out[fmt_out_begin] = c
             fmt_out_begin = fmt_out_begin + 1
         end
 
         until true
     end
-    -- fmt_out[fmt_out_begin] = 0
+    -- fmt_out[fmt_out_begin] = 0 -- Zero-terminate
     return string.char(unpack(fmt_out)) -- FIXME: not ideal
 end
 
@@ -2477,6 +2752,8 @@ local function ImAtoi(str, pos)
     return negative and -v or v, pos
 end
 
+-- Parse display precision back from the display format string
+-- FIXME: This is still used by some navigation code path to infer a minimum tweak step, but we should aim to rework widgets so it isn't needed.
 --- @param fmt               string
 --- @param default_precision int
 local function ImParseFormatPrecision(fmt, default_precision)
@@ -2509,6 +2786,9 @@ local function ImParseFormatPrecision(fmt, default_precision)
     return (precision == INT_MAX) and default_precision or precision
 end
 
+-- Create text input in place of another active widget (e.g. used when doing a Ctrl+Click on drag/slider widgets)
+-- - This must be submitted right after the item it is overlaying.
+-- FIXME: Facilitate using this in variety of other situations.
 --- @param bb        ImRect
 --- @param id        ImGuiID
 --- @param label     string
@@ -2520,6 +2800,8 @@ end
 function ImGui.TempInputText(bb, id, label, buf, buf_size, flags, callback, user_data)
     if flags == nil then flags = 0 end
 
+    -- On the first frame, g.TempInputTextId == 0, then on subsequent frames it becomes == id.
+    -- We clear ActiveID on the first frame to allow the InputText() taking it back.
     local g = GImGui
     local window = g.CurrentWindow
 
@@ -2532,10 +2814,11 @@ function ImGui.TempInputText(bb, id, label, buf, buf_size, flags, callback, user
     local backup_pos = ImVec2()
     ImVec2_Copy(backup_pos, window.DC.CursorPos)
     ImVec2_Copy(window.DC.CursorPos, bb.Min)
-    g.LastItemData.ItemFlags = bit32.bor(g.LastItemData.ItemFlags, ImGuiItemFlags.AllowDuplicateId)
+    g.LastItemData.ItemFlags = bit32.bor(g.LastItemData.ItemFlags, ImGuiItemFlags.AllowDuplicateId) -- Using ImGuiInputTextFlags.MergedItem above will skip ItemAdd() so we poke here.
     local value_changed = ImGui.InputTextEx(label, nil, buf, buf_size, bb:GetSize(), bit32.bor(flags, ImGuiInputTextFlags.TempInput, ImGuiInputTextFlags.AutoSelectAll), callback, user_data)
-    ImGui.KeepAliveID(id)
+    ImGui.KeepAliveID(id) -- Not done because of ImGuiInputTextFlags.TempInput
     if (not is_active and not is_deactivated) then
+        -- First frame we started displaying the InputText widget, we expect it to take the active id.
         IM_ASSERT(g.ActiveId == id)
         g.TempInputId = g.ActiveId
     end
@@ -2547,6 +2830,9 @@ function ImGui.TempInputText(bb, id, label, buf, buf_size, flags, callback, user
     return value_changed
 end
 
+-- Note that Drag/Slider functions are only forwarding the min/max values clamping values if the ImGuiSliderFlags.AlwaysClamp flag is set!
+-- This is intended: this way we allow Ctrl+Click manual input to set a value out of bounds, for maximum flexibility.
+-- However this may not be ideal for all uses, as some user code may break on out of bound values.
 --- @param bb         ImRect
 --- @param id         ImGuiID
 --- @param label      string
@@ -2556,6 +2842,8 @@ end
 --- @param clamp_min? number
 --- @param clamp_max? number
 function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min, clamp_max)
+    -- FIXME: May need to clarify display behavior if format doesn't contain %.
+    -- "%d" -> "%d" / "There are %d items" -> "%d" / "items" -> "%d" (fallback). Also see #6405
     local g = GImGui
     local type_info = ImGui.DataTypeGetInfo(data_type)
     local data_buf, data_buf_size = {}, 32
@@ -2567,14 +2855,16 @@ function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min
     ImStd.ImStrTrimBlanks(data_buf)
 
     local flags = bit32.bor(ImGuiInputTextFlags.AutoSelectAll, ImGuiInputTextFlags.LocalizeDecimalPoint)
-    g.LastItemData.ItemFlags = bit32.bor(g.LastItemData.ItemFlags, ImGuiItemFlags.NoMarkEdited)
+    g.LastItemData.ItemFlags = bit32.bor(g.LastItemData.ItemFlags, ImGuiItemFlags.NoMarkEdited) -- Because TempInputText() uses ImGuiInputTextFlags.MergedItem it doesn't submit a new item, so we poke LastItemData.
     g.LastItemData.ItemFlags = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0) and bit32.bor(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputText) or bit32.band(g.LastItemData.ItemFlags, bit32.bnot(ImGuiItemFlags.LiveEditOnInputText))
     if not ImGui.TempInputText(bb, id, label, data_buf, data_buf_size, flags) then
         return data, false
     end
 
+    -- Backup old value
     local data_backup = data
 
+    -- Apply new value (or operations) then clamp
     data = ImGui.DataTypeApplyFromText(data_buf, data_type, data, format, nil)
     if clamp_min or clamp_max then
         if clamp_min and clamp_max and ImGui.DataTypeCompare(data_type, clamp_min, clamp_max) > 0 then
@@ -2583,6 +2873,7 @@ function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min
         data = ImGui.DataTypeClamp(data_type, data, clamp_min, clamp_max)
     end
 
+    -- Only mark as edited if new value is different
     g.LastItemData.ItemFlags = bit32.band(g.LastItemData.ItemFlags, bit32.bnot(ImGuiItemFlags.NoMarkEdited))
     local value_changed = data_backup ~= data
     if value_changed then
@@ -2592,6 +2883,8 @@ function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min
     return data, value_changed
 end
 
+-- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For an Input widget, step and step_fast are optional.
+-- Read code of e.g. InputFloat(), InputInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 --- @param label      string
 --- @param data_type  ImGuiDataType
 --- @param data       number
@@ -2609,6 +2902,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
 
     local g = GImGui
     local style = g.Style
+    -- IM_ASSERT((flags & ImGuiInputTextFlags.EnterReturnsTrue) == 0) -- Not supported by InputScalar(). Please open an issue if you this would be useful to you. Otherwise use IsItemDeactivatedAfterEdit()!
 
     if format == nil then
         format = ImGui.DataTypeGetInfo(data_type).PrintFmt
@@ -2623,6 +2917,8 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
         ImGui.DataTypeFormatString(buf, buf_size, data_type, data, format)
     end
 
+    -- Disable the MarkItemEdited() call in InputText but keep ImGuiItemStatusFlags.Edited.
+    -- We call MarkItemEdited() ourselves by comparing the actual data rather than the string.
     g.NextItemData.ItemFlagsSet = bit32.bor(g.NextItemData.ItemFlagsSet, ImGuiItemFlags.NoMarkEdited)
     flags = bit32.bor(flags, ImGuiInputTextFlags.AutoSelectAll, ImGuiInputTextFlags.LocalizeDecimalPoint)
 
@@ -2630,18 +2926,21 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
     local button_size = has_step_buttons and ImGui.GetFrameHeight() or 0.0
     local ret
     if has_step_buttons then
-        ImGui.BeginGroup()
+        -- With Step Buttons
+        ImGui.BeginGroup() -- The only purpose of the group here is to allow the caller to query item data e.g. IsItemActive()
         ImGui.PushID(label)
         ImGui.SetNextItemWidth(ImMax(1.0, ImGui.CalcItemWidth() - (button_size + style.ItemInnerSpacing.x) * 2))
-        ret = ImGui.InputText("", buf, buf_size, flags)
+        ret = ImGui.InputText("", buf, buf_size, flags) -- PushID(label) + "" gives us the expected ID from outside point of view
         -- IMGUI_TEST_ENGINE_ITEM_INFO()
     else
+        -- Without Step Buttons
         ret = ImGui.InputText(label, buf, buf_size, flags)
     end
 
+    -- Apply
     local value_changed = false
     if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0 then
-        local input_edited = bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.EditedInternal) ~= 0
+        local input_edited = bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.EditedInternal) ~= 0 -- We would be using 'ret' if ImGuiInputTextFlags.EnterReturnsTrue was not involved.
         if input_edited then
             data, value_changed = ImGui.DataTypeApplyFromText(buf, data_type, data, format, bit32.band(flags, ImGuiInputTextFlags.ParseEmptyRefVal) ~= 0 and data_default or nil)
         end
@@ -2654,6 +2953,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
         end
     end
 
+    -- Step buttons
     if has_step_buttons then
         local backup_frame_padding = ImVec2()
         ImVec2_Copy(backup_frame_padding, style.FramePadding)
@@ -2786,6 +3086,7 @@ function ImGui.InputInt(label, v, step, step_fast, flags)
     if step_fast == nil then step_fast = 100 end
     if flags     == nil then flags     = 0   end
 
+    -- Hexadecimal input provided as a convenience but the flag name is awkward. Typically you'd use InputText() to parse your own data, if you want to handle prefixes.
     local format = (bit32.band(flags, ImGuiInputTextFlags.CharsHexadecimal) ~= 0) and "%08X" or "%d"
     return ImGui.InputScalar(label, ImGuiDataType.S32, v, (step > 0) and step or nil, (step_fast > 0) and step_fast or nil, format, flags)
 end
@@ -2818,9 +3119,24 @@ function ImGui.InputDouble(label, v, step, step_fast, format, flags)
     return ImGui.InputScalar(label, ImGuiDataType.Double, v, (step > 0.0 and step or nil), (step_fast > 0.0 and step_fast or nil), format, flags)
 end
 
-----------------------------------------------------------------
--- [SECTION] DRAGXXX
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: DragScalar, DragFloat, DragInt, etc.
+-------------------------------------------------------------------------------
+-- - DragBehaviorT<>() [Internal]
+-- - DragBehavior() [Internal]
+-- - DragScalar()
+-- - DragScalarN()
+-- - DragFloat()
+-- - DragFloat2()
+-- - DragFloat3()
+-- - DragFloat4()
+-- - DragFloatRange2()
+-- - DragInt()
+-- - DragInt2()
+-- - DragInt3()
+-- - DragInt4()
+-- - DragIntRange2()
+-------------------------------------------------------------------------------
 
 -- This is called by DragBehavior() when the widget is active (held by mouse or being manipulated with Nav controls)
 --- @generic T : number
@@ -2884,7 +3200,7 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
     end
     adjust_delta = adjust_delta * v_speed
 
-    -- For vertical drag we currently assume that Up=higher value (like we do with vertical sliders). This may become a parameter
+    -- For vertical drag we currently assume that Up=higher value (like we do with vertical sliders). This may become a parameter.
     if axis == ImGuiAxis.Y then
         adjust_delta = -adjust_delta
     end
@@ -2939,7 +3255,7 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
         v_cur = ImGui.RoundScalarWithFormatT(format, data_type, v_cur)
     end
 
-    -- Preserve remainder after rounding has been applied. This also allow slow tweaking of values
+    -- Preserve remainder after rounding has been applied. This also allow slow tweaking of values.
     g.DragCurrentAccumDirty = false
     if is_logarithmic then
         -- Convert to parametric space, apply delta, convert back
@@ -2949,7 +3265,7 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
         g.DragCurrentAccum = g.DragCurrentAccum - ((SIGNEDTYPE)(v_cur) - (SIGNEDTYPE)(v))
     end
 
-    -- This does nothing
+    -- Lose zero sign for float/double
     if v_cur == (TYPE)(-0) then
         v_cur = (TYPE)(0)
     end
@@ -2964,7 +3280,7 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
                 v_cur = (TYPE)(v_cur - (TYPE)((TYPE)(v_max - v_min) - (is_floating_point and 0 or 1)))
             end
         else
-            -- Clamp values + handle overflow/wrap-around for integer types
+            -- Clamp values + handle overflow/wrap-around for integer types.
             if v_cur < v_min or (v_cur > v and adjust_delta < 0.0 and not is_floating_point) then
                 v_cur = (TYPE)(v_min)
             end
@@ -2992,8 +3308,10 @@ end
 --- @param flags     ImGuiSliderFlags
 @native
 function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
+    -- Read imgui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this assert.
     IM_ASSERT((flags == 1 or bit32.band(flags, ImGuiSliderFlags.InvalidMask_) == 0), "Invalid ImGuiSliderFlags flags! Has the legacy 'float power' argument been mistakenly cast to flags? Call function with ImGuiSliderFlags_Logarithmic flags instead.")
 
+    -- Things we can do easily outside the DragBehaviorT<> template, saves code generation.
     local g = GImGui
     if g.ActiveId == id then
         if g.ActiveIdSource == ImGuiInputSource.Mouse and not g.IO.MouseDown[0] then
@@ -3031,6 +3349,7 @@ function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
     return v, false
 end
 
+-- Only clamp Ctrl+Click input when ImGuiSliderFlags.ClampOnInput is set (generally via ImGuiSliderFlags.AlwaysClamp)
 --- @param flags     ImGuiSliderFlags
 --- @param data_type ImGuiDataType
 --- @param min       number
@@ -3039,7 +3358,7 @@ local function TempInputIsClampEnabled(flags, data_type, min, max)
     if bit32.band(flags, ImGuiSliderFlags.ClampOnInput) ~= 0 and (min ~= nil or max ~= nil) then
         local clamp_range_dir = 0
         if min ~= nil and max ~= nil then
-            clamp_range_dir = ImGui.DataTypeCompare(data_type, min, max)
+            clamp_range_dir = ImGui.DataTypeCompare(data_type, min, max) -- -1 when min < max, == 0 when min == max
         end
         if min == nil or max == nil or clamp_range_dir < 0 then
             return true
@@ -3074,6 +3393,8 @@ function FormatCached(format, v)
     return r
 end
 
+-- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a Drag widget, min and max are optional.
+-- Read code of e.g. DragFloat(), DragInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 @native
 function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, flags)
     if v_speed == nil then v_speed = 1.0 end
@@ -3108,6 +3429,7 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
     local hovered = ImGui.ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags)
     local temp_input_is_active = temp_input_allowed and ImGui.TempInputIsActive(id)
     if not temp_input_is_active then
+        -- Tabbing or Ctrl+Click on Drag turns it into an InputText
         local clicked = hovered and ImGui.IsMouseClickedEx(0, ImGuiInputFlags.None, id)
         local double_clicked = (hovered and g.IO.MouseClickedCount[0] == 2 and ImGui.TestKeyOwner(ImGuiKey.MouseLeft, id))
         local make_active = (clicked or double_clicked or g.NavActivateId == id)
@@ -3167,7 +3489,7 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
 
     -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
 
-    -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value
+    -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
     ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
 
     if label_size.x > 0.0 then
@@ -3194,6 +3516,7 @@ function ImGui.DragFloat(label, v, v_speed, v_min, v_max, format, flags)
     return ImGui.DragScalar(label, ImGuiDataType.Float, v, v_speed, v_min, v_max, format, flags)
 end
 
+-- NB: v_speed is float to allow adjusting the drag speed with more precision
 --- @param label    string
 --- @param v        int
 --- @param v_speed? float
@@ -3270,7 +3593,7 @@ ImGui.DragInt2 = DragIntN(2)
 ImGui.DragInt3 = DragIntN(3)
 ImGui.DragInt4 = DragIntN(4)
 
--- NB: You likely want to specify the ImGuiSliderFlags_AlwaysClamp when using this.
+-- NB: You likely want to specify the ImGuiSliderFlags.AlwaysClamp when using this.
 --- @return float v_current_min
 --- @return float v_current_max
 --- @return bool  value_changed
@@ -3318,9 +3641,28 @@ function ImGui.DragIntRange2(label, v_current_min, v_current_max, v_speed, v_min
     return DragRange2(ImGuiDataType.S32, label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0, v_max or 0, format or "%d", format_max, flags or 0)
 end
 
-----------------------------------------------------------------
--- [SECTION] SLIDERXXX
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: SliderScalar, SliderFloat, SliderInt, etc.
+-------------------------------------------------------------------------------
+-- - ScaleRatioFromValueT<> [Internal]
+-- - ScaleValueFromRatioT<> [Internal]
+-- - SliderBehaviorT<>() [Internal]
+-- - SliderBehavior() [Internal]
+-- - SliderScalar()
+-- - SliderScalarN()
+-- - SliderFloat()
+-- - SliderFloat2()
+-- - SliderFloat3()
+-- - SliderFloat4()
+-- - SliderAngle()
+-- - SliderInt()
+-- - SliderInt2()
+-- - SliderInt3()
+-- - SliderInt4()
+-- - VSliderScalar()
+-- - VSliderFloat()
+-- - VSliderInt()
+-------------------------------------------------------------------------------
 
 -- Convert a value v in the output space of a slider into a parametric position on the slider itself (the logical opposite of ScaleValueFromRatioT)
 --- @param data_type                ImGuiDataType
@@ -3466,7 +3808,11 @@ function ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, t, v_min, v_max
         local is_floating_point = (data_type == ImGuiDataType.Float) or (data_type == ImGuiDataType.Double)
         if is_floating_point then
             result = ImLerp(v_min, v_max, t)
-        elseif t < 1.0 then
+        elseif t < 1.0 then -- t is already < 1.0 here
+            -- - For integer values we want the clicking position to match the grab box so we round above
+            --   This code is carefully tuned to work with large values (e.g. high ranges of U64) while preserving this property..
+            -- - Not doing a *1.0 multiply at the end of a range as it tends to be lossy. While absolute aiming at a large s64/u64
+            --   range is going to be imprecise anyway, with this check we at least make the edge values matches expected limits.
             local v_new_off_f = (SIGNEDTYPE)((v_max - v_min)) * t
             result = (TYPE)((SIGNEDTYPE)(v_min) + (SIGNEDTYPE)(v_new_off_f + 0)) -- LUA: + 0 instead of + ((v_min > v_max) and -0.5 or 0.5)
         end
@@ -3475,6 +3821,7 @@ function ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, t, v_min, v_max
     return result
 end
 
+-- FIXME: Try to move more of the code into shared SliderBehavior()
 --- @generic T : number
 --- @param TYPE        fun(val: number): T
 --- @param SIGNEDTYPE  fun(val: number): T
@@ -3496,27 +3843,30 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
     local axis = (bit32.band(flags, ImGuiSliderFlags.Vertical) ~= 0) and ImGuiAxis.Y or ImGuiAxis.X
     local is_logarithmic = bit32.band(flags, ImGuiSliderFlags.Logarithmic) ~= 0
     local is_floating_point = (data_type == ImGuiDataType.Float) or (data_type == ImGuiDataType.Double)
-    local v_range_f = (v_min < v_max) and (v_max - v_min) or (v_min - v_max)
+    local v_range_f = (v_min < v_max) and (v_max - v_min) or (v_min - v_max) -- We don't need high precision for what we do with it.
 
-    local grab_padding = 2.0
+    -- Calculate bounds
+    local grab_padding = 2.0 -- FIXME: Should be part of style.
     local slider_sz = (bb.Max[axis] - bb.Min[axis]) - grab_padding * 2.0
     local grab_sz = style.GrabMinSize
-    if not is_floating_point and v_range_f >= 0.0 then
-        grab_sz = ImMax(slider_sz / (v_range_f + 1), style.GrabMinSize)
+    if not is_floating_point and v_range_f >= 0.0 then -- v_range_f < 0 may happen on integer overflows
+        grab_sz = ImMax(slider_sz / (v_range_f + 1), style.GrabMinSize) -- For integer sliders: if possible have the grab size represent 1 unit
     end
     grab_sz = ImMin(grab_sz, slider_sz)
     local slider_usable_sz = slider_sz - grab_sz
     local slider_usable_pos_min = bb.Min[axis] + grab_padding + grab_sz * 0.5
     local slider_usable_pos_max = bb.Max[axis] - grab_padding - grab_sz * 0.5
 
-    local logarithmic_zero_epsilon = 0.0
-    local zero_deadzone_halfsize = 0.0
+    local logarithmic_zero_epsilon = 0.0 -- Only valid when is_logarithmic is true
+    local zero_deadzone_halfsize = 0.0 -- Only valid when is_logarithmic is true
     if is_logarithmic then
+        -- When using logarithmic sliders, we need to clamp to avoid hitting zero, but our choice of clamp value greatly affects slider precision. We attempt to use the specified precision to estimate a good lower bound.
         local decimal_precision = is_floating_point and ImParseFormatPrecision(format, 3) or 1
         logarithmic_zero_epsilon = ImPow(0.1, decimal_precision)
         zero_deadzone_halfsize = (style.LogSliderDeadzone * 0.5) / ImMax(slider_usable_sz, 1.0)
     end
 
+    -- Process interacting with the slider
     local value_changed = false
     if g.ActiveId == id then
         local set_new_value = false
@@ -3532,7 +3882,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
                         grab_t = 1.0 - grab_t
                     end
                     local grab_pos = ImLerp(slider_usable_pos_min, slider_usable_pos_max, grab_t)
-                    local clicked_around_grab = (mouse_abs_pos >= grab_pos - grab_sz * 0.5 - 1.0) and (mouse_abs_pos <= grab_pos + grab_sz * 0.5 + 1.0)
+                    local clicked_around_grab = (mouse_abs_pos >= grab_pos - grab_sz * 0.5 - 1.0) and (mouse_abs_pos <= grab_pos + grab_sz * 0.5 + 1.0) -- No harm being extra generous here.
                     g.SliderGrabClickOffset = (clicked_around_grab and is_floating_point) and (mouse_abs_pos - grab_pos) or 0.0
                 end
                 if slider_usable_sz > 0.0 then
@@ -3545,7 +3895,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
             end
         elseif g.ActiveIdSource == ImGuiInputSource.Keyboard or g.ActiveIdSource == ImGuiInputSource.Gamepad then
             if g.ActiveIdIsJustActivated then
-                g.SliderCurrentAccum = 0.0
+                g.SliderCurrentAccum = 0.0 -- Reset any stored nav delta upon activation
                 g.SliderCurrentAccumDirty = false
             end
 
@@ -3555,13 +3905,13 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
                 local tweak_fast = ImGui.IsKeyDown((g.NavInputSource == ImGuiInputSource.Gamepad) and ImGuiKey.NavGamepadTweakFast or ImGuiKey.NavKeyboardTweakFast)
                 local decimal_precision = is_floating_point and ImParseFormatPrecision(format, 3) or 0
                 if decimal_precision > 0 then
-                    input_delta = input_delta / 100.0
+                    input_delta = input_delta / 100.0 -- Keyboard/Gamepad tweak speeds in % of slider bounds
                     if tweak_slow then
                         input_delta = input_delta / 10.0
                     end
                 else
                     if (v_range_f >= -100.0 and v_range_f <= 100.0 and v_range_f ~= 0.0) or tweak_slow then
-                        input_delta = ((input_delta < 0.0) and -1.0 or 1.0) / v_range_f
+                        input_delta = ((input_delta < 0.0) and -1.0 or 1.0) / v_range_f -- Keyboard/Gamepad tweak speeds in integer steps
                     else
                         input_delta = input_delta / 100.0
                     end
@@ -3580,14 +3930,15 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
             elseif g.SliderCurrentAccumDirty then
                 clicked_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
 
-                if (clicked_t >= 1.0 and delta > 0.0) or (clicked_t <= 0.0 and delta < 0.0) then
+                if (clicked_t >= 1.0 and delta > 0.0) or (clicked_t <= 0.0 and delta < 0.0) then -- This is to avoid applying the saturation when already past the limits
                     set_new_value = false
-                    g.SliderCurrentAccum = 0.0
+                    g.SliderCurrentAccum = 0.0 -- If pushing up against the limits, don't continue to accumulate
                 else
                     set_new_value = true
                     local old_clicked_t = clicked_t
                     clicked_t = ImSaturate(clicked_t + delta)
 
+                    -- Calculate what our "new" clicked_t will be, and thus how far we actually moved the slider, and subtract this from the accumulator
                     local v_new = ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, clicked_t, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
                     if is_floating_point and bit32.band(flags, ImGuiSliderFlags.NoRoundToFormat) == 0 then
                         v_new = ImGui.RoundScalarWithFormatT(format, data_type, v_new)
@@ -3614,10 +3965,12 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
         if set_new_value then
             local v_new = ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, clicked_t, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
 
+            -- Round to user desired precision based on format string
             if is_floating_point and bit32.band(flags, ImGuiSliderFlags.NoRoundToFormat) == 0 then
                 v_new = ImGui.RoundScalarWithFormatT(format, data_type, v_new)
             end
 
+            -- Apply result
             if v ~= v_new then
                 v = v_new
                 value_changed = true
@@ -3628,6 +3981,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
     if slider_sz < 1.0 then
         ImRect_Copy(out_grab_bb, ImRect(bb.Min, bb.Min))
     else
+        -- Output grab position so it can be displayed by the caller
         local grab_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
         if axis == ImGuiAxis.Y then
             grab_t = 1.0 - grab_t
@@ -3643,6 +3997,9 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
     return v, value_changed
 end
 
+-- For 32-bit and larger types, slider bounds are limited to half the natural type range.
+-- So e.g. an integer Slider between INT_MAX-10 and INT_MAX will fail, but an integer Slider between INT_MAX/2-10 and INT_MAX/2 will be ok.
+-- It would be possible to lift that limitation with some work but it doesn't seem to be worth it for sliders.
 --- @generic T : number
 --- @param bb          ImRect
 --- @param id          ImGuiID
@@ -3656,8 +4013,9 @@ end
 --- @return T    v
 --- @return bool value_changed
 function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out_grab_bb)
+    -- Read imgui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this assert.
     IM_ASSERT((flags == 1 or bit32.band(flags, ImGuiSliderFlags.InvalidMask_) == 0), "Invalid ImGuiSliderFlags flags! Has the legacy 'float power' argument been mistakenly cast to flags? Call function with ImGuiSliderFlags_Logarithmic flags instead.")
-    IM_ASSERT(bit32.band(flags, ImGuiSliderFlags.WrapAround) == 0)
+    IM_ASSERT(bit32.band(flags, ImGuiSliderFlags.WrapAround) == 0) -- Not supported by SliderXXX(), only by DragXXX()
 
     if     data_type == ImGuiDataType.S8 then
         local v32 = (ImS32)((ImS8)(v)); local r
@@ -3697,6 +4055,8 @@ function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out
     return v, false
 end
 
+-- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a slider, min and max are required.
+-- Read code of e.g. SliderFloat(), SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 --- @generic T : number
 --- @param label     string
 --- @param data_type ImGuiDataType
@@ -3732,6 +4092,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         return data, false
     end
 
+    -- Default format string when passing NULL
     if format == nil then
         format = ImGui.DataTypeGetInfo(data_type).PrintFmt
     end
@@ -3739,6 +4100,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     local hovered = ImGui.ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags)
     local temp_input_is_active = temp_input_allowed and ImGui.TempInputIsActive(id)
     if not temp_input_is_active then
+        -- Tabbing or Ctrl+Click on Slider turns it into an input box
         local clicked = hovered and ImGui.IsMouseClickedEx(0, ImGuiInputFlags.None, id)
         local make_active = clicked or g.NavActivateId == id
         if make_active and clicked then
@@ -3750,6 +4112,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
             end
         end
 
+        -- Store initial value (not used by main lib but available as a convenience but some mods e.g. to revert)
         if make_active then
             g.ActiveIdValueOnActivation = data
         end
@@ -3763,10 +4126,12 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     end
 
     if temp_input_is_active then
-        local clamp_enabled = bit32.band(flags, ImGuiSliderFlags.ClampOnInput) ~= 0
+        -- Only clamp Ctrl+Click input when ImGuiSliderFlags.ClampOnInput is set (generally via ImGuiSliderFlags.AlwaysClamp)
+        local clamp_enabled = bit32.band(flags, ImGuiSliderFlags.ClampOnInput) ~= 0 -- Don't use TempInputIsClampEnabled()
         return ImGui.TempInputScalar(frame_bb, id, label, data_type, data, format, clamp_enabled and min or nil, clamp_enabled and max or nil)
     end
 
+    -- Draw frame
     local frame_col = ImGui.GetColorU32((g.ActiveId == id) and ImGuiCol.FrameBgActive or (hovered and ImGuiCol.FrameBgHovered or ImGuiCol.FrameBg))
     ImGui.RenderNavCursor(frame_bb, id)
     ImGui.RenderFrame(frame_bb.Min, frame_bb.Max, frame_col, false, style.FrameRounding)
@@ -3775,6 +4140,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     end
     ImGui.RenderFrameBorder(frame_bb.Min, frame_bb.Max, g.Style.FrameRounding)
 
+    -- Slider behavior
     local grab_bb = ImRect()
     local value_changed
     data, value_changed = ImGui.SliderBehavior(frame_bb, id, data_type, data, min, max, format, flags, grab_bb)
@@ -3782,12 +4148,14 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         ImGui.MarkItemEdited(id)
     end
 
+    -- Render grab
     if grab_bb.Max.x > grab_bb.Min.x then
         window.DrawList:AddRectFilled(grab_bb.Min, grab_bb.Max, ImGui.GetColorU32((g.ActiveId == id) and ImGuiCol.SliderGrabActive or ImGuiCol.SliderGrab), style.GrabRounding)
     end
 
     -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
 
+    -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
     -- if g.LogEnabled then
     --     ImGui.LogSetNextTextDecoration("{", "}")
     -- end
@@ -3801,6 +4169,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     return data, value_changed
 end
 
+-- Add multiple sliders on 1 line for compact edition of multiple components
 --- @param label      string
 --- @param data_type  ImGuiDataType
 --- @param v          table
@@ -3969,6 +4338,7 @@ function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, fla
         return data, false
     end
 
+    -- Default format string when passing NULL
     if format == nil then
         format = ImGui.DataTypeGetInfo(data_type).PrintFmt
     end
@@ -3985,10 +4355,12 @@ function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, fla
         g.ActiveIdUsingNavDirMask = bit32.bor(g.ActiveIdUsingNavDirMask, bit32.lshift(1, ImGuiDir.Up), bit32.lshift(1, ImGuiDir.Down))
     end
 
+    -- Draw frame
     local frame_col = ImGui.GetColorU32((g.ActiveId == id) and ImGuiCol.FrameBgActive or (hovered and ImGuiCol.FrameBgHovered or ImGuiCol.FrameBg))
     ImGui.RenderNavCursor(frame_bb, id)
     ImGui.RenderFrame(frame_bb.Min, frame_bb.Max, frame_col, true, g.Style.FrameRounding)
 
+    -- Slider behavior
     local grab_bb = ImRect()
     local value_changed
     data, value_changed = ImGui.SliderBehavior(frame_bb, id, data_type, data, min, max, format, bit32.bor(flags or 0, ImGuiSliderFlags.Vertical), grab_bb)
@@ -3996,10 +4368,13 @@ function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, fla
         ImGui.MarkItemEdited(id)
     end
 
+    -- Render grab
     if grab_bb.Max.y > grab_bb.Min.y then
         window.DrawList:AddRectFilled(grab_bb.Min, grab_bb.Max, ImGui.GetColorU32((g.ActiveId == id) and ImGuiCol.SliderGrabActive or ImGuiCol.SliderGrab), style.GrabRounding)
     end
 
+    -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
+    -- For the vertical slider we allow centered text to overlap the frame padding
     -- local value_buf, value_buf_size = {}, 64
     -- TODO: ImGui.DataTypeFormatString()
     ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, ImFormatString(format, data), nil, nil, ImVec2(0.5, 0.0))
@@ -4037,9 +4412,16 @@ function ImGui.VSliderInt(label, size, v, v_min, v_max, format, flags)
     return ImGui.VSliderScalar(label, size, ImGuiDataType.S32, v, v_min, v_max, format, flags)
 end
 
-----------------------------------------------------------------
--- [SECTION] INPUT TEXT
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: InputText, InputTextMultiline, InputTextWithHint
+-------------------------------------------------------------------------------
+-- - imstb_textedit.h include
+-- - InputText()
+-- - InputTextWithHint()
+-- - InputTextMultiline()
+-- - InputTextEx() [Internal]
+-- - DebugNodeInputTextState() [Internal]
+-------------------------------------------------------------------------------
 
 --- @param label     string
 --- @param buf       char[]
@@ -4050,7 +4432,7 @@ end
 function ImGui.InputText(label, buf, buf_size, flags, callback, user_data)
     if flags == nil then flags = 0 end
 
-    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0)
+    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0) -- call InputTextMultiline()
     return ImGui.InputTextEx(label, nil, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
 end
 
@@ -4098,6 +4480,11 @@ local function InputTextCalcTextSize(ctx, text, text_begin, text_end_display, te
     return ImFontCalcTextSizeEx(g.Font, g.FontSize, FLT_MAX, obj.WrapWidth, text, text_begin, text_end_display, text_end, out_offset, flags)
 end
 
+-- Wrapper for stb_textedit.h to edit text (our wrapper is for: statically sized buffer, single-line, wchar characters. InputText converts between UTF-8 and wchar)
+-- With our UTF-8 use of stb_textedit:
+-- - STB_TEXTEDIT_GETCHAR is nothing more than a a "GETBYTE". It's only used to compare to ascii or to copy blocks of text so we are fine.
+-- - One exception is the STB_TEXTEDIT_IS_SPACE feature which would expect a full char in order to handle full-width space such as 0x3000 (see ImCharIsBlankW).
+-- - ...but we don't use that feature.
 --- @param obj ImGuiInputTextState
 --- @return int
 function ImStb.TEXTEDIT_STRINGLEN(obj) return obj.TextLen end
@@ -4168,7 +4555,7 @@ end
 --- @param obj ImGuiInputTextState
 --- @param idx int
 function ImStb.is_word_boundary_from_right(obj, idx)
-    -- When ImGuiInputTextFlags.Password is set, we don't want actions such as Ctrl+Arrow to leak the fact that underlying data are blanks or separators
+    -- When ImGuiInputTextFlags.Password is set, we don't want actions such as Ctrl+Arrow to leak the fact that underlying data are blanks or separators.
     if bit32.band(obj.Flags, ImGuiInputTextFlags.Password) ~= 0 or idx <= 1 then
         return false
     end
@@ -4245,7 +4632,7 @@ function ImStb.TEXTEDIT_MOVEWORDRIGHT(obj, idx)
     end
 end
 
--- Reimplementation of stb_textedit_move_line_start()/stb_textedit_move_line_end() which supports word-wrapping
+-- Reimplementation of stb_textedit_move_line_start()/stb_textedit_move_line_end() which supports word-wrapping.
 --- @param obj    ImGuiInputTextState
 --- @param state  STB_TexteditState
 --- @param cursor int
@@ -4322,6 +4709,7 @@ end
 --- @param pos int
 --- @param n   int
 function ImStb.TEXTEDIT_DELETECHARS(obj, pos, n)
+    -- Offset remaining text (+ copy zero terminator)
     IM_ASSERT(obj.TextSrc == obj.TextA.Data)
     ImStd.memmove(obj.TextA.Data, pos, obj.TextA.Data, pos + n, obj.TextLen - n - pos + 2)
     obj.EditedBefore = true
@@ -4339,10 +4727,10 @@ function ImStb.TEXTEDIT_INSERTCHARS(obj, pos, new_text, new_text_pos, new_text_l
     local text_len = obj.TextLen
     IM_ASSERT(pos <= text_len + 1)
 
-    -- We support partial insertion (with a mod in stb_textedit)
+    -- We support partial insertion (with a mod in stb_textedit.h)
     local avail = obj.BufCapacity - 1 - obj.TextLen
     if not is_resizable and new_text_len > avail then
-        new_text_len = math.floor(ImStd.ImTextFindValidUtf8CodepointEnd(new_text, new_text_pos, new_text_len + 1, avail) - new_text_pos) -- Truncate to closest UTF-8 codepoint. Alternative: return 0 to cancel insertion
+        new_text_len = math.floor(ImStd.ImTextFindValidUtf8CodepointEnd(new_text, new_text_pos, new_text_len + 1, avail) - new_text_pos) -- Truncate to closest UTF-8 codepoint. Alternative: return 0 to cancel insertion.
     end
     if new_text_len == 0 then
         return 0
@@ -4371,6 +4759,8 @@ end
 
 stbte = IM_INCLUDE"imstb_textedit.lua"
 
+-- stb_textedit internally allows for a single undo record to do addition and deletion, but somehow, calling
+-- the stb_textedit_paste() function creates two separate records, so we perform it manually. (FIXME: Report to nothings/stb?)
 --- @param str      ImGuiInputTextState
 --- @param state    STB_TexteditState
 --- @param text     IMSTB_TEXTEDIT_CHARTYPE[]
@@ -4429,8 +4819,8 @@ function MT.ImGuiInputTextState:OnCharPressed(c)
     self:CursorAnimReset()
 end
 
--- After a user-input the cursor stays on for a while without blinking
-function MT.ImGuiInputTextState:CursorAnimReset() self.CursorAnim = -0.30 end
+-- Those functions are not inlined in imgui_internal.h, allowing us to hide ImStbTexteditState from that header.
+function MT.ImGuiInputTextState:CursorAnimReset() self.CursorAnim = -0.30 end -- After a user-input the cursor stays on for a while without blinking
 
 function MT.ImGuiInputTextState:CursorClamp()
     self.Stb.cursor = ImMin(self.Stb.cursor, self.TextLen + 1)
@@ -4475,6 +4865,7 @@ function ImGui.PopPasswordFont()
     IM_ASSERT(backup.IndexAdvanceX.Size == 0 and backup.IndexLookup.Size == 0)
 end
 
+-- Return false to discard a character. Returns (char, ok).
 --- @param ctx                        ImGuiContext
 --- @param state                      ImGuiInputTextState
 --- @param char                       unsigned_int
@@ -4615,7 +5006,7 @@ end
 
 -- Find the shortest single replacement we can make to get from old_buf to new_buf
 -- Note that this doesn't directly alter state->TextA, state->TextLen. They are expected to be made valid separately.
--- FIXME: Ideally we should transition toward (1) making InsertChars()/DeleteChars() update undo-stack (2) discourage (and keep reconcile) or obsolete (and remove reconcile) accessing buffer directly
+-- FIXME: Ideally we should transition toward (1) making InsertChars()/DeleteChars() update undo-stack (2) discourage (and keep reconcile) or obsolete (and remove reconcile) accessing buffer directly.
 --- @param state      ImGuiInputTextState
 --- @param old_buf    ImStringBuffer
 --- @param old_length int
@@ -4658,6 +5049,10 @@ local function InputTextReconcileUndoState(state, old_buf, old_length, new_buf, 
     end
 end
 
+-- As InputText() retain textual data and we currently provide a path for user to not retain it (via local variables)
+-- we need some form of hook to reapply data back to user buffer on deactivation frame. (#4714)
+-- It would be more desirable that we discourage users from taking advantage of the "user not retaining data" trick,
+-- but that more likely be attractive when we do have _NoLiveEdit flag available.
 --- @param id ImGuiID
 function ImGui.InputTextDeactivateHook(id)
     local g = GImGui
@@ -4673,7 +5068,7 @@ function ImGui.InputTextDeactivateHook(id)
     g.InputTextDeactivatedState.ID = state.ID
     g.InputTextDeactivatedState.ElapseFrame = g.FrameCount + 1
     if bit32.band(state.Flags, ImGuiInputTextFlags.ReadOnly) ~= 0 then
-        g.InputTextDeactivatedState.TextA:resize(0) -- In theory this data won't be used, but clear to be neat
+        g.InputTextDeactivatedState.TextA:resize(0) -- In theory this data won't be used, but clear to be neat.
     else
         IM_ASSERT(state.TextA.Data ~= nil)
         -- IM_ASSERT(state.TextA[state.TextLen + 1] == 0)
@@ -4682,6 +5077,8 @@ function ImGui.InputTextDeactivateHook(id)
     end
 end
 
+-- FIXME-WORDWRAP: Bundle some of this into ImGuiTextIndex and/or extract as a different tool?
+-- 'max_output_buffer_size' happens to be a meaningful optimization to avoid writing the full line_index when not necessarily needed (e.g. very large buffer, scrolled up, inactive)
 --- @param flags                  ImGuiInputTextFlags
 --- @param line_index             ImGuiTextIndex
 --- @param buf                    char[]
@@ -4810,6 +5207,8 @@ local function InputTextLineIndexGetPosOffset(g, state, line_index, buf, buf_end
 end
 
 -- Edit a string of text
+-- - buf_size account for the zero-terminator, so a buf_size of 6 can hold "Hello" but not "Hello!".
+-- - When active, hold on a privately held copy of the text (and apply back to 'buf'). So changing 'buf' while the InputText is active has no effect.
 --- @param label              string
 --- @param hint?              char[]
 --- @param buf                char[]
@@ -4840,9 +5239,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     IM_ASSERT(buf ~= nil and buf_size >= 0)
     IM_ASSERT(not (bit32.band(flags, ImGuiInputTextFlags.CallbackHistory) ~= 0 and bit32.band(flags, ImGuiInputTextFlags.Multiline) ~= 0))        -- Can't use both together (they both use up/down keys)
     IM_ASSERT(not (bit32.band(flags, ImGuiInputTextFlags.CallbackCompletion) ~= 0 and bit32.band(flags, ImGuiInputTextFlags.AllowTabInput) ~= 0)) -- Can't use both together (they both use tab key)
-    IM_ASSERT(not (bit32.band(flags, ImGuiInputTextFlags.ElideLeft) ~= 0 and bit32.band(flags, ImGuiInputTextFlags.Multiline) ~= 0))              -- Multiline does not not work with left-trimming
-    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.WordWrap) == 0 or bit32.band(flags, ImGuiInputTextFlags.Password) == 0)  -- WordWrap does not work with Password mode
-    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.WordWrap) == 0 or bit32.band(flags, ImGuiInputTextFlags.Multiline) ~= 0) -- WordWrap does not work in single-line mode
+    IM_ASSERT(not (bit32.band(flags, ImGuiInputTextFlags.ElideLeft) ~= 0 and bit32.band(flags, ImGuiInputTextFlags.Multiline) ~= 0))              -- Multiline does not work with left-trimming
+    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.WordWrap) == 0 or bit32.band(flags, ImGuiInputTextFlags.Password) == 0)  -- WordWrap does not work with Password mode.
+    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.WordWrap) == 0 or bit32.band(flags, ImGuiInputTextFlags.Multiline) ~= 0) -- WordWrap does not work in single-line mode.
 
     local g = GImGui --[[@as ImGuiContext]]
     local io = g.IO
@@ -4879,18 +5278,18 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         ImGuiLastItemData_Copy(item_data_backup, g.LastItemData)
         ImVec2_Copy(window.DC.CursorPos, backup_pos)
 
-        -- Prevent NavActivation from explicit Tabbing when our widget accepts Tab inputs: this allows cycling through widgets without stopping
+        -- Prevent NavActivation from explicit Tabbing when our widget accepts Tab inputs: this allows cycling through widgets without stopping.
         if g.NavActivateId == id and (bit32.band(g.NavActivateFlags, ImGuiActivateFlags.FromTabbing) ~= 0) and (bit32.band(g.NavActivateFlags, ImGuiActivateFlags.FromFocusApi) == 0) and (bit32.band(flags, ImGuiInputTextFlags.AllowTabInput) ~= 0) then
             g.NavActivateId = 0
         end
 
-        -- Prevent NavActivate reactivating in BeginChild() when we are already active
+        -- Prevent NavActivate reactivating in BeginChild() when we are already active.
         local backup_activate_id = g.NavActivateId
         if g.ActiveId == id then -- Prevent reactivation
             g.NavActivateId = 0
         end
 
-        -- We reproduce the contents of BeginChildFrame() in order to provide 'label' so our window internal data are easier to read/debug
+        -- We reproduce the contents of BeginChildFrame() in order to provide 'label' so our window internal data are easier to read/debug.
         ImGui.PushStyleColor(ImGuiCol.ChildBg, style.Colors[ImGuiCol.FrameBg])
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, style.FrameRounding)
         ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, style.FrameBorderSize)
@@ -4905,7 +5304,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             return false
         end
         draw_window = g.CurrentWindow -- Child window
-        draw_window.DC.NavLayersActiveMaskNext = bit32.bor(draw_window.DC.NavLayersActiveMaskNext, bit32.lshift(1, draw_window.DC.NavLayerCurrent)) -- This is to ensure that EndChild() will display a navigation highlight so we can "enter" into it
+        draw_window.DC.NavLayersActiveMaskNext = bit32.bor(draw_window.DC.NavLayersActiveMaskNext, bit32.lshift(1, draw_window.DC.NavLayerCurrent)) -- This is to ensure that EndChild() will display a navigation highlight so we can "enter" into it.
         ImVec2_Copy(draw_window.DC.CursorPos, draw_window.DC.CursorPos + style.FramePadding)
         inner_size.x = inner_size.x - draw_window.ScrollbarSizes.x
 
@@ -4914,6 +5313,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         g.LastItemData.ItemFlags = item_data_backup.ItemFlags
         g.LastItemData.StatusFlags = item_data_backup.StatusFlags
     else
+        -- Support for internal ImGuiInputTextFlags.MergedItem flag, which could be redesigned as an ItemFlags if needed (with test performed in ItemAdd)
         ImGui.ItemSize(total_bb, style.FramePadding.y)
 
         if bit32.band(flags, ImGuiInputTextFlags.TempInput) == 0 then
@@ -4932,7 +5332,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         hovered = false
     end
 
-    -- We are only allowed to access the state if we are already the active widget
+    -- We are only allowed to access the state if we are already the active widget.
     local state = ImGui.GetInputTextState(id)
 
     if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.ReadOnly) ~= 0 then
@@ -4967,8 +5367,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     local scroll_y = is_multiline and draw_window.Scroll.y or FLT_MAX
 
     local init_reload_from_user_buf = (state ~= nil and state.WantReloadUserBuf)
-    local init_changed_specs_multiline = (state ~= nil and (state.Stb.single_line ~= (not is_multiline)))
-    local init_changed_specs_readonly = (state ~= nil and (bit32.band(bit32.bxor(state.Flags, flags), ImGuiInputTextFlags.ReadOnly) ~= 0)) -- state ~= nil means it's our state
+    local init_changed_specs_multiline = (state ~= nil and (state.Stb.single_line ~= (not is_multiline))) -- state ~= nil means its our state.
+    local init_changed_specs_readonly = (state ~= nil and (bit32.band(bit32.bxor(state.Flags, flags), ImGuiInputTextFlags.ReadOnly) ~= 0)) -- state ~= nil means its our state.
     local init_make_active = (input_requested_by_user or input_requested_by_nav or input_requested_by_reactivate or user_scroll_finish)
     if init_reload_from_user_buf then
         local new_len = ImStd.ImStrlen(buf)
@@ -4976,14 +5376,14 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.WantReloadUserBuf = false
         --- @cast state ImGuiInputTextState
         InputTextReconcileUndoState(state, state.TextA.Data, state.TextLen, buf, new_len)
-        state.TextA:resize(buf_size + 1)
+        state.TextA:resize(buf_size + 1) -- we use +1 to make sure that .Data is always pointing to at least an empty string.
         state.TextLen = new_len
         ImStd.memmove(state.TextA.Data, 1, buf, 1, state.TextLen + 1)
         state.Stb.select_start = state.ReloadSelectionStart
         state.Stb.cursor = state.ReloadSelectionEnd
         state.Stb.select_end = state.ReloadSelectionEnd -- will be clamped to bounds below
     elseif (init_make_active and g.ActiveId ~= id) or init_changed_specs_multiline or init_changed_specs_readonly then
-        -- Access state even if we don't own it yet
+        -- Access state even if we don't own it yet.
         state = g.InputTextState
         state:CursorAnimReset()
 
@@ -4997,7 +5397,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         local buf_len = ImStd.ImStrlen(buf)
         IM_ASSERT(((buf_len + 1 <= buf_size) or (buf_len == 0 and buf_size == 0)), "Is your input buffer properly zero-terminated?")
         if not user_scroll_finish then
-            state.TextToRevertTo:resize(buf_len + 1)
+            state.TextToRevertTo:resize(buf_len + 1) -- UTF-8. we use +1 to make sure that .Data is always pointing to at least an empty string.
             ImStd.memmove(state.TextToRevertTo.Data, 1, buf, 1, buf_len + 1)
         end
 
@@ -5013,7 +5413,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.TextLen = buf_len
         state.EditedBefore = false
         if not is_readonly then
-            state.TextA:resize(buf_size + 1)
+            state.TextA:resize(buf_size + 1) -- we use +1 to make sure that .Data is always pointing to at least an empty string.
             ImStd.memmove(state.TextA.Data, 1, buf, 1, state.TextLen + 1)
         end
 
@@ -5024,7 +5424,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         end
 
         -- Recycle existing cursor/selection/undo stack but clamp position
-        -- Note a single mouse click will override the cursor/position immediately by calling stb_textedit_click handler
+        -- Note a single mouse click will override the cursor/position immediately by calling stb_textedit_click handler.
         if not recycle_state then
             stbte.initialize_state(state.Stb, not is_multiline)
         end
@@ -5058,8 +5458,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         end
     end
     if g.ActiveId == id then
-        -- Declare some inputs, the other are registered and polled via Shortcut() routing system
-        -- FIXME: The reason we don't use Shortcut() is we would need a routing flag to specify multiple mods, or to all mods combination into individual shortcuts
+        -- Declare some inputs, the other are registered and polled via Shortcut() routing system.
+        -- FIXME: The reason we don't use Shortcut() is we would need a routing flag to specify multiple mods, or to all mods combination into individual shortcuts.
         local always_owned_keys = { ImGuiKey.LeftArrow, ImGuiKey.RightArrow, ImGuiKey.Delete, ImGuiKey.Backspace, ImGuiKey.Home, ImGuiKey.End }
         for _, key in ipairs(always_owned_keys) do
             ImGui.SetKeyOwner(key, id)
@@ -5118,7 +5518,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     local value_changed = false
     local validated = false
 
-    -- Select the buffer to render
+    -- Select the buffer to render.
     local buf_display_from_state = (render_cursor or render_selection or g.ActiveId == id) and not is_readonly and state ~= nil
     local is_displaying_hint = (hint ~= nil and (buf_display_from_state and state.TextA.Data or buf)[1] == 0)
 
@@ -5147,7 +5547,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.WrapWidth = wrap_width
 
         -- Although we are active we don't prevent mouse from hovering other elements unless we are interacting right now with the widget.
-        -- Down the line we should have a cleaner library-wide concept of Selected vs Active
+        -- Down the line we should have a cleaner library-wide concept of Selected vs Active.
         g.ActiveIdAllowOverlap = not io.MouseDown[0]
 
         -- Edit in progress
@@ -5178,7 +5578,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             else
                 -- Triple-click: Select line
                 local is_eol = ImStb.TEXTEDIT_GETCHAR(state, state.Stb.cursor) == 10
-                state.WrapWidth = 0.0 -- Temporarily disable wrapping so we use real line start
+                state.WrapWidth = 0.0 -- Temporarily disable wrapping so we use real line start.
                 state:OnKeyPressed(STB_TEXTEDIT_K_LINESTART)
                 state:OnKeyPressed(bit32.bor(STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_SHIFT))
                 state:OnKeyPressed(bit32.bor(STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT))
@@ -5208,6 +5608,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             state.SelectedAllMouseLock = false
         end
 
+        -- We expect backends to emit a Tab key but some also emit a Tab character which we ignore (#2467, #1336)
+        -- (For Tab and Enter: Win32/SFML/Allegro are sending both keys and chars, GLFW and SDL are only sending keys. For Space they all send all threes)
         if bit32.band(flags, ImGuiInputTextFlags.AllowTabInput) ~= 0 and not is_readonly then
             if ImGui.Shortcut(ImGuiKey.Tab, ImGuiInputFlags.Repeat, id) then
                 local c = 9 -- Insert TAB
@@ -5219,9 +5621,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             end
 
             -- FIXME: Implement Shift+Tab
+            -- if ImGui.Shortcut(bit32.bor(ImGuiKey.Tab, ImGuiMod_Shift), ImGuiInputFlags.Repeat, id) then
+            -- end
         end
 
-        -- Process regular text input
+        -- Process regular text input (before we check for Return because using some IME will effectively send a Return?)
+        -- We ignore Ctrl inputs, but need to allow Alt+Ctrl as some keyboards (e.g. German) use AltGR (which _is_ Alt+Ctrl) to input certain characters.
         local ignore_char_inputs = io.KeyCtrl and not io.KeyAlt
         if io.InputQueueCharacters.Size > 0 then
             if not ignore_char_inputs and not is_readonly and not input_requested_by_nav then
@@ -5229,7 +5634,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                     repeat
                     -- Insert character if they pass filtering
                     local c = io.InputQueueCharacters[n]
-                    if c == 9 then -- Skip Tab, see above
+                    if c == 9 then -- Skip Tab, see above.
                         break
                     end
 
@@ -5258,9 +5663,11 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.Stb.row_count_per_page = row_count_per_page
 
         local k_mask = (io.KeyShift and STB_TEXTEDIT_K_SHIFT or 0)
-        local is_wordmove_key_down = is_osx and io.KeyAlt or io.KeyCtrl
-        local is_startend_key_down = is_osx and io.KeyCtrl and not io.KeySuper and not io.KeyAlt
+        local is_wordmove_key_down = is_osx and io.KeyAlt or io.KeyCtrl -- OS X style: Text editing cursor movement using Alt instead of Ctrl
+        local is_startend_key_down = is_osx and io.KeyCtrl and not io.KeySuper and not io.KeyAlt -- OS X style: Line/Text Start and End using Cmd+Arrows instead of Home/End
 
+        -- Using Shortcut() with ImGuiInputFlags.RouteFocused (default policy) to allow routing operations for other code (e.g. calling window trying to use Ctrl+A and Ctrl+B: former would be handled by InputText)
+        -- Otherwise we could simply assume that we own the keys as we are active.
         local f_repeat = ImGuiInputFlags.Repeat
         local is_cut   = (ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.X), f_repeat, id) or ImGui.Shortcut(bit32.bor(ImGuiMod_Shift, ImGuiKey.Delete), f_repeat, id)) and not is_readonly and not is_password and (not is_multiline or state:HasSelection())
         local is_copy  = (ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.C), 0,        id) or ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl,  ImGuiKey.Insert), 0,        id)) and not is_password and (not is_multiline or state:HasSelection())
@@ -5269,6 +5676,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         local is_redo  = (ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.Y), f_repeat, id) or ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift, ImGuiKey.Z), f_repeat, id)) and not is_readonly and is_undoable
         local is_select_all = ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.A), 0, id)
 
+        -- We allow validate/cancel with Nav source (gamepad) to makes it easier to undo an accidental NavInput press with no keyboard wired, but otherwise it isn't very useful.
         local nav_gamepad_active  = (bit32.band(io.ConfigFlags, ImGuiConfigFlags.NavEnableGamepad) ~= 0) and (bit32.band(io.BackendFlags, ImGuiBackendFlags.HasGamepad) ~= 0)
         local is_enter            = ImGui.Shortcut(ImGuiKey.Enter, f_repeat, id) or ImGui.Shortcut(ImGuiKey.KeypadEnter, f_repeat, id)
         local is_ctrl_enter       = ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.Enter), f_repeat, id) or ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.KeypadEnter), f_repeat, id)
@@ -5276,6 +5684,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         local is_gamepad_validate = nav_gamepad_active and ImGui.IsKeyPressed(ImGuiKey.NavGamepadActivate, false)
         local is_cancel           = ImGui.Shortcut(ImGuiKey.Escape, f_repeat, id) or (nav_gamepad_active and ImGui.Shortcut(ImGuiKey.NavGamepadCancel, f_repeat, id))
 
+        -- FIXME: Should use more Shortcut() and reduce IsKeyPressed()+SetKeyOwner(), but requires modifiers combination to be taken account of.
+        -- FIXME-OSX: Missing support for Alt(option)+Right/Left = go to end of line, or next line if already in end of line.
         if ImGui.IsKeyPressed(ImGuiKey.LeftArrow) then
             state:OnKeyPressed(bit32.bor(is_startend_key_down and STB_TEXTEDIT_K_LINESTART or (is_wordmove_key_down and STB_TEXTEDIT_K_WORDLEFT or STB_TEXTEDIT_K_LEFT), k_mask))
         elseif ImGui.IsKeyPressed(ImGuiKey.RightArrow) then
@@ -5304,6 +5714,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             state:OnKeyPressed(io.KeyCtrl and bit32.bor(STB_TEXTEDIT_K_TEXTEND, k_mask) or bit32.bor(STB_TEXTEDIT_K_LINEEND, k_mask))
         elseif ImGui.IsKeyPressed(ImGuiKey.Delete) and not is_readonly and not is_cut then
             if not state:HasSelection() then
+                -- OSX doesn't seem to have Super+Delete to delete until end-of-line, so we don't emulate that (as opposed to Super+Backspace)
                 if is_wordmove_key_down then
                     state:OnKeyPressed(bit32.bor(STB_TEXTEDIT_K_WORDRIGHT, STB_TEXTEDIT_K_SHIFT))
                 end
@@ -5319,17 +5730,20 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             end
             state:OnKeyPressed(bit32.bor(STB_TEXTEDIT_K_BACKSPACE, k_mask))
         elseif is_enter or is_ctrl_enter or is_shift_enter or is_gamepad_validate then
+            -- Determine if we turn Enter into a \n character
             local ctrl_enter_for_new_line = bit32.band(flags, ImGuiInputTextFlags.CtrlEnterForNewLine) ~= 0
             local is_new_line = is_multiline and not is_gamepad_validate and (is_shift_enter or (is_enter and not ctrl_enter_for_new_line) or (is_ctrl_enter and ctrl_enter_for_new_line))
             if not is_new_line then
                 validated = true
                 clear_active_id = true
                 if io.ConfigInputTextEnterKeepActive and not is_multiline and not is_ctrl_enter and not is_shift_enter then
-                    state:SelectAll()
-                    g.InputTextReactivateId = id
+                    -- Queue reactivation, so that e.g. IsItemDeactivatedAfterEdit() will work. (#9001)
+                    state:SelectAll() -- No need to scroll
+                    g.InputTextReactivateId = id -- Mark for reactivation on next frame
                 end
             elseif not is_readonly then
-                local c = 10 -- Insert new line
+                -- Insert new line
+                local c = 10
                 local ret2
                 c, ret2 = InputTextFilterCharacter(g, state, c, callback, callback_user_data)
                 if ret2 then
@@ -5358,7 +5772,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             state:SelectAll()
             state.CursorFollow = true
         elseif is_cut or is_copy then
+            -- Cut, Copy
             if g.PlatformIO.Platform_SetClipboardTextFn ~= nil then
+                -- SetClipboardText() only takes null terminated strings + state.TextSrc may point to read-only user buffer, so we need to make a copy.
                 local ib = state:HasSelection() and ImMin(state.Stb.select_start, state.Stb.select_end) or 1
                 local ie = state:HasSelection() and ImMax(state.Stb.select_start, state.Stb.select_end) or state.TextLen + 1
                 g.TempBuffer:reserve(ie - ib + 1)
@@ -5376,6 +5792,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         elseif is_paste then
             local clipboard = ImGui.GetClipboardText()
             if clipboard then
+                -- Filter pasted buffer
                 local clipboard_len = #clipboard
                 local clipboard_end = clipboard_len + 1
                 local clipboard_filtered = ImVector()
@@ -5402,7 +5819,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
                     until true
                 end
-                if clipboard_filtered.Size > 0 then
+                if clipboard_filtered.Size > 0 then -- If everything was filtered, ignore the pasting operation
                     clipboard_filtered:push_back(0)
                     stbte.paste(state, state.Stb, clipboard_filtered.Data, clipboard_filtered.Size - 1)
                     state.CursorFollow = true
@@ -5410,6 +5827,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             end
         end
 
+        -- Update render selection flag after events have been handled, so selection highlight can be displayed during the same frame.
         render_selection = render_selection or (state:HasSelection() and (RENDER_SELECTION_WHEN_INACTIVE or render_cursor))
     end
 
@@ -5422,6 +5840,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
         if revert_edit and not is_readonly then
             if bit32.band(flags, ImGuiInputTextFlags.EscapeClearsAll) ~= 0 then
+                -- Clear input
                 IM_ASSERT(state.TextA.Data[1] ~= 0)
                 apply_new_text = {0}
                 apply_new_text_length = 0
@@ -5432,13 +5851,18 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 apply_new_text = state.TextToRevertTo.Data
                 apply_new_text_length = state.TextToRevertTo.Size - 1
 
+                -- Restore initial value. Only return true if restoring to the initial value changes the current buffer contents.
+                -- Push records into the undo stack so we can Ctrl+Z the revert operation itself
                 value_changed = true
                 ImStb.stb_textedit_replace(state, state.Stb, state.TextToRevertTo.Data, state.TextToRevertTo.Size - 1)
             end
         end
 
+        -- User callback
         if bit32.band(flags, bit32.bor(ImGuiInputTextFlags.CallbackCompletion, ImGuiInputTextFlags.CallbackHistory, ImGuiInputTextFlags.CallbackEdit, ImGuiInputTextFlags.CallbackAlways)) ~= 0 then
             IM_ASSERT(callback ~= nil)
+
+            -- The reason we specify the usage semantic (Completion/History) is that Completion needs to disable keyboard TABBING at the moment.
 
             local event_flag = 0
             local event_key = ImGuiKey.None
@@ -5466,6 +5890,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 callback_data.EventActivated = (g.ActiveId == state.ID and g.ActiveIdIsJustActivated)
                 callback_data.UserData = callback_user_data
 
+                -- FIXME-OPT: Undo stack reconcile needs a backup of the data until we rework API, see #7925
                 local callback_buf = is_readonly and buf or state.TextA.Data
                 IM_ASSERT(callback_buf == state.TextSrc)
                 state.CallbackTextBackup:resize(state.TextLen + 1)
@@ -5480,10 +5905,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 callback_data.SelectionStart = state.Stb.select_start
                 callback_data.SelectionEnd = state.Stb.select_end
 
+                -- Call user code
                 callback(callback_data)
 
-                callback_buf = is_readonly and buf or state.TextA.Data
-                IM_ASSERT(callback_data.Buf == callback_buf)
+                -- Read back what user may have modified
+                callback_buf = is_readonly and buf or state.TextA.Data -- Pointer may have been invalidated by a resize callback
+                IM_ASSERT(callback_data.Buf == callback_buf) -- Invalid to modify those fields
                 IM_ASSERT(callback_data.BufSize == state.BufCapacity)
                 IM_ASSERT(callback_data.Flags == flags)
                 if callback_data.BufDirty or callback_data.CursorPos ~= state.Stb.cursor then
@@ -5493,15 +5920,18 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 state.Stb.select_start = ImClamp(callback_data.SelectionStart, 0, callback_data.BufTextLen)
                 state.Stb.select_end = ImClamp(callback_data.SelectionEnd, 0, callback_data.BufTextLen)
                 if callback_data.BufDirty then
-                    IM_ASSERT(callback_data.BufTextLen == ImStd.ImStrlen(callback_data.Buf))
+                    -- Callback may update buffer and thus set buf_dirty even in read-only mode.
+                    IM_ASSERT(callback_data.BufTextLen == ImStd.ImStrlen(callback_data.Buf)) -- You need to maintain BufTextLen if you change the text!
                     InputTextReconcileUndoState(state, state.CallbackTextBackup.Data, state.CallbackTextBackup.Size - 1, callback_data.Buf, callback_data.BufTextLen)
-                    state.TextLen = callback_data.BufTextLen
+                    state.TextLen = callback_data.BufTextLen -- Assume correct length and valid UTF-8 from user, saves us an extra strlen()
                     state.EditedBefore = true; state.EditedThisFrame = true
                     state:CursorAnimReset()
                 end
             end
         end
 
+        -- Write back result string if modified.
+        -- FIXME-OPT: Could mark dirty state from the stb_textedit callbacks
         if not is_readonly then
             if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0 then
                 -- Apply when modified
@@ -5519,6 +5949,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         end
     end
 
+    -- Handle reapplying final data on deactivation (see InputTextDeactivateHook() for details)
+    -- This is used when e.g. losing focus or tabbing out into another InputText() which may already be using the temp buffer.
     if g.InputTextDeactivatedState.ID == id then
         -- The state only exists after an Edit. IsItemDeactivatedAfterEdit() is not valid in every code path (see "widgets_inputtext_status_noliveedit" test).
         if ((g.ActiveId ~= id and ImGui.IsItemDeactivated()) or (g.ActiveId == id and bit32.band(flags, ImGuiInputTextFlags.TempInput) ~= 0)) then
@@ -5532,6 +5964,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         g.InputTextDeactivatedState.ID = 0
     end
 
+    -- Write back result to user buffer. This can currently only happen when (g.ActiveId == id) or when just deactivated.
+    -- - As soon as the InputText() is active, our stored in-widget value gets priority over any underlying modification of the user buffer.
+    -- - Make sure we always reapply the live buffer back to the input/user buffer before clearing ActiveId, even thought strictly speaking
+    --   it was not modified on this frame. This allows the user to use InputText() without maintaining any user-side storage.
+    --   (PS: if you use this property together with ImGuiInputTextFlags.CallbackResize, you are at the risk of recreating a temporary
+    --    allocated/string object every frame. Which in the grand scheme of scheme is nothing, but isn't dear imgui vibe).
     if apply_new_text ~= nil then
         IM_ASSERT(apply_new_text_length >= 0)
         if is_resizable then
@@ -5553,7 +5991,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             apply_new_text_length = ImMin(callback_data.BufTextLen, buf_size - 1)
             IM_ASSERT(apply_new_text_length <= buf_size)
         end
+        -- IMGUI_DEBUG_PRINT("InputText(\"%s\"): apply_new_text length %d\n", label, apply_new_text_length);
 
+        -- If the underlying buffer resize was denied or not carried to the next frame, apply_new_text_length+1 may be >= buf_size.
         ImStd.ImStrncpy(buf, 1, apply_new_text, 1, ImMin(apply_new_text_length + 1, buf_size))
     end
 
@@ -5605,7 +6045,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         if render_cursor or render_selection or g.ActiveId == id then
             buf_display_end = state.TextLen + 1
         elseif is_multiline and not is_wordwrap then
-            buf_display_end = nil -- Inactive multi-line: end of buffer will be output by InputTextLineIndexBuild() special strchr() path
+            buf_display_end = nil -- Inactive multi-line: end of buffer will be output by InputTextLineIndexBuild() special strchr() path.
         else
             buf_display_end = ImStd.ImStrlen(buf_display) + 1
         end
@@ -5617,10 +6057,13 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
     end
 
+    -- Build line index for easy data access (makes code below simpler and faster)
     local line_index = g.InputTextLineIndex
     line_index.Offsets:resize(0)
     local line_count = 1
     if is_multiline then
+        -- If scrolling is expected to change build full index.
+        -- FIXME-OPT: Could append to index when new value of line_visible_n1 becomes bigger, see second call to CalcClipRectVisibleItemsY() below.
         local will_scroll_y = state and ((state.CursorFollow and render_cursor) or (state.CursorCenterY and (render_cursor or render_selection)))
         --- @cast buf_display_end int
         local out_buf_end
@@ -5632,19 +6075,32 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     line_index.EndOffset = buf_display_end - 1
     line_visible_n1 = ImMin(line_visible_n1, line_count + 1)
 
+    -- Store text height (we don't need width)
     local text_size_y = line_count * g.FontSize
+    -- ImGui.GetForegroundDrawList():AddRect(draw_pos + ImVec2(0, line_visible_n0 * g.FontSize), draw_pos + ImVec2(frame_size.x, line_visible_n1 * g.FontSize), IM_COL32(255, 0, 0, 255))
 
+    -- Calculate blinking cursor position
     --- @cast buf_display_end int
     local cursor_offset = (render_cursor and state) and InputTextLineIndexGetPosOffset(g, state, line_index, buf_display, buf_display_end, state.Stb.cursor) or ImVec2(0.0, 0.0)
     local draw_scroll = ImVec2()
 
+    -- Render text. We currently only render selection when the widget is active or while scrolling.
     local text_col = ImGui.GetColorU32(is_displaying_hint and ImGuiCol.TextDisabled or ImGuiCol.Text)
     if render_cursor or render_selection then
+        -- Render text (with cursor and selection)
+        -- This is going to be messy. We need to:
+        -- - Display the text (this alone can be more easily clipped)
+        -- - Handle scrolling, highlight selection, display cursor (those all requires some form of 1d->2d cursor position calculation)
+        -- - Measure text height (for scrollbar)
+        -- We are attempting to do most of that in **one main pass** to minimize the computation cost (non-negligible for large amount of text) + 2nd pass for selection rendering (we could merge them by an extra refactoring effort)
+        -- FIXME: This should occur on buf_display but we'd need to maintain cursor/select_start/select_end for UTF-8.
         IM_ASSERT(state ~= nil)
         state.LineCount = line_count
 
+        -- Scroll
         local new_scroll_y = scroll_y
         if render_cursor and state.CursorFollow then
+            -- Horizontal scroll in chunks of quarter width
             if bit32.band(flags, ImGuiInputTextFlags.NoHorizontalScroll) == 0 then
                 local scroll_increment_x = inner_size.x * 0.25
                 local visible_width = inner_size.x - style.FramePadding.x
@@ -5657,7 +6113,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 state.Scroll.x = 0.0
             end
 
+            -- Vertical scroll
             if is_multiline then
+                -- Test if cursor is vertically visible
                 if cursor_offset.y - g.FontSize < scroll_y then
                     new_scroll_y = ImMax(0.0, cursor_offset.y - g.FontSize)
                 elseif cursor_offset.y - (inner_size.y - style.FramePadding.y * 2.0) >= scroll_y then
@@ -5676,18 +6134,19 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         if new_scroll_y ~= scroll_y then
             local scroll_max_y = ImMax((text_size_y + style.FramePadding.y * 2.0) - inner_size.y, 0.0)
             scroll_y = ImClamp(new_scroll_y, 0.0, scroll_max_y)
-            draw_pos.y = draw_pos.y + (draw_window.Scroll.y - scroll_y)
+            draw_pos.y = draw_pos.y + (draw_window.Scroll.y - scroll_y) -- Manipulate cursor pos immediately avoid a frame of lag
             draw_window.Scroll.y = scroll_y
             line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
             line_visible_n1 = ImMin(line_visible_n1, line_count)
         end
 
+        -- Draw selection
         draw_scroll.x = state.Scroll.x
         if render_selection then
-            local bg_color = ImGui.GetColorU32(ImGuiCol.TextSelectedBg, render_cursor and 1.0 or 0.6)
-            local bg_offy_up = is_multiline and 0.0 or -1.0
+            local bg_color = ImGui.GetColorU32(ImGuiCol.TextSelectedBg, render_cursor and 1.0 or 0.6) -- FIXME: current code flow mandate that render_cursor is always true here, we are leaving the transparent one for tests.
+            local bg_offy_up = is_multiline and 0.0 or -1.0 -- FIXME-DPI: those offsets should be part of the style? they don't play so well with multi-line selection.
             local bg_offy_dn = is_multiline and 0.0 or 2.0
-            local bg_eol_width = IM_TRUNC(g.FontBaked:GetCharAdvance(32) * 0.50)
+            local bg_eol_width = IM_TRUNC(g.FontBaked:GetCharAdvance(32) * 0.50) -- So we can see selected empty lines
 
             local text_selected_begin = ImMin(state.Stb.select_start, state.Stb.select_end)
             local text_selected_end = ImMax(state.Stb.select_start, state.Stb.select_end)
@@ -5707,7 +6166,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                     rect_width = rect_width + ImGui.CalcTextSizeEx(buf_display, line_selected_begin, line_selected_end).x
                 end
                 if text_selected_begin <= p_eol and text_selected_end > p_eol and not p_eol_is_wrap then
-                    rect_width = rect_width + bg_eol_width
+                    rect_width = rect_width + bg_eol_width -- So we can see selected empty lines
                 end
                 if rect_width == 0.0 then
                     break
@@ -5727,10 +6186,13 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         end
     end
 
+    -- Find render position for right alignment (single-line only)
     if g.ActiveId ~= id and bit32.band(flags, ImGuiInputTextFlags.ElideLeft) ~= 0 and not render_cursor and not render_selection then
         draw_pos.x = ImMin(draw_pos.x, frame_bb.Max.x - ImGui.CalcTextSize(buf_display, nil).x - style.FramePadding.x)
     end
+    -- draw_scroll.x = state.Scroll.x -- Preserve scroll when inactive?
 
+    -- Render text
     if (is_multiline or (buf_display_end - 1) < buf_display_max_length) and bit32.band(text_col, IM_COL32_A_MASK) ~= 0 and line_visible_n0 < line_visible_n1 then
         g.Font:RenderText(draw_window.DrawList, g.FontSize,
         draw_pos - draw_scroll + ImVec2(0.0, (line_visible_n0 - 1) * g.FontSize),
@@ -5741,6 +6203,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         wrap_width, bit32.bor(ImDrawTextFlags.WrapKeepBlanks, ImDrawTextFlags.CpuFineClip))
     end
 
+    -- Render blinking cursor
     if render_cursor then
         state.CursorAnim = state.CursorAnim + io.DeltaTime
         local cursor_is_visible = (not g.IO.ConfigInputTextCursorBlink) or (state.CursorAnim <= 0.0) or (ImFmod(state.CursorAnim, 1.20) <= 0.80)
@@ -5752,8 +6215,11 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             draw_window.DrawList:AddLineV(cursor_screen_rect.Min.x, cursor_screen_rect.Min.y, cursor_screen_rect.Max.y, ImGui.GetColorU32(ImGuiCol.InputTextCursor), style.InputTextCursorSize)
         end
 
+        -- Notify OS of text input position for advanced IME (-1 x offset so that Windows IME can cover our cursor. Bit of an extra nicety.)
+        -- This is required for some backends (SDL3) to start emitting character/text inputs.
+        -- As per #6341, make sure we don't set that on the deactivating frame.
         if not is_readonly and g.ActiveId == id then
-            local ime_data = g.PlatformImeData
+            local ime_data = g.PlatformImeData -- (this is a public struct, passed to io.Platform_SetImeDataFn() handler)
             ime_data.WantVisible = true
             ime_data.WantTextInput = true
             ImVec2_Copy(ime_data.InputPos, ImVec2(cursor_screen_pos.x - 1.0, cursor_screen_pos.y - g.FontSize))
@@ -5812,13 +6278,23 @@ end
 function ImGui.InputTextWithHint(label, hint, buf, buf_size, flags, callback, user_data)
     if flags == nil then flags = 0 end
 
-    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0)
+    IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0) -- call InputTextMultiline() or  InputTextEx() manually if you need multi-line + hint.
     return ImGui.InputTextEx(label, hint, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
 end
 
-----------------------------------------------------------------
--- [SECTION] COLOR EDIT / PICKER
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: ColorEdit, ColorPicker, ColorButton, etc.
+-------------------------------------------------------------------------------
+-- - ColorEdit3()
+-- - ColorEdit4()
+-- - ColorPicker3()
+-- - RenderColorRectWithAlphaCheckerboard() [Internal]
+-- - ColorPicker4()
+-- - ColorButton()
+-- - ColorTooltip() [Internal]
+-- - ColorEditOptionsPopup() [Internal]
+-- - ColorPickerOptionsPopup() [Internal]
+-------------------------------------------------------------------------------
 
 --- @param col float[]
 --- @param H   float
@@ -5833,6 +6309,8 @@ local function ColorEditRestoreH(col, H)
     return H
 end
 
+-- ColorEdit supports RGB and HSV inputs. In case of RGB input resulting color may have undefined hue and/or saturation.
+-- Since widget displays both RGB and HSV values we must preserve hue and saturation to prevent these values resetting.
 --- @param col float[]
 --- @param H float
 --- @param S float
@@ -5874,6 +6352,9 @@ local fmt_table_float = {
     { "H:%0.3f", "S:%0.3f", "V:%0.3f", "A:%0.3f" }  -- Long display for HSVA
 }
 
+-- Edit colors components (each component in 0.0f..1.0f range).
+-- See enum ImGuiColorEditFlags_ for available options. e.g. Only access 3 floats if ImGuiColorEditFlags.NoAlpha flag is set.
+-- With typical options: Left-click on color square to open color picker. Right-click to open option menu. Ctrl+Click over input fields to edit them and TAB to go to next item.
 --- @param label string
 --- @param col   float[]
 --- @param flags ImGuiColorEditFlags
@@ -5975,6 +6456,7 @@ function ImGui.ColorEdit4(label, col, flags)
     window.DC.CursorPos.x = pos.x + inputs_offset_x
 
     if bit32.band(flags, bit32.bor(ImGuiColorEditFlags.DisplayRGB, ImGuiColorEditFlags.DisplayHSV)) ~= 0 and bit32.band(flags, ImGuiColorEditFlags.NoInputs) == 0 then
+        -- RGB/HSV 0..255 Sliders
         local w_items = w_inputs - style.ItemInnerSpacing.x * (components - 1)
         local w_per_component = IM_TRUNC(w_items / components)
         local draw_color_marker = bit32.band(flags, bit32.bor(ImGuiColorEditFlags.DisplayHSV, ImGuiColorEditFlags.NoColorMarkers)) == 0
@@ -6002,7 +6484,7 @@ function ImGui.ColorEdit4(label, col, flags)
                 ImGui.SetNextItemColorMarker(GDefaultRgbaColorMarkers[n])
             end
 
-            -- FIXME: When ImGuiColorEditFlags_HDR flag is passed HS values snap in weird ways when SV values go below 0
+            -- FIXME: When ImGuiColorEditFlags_HDR flag is passed HS values snap in weird ways when SV values go below 0.
             if bit32.band(flags, ImGuiColorEditFlags.Float) ~= 0 then
                 local changed
                 f[n], changed = ImGui.DragFloat(ids[n], f[n], 1.0 / 255.0, 0.0, hdr and 0.0 or 1.0, fmt_table_float[fmt_idx][n], drag_flags)
@@ -6040,15 +6522,15 @@ function ImGui.ColorEdit4(label, col, flags)
                 p = p + 1
             end
             i[1], i[2], i[3] = 0, 0, 0
-            i[4] = 0xFF
+            i[4] = 0xFF -- alpha default to 255 is not parsed by scanf (e.g. inputting #FFFFFF omitting alpha)
 
             local r
             if alpha then
-                r = ImStd.sscanf(buf, p, "%02X%02X%02X%02X", i)
+                r = ImStd.sscanf(buf, p, "%02X%02X%02X%02X", i) -- Treat at unsigned (%X is unsigned)
             else
                 r = ImStd.sscanf(buf, p, "%02X%02X%02X", i)
             end
-            -- IM_UNUSED(r)
+            -- IM_UNUSED(r) -- Fixes C6031: Return value ignored: 'sscanf'.
         end
 
         if bit32.band(flags, ImGuiColorEditFlags.NoOptions) == 0 then
@@ -6092,7 +6574,7 @@ function ImGui.ColorEdit4(label, col, flags)
 
     if label ~= "" and label_display_end > 1 and bit32.band(flags, ImGuiColorEditFlags.NoLabel) == 0 then
         -- Position not necessarily next to last submitted button (e.g. if style.ColorButtonPosition == ImGuiDir_Left),
-        -- but we need to use SameLine() to setup baseline correctly. Might want to refactor SameLine() to simplify this
+        -- but we need to use SameLine() to setup baseline correctly. Might want to refactor SameLine() to simplify this.
         ImGui.SameLine(0.0, style.ItemInnerSpacing.x)
         window.DC.CursorPos.x = pos.x + ((bit32.band(flags, ImGuiColorEditFlags.NoInputs) ~= 0) and w_button or (w_full + style.ItemInnerSpacing.x))
         ImGui.TextEx(label, label_display_end)
@@ -6133,7 +6615,7 @@ function ImGui.ColorEdit4(label, col, flags)
     -- Drag and Drop Target
     -- TODO:
 
-    -- When picker is being actively used, use its active id so IsItemActive() will function on ColorEdit4()
+    -- When picker is being actively used, use its active id so IsItemActive() will function on ColorEdit4().
     if picker_active_window and g.ActiveId ~= 0 and g.ActiveIdWindow == picker_active_window then
         g.LastItemData.ID = g.ActiveId
     end
@@ -6168,6 +6650,7 @@ function ImGui.ColorPicker3(label, col, flags)
     return true
 end
 
+-- This allowed passing 0 to set default, whereas NewFrame() will assert if one of missing. Abide to old logic.
 function ImGui.SetColorEditOptions(flags)
     local g = GImGui
     local def = ImGuiColorEditFlags.DefaultOptions_
@@ -6197,6 +6680,9 @@ do --[[ColorPicker4]]
 
 local backup_initial_col = {0, 0, 0, 0}
 
+-- Note: ColorPicker4() only accesses 3 floats if ImGuiColorEditFlags.NoAlpha flag is set.
+-- FIXME: we adjust the big color square height based on item width, which may cause a flickering feedback loop (if automatic height makes a vertical scrollbar appears, affecting automatic width..)
+-- FIXME: this is trying to be aware of style.Alpha but not fully correct. Also, the color wheel will have overlapping glitches with (style.Alpha < 1.0)
 --- @param label    string
 --- @param col      float[]
 --- @param flags    ImGuiColorEditFlags
@@ -6262,8 +6748,8 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
     local picker_pos = ImVec2()
     ImVec2_Copy(picker_pos, window.DC.CursorPos)
     local square_sz = ImGui.GetFrameHeight()
-    local bars_width = square_sz  -- Arbitrary smallish width of Hue/Alpha picking bars
-    local sv_picker_size = ImMax(bars_width * 1, width - (alpha_bar and 2 or 1) * (bars_width + style.ItemInnerSpacing.x))  -- Saturation/Value picking box
+    local bars_width = square_sz -- Arbitrary smallish width of Hue/Alpha picking bars
+    local sv_picker_size = ImMax(bars_width * 1, width - (alpha_bar and 2 or 1) * (bars_width + style.ItemInnerSpacing.x)) -- Saturation/Value picking box
     local bar0_pos_x = picker_pos.x + sv_picker_size + style.ItemInnerSpacing.x
     local bar1_pos_x = bar0_pos_x + bars_width + style.ItemInnerSpacing.x
     local bars_triangles_half_sz = IM_TRUNC(bars_width * 0.20)
@@ -6279,9 +6765,9 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
     local triangle_rotate = bit32.band(flags, ImGuiColorEditFlags.PickerNoRotate) == 0
     local triangle_r = wheel_r_inner - math.floor(sv_picker_size * 0.027)
     local triangle_pa, triangle_pb, triangle_pc
-    if triangle_rotate then triangle_pa = ImVec2(       triangle_r,                 0.0) else triangle_pa = ImVec2( triangle_r * 0.866, triangle_r * 0.5) end -- Hue point
-    if triangle_rotate then triangle_pb = ImVec2(triangle_r * -0.5, triangle_r * -0.866) else triangle_pb = ImVec2(                0.0,      -triangle_r) end -- Black point
-    if triangle_rotate then triangle_pc = ImVec2(triangle_r * -0.5, triangle_r *  0.866) else triangle_pc = ImVec2(triangle_r * -0.866, triangle_r * 0.5) end -- White point
+    if triangle_rotate then triangle_pa = ImVec2(       triangle_r,                 0.0) else triangle_pa = ImVec2( triangle_r * 0.866, triangle_r * 0.5) end -- Hue point.
+    if triangle_rotate then triangle_pb = ImVec2(triangle_r * -0.5, triangle_r * -0.866) else triangle_pb = ImVec2(                0.0,      -triangle_r) end -- Black point.
+    if triangle_rotate then triangle_pc = ImVec2(triangle_r * -0.5, triangle_r *  0.866) else triangle_pc = ImVec2(triangle_r * -0.866, triangle_r * 0.5) end -- White point.
 
     local H = col[1]; local S = col[2]; local V = col[3]
     local R = col[1]; local G = col[2]; local B = col[3]
@@ -6341,7 +6827,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
         if ImGui.IsItemActive() and not is_readonly then
             S = ImSaturate((io.MousePos.x - picker_pos.x) / ImMax(sv_picker_size - 1, 0.0001))
             V = 1.0 - ImSaturate((io.MousePos.y - picker_pos.y) / ImMax(sv_picker_size - 1, 0.0001))
-            H = ColorEditRestoreH(col, H)  -- Greatly reduces hue jitter and reset to 0 when hue == 255 and color is rapidly modified using SV square.
+            H = ColorEditRestoreH(col, H) -- Greatly reduces hue jitter and reset to 0 when hue == 255 and color is rapidly modified using SV square.
             value_changed = true
             value_changed_sv = true
         end
@@ -6369,7 +6855,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
             value_changed = true
         end
     end
-    ImGui.PopItemFlag()
+    ImGui.PopItemFlag() -- ImGuiItemFlags.NoNav
 
     if bit32.band(flags, ImGuiColorEditFlags.NoSidePreview) == 0 then
         ImGui.SameLine(0, style.ItemInnerSpacing.x)
@@ -6559,8 +7045,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
         draw_list:AddRectFilledMultiColor(picker_pos, picker_pos + ImVec2(sv_picker_size, sv_picker_size), 0, 0, col_black, col_black)
         ImGui.RenderFrameBorder(picker_pos, picker_pos + ImVec2(sv_picker_size, sv_picker_size), 0.0)
 
-        -- Sneakily prevent the circle to stick out too much
-        sv_cursor_pos.x = ImClamp(IM_ROUND(picker_pos.x + ImSaturate(S) * sv_picker_size), picker_pos.x + 2, picker_pos.x + sv_picker_size - 2)
+        sv_cursor_pos.x = ImClamp(IM_ROUND(picker_pos.x + ImSaturate(S) * sv_picker_size), picker_pos.x + 2, picker_pos.x + sv_picker_size - 2) -- Sneakily prevent the circle to stick out too much
         sv_cursor_pos.y = ImClamp(IM_ROUND(picker_pos.y + ImSaturate(1 - V) * sv_picker_size), picker_pos.y + 2, picker_pos.y + sv_picker_size - 2)
 
         -- Render Hue Bar
@@ -6575,7 +7060,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
 
     -- Render cursor/preview circle (clamp S/V within 0..1 range because floating points colors may lead HSV values to be out of range)
     local sv_cursor_rad = value_changed_sv and (wheel_thickness * 0.55) or (wheel_thickness * 0.40)
-    local sv_cursor_segments = draw_list:_CalcCircleAutoSegmentCount(sv_cursor_rad)  -- Lock segment count so the +1 one matches others.
+    local sv_cursor_segments = draw_list:_CalcCircleAutoSegmentCount(sv_cursor_rad) -- Lock segment count so the +1 one matches others.
     draw_list:AddCircleFilled(sv_cursor_pos, sv_cursor_rad, user_col32_striped_of_alpha, sv_cursor_segments)
     draw_list:AddCircle(sv_cursor_pos, sv_cursor_rad + 1, col_midgrey, sv_cursor_segments)
     draw_list:AddCircle(sv_cursor_pos, sv_cursor_rad, col_white, sv_cursor_segments)
@@ -6620,6 +7105,10 @@ end
 
 end
 
+-- A little color square. Return true when clicked.
+-- FIXME: May want to display/ignore the alpha component in the color display? Yet show it in the tooltip.
+-- 'desc_id' is not called 'label' because we don't display it next to the button, but only in the tooltip.
+-- Note that 'col' may be encoded in HSV if ImGuiColorEditFlags.InputHSV is set.
 --- @param desc_id   string
 --- @param col       ImVec4
 --- @param flags?    ImGuiColorEditFlags
@@ -6674,6 +7163,7 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
         end
         window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, ImDrawFlags.RoundCornersLeft)
     else
+        -- Because GetColorU32() multiplies by the global style Alpha and we don't want to display a checkerboard if the source code had no alpha
         local col_source = (bit32.band(flags, ImGuiColorEditFlags.AlphaOpaque) ~= 0) and col_rgb_without_alpha or col_rgb
         if col_source.w < 1.0 and bit32.band(flags, ImGuiColorEditFlags.AlphaNoBg) == 0 then
             ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, bb_inner.Min, bb_inner.Max, ImGui.GetColorU32(col_source), grid_step, ImVec2(off, off), rounding)
@@ -6686,7 +7176,7 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
         if g.Style.FrameBorderSize > 0.0 then
             ImGui.RenderFrameBorder(bb.Min, bb.Max, rounding)
         else
-            window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), rounding)
+            window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), rounding) -- Color buttons are often in need of some sort of border
         end
     end
 
@@ -6712,6 +7202,7 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
     return pressed
 end
 
+-- Note: only access 3 floats if ImGuiColorEditFlags.NoAlpha flag is set.
 --- @param text? string
 --- @param col   ImVec4
 --- @param flags ImGuiColorEditFlags
@@ -6849,6 +7340,7 @@ function ImGui.ColorPickerOptionsPopup(ref_col, flags)
         local picker_size = ImVec2(g.FontSize * 8, ImMax(g.FontSize * 8 - (ImGui.GetFrameHeight() + g.Style.ItemInnerSpacing.x), 1.0)) -- FIXME: Picker size copied from main picker function
         ImGui.PushItemWidth(picker_size.x)
         for picker_type = 0, 1 do
+            -- Draw small/thumbnail version of each picker type (over an invisible button for selection)
             if picker_type > 0 then
                 ImGui.Separator()
             end
@@ -6861,8 +7353,7 @@ function ImGui.ColorPickerOptionsPopup(ref_col, flags)
                 picker_flags = bit32.bor(picker_flags, ImGuiColorEditFlags.PickerHueWheel)
             end
             local backup_pos = ImGui.GetCursorScreenPos()
-            -- By default, Selectable() is closing popup
-            if ImGui.Selectable("##selectable", false, 0, picker_size) then
+            if ImGui.Selectable("##selectable", false, 0, picker_size) then -- By default, Selectable() is closing popup
                 g.IO.ConfigColorEditFlags = bit32.bor(bit32.band(g.IO.ConfigColorEditFlags, bit32.bnot(ImGuiColorEditFlags.PickerMask_)), bit32.band(picker_flags, ImGuiColorEditFlags.PickerMask_))
             end
             ImGui.SetCursorScreenPos(backup_pos)
@@ -6885,9 +7376,21 @@ function ImGui.ColorPickerOptionsPopup(ref_col, flags)
     ImGui.EndPopup()
 end
 
-----------------------------------------------------------------
--- [SECTION] TREES
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: TreeNode, CollapsingHeader, etc.
+-------------------------------------------------------------------------------
+-- - TreeNode()
+-- - TreeNodeV()
+-- - TreeNodeEx()
+-- - TreeNodeExV()
+-- - TreeNodeStoreStackData() [Internal]
+-- - TreeNodeBehavior() [Internal]
+-- - TreePush()
+-- - TreePop()
+-- - GetTreeNodeToLabelSpacing()
+-- - SetNextItemOpen()
+-- - CollapsingHeader()
+-------------------------------------------------------------------------------
 
 -- va_list variants: identical in Lua (varargs)
 ImGui.TextColoredV = function(...) return ImGui.TextColored(...) end
@@ -6951,6 +7454,8 @@ function ImGui.TreeNodeExV(str_id, flags, fmt, ...)
     return ImGui.TreeNodeBehavior(id, flags, label, #label + 1)
 end
 
+-- The reason those two functions are not yet in public API is because I would like to design a more feature-full and generic API for this.
+-- They are otherwise function (cc: #3823, #9251, #7553, #6754, #5423, #2958, #2079, #1947, #1131, #722)
 --- @param storage_id ImGuiID
 function ImGui.TreeNodeGetOpen(storage_id)
     local g = GImGui
@@ -6969,10 +7474,12 @@ end
 --- @param storage_id ImGuiID
 --- @param flags      ImGuiTreeNodeFlags
 function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
+    -- Leaf node always open a new tree/id scope. If you never use it, add ImGuiTreeNodeFlags.NoTreePushOnOpen.
     if bit32.band(flags, ImGuiTreeNodeFlags.Leaf) ~= 0 then
         return true
     end
 
+    -- We only write to the tree storage if the user clicks, or explicitly use the SetNextItemOpen function
     local g = GImGui
     local window = g.CurrentWindow
     local storage = window.DC.StateStorage
@@ -6983,6 +7490,7 @@ function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
             is_open = g.NextItemData.OpenVal
             ImGui.TreeNodeSetOpen(storage_id, is_open)
         else
+            -- We treat ImGuiCond.Once and ImGuiCond.FirstUseEver the same because tree node state are not saved persistently.
             local stored_value = storage[storage_id]
             if stored_value == nil then
                 is_open = g.NextItemData.OpenVal
@@ -6995,6 +7503,8 @@ function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
         is_open = (storage[storage_id] == nil) and (bit32.band(flags, ImGuiTreeNodeFlags.DefaultOpen) ~= 0) or storage[storage_id]
     end
 
+    -- When logging is enabled, we automatically expand tree nodes (but *NOT* collapsing headers.. seems like sensible behavior).
+    -- NB- If we are above max depth we still allow manually opened nodes to be logged.
     if g.LogEnabled and bit32.band(flags, ImGuiTreeNodeFlags.NoAutoOpenOnLog) == 0 and (window.DC.TreeDepth - g.LogDepthRef) < g.LogDepthToExpand then
         is_open = true
     end
@@ -7002,6 +7512,8 @@ function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
     return is_open
 end
 
+-- Store ImGuiTreeNodeStackData for just submitted node.
+-- Currently only supports 32 level deep. Easy to increase to e.g. 64.
 --- @param flags ImGuiTreeNodeFlags
 --- @param x1    float
 local function TreeNodeStoreStackData(flags, x1)
@@ -7015,6 +7527,7 @@ local function TreeNodeStoreStackData(flags, x1)
     tree_node_data.ItemFlags = g.LastItemData.ItemFlags
     ImRect_Copy(tree_node_data.NavRect, g.LastItemData.NavRect)
 
+    -- Initially I tried to latch value for GetColorU32(ImGuiCol.TreeLines) but it's not a good trade-off for very large trees.
     local draw_lines = bit32.band(flags, bit32.bor(ImGuiTreeNodeFlags.DrawLinesFull, ImGuiTreeNodeFlags.DrawLinesToNodes)) ~= 0
     tree_node_data.DrawLinesX1 = draw_lines and (x1 + g.FontSize * 0.5 + g.Style.FramePadding.x) or FLT_MAX
     tree_node_data.DrawLinesTableColumn = (draw_lines and g.CurrentTable) and g.CurrentTable.CurrentColumn or -1
@@ -7039,6 +7552,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local g = GImGui
     local style = g.Style
 
+    -- When not framed, we vertically increase height up to typical framed widget height
     local display_frame = bit32.band(flags, ImGuiTreeNodeFlags.Framed) ~= 0
     local use_frame_padding = display_frame or (bit32.band(flags, ImGuiTreeNodeFlags.FramePadding) ~= 0)
     local padding
@@ -7053,9 +7567,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     end
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
-    local text_offset_x = g.FontSize + (display_frame and (padding.x * 3) or (padding.x * 2))
-    local text_offset_y = use_frame_padding and ImMax(style.FramePadding.y, window.DC.CurrLineTextBaseOffset) or window.DC.CurrLineTextBaseOffset
-    local text_width = g.FontSize + label_size.x + padding.x * 2
+    local text_offset_x = g.FontSize + (display_frame and (padding.x * 3) or (padding.x * 2)) -- Collapsing arrow width + Spacing
+    local text_offset_y = use_frame_padding and ImMax(style.FramePadding.y, window.DC.CurrLineTextBaseOffset) or window.DC.CurrLineTextBaseOffset -- Latch before ItemSize changes it
+    local text_width = g.FontSize + label_size.x + padding.x * 2 -- Include collapsing arrow
 
     local frame_height = label_size.y + padding.y * 2
     local span_all_columns = bit32.band(flags, ImGuiTreeNodeFlags.SpanAllColumns) ~= 0 and (g.CurrentTable ~= nil)
@@ -7066,7 +7580,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     frame_bb.Max.x = span_all_columns and window.ParentWorkRect.Max.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanLabelWidth) ~= 0 and window.DC.CursorPos.x + text_width + padding.x or window.WorkRect.Max.x)
     frame_bb.Max.y = window.DC.CursorPos.y + (text_offset_y - padding.y) + frame_height
     if display_frame then
-        local outer_extend = IM_TRUNC(window.WindowPadding.x * 0.5)
+        local outer_extend = IM_TRUNC(window.WindowPadding.x * 0.5) -- Framed header expand a little outside of current limits
         frame_bb.Min.x = frame_bb.Min.x - outer_extend
         frame_bb.Max.x = frame_bb.Max.x + outer_extend
     end
@@ -7074,17 +7588,20 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local text_pos = ImVec2(window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y)
     ImGui.ItemSize(ImVec2(text_width, frame_height), padding.y)
 
+    -- For regular tree nodes, we arbitrary allow to click past 2 worth of ItemSpacing
     local interact_bb = ImRect()
     ImRect_Copy(interact_bb, frame_bb)
     if bit32.band(flags, bit32.bor(ImGuiTreeNodeFlags.Framed, ImGuiTreeNodeFlags.SpanAvailWidth, ImGuiTreeNodeFlags.SpanFullWidth, ImGuiTreeNodeFlags.SpanLabelWidth, ImGuiTreeNodeFlags.SpanAllColumns)) == 0 then
         interact_bb.Max.x = frame_bb.Min.x + text_width + (label_size.x > 0.0 and (style.ItemSpacing.x * 2.0) or 0.0)
     end
 
+    -- Compute open and multi-select states before ItemAdd() as it clear NextItem data.
     local storage_id = (bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasStorageID) ~= 0) and g.NextItemData.StorageId or id
     local is_open = ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
 
     local is_visible
     if span_all_columns or span_all_columns_label then
+        -- Modify ClipRect for the ItemAdd(), faster than doing a PushColumnsBackground/PushTableBackgroundChannel for every Selectable..
         local backup_clip_rect_min_x = window.ClipRect.Min.x
         local backup_clip_rect_max_x = window.ClipRect.Max.x
         window.ClipRect.Min.x = window.ParentWorkRect.Min.x
@@ -7098,6 +7615,10 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HasDisplayRect)
     ImRect_Copy(g.LastItemData.DisplayRect, frame_bb)
 
+    -- If a NavLeft request is happening and ImGuiTreeNodeFlags.NavLeftJumpsToParent enabled:
+    -- Store data for the current depth to allow returning to this node from any child item.
+    -- For this purpose we essentially compare if g.NavIdIsAlive went from 0 to 1 between TreeNode() and TreePop().
+    -- It will become tempting to enable ImGuiTreeNodeFlags.NavLeftJumpsToParent by default or move it to ImGuiStyle.
     local store_tree_node_stack_data = false
     if bit32.band(flags, ImGuiTreeNodeFlags.DrawLinesMask_) == 0 then
         flags = bit32.bor(flags, g.Style.TreeLinesFlags)
@@ -7116,13 +7637,13 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     if not is_visible then
         if bit32.band(flags, ImGuiTreeNodeFlags.DrawLinesToNodes) ~= 0 and bit32.band(window.DC.TreeRecordsClippedNodesY2Mask, bit32.lshift(1, (window.DC.TreeDepth - 1))) ~= 0 then
             local parent_data = g.TreeNodeStack.Data[g.TreeNodeStack.Size]
-            parent_data.DrawLinesToNodesY2 = ImMax(parent_data.DrawLinesToNodesY2, window.DC.CursorPos.y)
+            parent_data.DrawLinesToNodesY2 = ImMax(parent_data.DrawLinesToNodesY2, window.DC.CursorPos.y) -- Don't need to aim to mid Y position as we are clipped anyway.
             if frame_bb.Min.y >= window.ClipRect.Max.y then
-                window.DC.TreeRecordsClippedNodesY2Mask = bit32.band(window.DC.TreeRecordsClippedNodesY2Mask, bit32.bnot(bit32.lshift(1, (window.DC.TreeDepth - 1))))
+                window.DC.TreeRecordsClippedNodesY2Mask = bit32.band(window.DC.TreeRecordsClippedNodesY2Mask, bit32.bnot(bit32.lshift(1, (window.DC.TreeDepth - 1)))) -- Done
             end
         end
         if is_open and store_tree_node_stack_data then
-            TreeNodeStoreStackData(flags, text_pos.x - text_offset_x)
+            TreeNodeStoreStackData(flags, text_pos.x - text_offset_x) -- Call before TreePushOverrideID()
         end
         if is_open and bit32.band(flags, ImGuiTreeNodeFlags.NoTreePushOnOpen) == 0 then
             ImGui.TreePushOverrideID(id)
@@ -7145,15 +7666,27 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnDragDropHold)
     end
 
+    -- We allow clicking on the arrow section with keyboard modifiers held, in order to easily
+    -- allow browsing a tree while preserving selection with code implementing multi-selection patterns.
+    -- When clicking on the rest of the tree node we always disallow keyboard modifiers.
     local arrow_hit_x1 = (text_pos.x - text_offset_x) - style.TouchExtraPadding.x
     local arrow_hit_x2 = (text_pos.x - text_offset_x) + (g.FontSize + padding.x * 2.0) + style.TouchExtraPadding.x
     local is_mouse_x_over_arrow = (g.IO.MousePos.x >= arrow_hit_x1 and g.IO.MousePos.x < arrow_hit_x2)
 
     local is_multi_select = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0
-    if is_multi_select then
+    if is_multi_select then -- We absolutely need to distinguish open vs select so _OpenOnArrow comes by default
         flags = bit32.bor(flags, (bit32.band(flags, ImGuiTreeNodeFlags.OpenOnMask_) == 0) and bit32.bor(ImGuiTreeNodeFlags.OpenOnArrow, ImGuiTreeNodeFlags.OpenOnDoubleClick) or ImGuiTreeNodeFlags.OpenOnArrow)
     end
 
+    -- Open behaviors can be altered with the _OpenOnArrow and _OnOnDoubleClick flags.
+    -- Some alteration have subtle effects (e.g. toggle on MouseUp vs MouseDown events) due to requirements for multi-selection and drag and drop support.
+    -- - Single-click on label = Toggle on MouseUp (default, when _OpenOnArrow=0)
+    -- - Single-click on arrow = Toggle on MouseDown (when _OpenOnArrow=0)
+    -- - Single-click on arrow = Toggle on MouseDown (when _OpenOnArrow=1)
+    -- - Double-click on label = Toggle on MouseDoubleClick (when _OpenOnDoubleClick=1)
+    -- - Double-click on arrow = Toggle on MouseDoubleClick (when _OpenOnDoubleClick=1 and _OpenOnArrow=0)
+    -- It is rather standard that arrow click react on Down rather than Up.
+    -- We set ImGuiButtonFlags.PressedOnClickRelease on OpenOnDoubleClick because we want the item to be active on the initial MouseDown in order for drag and drop to work.
     if is_mouse_x_over_arrow then
         button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnClick)
     elseif bit32.band(flags, ImGuiTreeNodeFlags.OpenOnDoubleClick) ~= 0 then
@@ -7168,7 +7701,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local selected = bit32.band(flags, ImGuiTreeNodeFlags.Selected) ~= 0
     local was_selected = selected
 
+    -- Multi-selection support (header)
     if is_multi_select then
+        -- Handle multi-select + alter button flags for it
         selected, button_flags = ImGui.MultiSelectItemHeader(id, selected, button_flags)
         if is_mouse_x_over_arrow then
             button_flags = bit32.band(bit32.bor(button_flags, ImGuiButtonFlags.PressedOnClick), bit32.bnot(ImGuiButtonFlags.PressedOnClickRelease))
@@ -7184,20 +7719,20 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     if not is_leaf then
         if pressed and g.DragDropHoldJustPressedId ~= id then
             if bit32.band(flags, ImGuiTreeNodeFlags.OpenOnMask_) == 0 or (g.NavActivateId == id and not is_multi_select) then
-                toggled = true
+                toggled = true -- Single click
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.OpenOnArrow) ~= 0 then
-                toggled = toggled or (is_mouse_x_over_arrow and not g.NavHighlightItemUnderNav)
+                toggled = toggled or (is_mouse_x_over_arrow and not g.NavHighlightItemUnderNav) -- Lightweight equivalent of IsMouseHoveringRect() since ButtonBehavior() already did the job
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.OpenOnDoubleClick) ~= 0 and g.IO.MouseClickedCount[0] == 2 then
-                toggled = true
+                toggled = true -- Double click
             end
         elseif pressed and g.DragDropHoldJustPressedId == id then
             IM_ASSERT(bit32.band(button_flags, ImGuiButtonFlags.PressedOnDragDropHold) ~= 0)
-            if not is_open then
+            if not is_open then -- When using Drag and Drop "hold to open" we keep the node highlighted after opening, but never close it again.
                 toggled = true
             else
-                pressed = false
+                pressed = false -- Cancel press so it doesn't trigger selection.
             end
         end
 
@@ -7206,7 +7741,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             ImGui.NavClearPreferredPosForAxis(ImGuiAxis.X)
             ImGui.NavMoveRequestCancel()
         end
-        if g.NavId == id and g.NavMoveDir == ImGuiDir.Right and not is_open then
+        if g.NavId == id and g.NavMoveDir == ImGuiDir.Right and not is_open then -- If there's something upcoming on the line we may want to give it the priority?
             toggled = true
             ImGui.NavClearPreferredPosForAxis(ImGuiAxis.X)
             ImGui.NavMoveRequestCancel()
@@ -7219,6 +7754,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         end
     end
 
+    -- Multi-selection support (footer)
     if is_multi_select then
         local pressed_copy = pressed and not toggled
         selected, pressed_copy = ImGui.MultiSelectItemFooter(id, selected, pressed_copy)
@@ -7236,9 +7772,10 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         local text_col = ImGui.GetColorU32(ImGuiCol.Text)
         local nav_render_cursor_flags = ImGuiNavRenderCursorFlags.Compact
         if is_multi_select then
-            nav_render_cursor_flags = bit32.bor(nav_render_cursor_flags, ImGuiNavRenderCursorFlags.AlwaysDraw)
+            nav_render_cursor_flags = bit32.bor(nav_render_cursor_flags, ImGuiNavRenderCursorFlags.AlwaysDraw) -- Always show the nav rectangle
         end
         if display_frame then
+            -- Framed type
             local bg_col = ImGui.GetColorU32((held and hovered) and ImGuiCol.HeaderActive or (hovered and ImGuiCol.HeaderHovered or ImGuiCol.Header))
             ImGui.RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, true, style.FrameRounding)
             ImGui.RenderNavCursor(frame_bb, id, nav_render_cursor_flags)
@@ -7249,7 +7786,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
                 ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
                 ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding.x, text_pos.y), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 1.0)
-            else
+            else -- Leaf without bullet, left-adjusted text
                 text_pos.x = text_pos.x - (text_offset_x - padding.x)
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.ClipLabelForTrailingButton) ~= 0 then
@@ -7259,6 +7796,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             --     ImGui.LogSetNextTextDecoration("###", "###")
             -- end
         else
+            -- Unframed typed for tree nodes
             if hovered or selected then
                 local bg_col = ImGui.GetColorU32((held and hovered) and ImGuiCol.HeaderActive or (hovered and ImGuiCol.HeaderHovered or ImGuiCol.Header))
                 ImGui.RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, false, 0.0)
@@ -7281,6 +7819,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             ImGui.TreeNodeDrawLineToChildNode(ImVec2(text_pos.x - text_offset_x + padding.x, text_pos.y + g.FontSize * 0.5))
         end
 
+        -- Label
         if display_frame then
             ImGui.RenderTextClipped(text_pos, frame_bb.Max, label, label_end, label_size)
         else
@@ -7293,16 +7832,18 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     end
 
     if is_open and store_tree_node_stack_data then
-        TreeNodeStoreStackData(flags, text_pos.x - text_offset_x)
+        TreeNodeStoreStackData(flags, text_pos.x - text_offset_x) -- Call before TreePushOverrideID()
     end
     if is_open and bit32.band(flags, ImGuiTreeNodeFlags.NoTreePushOnOpen) == 0 then
-        ImGui.TreePushOverrideID(id)
+        ImGui.TreePushOverrideID(id) -- Could use TreePush(label) but this avoid computing twice
     end
 
     -- IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | (is_leaf ? 0 : ImGuiItemStatusFlags_Openable) | (is_open ? ImGuiItemStatusFlags_Opened : 0));
     return is_open
 end
 
+-- Draw horizontal line from our parent node
+-- This is only called for visible child nodes so we are not too fussy anymore about performances
 --- @param target_pos ImVec2
 function ImGui.TreeNodeDrawLineToChildNode(target_pos)
     local g = GImGui
@@ -7311,6 +7852,7 @@ function ImGui.TreeNodeDrawLineToChildNode(target_pos)
         return
     end
 
+    -- FIXME: Could this be simplified using new stroke flags?
     local parent_data = g.TreeNodeStack.Data[g.TreeNodeStack.Size]
     local x1 = ImTrunc(parent_data.DrawLinesX1)
     local x2 = ImTrunc(target_pos.x - g.Style.ItemInnerSpacing.x)
@@ -7332,6 +7874,7 @@ function ImGui.TreeNodeDrawLineToChildNode(target_pos)
     end
 end
 
+-- Draw vertical line of the hierarchy
 --- @param data ImGuiTreeNodeStackData
 function ImGui.TreeNodeDrawLineToTreePop(data)
     local g = GImGui
@@ -7344,7 +7887,7 @@ function ImGui.TreeNodeDrawLineToTreePop(data)
             y2_full = ImMax(g.CurrentTable.RowPosY2, y2_full)
         end
         y2_full = ImTrunc(y2_full - g.Style.ItemSpacing.y - g.FontSize * 0.5)
-        if y2 + (g.Style.ItemSpacing.y + g.Style.TreeLinesRounding) < y2_full then
+        if y2 + (g.Style.ItemSpacing.y + g.Style.TreeLinesRounding) < y2_full then -- FIXME: threshold to use ToNodes Y2 instead of Full Y2 when close by ItemSpacing.y
             y2 = y2_full
         end
     end
@@ -7352,10 +7895,12 @@ function ImGui.TreeNodeDrawLineToTreePop(data)
     if y2 <= y1 then
         return
     end
-    local x = ImTrunc(data.DrawLinesX1 - g.Style.TreeLinesSize * 0.5) + g.Style.TreeLinesSize * 0.5
+    local x = ImTrunc(data.DrawLinesX1 - g.Style.TreeLinesSize * 0.5) + g.Style.TreeLinesSize * 0.5 -- Draw line centered at X1, but snap to pixels boundary.
     if data.DrawLinesTableColumn ~= -1 then
         ImGui.TablePushColumnChannel(data.DrawLinesTableColumn)
     end
+
+    -- We use AddLine() instead of AddLineV() as we provide coordinates for line center (FIXME-OPT)
     window.DrawList:AddLine(ImVec2(x, y1), ImVec2(x, y2), ImGui.GetColorU32(ImGuiCol.TreeLines), g.Style.TreeLinesSize)
     if data.DrawLinesTableColumn ~= -1 then
         ImGui.TablePopColumnChannel()
@@ -7391,12 +7936,14 @@ function ImGui.TreePop()
         local data = g.TreeNodeStack.Data[g.TreeNodeStack.Size]
         IM_ASSERT(data.ID == window.IDStack:back())
 
+        -- Handle Left arrow to move to parent tree node (when ImGuiTreeNodeFlags.NavLeftJumpsToParent is enabled)
         if bit32.band(data.TreeFlags, ImGuiTreeNodeFlags.NavLeftJumpsToParent) ~= 0 then
             if g.NavIdIsAlive and g.NavMoveDir == ImGuiDir.Left and g.NavWindow == window and ImGui.NavMoveRequestButNoResultYet() then
                 ImGui.NavMoveRequestResolveWithPastTreeNode(g.NavMoveResultLocal, data)
             end
         end
 
+        -- Draw hierarchy lines
         if data.DrawLinesX1 ~= FLT_MAX and window.DC.CursorPos.y >= window.ClipRect.Min.y then
             ImGui.TreeNodeDrawLineToTreePop(data)
         end
@@ -7406,10 +7953,11 @@ function ImGui.TreePop()
         window.DC.TreeRecordsClippedNodesY2Mask = bit32.band(window.DC.TreeRecordsClippedNodesY2Mask, bit32.bnot(tree_depth_mask))
     end
 
-    IM_ASSERT(window.IDStack.Size > 1)
+    IM_ASSERT(window.IDStack.Size > 1) -- There should always be 1 element in the IDStack (pushed during window creation). If this triggers you called TreePop/PopID too much.
     ImGui.PopID()
 end
 
+-- Set next TreeNode/CollapsingHeader open state.
 --- @param is_open bool
 --- @param cond?   ImGuiCond
 function ImGui.SetNextItemOpen(is_open, cond)
@@ -7430,6 +7978,7 @@ function ImGui.GetTreeNodeToLabelSpacing()
     return g.FontSize + (g.Style.FramePadding.x * 2.0)
 end
 
+-- Set next TreeNode/CollapsingHeader storage id.
 --- @param storage_id ImGuiID
 function ImGui.SetNextItemStorageID(storage_id)
     local g = GImGui
@@ -7440,8 +7989,14 @@ function ImGui.SetNextItemStorageID(storage_id)
     g.NextItemData.StorageId = storage_id
 end
 
+-- CollapsingHeader returns true when opened but do not indent nor push into the ID stack (because of the ImGuiTreeNodeFlags.NoTreePushOnOpen flag).
+-- This is basically the same as calling TreeNodeEx(label, ImGuiTreeNodeFlags.CollapsingHeader). You can remove the _NoTreePushOnOpen flag if you want behavior closer to normal TreeNode().
 -- Overloads: CollapsingHeader(label, flags?) -> is_open
 --            CollapsingHeader(label, p_visible: bool, flags?) -> is_open, p_visible
+-- p_visible == nil   : regular collapsing header
+-- p_visible == true  : show a small close button on the corner of the header, clicking the button will set p_visible = false (returned as 2nd value)
+-- p_visible == false : do not show the header at all
+-- Do not mistake this with the Open state of the header itself, which you can adjust with SetNextItemOpen() or ImGuiTreeNodeFlags.DefaultOpen.
 --- @param label  string
 @native
 function ImGui.CollapsingHeader(label, a, b)
@@ -7466,6 +8021,8 @@ function ImGui.CollapsingHeader(label, a, b)
     local is_open = ImGui.TreeNodeBehavior(id, flags, label)
     if p_visible ~= nil then
         -- Create a small overlapping close button
+        -- FIXME: We can evolve this into user accessible helpers to add extra buttons on title bars, headers, etc.
+        -- FIXME: CloseButton can overlap into text, need find a way to clip the text somehow.
         local g = GImGui
         local last_item_backup = ImGuiLastItemData()
         ImGuiLastItemData_Copy(last_item_backup, g.LastItemData)
@@ -7482,15 +8039,15 @@ function ImGui.CollapsingHeader(label, a, b)
     return is_open, p_visible
 end
 
-----------------------------------------------------------------
--- [SECTION] SELECTABLE
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Selectable
+-------------------------------------------------------------------------------
 -- - Selectable()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 -- Tip: pass a non-visible label (e.g. "##hello") then you can use the space to draw other text or image.
 -- But you need to make sure the ID is unique, e.g. enclose calls in PushID/PopID or use ##unique_id.
--- With this scheme, ImGuiSelectableFlags_SpanAllColumns and ImGuiSelectableFlags_AllowOverlap are also frequently used flags.
+-- With this scheme, ImGuiSelectableFlags.SpanAllColumns and ImGuiSelectableFlags.AllowOverlap are also frequently used flags.
 -- FIXME: Selectable() with (size.x == 0.0f) and (SelectableTextAlign.x > 0.0f) followed by SameLine() is currently not supported.
 --- @param label     string
 --- @param selected? bool
@@ -7512,6 +8069,7 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     local g = GImGui
     local style = g.Style
 
+    -- Submit label or explicit size to ItemSize(), whereas ItemAdd() will submit a larger/spanning rectangle.
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
@@ -7546,6 +8104,7 @@ function ImGui.Selectable(label, selected, flags, size_arg)
         bb.Max.x = bb.Max.x + (spacing_x - spacing_L)
         bb.Max.y = bb.Max.y + (spacing_y - spacing_U)
     end
+    -- if g.IO.KeyCtrl then ImGui.GetForegroundDrawList():AddRect(bb.Min, bb.Max, IM_COL32(0, 255, 0, 255)) end
 
     local disabled_item = bit32.band(flags, ImGuiSelectableFlags.Disabled) ~= 0
     local extra_item_flags = disabled_item and ImGuiItemFlags.Disabled or ImGuiItemFlags.None
@@ -7570,16 +8129,14 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     local is_multi_select = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0
 
     if not is_visible then
-        if not is_multi_select or not g.BoxSelectState.UnclipMode or not g.BoxSelectState.UnclipRect:Overlaps(bb) then
-            -- Extra layer of "no logic clip" for box-select support (would be more overhead to add to ItemAdd)
+        if not is_multi_select or not g.BoxSelectState.UnclipMode or not g.BoxSelectState.UnclipRect:Overlaps(bb) then -- Extra layer of "no logic clip" for box-select support (would be more overhead to add to ItemAdd)
             return false, selected
         end
     end
 
     local disabled_global = bit32.band(g.CurrentItemFlags, ImGuiItemFlags.Disabled) ~= 0
 
-    if disabled_item and not disabled_global then
-        -- Only testing this as an optimization
+    if disabled_item and not disabled_global then -- Only testing this as an optimization
         ImGui.BeginDisabled()
     end
 
@@ -7638,7 +8195,7 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     -- Update NavId when clicking or when Hovering (this doesn't happen on most widgets), so navigation can be resumed with keyboard/gamepad
     if pressed or (hovered and bit32.band(flags, ImGuiSelectableFlags.SetNavIdOnHover) ~= 0) then
         if not g.NavHighlightItemUnderNav and g.NavWindow == window and g.NavLayer == window.DC.NavLayerCurrent then
-            ImGui.SetNavID(id, window.DC.NavLayerCurrent, g.CurrentFocusScopeId, ImGui.WindowRectAbsToRel(window, bb))  -- (bb == NavRect)
+            ImGui.SetNavID(id, window.DC.NavLayerCurrent, g.CurrentFocusScopeId, ImGui.WindowRectAbsToRel(window, bb)) -- (bb == NavRect)
             if g.IO.ConfigNavCursorVisibleAuto then
                 g.NavCursorVisible = false
             end
@@ -7704,15 +8261,25 @@ function ImGui.Selectable(label, selected, flags, size_arg)
         ImGui.EndDisabled()
     end
 
-    -- Users of BeginMultiSelect()/EndMultiSelect() scope: you may call ImGui::IsItemToggledSelection() to retrieve
+    -- Selectable() always returns a pressed state!
+    -- Users of BeginMultiSelect()/EndMultiSelect() scope: you may call ImGui.IsItemToggledSelection() to retrieve
     -- selection toggle, only useful if you need that state updated (e.g. for rendering purpose) before reaching EndMultiSelect().
     return pressed, selected
 end
 
-----------------------------------------------------------------
--- [SECTION] LISTBOX
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: ListBox
+-------------------------------------------------------------------------------
+-- - BeginListBox()
+-- - EndListBox()
+-- - ListBox()
+-------------------------------------------------------------------------------
 
+-- This is essentially a thin wrapper to using BeginChild/EndChild with the ImGuiChildFlags.FrameStyle flag for stylistic changes + displaying a label.
+-- This handle some subtleties with capturing info from the label.
+-- If you don't need a label you can pretty much directly use ImGui.BeginChild() with ImGuiChildFlags.FrameStyle.
+-- Tip: To have a list filling the entire window width, use size.x = -FLT_MIN and pass an non-visible label e.g. "##empty"
+-- Tip: If your vertical size is calculated from an item count (e.g. 10 * item_height) consider adding a fractional part to facilitate seeing scrolling boundaries (e.g. 10.5f * item_height).
 --- @param label     string
 --- @param size_arg? ImVec2
 function ImGui.BeginListBox(label, size_arg)
@@ -7728,6 +8295,8 @@ function ImGui.BeginListBox(label, size_arg)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
+    -- Size default to hold ~7.25 items.
+    -- Fractional number of items helps seeing that we can scroll down/up without looking at scrollbar.
     local size = ImTrunc(ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), ImGui.GetTextLineHeightWithSpacing() * 7.25 + style.FramePadding.y * 2.0))
     local frame_size = ImVec2(size.x, ImMax(size.y, label_size.y))
     local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
@@ -7737,10 +8306,11 @@ function ImGui.BeginListBox(label, size_arg)
     if not ImGui.IsRectVisible(bb.Min, bb.Max) then
         ImGui.ItemSize(bb:GetSize(), style.FramePadding.y)
         ImGui.ItemAdd(bb, 0, frame_bb)
-        g.NextWindowData:ClearFlags()
+        g.NextWindowData:ClearFlags() -- We behave like Begin() and need to consume those values
         return false
     end
 
+    -- FIXME-OPT: We could omit the BeginGroup() if label_size.x == 0.0f but would need to omit the EndGroup() as well.
     ImGui.BeginGroup()
     if label_size.x > 0.0 then
         local label_pos = ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y)
@@ -7759,9 +8329,11 @@ function ImGui.EndListBox()
     IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0, "Mismatched BeginListBox/EndListBox calls. Did you test the return value of BeginListBox?")
 
     ImGui.EndChild()
-    ImGui.EndGroup()
+    ImGui.EndGroup() -- This is only required to be able to do IsItemXXX query on the whole ListBox including label
 end
 
+-- This is merely a helper around BeginListBox(), EndListBox().
+-- Considering using those directly to submit custom data or store selection differently.
 -- Overloads: (label, current_item, items[], items_count?, height_in_items?) or (label, current_item, getter, user_data, items_count, height_in_items?)
 --- @param current_item int # 0-based
 --- @return int  current_item
@@ -7771,6 +8343,7 @@ function ImGui.ListBox(label, current_item, a, b, c, d)
     local getter, user_data, items_count, height_in_items = Items_ResolveArgs(a, b, c, d)
     if height_in_items == nil then height_in_items = -1 end
 
+    -- Calculate size from "height_in_items"
     if height_in_items < 0 then
         height_in_items = ImMin(items_count, 7)
     end
@@ -7781,9 +8354,11 @@ function ImGui.ListBox(label, current_item, a, b, c, d)
         return current_item, false
     end
 
+    -- Assume all items have even height (= 1 line of text). If you need items of different height,
+    -- you can create a custom version of ListBox() in your code without using the clipper.
     local value_changed = false
     local clipper = ImGuiListClipper()
-    clipper:Begin(items_count, ImGui.GetTextLineHeightWithSpacing())
+    clipper:Begin(items_count, ImGui.GetTextLineHeightWithSpacing()) -- We know exactly our line height here so we pass it as a minor optimization, but generally you don't need to.
     clipper:IncludeItemByIndex(current_item)
     while clipper:Step() do
         for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do
@@ -7813,9 +8388,16 @@ function ImGui.ListBox(label, current_item, a, b, c, d)
     return current_item, value_changed
 end
 
-----------------------------------------------------------------
--- [SECTION] BASIC PLOTTING
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: PlotLines, PlotHistogram
+-------------------------------------------------------------------------------
+-- - PlotEx() [Internal]
+-- - PlotLines()
+-- - PlotHistogram()
+-------------------------------------------------------------------------------
+-- Plot/Graph widgets are not very good.
+-- Consider using ImPlot (https://github.com/epezent/implot) which is much better!
+-------------------------------------------------------------------------------
 
 --- @param plot_type     ImGuiPlotType
 --- @param label         string
@@ -7852,6 +8434,7 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
 
     local _, hovered, _ = ImGui.ButtonBehavior(frame_bb, id)
 
+    -- Determine scale from values if not specified
     if scale_min == FLT_MAX or scale_max == FLT_MAX then
         local v_min = FLT_MAX
         local v_max = -FLT_MAX
@@ -7878,6 +8461,7 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
         local res_w = ImMin(math.floor(frame_size.x), values_count) + ((plot_type == ImGuiPlotType.Lines) and -1 or 0)
         local item_count = values_count + ((plot_type == ImGuiPlotType.Lines) and -1 or 0)
 
+        -- Tooltip on hover
         if hovered and inner_bb:Contains(g.IO.MousePos) then
             local t = ImClamp((g.IO.MousePos.x - inner_bb.Min.x) / (inner_bb.Max.x - inner_bb.Min.x), 0.0, 0.999)
             local v_idx = math.floor(t * item_count) + 1
@@ -7898,8 +8482,8 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
 
         local v0 = values_getter(data, (0 + values_offset) % values_count + 1)
         local t0 = 0.0
-        local tp0 = ImVec2(t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale))
-        local histogram_zero_line_t = (scale_min * scale_max < 0.0) and (1 + scale_min * inv_scale) or (scale_min < 0.0 and 0.0 or 1.0)
+        local tp0 = ImVec2(t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale)) -- Point in the normalized space of our target rectangle
+        local histogram_zero_line_t = (scale_min * scale_max < 0.0) and (1 + scale_min * inv_scale) or (scale_min < 0.0 and 0.0 or 1.0) -- Where does the zero line stands
 
         local col_base = ImGui.GetColorU32((plot_type == ImGuiPlotType.Lines) and ImGuiCol.PlotLines or ImGuiCol.PlotHistogram)
         local col_hovered = ImGui.GetColorU32((plot_type == ImGuiPlotType.Lines) and ImGuiCol.PlotLinesHovered or ImGuiCol.PlotHistogramHovered)
@@ -7911,6 +8495,7 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
             local v1 = values_getter(data, (v1_idx - 1 + values_offset + 1) % values_count + 1)
             local tp1 = ImVec2(t1, 1.0 - ImSaturate((v1 - scale_min) * inv_scale))
 
+            -- NB: Draw calls are merged together by the DrawList system. Still, we should render our batch are lower level to save a bit of CPU.
             local pos0 = ImLerp(inner_bb.Min, inner_bb.Max, tp0)
             local pos1
             if plot_type == ImGuiPlotType.Lines then
@@ -7933,6 +8518,7 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
         end
     end
 
+    -- Text overlay
     if overlay_text then
         ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, overlay_text, nil, nil, ImVec2(0.5, 0.0))
     end
@@ -7941,6 +8527,8 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, inner_bb.Min.y), label, 1, label_end, false)
     end
 
+    -- Return hovered index or -1 if none are hovered.
+    -- This is currently not exposed in the public API because we need a larger redesign of the whole thing, but in the short-term we are making it available in PlotEx().
     return idx_hovered
 end
 
@@ -7992,6 +8580,7 @@ function ImGui.PlotLines(label, values_or_getter, data, values_count, values_off
     end
 end
 
+-- Plot Histogram (the data provided _is_ histogram data. it doesn't compute the histogram of your data)
 --- @param label            string
 --- @param values_or_getter table|fun(data:table, i:int)  # 1-based table or a function
 --- @param data?            table                         # 1-based table
@@ -8017,10 +8606,21 @@ function ImGui.PlotHistogram(label, values_or_getter, data, values_count, values
     end
 end
 
-----------------------------------------------------------------
--- [SECTION] MENU RELATED
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] MenuItem, BeginMenu, EndMenu, etc.
+-------------------------------------------------------------------------------
+-- - ImGuiMenuColumns [Internal]
+-- - BeginMenuBar()
+-- - EndMenuBar()
+-- - BeginMainMenuBar()
+-- - EndMainMenuBar()
+-- - BeginMenu()
+-- - EndMenu()
+-- - MenuItemEx() [Internal]
+-- - MenuItem()
+-------------------------------------------------------------------------------
 
+-- Helpers for internal use
 --- @param spacing            float
 --- @param window_reappearing bool
 function MT.ImGuiMenuColumns:Update(spacing, window_reappearing)
@@ -8081,7 +8681,7 @@ function ImGui.BeginMenuBar()
     end
 
     IM_ASSERT(not window.DC.MenuBarAppending)
-    ImGui.BeginGroup() -- FIXME: Misleading to use a group for that backup/restore
+    ImGui.BeginGroup() -- Backup position on layer 0 // FIXME: Misleading to use a group for that backup/restore
     ImGui.PushID("##MenuBar")
 
     -- We don't clip with current window clipping rectangle as it is already set to the area below. However we clip with window full rect.
@@ -8093,7 +8693,7 @@ function ImGui.BeginMenuBar()
     clip_rect:ClipWith(window.OuterRectClipped)
     ImGui.PushClipRect(clip_rect.Min, clip_rect.Max, false)
 
-    -- We overwrite CursorMaxPos because BeginGroup sets it to CursorPos (essentially the .EmitItem hack in EndMenuBar() would need something analogous here, maybe a BeginGroupEx() with flags)
+    -- We overwrite CursorMaxPos because BeginGroup sets it to CursorPos (essentially the .EmitItem hack in EndMenuBar() would need something analogous here, maybe a BeginGroupEx() with flags).
     ImVec2_Copy(window.DC.CursorPos, ImVec2(bar_rect.Min.x + window.DC.MenuBarOffset.x, bar_rect.Min.y + window.DC.MenuBarOffset.y))
     ImVec2_Copy(window.DC.CursorMaxPos, window.DC.CursorPos)
     window.DC.LayoutType = ImGuiLayoutType.Horizontal
@@ -8115,24 +8715,28 @@ function ImGui.EndMenuBar()
     IM_ASSERT(bit32.band(window.Flags, ImGuiWindowFlags.MenuBar) ~= 0)
     IM_ASSERT(window.DC.MenuBarAppending)
 
-    -- Nav: When a move request within one of our child menu failed, capture the request to navigate among our siblings
+    -- Nav: When a move request within one of our child menu failed, capture the request to navigate among our siblings.
     if ImGui.NavMoveRequestButNoResultYet() and (g.NavMoveDir == ImGuiDir.Left or g.NavMoveDir == ImGuiDir.Right) and bit32.band(g.NavWindow.Flags, ImGuiWindowFlags.ChildMenu) ~= 0 then
+        -- Try to find out if the request is for one of our child menu
         local nav_earliest_child = g.NavWindow
         while nav_earliest_child.ParentWindow and bit32.band(nav_earliest_child.ParentWindow.Flags, ImGuiWindowFlags.ChildMenu) ~= 0 do
             nav_earliest_child = nav_earliest_child.ParentWindow
         end
         if nav_earliest_child.ParentWindow == window and nav_earliest_child.DC.ParentLayoutType == ImGuiLayoutType.Horizontal and bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.Forwarded) == 0 then
+            -- To do so we claim focus back, restore NavId and then process the movement request for yet another frame.
+            -- This involve a one-frame delay which isn't very problematic in this situation. We could remove it by scoring in advance for multiple window (probably not worth bothering)
             local layer = ImGuiNavLayer.Menu
-            IM_ASSERT(bit32.band(window.DC.NavLayersActiveMaskNext, bit32.lshift(1, layer)) ~= 0)
+            IM_ASSERT(bit32.band(window.DC.NavLayersActiveMaskNext, bit32.lshift(1, layer)) ~= 0) -- Sanity check (FIXME: Seems unnecessary)
             ImGui.FocusWindow(window)
             ImGui.SetNavID(window.NavLastIds[layer], layer, 0, window.NavRectRel[layer])
+            -- FIXME-NAV: How to deal with this when not using g.IO.ConfigNavCursorVisibleAuto?
             if g.NavCursorVisible then
-                g.NavCursorVisible = false
+                g.NavCursorVisible = false -- Hide nav cursor for the current frame so we don't see the intermediary selection. Will be set again
                 g.NavCursorHideFrames = 2
             end
             g.NavHighlightItemUnderNav = true
             g.NavMousePosDirty = true
-            ImGui.NavMoveRequestForward(g.NavMoveDir, g.NavMoveClipDir, g.NavMoveFlags, g.NavMoveScrollFlags)
+            ImGui.NavMoveRequestForward(g.NavMoveDir, g.NavMoveClipDir, g.NavMoveFlags, g.NavMoveScrollFlags) -- Repeat
         end
     else
         ImGui.NavMoveRequestTryWrapping(window, ImGuiNavMoveFlags.WrapX)
@@ -8140,14 +8744,14 @@ function ImGui.EndMenuBar()
 
     ImGui.PopClipRect()
     ImGui.PopID()
-    window.DC.MenuBarOffset.x = window.DC.CursorPos.x - window.Pos.x -- Save horizontal position so next append can reuse it. This is kinda equivalent to a per-layer CursorPos
+    window.DC.MenuBarOffset.x = window.DC.CursorPos.x - window.Pos.x -- Save horizontal position so next append can reuse it. This is kinda equivalent to a per-layer CursorPos.
 
-    -- FIXME: Extremely confusing, cleanup by (a) working on WorkRect stack system (b) not using a Group confusingly here
+    -- FIXME: Extremely confusing, cleanup by (a) working on WorkRect stack system (b) not using a Group confusingly here.
     local group_data = g.GroupStack:back()
     group_data.EmitItem = false
     local restore_cursor_max_pos = ImVec2()
     ImVec2_Copy(restore_cursor_max_pos, group_data.BackupCursorMaxPos)
-    window.DC.IdealMaxPos.x = ImMax(window.DC.IdealMaxPos.x, window.DC.CursorMaxPos.x - window.Scroll.x) -- Convert ideal extents for scrolling layer equivalent
+    window.DC.IdealMaxPos.x = ImMax(window.DC.IdealMaxPos.x, window.DC.CursorMaxPos.x - window.Scroll.x) -- Convert ideal extents for scrolling layer equivalent.
     ImGui.EndGroup() -- Restore position on layer 0 // FIXME: Misleading to use a group for that backup/restore
     window.DC.LayoutType = ImGuiLayoutType.Vertical
     window.DC.IsSameLine = false
@@ -8157,6 +8761,8 @@ function ImGui.EndMenuBar()
 end
 
 -- Important: calling order matters!
+-- FIXME: Somehow overlapping with docking tech.
+-- FIXME: The "rect-cut" aspect of this could be formalized into a lower-level helper (rect-cut: https://halt.software/dead-simple-layouts)
 --- @param name        string
 --- @param viewport_p? ImGuiViewport
 --- @param dir         ImGuiDir
@@ -8168,6 +8774,7 @@ function ImGui.BeginViewportSideBar(name, viewport_p, dir, axis_size, window_fla
     local bar_window = ImGui.FindWindowByName(name)
     local viewport = viewport_p or ImGui.GetMainViewport()
     if bar_window == nil or bar_window.BeginCount == 0 then
+        -- Calculate and set window size/position
         local avail_rect = viewport:GetBuildWorkRect()
         local axis = (dir == ImGuiDir.Up or dir == ImGuiDir.Down) and ImGuiAxis.Y or ImGuiAxis.X
         local pos = ImVec2(avail_rect.Min.x, avail_rect.Min.y)
@@ -8179,6 +8786,7 @@ function ImGui.BeginViewportSideBar(name, viewport_p, dir, axis_size, window_fla
         ImGui.SetNextWindowPos(pos)
         ImGui.SetNextWindowSize(size)
 
+        -- Report our size into work area (for next frame) using actual window size
         if dir == ImGuiDir.Up or dir == ImGuiDir.Left then
             viewport.BuildWorkInsetMin[axis] = viewport.BuildWorkInsetMin[axis] + axis_size
         elseif dir == ImGuiDir.Down or dir == ImGuiDir.Right then
@@ -8189,7 +8797,7 @@ function ImGui.BeginViewportSideBar(name, viewport_p, dir, axis_size, window_fla
     window_flags = bit32.bor(window_flags or 0, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoDocking)
     ImGui.SetNextWindowViewport(viewport.ID)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0.0)
-    ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, ImVec2(0, 0))
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, ImVec2(0, 0)) -- Lift normal size constraint
     local _, is_open = ImGui.Begin(name, nil, window_flags)
     ImGui.PopStyleVar(2)
 
@@ -8200,8 +8808,12 @@ function ImGui.BeginMainMenuBar()
     local g = GImGui
     local viewport = ImGui.GetMainViewport()
 
+    -- Notify of viewport change so GetFrameHeight() can be accurate in case of DPI change
     ImGui.SetCurrentViewport(nil, viewport)
 
+    -- For the main menu bar, which cannot be moved, we honor g.Style.DisplaySafeAreaPadding to ensure text can be visible on a TV set.
+    -- FIXME: This could be generalized as an opt-in way to clamp window.DC.CursorStartPos to avoid SafeArea?
+    -- FIXME: Consider removing support for safe area down the line... it's messy. Nowadays consoles have support for TV calibration in OS settings.
     g.NextWindowData.MenuBarOffsetMinVal = ImVec2(g.Style.DisplaySafeAreaPadding.x, ImMax(g.Style.DisplaySafeAreaPadding.y - g.Style.FramePadding.y, 0.0))
     local window_flags = bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.MenuBar)
     local height = ImGui.GetFrameHeight()
@@ -8212,6 +8824,7 @@ function ImGui.BeginMainMenuBar()
         return false
     end
 
+    -- Temporarily disable _NoSavedSettings, in the off-chance that tables or child windows submitted within the menu-bar may want to use settings. (#8356)
     g.CurrentWindow.Flags = bit32.band(g.CurrentWindow.Flags, bit32.bnot(ImGuiWindowFlags.NoSavedSettings))
     ImGui.BeginMenuBar()
     return is_open
@@ -8219,11 +8832,13 @@ end
 
 function ImGui.EndMainMenuBar()
     local g = GImGui
-    IM_ASSERT_USER_ERROR_RET(g.CurrentWindow.DC.MenuBarAppending, "Calling EndMainMenuBar() not from a menu-bar!")
+    IM_ASSERT_USER_ERROR_RET(g.CurrentWindow.DC.MenuBarAppending, "Calling EndMainMenuBar() not from a menu-bar!") -- Not technically testing that it is the main menu bar
 
     ImGui.EndMenuBar()
-    g.CurrentWindow.Flags = bit32.bor(g.CurrentWindow.Flags, ImGuiWindowFlags.NoSavedSettings)
+    g.CurrentWindow.Flags = bit32.bor(g.CurrentWindow.Flags, ImGuiWindowFlags.NoSavedSettings) -- Restore _NoSavedSettings (#8356)
 
+    -- When the user has left the menu layer (typically: closed menus through activation of an item), we restore focus to the previous window
+    -- FIXME: With this strategy we won't be able to restore a nil focus.
     if g.CurrentWindow == g.NavWindow and g.NavLayer == ImGuiNavLayer.Main and not g.NavAnyRequest and g.ActiveId == 0 then
         ImGui.FocusTopMostWindowUnderOne(g.NavWindow, nil, nil, bit32.bor(ImGuiFocusRequestFlags.UnlessBelowModal, ImGuiFocusRequestFlags.RestoreFocusedChild))
     end
@@ -8238,6 +8853,17 @@ local function IsRootOfOpenMenuSet()
         return false
     end
 
+    -- Initially we used 'upper_popup.OpenParentId == window.IDStack:back()' to differentiate multiple menu sets from each others
+    -- (e.g. inside menu bar vs loose menu items) based on parent ID.
+    -- This would however prevent the use of e.g. PushID() user code submitting menus.
+    -- Previously this worked between popup and a first child menu because the first child menu always had the _ChildWindow flag,
+    -- making hovering on parent popup possible while first child menu was focused - but this was generally a bug with other side effects.
+    -- Instead we don't treat Popup specifically (in order to consistently support menu features in them), maybe the first child menu of a Popup
+    -- doesn't have the _ChildWindow flag, and we rely on this IsRootOfOpenMenuSet() check to allow hovering between root window/popup and first child menu.
+    -- In the end, lack of ID check made it so we could no longer differentiate between separate menu sets. To compensate for that, we at least check parent window nav layer.
+    -- This fixes the most common case of menu opening on hover when moving between window content and menu bar. Multiple different menu sets in same nav layer would still
+    -- open on hover, but that should be a lesser problem, because if such menus are close in proximity in window content then it won't feel weird and if they are far apart
+    -- it likely won't be a problem anyone runs into.
     local upper_popup = g.OpenPopupStack.Data[g.BeginPopupStack.Size + 1]
     if window.DC.NavLayerCurrent ~= upper_popup.ParentNavLayer then
         return false
@@ -8259,30 +8885,41 @@ function ImGui.BeginMenuEx(label, icon, enabled)
     local id = window:GetID(label)
     local menu_is_open = ImGui.IsPopupOpen(id, ImGuiPopupFlags.None)
 
+    -- Sub-menus are ChildWindow so that mouse can be hovering across them (otherwise top-most popup menu would steal focus and not allow hovering on parent menu)
+    -- The first menu in a hierarchy isn't so hovering doesn't get across (otherwise e.g. resizing borders with ImGuiButtonFlags.FlattenChildren would react), but top-most BeginMenu() will bypass that limitation.
     local window_flags = bit32.bor(ImGuiWindowFlags.ChildMenu, ImGuiWindowFlags.AlwaysAutoResize, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.NoNavFocus)
     if bit32.band(window.Flags, ImGuiWindowFlags.ChildMenu) ~= 0 then
         window_flags = bit32.bor(window_flags, ImGuiWindowFlags.ChildWindow)
     end
 
+    -- If a menu with same the ID was already submitted, we will append to it, matching the behavior of Begin().
+    -- We are relying on a O(N) search - so O(N log N) over the frame - which seems like the most efficient for the expected small amount of BeginMenu() calls per frame.
+    -- If somehow this is ever becoming a problem we can switch to use e.g. ImGuiStorage mapping key to last frame used.
     if g.MenusIdSubmittedThisFrame:contains(id) then
         if menu_is_open then
-            menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags)
+            menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags) -- menu_is_open can be 'false' when the popup is completely clipped (e.g. zero size display)
         else
-            g.NextWindowData:ClearFlags()
+            g.NextWindowData:ClearFlags() -- we behave like Begin() and need to consume those values
         end
         return menu_is_open
     end
 
+    -- Tag menu as used. Next time BeginMenu() with same ID is called it will append to existing menu
     g.MenusIdSubmittedThisFrame:push_back(id)
 
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
+    -- Odd hack to allow hovering across menus of a same menu-set (otherwise we wouldn't be able to hover parent without always being a Child window)
+    -- This is only done for items for the menu set and not the full parent window.
     local menuset_is_open = IsRootOfOpenMenuSet()
     if menuset_is_open then
         g.NextItemData.ItemFlagsSet = bit32.bor(g.NextItemData.ItemFlagsSet, ImGuiItemFlags.NoWindowHoverableCheck)
     end
 
+    -- The reference position stored in popup_pos will be used by Begin() to find a suitable position for the child menu,
+    -- However the final position is going to be different! It is chosen by FindBestWindowPosForPopup().
+    -- e.g. Menus tend to overlap each other horizontally to amplify relative Z-ordering.
     local popup_pos
     local pos = ImVec2()
     ImVec2_Copy(pos, window.DC.CursorPos)
@@ -8298,6 +8935,9 @@ function ImGui.BeginMenuEx(label, icon, enabled)
     local selectable_flags = bit32.bor(ImGuiSelectableFlags.SelectOnClick, ImGuiSelectableFlags.NoAutoClosePopups)
     local offsets = window.DC.MenuColumns
     if window.DC.LayoutType == ImGuiLayoutType.Horizontal then
+        -- Menu inside a horizontal menu bar
+        -- Selectable extend their highlight by half ItemSpacing in each direction.
+        -- For ChildMenu, the popup position will be overwritten by the call to FindBestWindowPosForPopup() in Begin()
         window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * 0.5)
         ImGui.PushStyleVarX(ImGuiStyleVar.ItemSpacing, style.ItemSpacing.x * 2.0)
         local text_pos = ImVec2(window.DC.CursorPos.x + offsets.OffsetLabel, pos.y + window.DC.CurrLineTextBaseOffset)
@@ -8305,13 +8945,16 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         -- TODO: ImGui.LogSetNextTextDecoration("[", "]")
         ImGui.RenderText(text_pos, label, 1, label_end, false)
         ImGui.PopStyleVar()
-        window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5))
+        window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5)) -- -1 spacing to compensate the spacing added when Selectable() did a SameLine(). It would also work to call SameLine() ourselves after the PopStyleVar().
         popup_pos = ImVec2(pos.x - 1.0 - IM_TRUNC(style.ItemSpacing.x * 0.5), text_pos.y - style.FramePadding.y + window.MenuBarHeight)
     else
+        -- Menu inside a regular/vertical menu
+        -- (In a typical menu window where all items are BeginMenu() or MenuItem() calls, extra_w will always be 0.0f.
+        --  Only when they are other items sticking out we're going to add spacing, yet only register minimum width into the layout system.)
         local icon_w
         if (icon and icon ~= "") then icon_w = ImGui.CalcTextSize(icon, nil).x else icon_w = 0.0 end
         local checkmark_w = IM_TRUNC(g.FontSize * 1.20)
-        local min_w = offsets:DeclColumns(icon_w, label_size.x, 0.0, checkmark_w)
+        local min_w = offsets:DeclColumns(icon_w, label_size.x, 0.0, checkmark_w) -- Feedback to next frame
         local extra_w = ImMax(0.0, ImGui.GetContentRegionAvail().x - min_w)
         local text_pos = ImVec2(window.DC.CursorPos.x, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", menu_is_open, bit32.bor(selectable_flags, ImGuiSelectableFlags.SpanAvailWidth), ImVec2(min_w, label_size.y))
@@ -8330,6 +8973,8 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         ImGui.EndDisabled()
     end
 
+    -- Once dragged, release ActiveId + key ownership. This is to allow the idiom of mouse down a menu, dragging elsewhere, up on some other MenuItem(). (#8233, #9394)
+    -- Could move logic into lower-level ImGuiButtonFlags.AutoReleaseActiveId + ImGuiButtonFlags.AutoReleaseKeyOwner? Easier once we get rid of the Selectable() middle-man here.
     if g.ActiveId == id and g.HoveredId ~= id and g.ActiveIdSource == ImGuiInputSource.Mouse and ImGui.IsMouseDragging(0) then
         ImGui.ClearActiveID()
         ImGui.SetKeyOwner(ImGuiKey.MouseLeft, ImGuiKeyOwner_NoOwner)
@@ -8340,12 +8985,14 @@ function ImGui.BeginMenuEx(label, icon, enabled)
     local want_open = false
     local want_open_nav_init = false
     local want_close = false
-    if window.DC.LayoutType == ImGuiLayoutType.Vertical then
+    if window.DC.LayoutType == ImGuiLayoutType.Vertical then -- (window.Flags & (ImGuiWindowFlags.Popup|ImGuiWindowFlags.ChildMenu))
+        -- Close menu when not hovering it anymore unless we are moving roughly in the direction of the menu
+        -- Implement http://bjk5.com/post/44698559168/breaking-down-amazons-mega-dropdown to avoid using timers, so menus feels more reactive.
         local moving_toward_child_menu = false
-        local child_popup = (g.BeginPopupStack.Size < g.OpenPopupStack.Size) and g.OpenPopupStack[g.BeginPopupStack.Size + 1] or nil
+        local child_popup = (g.BeginPopupStack.Size < g.OpenPopupStack.Size) and g.OpenPopupStack[g.BeginPopupStack.Size + 1] or nil -- Popup candidate (testing below)
         local child_menu_window = (child_popup and child_popup.Window and child_popup.Window.ParentWindow == window) and child_popup.Window or nil
         if g.HoveredWindow == window and child_menu_window ~= nil then
-            local ref_unit = g.FontSize
+            local ref_unit = g.FontSize -- FIXME-DPI
             local child_dir = (window.Pos.x < child_menu_window.Pos.x) and 1.0 or -1.0
             local next_window_rect = child_menu_window:Rect()
             local ta = (g.IO.MousePos - g.IO.MouseDelta)
@@ -8358,46 +9005,53 @@ function ImGui.BeginMenuEx(label, icon, enabled)
                 tb = next_window_rect:GetTR()
                 tc = next_window_rect:GetBR()
             end
-            local pad_farmost_h = ImClamp(ImFabs(ta.x - tb.x) * 0.30, ref_unit * 0.5, ref_unit * 2.5)
+            local pad_farmost_h = ImClamp(ImFabs(ta.x - tb.x) * 0.30, ref_unit * 0.5, ref_unit * 2.5) -- Add a bit of extra slack.
             ta.x = ta.x + child_dir * -0.5
             tb.x = tb.x + child_dir * ref_unit
             tc.x = tc.x + child_dir * ref_unit
-            tb.y = ta.y + ImMax((tb.y - pad_farmost_h) - ta.y, -ref_unit * 8.0)
+            tb.y = ta.y + ImMax((tb.y - pad_farmost_h) - ta.y, -ref_unit * 8.0) -- Triangle has maximum height to limit the slope and the bias toward large sub-menus
             tc.y = ta.y + ImMin((tc.y + pad_farmost_h) - ta.y, ref_unit * 8.0)
             moving_toward_child_menu = ImStd.ImTriangleContainsPoint(ta, tb, tc, g.IO.MousePos)
+            -- ImGui.GetForegroundDrawList():AddTriangleFilled(ta, tb, tc, moving_toward_child_menu and IM_COL32(0, 128, 0, 128) or IM_COL32(128, 0, 0, 128)) -- [DEBUG]
         end
 
+        -- The 'HovereWindow == window' check creates an inconsistency (e.g. moving away from menu slowly tends to hit same window, whereas moving away fast does not)
+        -- But we also need to not close the top-menu menu when moving over void. Perhaps we should extend the triangle check to a larger polygon.
+        -- (Remember to test this on BeginPopup("A")->BeginMenu("B") sequence which behaves slightly differently as B isn't a Child of A and hovering isn't shared.)
         if menu_is_open and not hovered and g.HoveredWindow == window and not moving_toward_child_menu and not g.NavHighlightItemUnderNav and g.ActiveId == 0 then
             want_close = true
         end
 
-        if not menu_is_open and pressed then
+        -- Open
+        -- (note: at this point 'hovered' actually includes the NavDisableMouseHover == false test)
+        if not menu_is_open and pressed then -- Click/activate to open
             want_open = true
-        elseif not menu_is_open and hovered and not moving_toward_child_menu then
+        elseif not menu_is_open and hovered and not moving_toward_child_menu then -- Hover to open
             want_open = true
-        elseif not menu_is_open and hovered and g.HoveredIdTimer >= 0.30 and g.MouseStationaryTimer >= 0.30 then
+        elseif not menu_is_open and hovered and g.HoveredIdTimer >= 0.30 and g.MouseStationaryTimer >= 0.30 then -- Hover to open (timer fallback)
             want_open = true
         end
-        if g.NavId == id and g.NavMoveDir == ImGuiDir.Right then
+        if g.NavId == id and g.NavMoveDir == ImGuiDir.Right then -- Nav-Right to open
             want_open = true
             want_open_nav_init = true
             ImGui.NavMoveRequestCancel()
             ImGui.SetNavCursorVisibleAfterMove()
         end
     else
-        if menu_is_open and pressed and menuset_is_open then
+        -- Menu bar
+        if menu_is_open and pressed and menuset_is_open then -- Click an open menu again to close it
             want_close = true
             want_open = false
             menu_is_open = false
-        elseif pressed or (hovered and menuset_is_open and not menu_is_open) then
+        elseif pressed or (hovered and menuset_is_open and not menu_is_open) then -- First click to open, then hover to open others
             want_open = true
-        elseif g.NavId == id and g.NavMoveDir == ImGuiDir.Down then
+        elseif g.NavId == id and g.NavMoveDir == ImGuiDir.Down then -- Nav-Down to open
             want_open = true
             ImGui.NavMoveRequestCancel()
         end
     end
 
-    if not enabled then
+    if not enabled then -- explicitly close if an open menu becomes disabled, facilitate users code a lot in pattern such as 'if (BeginMenu("options", has_object)) { ..use object.. }'
         want_close = true
     end
     if want_close and ImGui.IsPopupOpen(id, ImGuiPopupFlags.None) then
@@ -8412,32 +9066,38 @@ function ImGui.BeginMenuEx(label, icon, enabled)
     end
 
     if want_open and not menu_is_open and g.OpenPopupStack.Size > g.BeginPopupStack.Size then
+        -- Don't reopen/recycle same menu level in the same frame if it is a different menu ID, first close the other menu and yield for a frame.
         ImGui.OpenPopup(label)
     elseif want_open then
         menu_is_open = true
-        ImGui.OpenPopup(label, ImGuiPopupFlags.NoReopen)
+        ImGui.OpenPopup(label, ImGuiPopupFlags.NoReopen) -- | (want_open_nav_init ? ImGuiPopupFlags.NoReopenAlwaysNavInit : 0))
     end
 
     if menu_is_open then
         local last_item_in_parent = ImGuiLastItemData()
         ImGuiLastItemData_Copy(last_item_in_parent, g.LastItemData)
 
-        ImGui.SetNextWindowPos(popup_pos, ImGuiCond.Always)
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, style.PopupRounding)
-        menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags)
+        ImGui.SetNextWindowPos(popup_pos, ImGuiCond.Always) -- Note: misleading: the value will serve as reference for FindBestWindowPosForPopup(), not actual pos.
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, style.PopupRounding) -- First level will use _PopupRounding, subsequent will use _ChildRounding
+        menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags) -- menu_is_open may be 'false' when the popup is completely clipped (e.g. zero size display)
         ImGui.PopStyleVar()
         if menu_is_open then
+            -- Implement what ImGuiPopupFlags.NoReopenAlwaysNavInit would do:
+            -- Perform an init request in the case the popup was already open (via a previous mouse hover)
             if want_open and want_open_nav_init and not g.NavInitRequest then
                 ImGui.FocusWindow(g.CurrentWindow, ImGuiFocusRequestFlags.UnlessBelowModal)
                 ImGui.NavInitWindow(g.CurrentWindow, false)
             end
+
+            -- Restore LastItemData so IsItemXXXX functions can work after BeginMenu()/EndMenu()
+            -- (This fixes using IsItemClicked() and IsItemHovered(), but IsItemHovered() also relies on its support for ImGuiItemFlags.NoWindowHoverableCheck)
             ImGuiLastItemData_Copy(g.LastItemData, last_item_in_parent)
             if g.HoveredWindow == window then
                 g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredWindow)
             end
         end
     else
-        g.NextWindowData:ClearFlags()
+        g.NextWindowData:ClearFlags() -- We behave like Begin() and need to consume those values
     end
 
     return menu_is_open
@@ -8452,11 +9112,12 @@ function ImGui.BeginMenu(label, enabled)
 end
 
 function ImGui.EndMenu()
+    -- Nav: When a left move request our menu failed, close ourselves.
     local g = GImGui
     local window = g.CurrentWindow
     IM_ASSERT_USER_ERROR_RET(bit32.band(window.Flags, bit32.bor(ImGuiWindowFlags.Popup, ImGuiWindowFlags.ChildMenu)) == bit32.bor(ImGuiWindowFlags.Popup, ImGuiWindowFlags.ChildMenu), "Calling EndMenu() in wrong window!")
 
-    local parent_window = window.ParentWindow
+    local parent_window = window.ParentWindow -- Should always be ~= nil is we passed assert.
     if window.BeginCount == window.BeginCountPreviousFrame then
         if g.NavMoveDir == ImGuiDir.Left and ImGui.NavMoveRequestButNoResultYet() then
             if g.NavWindow and g.NavWindow.RootWindowForNav == window and parent_window.DC.LayoutType == ImGuiLayoutType.Vertical then
@@ -8490,11 +9151,14 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
+    -- See BeginMenuEx() for comments about this.
     local menuset_is_open = IsRootOfOpenMenuSet()
     if menuset_is_open then
         g.NextItemData.ItemFlagsSet = bit32.bor(g.NextItemData.ItemFlagsSet, ImGuiItemFlags.NoWindowHoverableCheck)
     end
 
+    -- We've been using the equivalent of ImGuiSelectableFlags.SetNavIdOnHover on all Selectable() since early Nav system days (commit 43ee5d73),
+    -- but I am unsure whether this should be kept at all. For now moved it to be an opt-in feature used by menus only.
     ImGui.PushID(label)
     if not enabled then
         ImGui.BeginDisabled()
@@ -8502,11 +9166,14 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
 
     local pressed
 
+    -- We use ImGuiSelectableFlags.NoSetKeyOwner to allow down on one menu item, move, up on another.
     local backup_rounding = style.SelectableRounding
     style.SelectableRounding = style.MenuItemRounding
     local selectable_flags = bit32.bor(ImGuiSelectableFlags.SelectOnRelease, ImGuiSelectableFlags.SetNavIdOnHover)
     local offsets = window.DC.MenuColumns
     if window.DC.LayoutType == ImGuiLayoutType.Horizontal then
+        -- Mimic the exact layout spacing of BeginMenu() to allow MenuItem() inside a menu bar, which is a little misleading but may be useful
+        -- Note that in this situation: we don't render the shortcut, we render a highlight instead of the selected tick mark.
         window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * 0.5)
         local text_pos = ImVec2(window.DC.CursorPos.x + offsets.OffsetLabel, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset)
         ImGui.PushStyleVarX(ImGuiStyleVar.ItemSpacing, style.ItemSpacing.x * 2.0)
@@ -8515,8 +9182,11 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
         if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0 then
             ImGui.RenderText(text_pos, label, 1, label_end, false)
         end
-        window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5))
+        window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5)) -- -1 spacing to compensate the spacing added when Selectable() did a SameLine(). It would also work to call SameLine() ourselves after the PopStyleVar().
     else
+        -- Menu item inside a vertical menu
+        -- (In a typical menu window where all items are BeginMenu() or MenuItem() calls, extra_w will always be 0.0f.
+        --  Only when they are other items sticking out we're going to add spacing, yet only register minimum width into the layout system.)
         local icon_w = 0.0
         if icon and icon ~= "" then
             icon_w = ImGui.CalcTextSize(icon, nil).x
@@ -8525,8 +9195,8 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
         if shortcut and shortcut ~= "" then
             shortcut_w = ImGui.CalcTextSize(shortcut, nil).x
         end
-        local checkmark_w = IM_TRUNC(g.FontSize * 1.20)
-        local min_w = offsets:DeclColumns(icon_w, label_size.x, shortcut_w, checkmark_w)
+        local checkmark_w = IM_TRUNC(g.FontSize * 1.20) -- FIXME: Always accounted for, even in a menu with none, because 'selected' has no neutral setting.
+        local min_w = offsets:DeclColumns(icon_w, label_size.x, shortcut_w, checkmark_w) -- Feedback for next frame
         local stretch_w = ImMax(0.0, ImGui.GetContentRegionAvail().x - min_w)
         local text_pos = ImVec2(pos.x, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", false, bit32.bor(selectable_flags, ImGuiSelectableFlags.SpanAvailWidth), ImVec2(min_w, label_size.y))
@@ -8550,6 +9220,8 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
     end
     style.SelectableRounding = backup_rounding
 
+    -- Once dragged, release ActiveId + key ownership. This is to allow the idiom of mouse down a menu, dragging elsewhere, up on some other MenuItem(). (#8233, #9394)
+    -- Could move logic into lower-level ImGuiButtonFlags_AutoReleaseActiveId + ImGuiButtonFlags_AutoReleaseKeyOwner? Easier once we get rid of the Selectable() middle-man here.
     local id = g.LastItemData.ID
     if g.ActiveId == id and g.HoveredId ~= id and g.ActiveIdSource == ImGuiInputSource.Mouse and ImGui.IsMouseDragging(0) then
         ImGui.ClearActiveID()
@@ -8630,12 +9302,18 @@ local function SortTabsByBeginOrder(tab_bar)
     for i = 1, tab_bar.Tabs.Size do data[i] = arr[i] end
 end
 
+-- Scrolling happens only in the central section (leading/trailing sections are not scrolling)
 local function TabBarCalcScrollableWidth(tab_bar, sections)
     return tab_bar.BarRect:GetWidth() - sections[1].Width - sections[3].Width - sections[2].Spacing
 end
 
+-- TabCount: Number of tabs in this section.
+-- Width: Sum of width of tabs in this section (after shrinking down)
+-- Spacing: Horizontal spacing at the end of the section.
 local function ImGuiTabBarSection() return { TabCount = 0, Width = 0.0, WidthAfterShrinkMinWidth = 0.0, Spacing = 0.0 } end
 
+-- Shrink excess width from a set of item, by removing width from the larger items first.
+-- Set items Width to -1.0f to disable shrinking this item.
 -- items: 1-based array of ImGuiShrinkWidthItem, `first` = 1-based index of first item, `count` items
 function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
     if count <= 0 then return end
@@ -8644,6 +9322,7 @@ function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
         if it.Width >= 0.0 then it.Width = ImMax(it.Width - width_excess, width_min) end
         return
     end
+    -- Sort largest first, smallest last.
     local slice = {}
     for n = 1, count do slice[n] = items[first + n - 1] end
     table.sort(slice, function(a, b)
@@ -8668,6 +9347,9 @@ function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
             width_excess = width_excess - w
         end
     end
+
+    -- Round width and redistribute remainder
+    -- Ensure that e.g. the right-most tab of a shrunk tab-bar always reaches exactly at the same distance from the right-most edge of the tab bar separator.
     width_excess = 0.0
     for n = 1, count do
         local width_rounded = ImTrunc(it[n].Width)
@@ -8689,15 +9371,39 @@ function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
     end
 end
 
----------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Widgets: BeginTabBar, EndTabBar, etc.
----------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- - BeginTabBar()
+-- - BeginTabBarEx() [Internal]
+-- - EndTabBar()
+-- - TabBarLayout() [Internal]
+-- - TabBarCalcTabID() [Internal]
+-- - TabBarCalcMaxTabWidth() [Internal]
+-- - TabBarFindTabById() [Internal]
+-- - TabBarFindTabByOrder() [Internal]
+-- - TabBarFindMostRecentlySelectedTabForActiveWindow() [Internal]
+-- - TabBarGetCurrentTab() [Internal]
+-- - TabBarGetTabName() [Internal]
+-- - TabBarAddTab() [Internal]
+-- - TabBarRemoveTab() [Internal]
+-- - TabBarCloseTab() [Internal]
+-- - TabBarScrollClamp() [Internal]
+-- - TabBarScrollToTab() [Internal]
+-- - TabBarQueueFocus() [Internal]
+-- - TabBarQueueReorder() [Internal]
+-- - TabBarProcessReorderFromMousePos() [Internal]
+-- - TabBarProcessReorder() [Internal]
+-- - TabBarScrollingButtons() [Internal]
+-- - TabBarTabListPopupButton() [Internal]
+-------------------------------------------------------------------------------
 
 function ImGui.TabBarFindByID(id)
     SyncContext()
     return GImGui.TabBars:GetByKey(id)
 end
 
+-- Remove TabBar data (currently only used by TestEngine)
 function ImGui.TabBarRemove(tab_bar)
     SyncContext()
     GImGui.TabBars:Remove(tab_bar.ID, tab_bar)
@@ -8716,6 +9422,7 @@ function ImGui.BeginTabBar(str_id, flags)
     tab_bar.ID = id
     tab_bar.SeparatorMinX = tab_bar_bb.Min.x - IM_TRUNC(window.WindowPadding.x * 0.5)
     tab_bar.SeparatorMaxX = tab_bar_bb.Max.x + IM_TRUNC(window.WindowPadding.x * 0.5)
+    -- if (g.NavWindow and ImGui.IsWindowChildOf(g.NavWindow, window, false, false))
     flags = bit32.bor(flags, ImGuiTabBarFlags.IsFocused)
     return ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
 end
@@ -8727,14 +9434,16 @@ function ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
     if window.SkipItems then return false end
 
     IM_ASSERT(tab_bar.ID ~= 0)
-    if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then
+    if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then -- Already done
         ImGui.PushOverrideID(tab_bar.ID)
     end
 
+    -- Add to stack
     g.CurrentTabBarStack:push_back(tab_bar)
     g.CurrentTabBar = tab_bar
     tab_bar.Window = window
 
+    -- Append with multiple BeginTabBar()/EndTabBar() pairs.
     ImVec2_Copy(tab_bar.BackupCursorPos, window.DC.CursorPos)
     if tab_bar.CurrFrameVisible == g.FrameCount then
         ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x, tab_bar.BarRect.Max.y + tab_bar.ItemSpacingY)
@@ -8742,21 +9451,23 @@ function ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
         return true
     end
 
+    -- Ensure correct ordering when toggling ImGuiTabBarFlags.Reorderable flag, or when a new tab was added while being not reorderable
     if bit32.band(flags, ImGuiTabBarFlags.Reorderable) ~= bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable)
         or (tab_bar.TabsAddedNew and bit32.band(flags, ImGuiTabBarFlags.Reorderable) == 0) then
-        if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then
+        if bit32.band(flags, ImGuiTabBarFlags.DockNode) == 0 then -- FIXME: TabBar with DockNode can now be hybrid
             SortTabsByBeginOrder(tab_bar)
         end
     end
     tab_bar.TabsAddedNew = false
 
+    -- Flags
     if bit32.band(flags, ImGuiTabBarFlags.FittingPolicyMask_) == 0 then
         flags = bit32.bor(flags, ImGuiTabBarFlags.FittingPolicyDefault_)
     end
 
     tab_bar.Flags = flags
     tab_bar.BarRect = ImRect(tab_bar_bb.Min, tab_bar_bb.Max)
-    tab_bar.WantLayout = true
+    tab_bar.WantLayout = true -- Layout will be done on the first call to ItemTab()
     tab_bar.PrevFrameVisible = tab_bar.CurrFrameVisible
     tab_bar.CurrFrameVisible = g.FrameCount
     tab_bar.PrevTabsContentsHeight = tab_bar.CurrTabsContentsHeight
@@ -8767,8 +9478,11 @@ function ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
     tab_bar.LastTabItemIdx = -1
     tab_bar.BeginCount = 1
 
+    -- Set cursor pos in a way which only be used in the off-chance the user erroneously submits item before BeginTabItem(): items will overlap
     ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x, tab_bar.BarRect.Max.y + tab_bar.ItemSpacingY)
 
+    -- Draw separator
+    -- (it would be misleading to draw this in EndTabBar() suggesting that it may be drawn over tabs, as tab bar are appendable)
     local col = ImGui.GetColorU32(bit32.band(flags, ImGuiTabBarFlags.IsFocused) ~= 0 and ImGuiCol.TabSelected or ImGuiCol.TabDimmedSelected)
     if g.Style.TabBarBorderSize > 0.0 then
         local y = tab_bar.BarRect.Max.y
@@ -8786,8 +9500,10 @@ function ImGui.EndTabBar()
     local tab_bar = g.CurrentTabBar
     IM_ASSERT(tab_bar ~= nil, "Mismatched BeginTabBar()/EndTabBar()!")
 
+    -- Fallback in case no TabItem have been submitted
     if tab_bar.WantLayout then ImGui.TabBarLayout(tab_bar) end
 
+    -- Restore the last visible height if no tab is visible, this reduce vertical flicker/movement when a tabs gets removed without calling SetTabItemClosed().
     local tab_bar_appearing = (tab_bar.PrevFrameVisible + 1 < g.FrameCount)
     if tab_bar.VisibleTabWasSubmitted or tab_bar.VisibleTabId == 0 or tab_bar_appearing then
         tab_bar.CurrTabsContentsHeight = ImMax(window.DC.CursorPos.y - tab_bar.BarRect.Max.y, tab_bar.CurrTabsContentsHeight)
@@ -8800,7 +9516,7 @@ function ImGui.EndTabBar()
     end
 
     tab_bar.LastTabItemIdx = -1
-    if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0 then
+    if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0 then -- Already done
         ImGui.PopID()
     end
 
@@ -8808,22 +9524,27 @@ function ImGui.EndTabBar()
     if g.CurrentTabBarStack.Size == 0 then g.CurrentTabBar = nil else g.CurrentTabBar = g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size] end
 end
 
+-- This is called only once a frame before by the first call to ItemTab()
+-- The reason we're not calling it in BeginTabBar() is to leave a chance to the user to call the SetTabItemClosed() functions.
 function ImGui.TabBarLayout(tab_bar)
     SyncContext()
     local g = GImGui
     tab_bar.WantLayout = false
 
+    -- Track selected tab when resizing our parent down
     local scroll_to_selected_tab = (tab_bar.BarRectPrevWidth > tab_bar.BarRect:GetWidth())
     tab_bar.BarRectPrevWidth = tab_bar.BarRect:GetWidth()
 
     -- Garbage collect by compacting list
+    -- Detect if we need to sort out tab list (e.g. in rare case where a tab changed section)
     local tabs = tab_bar.Tabs
     local tab_dst_n = 0
     local need_sort_by_section = false
-    local sections = { ImGuiTabBarSection(), ImGuiTabBarSection(), ImGuiTabBarSection() } -- 1-based: [1]=Leading,[2]=Central,[3]=Trailing
+    local sections = { ImGuiTabBarSection(), ImGuiTabBarSection(), ImGuiTabBarSection() } -- Layout sections: Leading, Central, Trailing (1-based: [1]=Leading,[2]=Central,[3]=Trailing)
     for tab_src_n = 0, tabs.Size - 1 do
         local tab = tabs.Data[tab_src_n + 1]
         if tab.LastFrameVisible < tab_bar.PrevFrameVisible or tab.WantClose then
+            -- Remove tab
             if tab_bar.VisibleTabId == tab.ID then tab_bar.VisibleTabId = 0 end
             if tab_bar.SelectedTabId == tab.ID then tab_bar.SelectedTabId = 0 end
             if tab_bar.NextSelectedTabId == tab.ID then tab_bar.NextSelectedTabId = 0 end
@@ -8831,6 +9552,7 @@ function ImGui.TabBarLayout(tab_bar)
             if tab_dst_n ~= tab_src_n then tabs.Data[tab_dst_n + 1] = tab end
             tab.IndexDuringLayout = tab_dst_n
 
+            -- We will need sorting if tabs have changed section (e.g. moved from one of Leading/Central/Trailing to another)
             local curr_tab_section_n = TabItemGetSectionIdx(tab)
             if tab_dst_n > 0 then
                 local prev_tab = tabs.Data[tab_dst_n]
@@ -8849,10 +9571,12 @@ function ImGui.TabBarLayout(tab_bar)
 
     if need_sort_by_section then SortTabsBySection(tab_bar) end
 
+    -- Calculate spacing between sections
     local tab_spacing = g.Style.ItemInnerSpacing.x
     sections[1].Spacing = (sections[1].TabCount > 0 and (sections[2].TabCount + sections[3].TabCount) > 0) and tab_spacing or 0.0
     sections[2].Spacing = (sections[2].TabCount > 0 and sections[3].TabCount > 0) and tab_spacing or 0.0
 
+    -- Setup next selected tab
     local scroll_to_tab_id = 0
     if tab_bar.NextScrollToTabId ~= 0 then
         scroll_to_tab_id = tab_bar.NextScrollToTabId
@@ -8864,6 +9588,7 @@ function ImGui.TabBarLayout(tab_bar)
         scroll_to_tab_id = tab_bar.SelectedTabId
     end
 
+    -- Process order change request (we could probably process it when requested but it's just saner to do it in a single spot).
     if tab_bar.ReorderRequestTabId ~= 0 then
         if ImGui.TabBarProcessReorder(tab_bar) then
             if tab_bar.ReorderRequestTabId == tab_bar.SelectedTabId then
@@ -8873,23 +9598,28 @@ function ImGui.TabBarLayout(tab_bar)
         tab_bar.ReorderRequestTabId = 0
     end
 
+    -- Tab List Popup (will alter tab_bar.BarRect and therefore the available width!)
     local tab_list_popup_button = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.TabListPopupButton) ~= 0
     if tab_list_popup_button then
-        local tab_to_select = ImGui.TabBarTabListPopupButton(tab_bar)
+        local tab_to_select = ImGui.TabBarTabListPopupButton(tab_bar) -- NB: Will alter BarRect.Min.x!
         if tab_to_select then
             tab_bar.SelectedTabId = tab_to_select.ID
             scroll_to_tab_id = tab_to_select.ID
         end
     end
 
-    -- shrink buffer layout: leading, trailing, central (0-based offsets)
+    -- Leading/Trailing tabs will be shrink only if central one aren't visible anymore, so layout the shrink data as: leading, trailing, central
+    -- (whereas our tabs are stored as: leading, central, trailing)
+    -- (shrink_buffer_indexes holds 0-based offsets)
     local shrink_buffer_indexes = { 0, sections[1].TabCount + sections[3].TabCount, sections[1].TabCount }
     local swb = g.ShrinkWidthBuffer
     swb:resize(tabs.Size)
     for i = 1, tabs.Size do if swb.Data[i] == nil then swb.Data[i] = ImGuiShrinkWidthItem() end end
 
+    -- Minimum shrink width
     local shrink_min_width = (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0) and g.Style.TabMinWidthShrink or 1.0
 
+    -- Compute ideal tabs widths + store them into shrink buffer
     local most_recently_selected_tab = nil
     local curr_section_n = -1
     local found_selected_tab_id = false
@@ -8903,6 +9633,9 @@ function ImGui.TabBarLayout(tab_bar)
         if tab.ID == tab_bar.SelectedTabId then found_selected_tab_id = true end
         if scroll_to_tab_id == 0 and g.NavJustMovedToId == tab.ID then scroll_to_tab_id = tab.ID end
 
+        -- Refresh tab width immediately, otherwise changes of style e.g. style.FramePadding.x would noticeably lag in the tab bar.
+        -- Additionally, when using TabBarAddTab() to manipulate tab bar order we occasionally insert new tabs that don't have a width yet,
+        -- and we cannot wait for the next BeginTabItem() call. We cannot compute this width within TabBarAddTab() because font size depends on the active window.
         local tab_name = ImGui.TabBarGetTabName(tab_bar, tab)
         local has_close_button_or_unsaved_marker = bit32.band(tab.Flags, ImGuiTabItemFlags.NoCloseButton) == 0 or bit32.band(tab.Flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0
         tab.ContentWidth = (tab.RequestedWidth >= 0.0) and tab.RequestedWidth or ImGui.TabItemCalcSize(tab_name, has_close_button_or_unsaved_marker).x
@@ -8916,6 +9649,7 @@ function ImGui.TabBarLayout(tab_bar)
         section.WidthAfterShrinkMinWidth = section.WidthAfterShrinkMinWidth + ImMin(tab.ContentWidth, shrink_min_width) + ((section_n == curr_section_n) and tab_spacing or 0.0)
         curr_section_n = section_n
 
+        -- Store data so we can build an array sorted by width if we need to shrink tabs down
         local item = swb.Data[shrink_buffer_indexes[section_n + 1] + 1]
         shrink_buffer_indexes[section_n + 1] = shrink_buffer_indexes[section_n + 1] + 1
         item.Index = tab_n
@@ -8924,6 +9658,7 @@ function ImGui.TabBarLayout(tab_bar)
         tab.Width = ImMax(tab.ContentWidth, 1.0)
     end
 
+    -- Compute total ideal width (used for e.g. auto-resizing a window)
     local width_all_tabs_after_min_width_shrink = 0.0
     tab_bar.WidthAllTabsIdeal = 0.0
     for section_n = 1, 3 do
@@ -8931,6 +9666,9 @@ function ImGui.TabBarLayout(tab_bar)
         width_all_tabs_after_min_width_shrink = width_all_tabs_after_min_width_shrink + sections[section_n].WidthAfterShrinkMinWidth + sections[section_n].Spacing
     end
 
+    -- Horizontal scrolling buttons
+    -- - Important: note that TabBarScrollButtons() will alter BarRect.Max.x.
+    -- - Selection skips buttons and might cross through sections if there are Tabs in Leading/Trailing sections.
     local can_scroll = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyScroll) ~= 0 or bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0
     local width_all_tabs_to_use_for_scroll = (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyScroll) ~= 0) and tab_bar.WidthAllTabs or width_all_tabs_after_min_width_shrink
     tab_bar.ScrollButtonEnabled = (width_all_tabs_to_use_for_scroll > tab_bar.BarRect:GetWidth() and tabs.Size > 1)
@@ -8948,23 +9686,26 @@ function ImGui.TabBarLayout(tab_bar)
         scroll_to_tab_id = tab_bar.SelectedTabId
     end
 
+    -- Shrink widths if full tabs don't fit in their allocated space
     local section_0_w = sections[1].Width + sections[1].Spacing
     local section_1_w = sections[2].Width + sections[2].Spacing
     local section_2_w = sections[3].Width + sections[3].Spacing
     local central_section_is_visible = (section_0_w + section_2_w) < tab_bar.BarRect:GetWidth()
     local width_excess
     if central_section_is_visible then
-        width_excess = ImMax(section_1_w - (tab_bar.BarRect:GetWidth() - section_0_w - section_2_w), 0.0)
+        width_excess = ImMax(section_1_w - (tab_bar.BarRect:GetWidth() - section_0_w - section_2_w), 0.0) -- Excess used to shrink central section
     else
-        width_excess = (section_0_w + section_2_w) - tab_bar.BarRect:GetWidth()
+        width_excess = (section_0_w + section_2_w) - tab_bar.BarRect:GetWidth() -- Excess used to shrink leading/trailing section
     end
 
+    -- With ImGuiTabBarFlags.FittingPolicyScroll policy, we will only shrink leading/trailing if the central section is not visible anymore
     local can_shrink = bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyShrink) ~= 0 or bit32.band(tab_bar.Flags, ImGuiTabBarFlags.FittingPolicyMixed) ~= 0
     if width_excess >= 1.0 and (can_shrink or not central_section_is_visible) then
         local shrink_data_count = central_section_is_visible and sections[2].TabCount or (sections[1].TabCount + sections[3].TabCount)
         local shrink_data_offset = central_section_is_visible and (sections[1].TabCount + sections[3].TabCount) or 0
         ImGui.ShrinkWidths(swb.Data, shrink_data_offset + 1, shrink_data_count, width_excess, shrink_min_width)
 
+        -- Apply shrunk values into tabs and sections
         for tab_n = shrink_data_offset, shrink_data_offset + shrink_data_count - 1 do
             local item = swb.Data[tab_n + 1]
             local tab = tabs.Data[item.Index + 1]
@@ -8998,6 +9739,7 @@ function ImGui.TabBarLayout(tab_bar)
         section_tab_index = section_tab_index + section.TabCount
     end
 
+    -- If we have lost the selected tab, select the next most recently active one
     local tab_bar_appearing = (tab_bar.PrevFrameVisible + 1 < g.FrameCount)
     if found_selected_tab_id == false and not tab_bar_appearing then
         tab_bar.SelectedTabId = 0
@@ -9007,6 +9749,7 @@ function ImGui.TabBarLayout(tab_bar)
         scroll_to_tab_id = tab_bar.SelectedTabId
     end
 
+    -- Lock in visible tab
     tab_bar.VisibleTabId = tab_bar.SelectedTabId
     tab_bar.VisibleTabWasSubmitted = false
 
@@ -9016,6 +9759,7 @@ function ImGui.TabBarLayout(tab_bar)
         scroll_to_tab_id = tab_bar.VisibleTabId
     end
 
+    -- Apply request requests
     if scroll_to_tab_id ~= 0 then
         ImGui.TabBarScrollToTab(tab_bar, scroll_to_tab_id, sections)
     elseif tab_bar.ScrollButtonEnabled and ImGui.IsMouseHoveringRect(tab_bar.BarRect.Min, tab_bar.BarRect.Max, true) and ImGui.IsWindowContentHoverable(g.CurrentWindow) then
@@ -9029,9 +9773,12 @@ function ImGui.TabBarLayout(tab_bar)
         ImGui.SetKeyOwner(wheel_key, tab_bar.ID)
     end
 
+    -- Update scrolling
     tab_bar.ScrollingAnim = ImGui.TabBarScrollClamp(tab_bar, tab_bar.ScrollingAnim)
     tab_bar.ScrollingTarget = ImGui.TabBarScrollClamp(tab_bar, tab_bar.ScrollingTarget)
     if tab_bar.ScrollingAnim ~= tab_bar.ScrollingTarget then
+        -- Scrolling speed adjust itself so we can always reach our target in 1/3 seconds.
+        -- Teleport if we are aiming far off the visible line
         tab_bar.ScrollingSpeed = ImMax(tab_bar.ScrollingSpeed, 70.0 * g.FontSize)
         tab_bar.ScrollingSpeed = ImMax(tab_bar.ScrollingSpeed, math.abs(tab_bar.ScrollingTarget - tab_bar.ScrollingAnim) / 0.3)
         local teleport = (tab_bar.PrevFrameVisible + 1 < g.FrameCount) or (tab_bar.ScrollingTargetDistToVisibility > 10.0 * g.FontSize)
@@ -9042,12 +9789,14 @@ function ImGui.TabBarLayout(tab_bar)
     tab_bar.ScrollingRectMinX = tab_bar.BarRect.Min.x + sections[1].Width + sections[1].Spacing
     tab_bar.ScrollingRectMaxX = tab_bar.BarRect.Max.x - sections[3].Width - sections[2].Spacing
 
+    -- Actual layout in host window (we don't do it in BeginTabBar() so as not to waste an extra frame)
     local window = g.CurrentWindow
     ImVec2_Copy(window.DC.CursorPos, tab_bar.BarRect.Min)
     ImGui.ItemSize(ImVec2(tab_bar.WidthAllTabs, tab_bar.BarRect:GetHeight()), tab_bar.FramePadding.y)
     window.DC.IdealMaxPos.x = ImMax(window.DC.IdealMaxPos.x, tab_bar.BarRect.Min.x + tab_bar.WidthAllTabsIdeal)
 end
 
+-- Dockable windows uses Name/ID in the global namespace. Non-dockable items use the ID stack.
 function ImGui.TabBarCalcTabID(tab_bar, label, docked_window)
     if docked_window ~= nil then
         IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) ~= 0)
@@ -9072,6 +9821,7 @@ function ImGui.TabBarFindTabByID(tab_bar, tab_id)
     return nil
 end
 
+-- Order = visible order, not submission order! (which is tab.BeginOrder)
 --- @param order int # 0-based visible order
 function ImGui.TabBarFindTabByOrder(tab_bar, order)
     if order < 0 or order >= tab_bar.Tabs.Size then return nil end
@@ -9084,6 +9834,7 @@ function ImGui.TabBarGetTabOrder(tab_bar, tab)
     return i and (i - 1) or -1
 end
 
+-- FIXME: See references to #2304 in TODO.txt
 function ImGui.TabBarFindMostRecentlySelectedTabForActiveWindow(tab_bar)
     local most_recently_selected_tab = nil
     for n = 1, tab_bar.Tabs.Size do
@@ -9113,22 +9864,25 @@ function ImGui.TabBarGetTabPos(tab_bar, tab)
     return tab_bar.BarRect.Min + ImVec2(tab.Offset, 0.0)
 end
 
+-- The purpose of this call is to register tab in advance so we can control their order at the time they appear.
+-- Otherwise calling this is unnecessary as tabs are appending as needed by the BeginTabItem() function.
 function ImGui.TabBarAddTab(tab_bar, tab_flags, window)
     local g = ImGui.GetCurrentContext()
     IM_ASSERT(ImGui.TabBarFindTabByID(tab_bar, window.TabId) == nil)
-    IM_ASSERT(g.CurrentTabBar ~= tab_bar)
+    IM_ASSERT(g.CurrentTabBar ~= tab_bar) -- Can't work while the tab bar is active as our tab doesn't have an X offset yet, in theory we could/should test something like (tab_bar.CurrFrameVisible < g.FrameCount) but we'd need to solve why triggers the commented early-out assert in BeginTabBarEx() (probably dock node going from implicit to explicit in same frame)
     if not window.HasCloseButton then
-        tab_flags = bit32.bor(tab_flags, ImGuiTabItemFlags.NoCloseButton)
+        tab_flags = bit32.bor(tab_flags, ImGuiTabItemFlags.NoCloseButton) -- Set _NoCloseButton immediately because it will be used for first-frame width calculation.
     end
     local new_tab = ImGuiTabItem()
     new_tab.ID = window.TabId
     new_tab.Flags = tab_flags
-    new_tab.LastFrameVisible = tab_bar.CurrFrameVisible
+    new_tab.LastFrameVisible = tab_bar.CurrFrameVisible -- Required so BeginTabBar() doesn't ditch the tab
     if new_tab.LastFrameVisible == -1 then new_tab.LastFrameVisible = g.FrameCount - 1 end
-    new_tab.Window = window
+    new_tab.Window = window -- Required so tab bar layout can compute the tab width before tab submission
     tab_bar.Tabs:push_back(new_tab)
 end
 
+-- The *TabId fields are already set by the docking system _before_ the actual TabItem was created, so we clear them regardless.
 function ImGui.TabBarRemoveTab(tab_bar, tab_id)
     local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
     if tab then tab_bar.Tabs:erase(tab_bar.Tabs:find_index(tab)) end
@@ -9137,9 +9891,13 @@ function ImGui.TabBarRemoveTab(tab_bar, tab_id)
     if tab_bar.NextSelectedTabId == tab_id then tab_bar.NextSelectedTabId = 0 end
 end
 
+-- Called on manual closure attempt
 function ImGui.TabBarCloseTab(tab_bar, tab)
-    if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) ~= 0 then return end
+    if bit32.band(tab.Flags, ImGuiTabItemFlags.Button) ~= 0 then return end -- A button appended with TabItemButton().
+
     if bit32.band(tab.Flags, bit32.bor(ImGuiTabItemFlags.UnsavedDocument, ImGuiTabItemFlags.NoAssumedClosure)) == 0 then
+        -- This will remove a frame of lag for selecting another tab on closure.
+        -- However we don't run it in the case where the 'Unsaved' flag is set, so user gets a chance to fully undo the closure
         tab.WantClose = true
         if tab_bar.VisibleTabId == tab.ID then
             tab.LastFrameVisible = -1
@@ -9147,6 +9905,7 @@ function ImGui.TabBarCloseTab(tab_bar, tab)
             tab_bar.NextSelectedTabId = 0
         end
     else
+        -- Actually select before expecting closure attempt (on an UnsavedDocument tab user is expect to e.g. show a popup)
         if tab_bar.VisibleTabId ~= tab.ID then ImGui.TabBarQueueFocus(tab_bar, tab) end
     end
 end
@@ -9156,10 +9915,13 @@ function ImGui.TabBarScrollClamp(tab_bar, scrolling)
     return ImMax(scrolling, 0.0)
 end
 
+-- Note: we may scroll to tab that are not selected! e.g. using keyboard arrow keys
 function ImGui.TabBarScrollToTab(tab_bar, tab_id, sections)
     local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
     if tab == nil then return end
 
+    -- Clamp attempt to scroll to leading/trailing sections items.
+    -- This could be done at the TabBarScrollingButtons() call site as well, but here works.
     if bit32.band(tab.Flags, ImGuiTabItemFlags.Leading) ~= 0 then
         tab = tab_bar.Tabs.Data[sections[1].TabCount + 1]
     elseif bit32.band(tab.Flags, ImGuiTabItemFlags.Trailing) ~= 0 then
@@ -9167,18 +9929,25 @@ function ImGui.TabBarScrollToTab(tab_bar, tab_id, sections)
     end
     if tab == nil or bit32.band(tab.Flags, ImGuiTabItemFlags.SectionMask_) ~= 0 then return end
 
+    -- When scrolling to make Tab N+1 visible always make a bit of N visible to suggest more scrolling area (since we don't have a scrollbar)
+    -- Disable the margin if the scrolling section is too small for the target tab: prefer displaying a maximum of the label.
     local g = ImGui.GetCurrentContext()
     local margin = ImClamp(tab_bar.ScrollingRectMaxX - tab_bar.ScrollingRectMinX - tab.Width, g.Style.ItemInnerSpacing.x, g.FontSize * 1.0)
     local order = ImGui.TabBarGetTabOrder(tab_bar, tab)
+
+    -- Scrolling happens only in the central section (leading/trailing sections are not scrolling)
     local scrollable_width = TabBarCalcScrollableWidth(tab_bar, sections)
 
+    -- We make all tabs positions all relative Sections[0].Width to make code simpler
     local tab_x1 = tab.Offset - sections[1].Width + ((order > sections[1].TabCount - 1) and -margin or 0.0)
     local tab_x2 = tab.Offset - sections[1].Width + tab.Width + ((order + 1 < tab_bar.Tabs.Size - sections[3].TabCount) and margin or 1.0)
     tab_bar.ScrollingTargetDistToVisibility = 0.0
     if tab_bar.ScrollingTarget > tab_x1 or (tab_x2 - tab_x1 >= scrollable_width) then
+        -- Scroll to the left
         tab_bar.ScrollingTargetDistToVisibility = ImMax(tab_bar.ScrollingAnim - tab_x2, 0.0)
         tab_bar.ScrollingTarget = tab_x1
     elseif tab_bar.ScrollingTarget < tab_x2 - scrollable_width then
+        -- Scroll to the right
         tab_bar.ScrollingTargetDistToVisibility = ImMax((tab_x1 - scrollable_width) - tab_bar.ScrollingAnim, 0.0)
         tab_bar.ScrollingTarget = tab_x2 - scrollable_width
     end
@@ -9187,7 +9956,7 @@ end
 --- TabBarQueueFocus(tab_bar, tab) or TabBarQueueFocus(tab_bar, tab_name)
 function ImGui.TabBarQueueFocus(tab_bar, tab)
     if type(tab) == "string" then
-        IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0)
+        IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) == 0) -- Only supported for manual/explicit tab bars
         tab_bar.NextSelectedTabId = ImGui.TabBarCalcTabID(tab_bar, tab, nil)
         return
     end
@@ -9210,17 +9979,22 @@ function ImGui.TabBarQueueReorderFromMousePos(tab_bar, src_tab, mouse_pos)
     local is_central_section = bit32.band(src_tab.Flags, ImGuiTabItemFlags.SectionMask_) == 0
     local bar_offset = tab_bar.BarRect.Min.x - (is_central_section and tab_bar.ScrollingTarget or 0)
 
+    -- Count number of contiguous tabs we are crossing over
     local dir = ((bar_offset + src_tab.Offset) > mouse_pos.x) and -1 or 1
     local src_idx = ImGui.TabBarGetTabOrder(tab_bar, src_tab)
     local dst_idx = src_idx
     local i = src_idx
     while i >= 0 and i < tab_bar.Tabs.Size do
+        -- Reordered tabs must share the same section
         local dst_tab = tab_bar.Tabs.Data[i + 1]
         if bit32.band(dst_tab.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then break end
         if bit32.band(dst_tab.Flags, ImGuiTabItemFlags.SectionMask_) ~= bit32.band(src_tab.Flags, ImGuiTabItemFlags.SectionMask_) then break end
         dst_idx = i
+
+        -- Include spacing after tab, so when mouse cursor is between tabs we would not continue checking further tabs that are not hovered.
         local x1 = bar_offset + dst_tab.Offset - tab_spacing
         local x2 = bar_offset + dst_tab.Offset + dst_tab.Width + tab_spacing
+        -- ImGui.GetForegroundDrawList():AddRect(ImVec2(x1, tab_bar.BarRect.Min.y), ImVec2(x2, tab_bar.BarRect.Max.y), IM_COL32(255, 0, 0, 255))
         if (dir < 0 and mouse_pos.x > x1) or (dir > 0 and mouse_pos.x < x2) then break end
         i = i + dir
     end
@@ -9234,10 +10008,13 @@ function ImGui.TabBarProcessReorder(tab_bar)
     local tab1 = ImGui.TabBarFindTabByID(tab_bar, tab_bar.ReorderRequestTabId)
     if tab1 == nil or bit32.band(tab1.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then return false end
 
+    -- IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable) ~= 0) -- <- this may happen when using debug tools
     local tab1_order = ImGui.TabBarGetTabOrder(tab_bar, tab1)
     local tab2_order = tab1_order + tab_bar.ReorderRequestOffset
     if tab2_order < 0 or tab2_order >= tab_bar.Tabs.Size then return false end
 
+    -- Reordered tabs must share the same section
+    -- (Note: TabBarQueueReorderFromMousePos() also has a similar test but since we allow direct calls to TabBarQueueReorder() we do it here too)
     local tab2 = tab_bar.Tabs.Data[tab2_order + 1]
     if bit32.band(tab2.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then return false end
     if bit32.band(tab1.Flags, ImGuiTabItemFlags.SectionMask_) ~= bit32.band(tab2.Flags, ImGuiTabItemFlags.SectionMask_) then return false end
@@ -9258,6 +10035,7 @@ function ImGui.TabBarScrollingButtons(tab_bar)
     local scrolling_buttons_width = arrow_button_size.x * 2.0
 
     local backup_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+    -- window.DrawList:AddRect(ImVec2(tab_bar.BarRect.Max.x - scrolling_buttons_width, tab_bar.BarRect.Min.y), ImVec2(tab_bar.BarRect.Max.x, tab_bar.BarRect.Max.y), IM_COL32(255,0,0,255))
 
     local select_dir = 0
     local tc = g.Style.Colors[ImGuiCol.Text]
@@ -9286,9 +10064,15 @@ function ImGui.TabBarScrollingButtons(tab_bar)
         if tab_item then
             local selected_order = ImGui.TabBarGetTabOrder(tab_bar, tab_item)
             local target_order = selected_order + select_dir
+
+            -- Skip tab item buttons until another tab item is found or end is reached
             while tab_to_scroll_to == nil do
+                -- If we are at the end of the list, still scroll to make our tab visible
                 local idx = (target_order >= 0 and target_order < tab_bar.Tabs.Size) and target_order or selected_order
                 tab_to_scroll_to = tab_bar.Tabs.Data[idx + 1]
+
+                -- Cross through buttons
+                -- (even if first/last item is a button, return it so we can update the scroll)
                 if bit32.band(tab_to_scroll_to.Flags, ImGuiTabItemFlags.Button) ~= 0 then
                     target_order = target_order + select_dir
                     selected_order = selected_order + select_dir
@@ -9307,6 +10091,7 @@ function ImGui.TabBarTabListPopupButton(tab_bar)
     local g = ImGui.GetCurrentContext()
     local window = g.CurrentWindow
 
+    -- We use g.Style.FramePadding.y to match the square ArrowButton size
     local tab_list_popup_button_width = g.FontSize + g.Style.FramePadding.y
     local backup_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
     ImVec2_CopyV(window.DC.CursorPos, tab_bar.BarRect.Min.x - g.Style.FramePadding.y, tab_bar.BarRect.Min.y)
@@ -9336,9 +10121,18 @@ function ImGui.TabBarTabListPopupButton(tab_bar)
     return tab_to_select
 end
 
----------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Widgets: BeginTabItem, EndTabItem, etc.
----------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- - BeginTabItem()
+-- - EndTabItem()
+-- - TabItemButton()
+-- - TabItemEx() [Internal]
+-- - SetTabItemClosed()
+-- - TabItemCalcSize() [Internal]
+-- - TabItemBackground() [Internal]
+-- - TabItemLabelAndCloseButton() [Internal]
+-------------------------------------------------------------------------------
 
 --- @return bool visible, bool? p_open
 function ImGui.BeginTabItem(label, p_open, flags)
@@ -9349,13 +10143,13 @@ function ImGui.BeginTabItem(label, p_open, flags)
 
     local tab_bar = g.CurrentTabBar
     IM_ASSERT(tab_bar ~= nil, "Needs to be called between BeginTabBar() and EndTabBar()!")
-    IM_ASSERT(bit32.band(flags, ImGuiTabItemFlags.Button) == 0)
+    IM_ASSERT(bit32.band(flags, ImGuiTabItemFlags.Button) == 0) -- BeginTabItem() Can't be used with button flags, use TabItemButton() instead!
 
     local ret
     ret, p_open = ImGui.TabItemEx(tab_bar, label, p_open, flags, nil)
     if ret and bit32.band(flags, ImGuiTabItemFlags.NoPushId) == 0 then
         local tab = tab_bar.Tabs.Data[tab_bar.LastTabItemIdx + 1]
-        ImGui.PushOverrideID(tab.ID)
+        ImGui.PushOverrideID(tab.ID) -- We already hashed 'label' so push into the ID stack directly instead of doing another hash through PushID(label)
     end
     return ret, p_open
 end
@@ -9396,6 +10190,7 @@ end
 
 --- @return bool ret, bool? p_open
 function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
+    -- Layout whole tab bar if not already done
     local g = ImGui.GetCurrentContext()
     if tab_bar.WantLayout then
         local backup_next_item_data = {}
@@ -9409,14 +10204,17 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
     local style = g.Style
     local id = ImGui.TabBarCalcTabID(tab_bar, label, docked_window)
 
+    -- If the user called us with p_open == false, we early out and don't render.
+    -- We make a call to ItemAdd() so that attempts to use a contextual popup menu with an implicit ID won't use an older ID.
     if p_open ~= nil and not p_open then
         ImGui.ItemAdd(ImRect(), id, nil, ImGuiItemFlags.NoNav)
         return false, p_open
     end
 
     IM_ASSERT(p_open == nil or bit32.band(flags, ImGuiTabItemFlags.Button) == 0)
-    IM_ASSERT(bit32.band(flags, bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)) ~= bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing))
+    IM_ASSERT(bit32.band(flags, bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)) ~= bit32.bor(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)) -- Can't use both Leading and Trailing
 
+    -- Store into ImGuiTabItemFlags.NoCloseButton, also honor ImGuiTabItemFlags.NoCloseButton passed by user (although not documented)
     local has_p_open = (p_open ~= nil)
     if bit32.band(flags, ImGuiTabItemFlags.NoCloseButton) ~= 0 then
         has_p_open = false
@@ -9424,6 +10222,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         flags = bit32.bor(flags, ImGuiTabItemFlags.NoCloseButton)
     end
 
+    -- Acquire tab data
     local tab = ImGui.TabBarFindTabByID(tab_bar, id)
     local tab_is_new = false
     if tab == nil then
@@ -9435,6 +10234,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
     end
     tab_bar.LastTabItemIdx = ImGui.TabBarGetTabOrder(tab_bar, tab)
 
+    -- Calculate tab contents size
     local size = ImGui.TabItemCalcSize(label, has_p_open or bit32.band(flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0)
     tab.RequestedWidth = -1.0
     if bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasWidth) ~= 0 then
@@ -9455,6 +10255,8 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
     tab.Flags = flags
     tab.Window = docked_window
 
+    -- Append name (port: stored on tab.Name)
+    -- (regular tabs are permitted in a DockNode tab bar, but window tabs not permitted in a non-DockNode tab bar)
     if docked_window ~= nil then
         IM_ASSERT(bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DockNode) ~= 0)
         tab.NameOffset = -1
@@ -9464,26 +10266,32 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         tab.Name = label
     end
 
+    -- Update selected tab
     if not is_tab_button then
         if tab_appearing and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.AutoSelectNewTabs) ~= 0 and tab_bar.NextSelectedTabId == 0 then
             if not tab_bar_appearing or tab_bar.SelectedTabId == 0 then
-                ImGui.TabBarQueueFocus(tab_bar, tab)
+                ImGui.TabBarQueueFocus(tab_bar, tab) -- New tabs gets activated
             end
         end
-        if bit32.band(flags, ImGuiTabItemFlags.SetSelected) ~= 0 and tab_bar.SelectedTabId ~= id then
+        if bit32.band(flags, ImGuiTabItemFlags.SetSelected) ~= 0 and tab_bar.SelectedTabId ~= id then -- _SetSelected can only be passed on explicit tab bar
             ImGui.TabBarQueueFocus(tab_bar, tab)
         end
     end
 
+    -- Lock visibility
+    -- (Note: tab_contents_visible ~= tab_selected... because Ctrl+Tab operations may preview some tabs without selecting them!)
     local tab_contents_visible = (tab_bar.VisibleTabId == id)
     if tab_contents_visible then tab_bar.VisibleTabWasSubmitted = true end
 
+    -- On the very first frame of a tab bar we let first tab contents be visible to minimize appearing glitches
     if not tab_contents_visible and tab_bar.SelectedTabId == 0 and tab_bar_appearing and docked_window == nil then
         if tab_bar.Tabs.Size == 1 and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.AutoSelectNewTabs) == 0 then
             tab_contents_visible = true
         end
     end
 
+    -- Note that tab_is_new is not necessarily the same as tab_appearing! When a tab bar stops being submitted
+    -- and then gets submitted again, the tabs will have 'tab_appearing=true' but 'tab_is_new=false'.
     if tab_appearing and (not tab_bar_appearing or tab_is_new) then
         ImGui.ItemAdd(ImRect(), id, nil, ImGuiItemFlags.NoNav)
         if is_tab_button then return false, p_open end
@@ -9492,14 +10300,17 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
 
     if tab_bar.SelectedTabId == id then tab.LastFrameSelected = g.FrameCount end
 
+    -- Backup current layout position
     local backup_main_cursor_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
 
+    -- Layout
     local is_central_section = bit32.band(tab.Flags, ImGuiTabItemFlags.SectionMask_) == 0
     size.x = tab.Width
     local pos = ImGui.TabBarGetTabPos(tab_bar, tab)
     ImVec2_Copy(window.DC.CursorPos, pos)
     local bb = ImRect(pos, pos + size)
 
+    -- We don't have CPU clipping primitives to clip the CloseButton (until it becomes a texture), so need to add an extra draw call (temporary in the case of vertical animation)
     local want_clip_rect = is_central_section and (bb.Min.x < tab_bar.ScrollingRectMinX or bb.Max.x > tab_bar.ScrollingRectMaxX)
     if want_clip_rect then
         ImGui.PushClipRect(ImVec2(ImClamp(bb.Min.x, tab_bar.ScrollingRectMinX, tab_bar.ScrollingRectMaxX), bb.Min.y - 1), ImVec2(tab_bar.ScrollingRectMaxX, bb.Max.y), true)
@@ -9515,8 +10326,9 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         return tab_contents_visible, p_open
     end
 
+    -- Click to Select a tab
     local button_flags = bit32.bor(is_tab_button and ImGuiButtonFlags.PressedOnClickRelease or ImGuiButtonFlags.PressedOnClick, ImGuiButtonFlags.AllowOverlap)
-    if g.DragDropActive and not ImGuiPayload_IsDataType(g.DragDropPayload, IMGUI_PAYLOAD_TYPE_WINDOW) then
+    if g.DragDropActive and not ImGuiPayload_IsDataType(g.DragDropPayload, IMGUI_PAYLOAD_TYPE_WINDOW) then -- FIXME: May be an opt-in property of the payload to disable this
         button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnDragDropHold)
     end
     local hovered, held, pressed
@@ -9527,18 +10339,24 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
     end
     if pressed and not is_tab_button then ImGui.TabBarQueueFocus(tab_bar, tab) end
 
+    -- Transfer active id window so the active id is not owned by the dock host (as StartMouseMovingWindow()
+    -- will only do it on the drag). This allows FocusWindow() to be more conservative in how it clears active id.
     if held and docked_window and g.ActiveId == id and g.ActiveIdIsJustActivated then
         g.ActiveIdWindow = docked_window
     end
 
+    -- Drag and drop a single floating window node moves it
     local node = docked_window and docked_window.DockNode or nil
     local single_floating_window_node = node and node:IsFloatingNode() and (node.Windows.Size == 1)
     if held and single_floating_window_node and ImGui.IsMouseDragging(0, 0.0) then
+        -- Move
         ImGui.StartMouseMovingWindow(docked_window)
     elseif held and not tab_appearing and ImGui.IsMouseDragging(0) then
+        -- Drag and drop: re-order tabs
         local drag_dir = 0
         local drag_distance_from_edge_x = 0.0
         if not g.DragDropActive and (bit32.band(tab_bar.Flags, ImGuiTabBarFlags.Reorderable) ~= 0 or docked_window ~= nil) then
+            -- While moving a tab it will jump on the other side of the mouse, so we also test for MouseDelta.x
             if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < bb.Min.x then
                 drag_dir = -1
                 drag_distance_from_edge_x = bb.Min.x - g.IO.MousePos.x
@@ -9550,13 +10368,17 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
             end
         end
 
+        -- Extract a Dockable window out of it's tab bar
         local can_undock = docked_window ~= nil and bit32.band(docked_window.Flags, ImGuiWindowFlags.NoMove) == 0 and bit32.band(node.MergedFlags, ImGuiDockNodeFlags.NoUndocking) == 0
         if can_undock then
+            -- We use a variable threshold to distinguish dragging tabs within a tab bar and extracting them out of the tab bar
             local undocking_tab = (g.DragDropActive and g.DragDropPayload.SourceId == id)
-            if not undocking_tab then
+            if not undocking_tab then -- and (not g.IO.ConfigDockingWithShift or g.IO.KeyShift)
                 local threshold_base = g.FontSize
                 local threshold_x = threshold_base * 2.2
                 local threshold_y = (threshold_base * 1.5) + ImClamp((math.abs(g.IO.MouseDragMaxDistanceAbs[0].x) - threshold_base * 2.0) * 0.20, 0.0, threshold_base * 4.0)
+                -- ImGui.GetForegroundDrawList():AddRect(ImVec2(bb.Min.x - threshold_x, bb.Min.y - threshold_y), ImVec2(bb.Max.x + threshold_x, bb.Max.y + threshold_y), IM_COL32_WHITE) -- [DEBUG]
+
                 local distance_from_edge_y = ImMax(bb.Min.y - g.IO.MousePos.y, g.IO.MousePos.y - bb.Max.y)
                 if distance_from_edge_y >= threshold_y then undocking_tab = true end
                 if drag_distance_from_edge_x > threshold_x then
@@ -9567,6 +10389,8 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
             end
 
             if undocking_tab then
+                -- Undock
+                -- FIXME: refactor to share more code with e.g. StartMouseMovingWindow
                 ImGui.DockContextQueueUndockWindow(g, docked_window)
                 g.MovingWindow = docked_window
                 ImGui.SetActiveID(g.MovingWindow.MoveId, g.MovingWindow)
@@ -9577,6 +10401,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         end
     end
 
+    -- Render tab shape
     local is_visible = bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0 and bit32.band(flags, ImGuiTabItemFlags.Invisible) == 0
     if is_visible then
         local display_draw_list = window.DrawList
@@ -9586,6 +10411,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         else col_idx = tab_bar_focused and ImGuiCol.Tab or ImGuiCol.TabDimmed end
         ImGui.TabItemBackground(display_draw_list, bb, flags, ImGui.GetColorU32(col_idx))
         if tab_contents_visible and bit32.band(tab_bar.Flags, ImGuiTabBarFlags.DrawSelectedOverline) ~= 0 and style.TabBarOverlineSize > 0.0 then
+            -- Might be moved to TabItemBackground() ?
             local tl = ImVec2(bb.Min.x, bb.Min.y + style.TabBarOverlineSize * 0.5)
             local tr = ImVec2(bb.Max.x, bb.Min.y + style.TabBarOverlineSize * 0.5)
             local overline_col = ImGui.GetColorU32(tab_bar_focused and ImGuiCol.TabSelectedOverline or ImGuiCol.TabDimmedSelectedOverline)
@@ -9600,6 +10426,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         end
         ImGui.RenderNavCursor(bb, id)
 
+        -- Select with right mouse button. This is so the common idiom for context menu automatically highlight the current widget.
         local hovered_unblocked = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup)
         if tab_bar.SelectedTabId ~= tab.ID and hovered_unblocked and (ImGui.IsMouseClicked(1) or ImGui.IsMouseReleased(1)) and not is_tab_button then
             ImGui.TabBarQueueFocus(tab_bar, tab)
@@ -9609,6 +10436,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
             flags = bit32.bor(flags, ImGuiTabItemFlags.NoCloseWithMiddleMouseButton)
         end
 
+        -- Render tab label, process close button
         local close_button_id = has_p_open and ImGui.GetIDWithSeed("#CLOSE", nil, docked_window and docked_window.ID or id) or 0
         local label_flags = tab_just_unsaved and bit32.band(flags, bit32.bnot(ImGuiTabItemFlags.UnsavedDocument)) or flags
         local just_closed, text_clipped = ImGui.TabItemLabelAndCloseButton(display_draw_list, bb, label_flags, tab_bar.FramePadding, label, id, close_button_id, tab_contents_visible)
@@ -9617,10 +10445,17 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
             ImGui.TabBarCloseTab(tab_bar, tab)
         end
 
+        -- Forward Hovered state so IsItemHovered() after Begin() can work (even though we are technically hovering our parent)
+        -- That state is copied to window.DockTabItemStatusFlags by our caller.
         if docked_window and (hovered or g.HoveredId == close_button_id) then
             g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredWindow)
         end
 
+        -- Tooltip
+        -- (Won't work over the close button because ItemOverlap systems messes up with HoveredIdTimer-> seems ok)
+        -- (We test IsItemHovered() to discard e.g. when another item is active or drag and drop over the tab bar, which g.HoveredId ignores)
+        -- FIXME: This is a mess.
+        -- FIXME: We may want disabled tab to still display the tooltip?
         if text_clipped and g.HoveredId == id and not held then
             if bit32.band(tab_bar.Flags, ImGuiTabBarFlags.NoTooltip) == 0 and bit32.band(tab.Flags, ImGuiTabItemFlags.NoTooltip) == 0 then
                 local label_end = ImGui.FindRenderedTextEnd(label)
@@ -9629,6 +10464,7 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
         end
     end
 
+    -- Restore main window position so user can draw there
     if want_clip_rect then ImGui.PopClipRect() end
     ImVec2_Copy(window.DC.CursorPos, backup_main_cursor_pos)
 
@@ -9636,6 +10472,9 @@ function ImGui.TabItemEx(tab_bar, label, p_open, flags, docked_window)
     return tab_contents_visible, p_open
 end
 
+-- [Public] This is call is 100% optional but it allows to remove some one-frame glitches when a tab has been unexpectedly removed.
+-- To use it to need to call the function SetTabItemClosed() between BeginTabBar() and EndTabBar().
+-- Tabs closed by the close button will automatically be flagged to avoid this issue.
 function ImGui.SetTabItemClosed(label)
     local g = ImGui.GetCurrentContext()
     local is_within_manual_tab_bar = g.CurrentTabBar and bit32.band(g.CurrentTabBar.Flags, ImGuiTabBarFlags.DockNode) == 0
@@ -9643,7 +10482,7 @@ function ImGui.SetTabItemClosed(label)
         local tab_bar = g.CurrentTabBar
         local tab_id = ImGui.TabBarCalcTabID(tab_bar, label, nil)
         local tab = ImGui.TabBarFindTabByID(tab_bar, tab_id)
-        if tab then tab.WantClose = true end
+        if tab then tab.WantClose = true end -- Will be processed by next call to TabBarLayout()
     else
         local window = ImGui.FindWindowByName(label)
         if window and window.DockIsActive then
@@ -9667,7 +10506,7 @@ function ImGui.TabItemCalcSize(label, has_close_button_or_unsaved_marker)
     local label_size = ImGui.CalcTextSize(label, nil, true)
     local size = ImVec2(label_size.x + g.Style.FramePadding.x, label_size.y + g.Style.FramePadding.y * 2.0)
     if has_close_button_or_unsaved_marker then
-        size.x = size.x + g.Style.FramePadding.x + (g.Style.ItemInnerSpacing.x + g.FontSize)
+        size.x = size.x + g.Style.FramePadding.x + (g.Style.ItemInnerSpacing.x + g.FontSize) -- We use Y intentionally to fit the close button circle.
     else
         size.x = size.x + g.Style.FramePadding.x + 1.0
     end
@@ -9675,11 +10514,12 @@ function ImGui.TabItemCalcSize(label, has_close_button_or_unsaved_marker)
 end
 
 function ImGui.TabItemBackground(draw_list, bb, flags, col)
+    -- While rendering tabs, we trim 1 pixel off the top of our bounding box so they can fit within a regular frame height while looking "detached" from it.
     local g = ImGui.GetCurrentContext()
     local width = bb:GetWidth()
     IM_ASSERT(width > 0.0)
     local rounding = ImMax(0.0, ImMin(bit32.band(flags, ImGuiTabItemFlags.Button) ~= 0 and g.Style.FrameRounding or g.Style.TabRounding, width * 0.5 - 1.0))
-    local y1 = bb.Min.y + 1.0
+    local y1 = bb.Min.y + 1.0 -- Leave a bit of room in title bars.
     local y2 = bb.Max.y - g.Style.TabBarBorderSize
     draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, ImDrawFlags.RoundCornersTop)
     if g.Style.TabBorderSize > 0.0 then
@@ -9691,6 +10531,8 @@ function ImGui.TabItemBackground(draw_list, bb, flags, col)
     end
 end
 
+-- Render text label (with custom clipping) + Unsaved Document marker + Close Button logic
+-- We tend to lock style.FramePadding for a given tab-bar, hence the 'frame_padding' parameter.
 --- @return bool just_closed, bool text_clipped
 function ImGui.TabItemLabelAndCloseButton(draw_list, bb, flags, frame_padding, label, tab_id, close_button_id, is_contents_visible)
     local g = ImGui.GetCurrentContext()
@@ -9699,15 +10541,24 @@ function ImGui.TabItemLabelAndCloseButton(draw_list, bb, flags, frame_padding, l
 
     if bb:GetWidth() <= 1.0 then return false, false end
 
+    -- Render text label (with clipping + alpha gradient) + unsaved marker
     local text_ellipsis_clip_bb = ImRect(bb.Min.x + frame_padding.x, bb.Min.y + frame_padding.y, bb.Max.x - frame_padding.x, bb.Max.y)
+
+    -- Return clipped state ignoring the close button
     local text_clipped = (text_ellipsis_clip_bb.Min.x + label_size.x) > text_ellipsis_clip_bb.Max.x
+    -- draw_list:AddCircle(text_ellipsis_clip_bb.Min, 3.0, text_clipped and IM_COL32(255, 0, 0, 255) or IM_COL32(0, 255, 0, 255))
 
     local button_sz = g.FontSize
     local button_pos = ImVec2(ImMax(bb.Min.x, bb.Max.x - frame_padding.x - button_sz), bb.Min.y + frame_padding.y)
 
+    -- Close Button & Unsaved Marker
+    -- We are relying on a subtle and confusing distinction between 'hovered' and 'g.HoveredId' which happens because we are using ImGuiButtonFlags_AllowOverlapMode + SetItemAllowOverlap()
+    --  'hovered' will be true when hovering the Tab but NOT when hovering the close button
+    --  'g.HoveredId==id' will be true when hovering the Tab including when hovering the close button
+    --  'g.ActiveId==close_button_id' will be true when we are holding on the close button, in which case both hovered booleans are false
     local close_button_pressed = false
     local close_button_visible = false
-    local is_hovered = g.HoveredId == tab_id or g.HoveredId == close_button_id or g.ActiveId == tab_id or g.ActiveId == close_button_id
+    local is_hovered = g.HoveredId == tab_id or g.HoveredId == close_button_id or g.ActiveId == tab_id or g.ActiveId == close_button_id -- Any interaction account for this too.
 
     if close_button_id ~= 0 then
         if is_contents_visible then
@@ -9717,6 +10568,7 @@ function ImGui.TabItemLabelAndCloseButton(draw_list, bb, flags, frame_padding, l
         end
     end
 
+    -- When tabs/document is unsaved, the unsaved marker takes priority over the close button.
     local unsaved_marker_visible = bit32.band(flags, ImGuiTabItemFlags.UnsavedDocument) ~= 0 and (button_pos.x + button_sz <= bb.Max.x) and (not close_button_visible or not is_hovered)
     if unsaved_marker_visible then
         local bullet_pos = button_pos + ImVec2(button_sz, button_sz) * 0.5
@@ -9727,11 +10579,15 @@ function ImGui.TabItemLabelAndCloseButton(draw_list, bb, flags, frame_padding, l
         if ImGui.CloseButton(close_button_id, button_pos) then close_button_pressed = true end
         ImGuiLastItemData_Copy(g.LastItemData, last_item_backup)
 
+        -- Close with middle mouse button
         if is_hovered and bit32.band(flags, ImGuiTabItemFlags.NoCloseWithMiddleMouseButton) == 0 and ImGui.IsMouseClicked(2) then
             close_button_pressed = true
         end
     end
 
+    -- This is all rather complicated
+    -- (the main idea is that because the close button only appears on hover, we don't want it to alter the ellipsis position)
+    -- FIXME: if FramePadding is noticeably large, ellipsis_max_x will be wrong here (e.g. #3497), maybe for consistency that parameter of RenderTextEllipsis() shouldn't exist..
     local ellipsis_max_x = text_ellipsis_clip_bb.Max.x
     if close_button_visible or unsaved_marker_visible then
         local visible_without_hover = unsaved_marker_visible or ((is_contents_visible and g.Style.TabCloseButtonMinWidthSelected or g.Style.TabCloseButtonMinWidthUnselected) < 0.0)

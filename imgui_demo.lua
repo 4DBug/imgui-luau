@@ -1,20 +1,127 @@
 -- dear imgui demo (Luau port of imgui_demo.cpp). Optional: the library never calls into this file.
 
 do --[[ imgui_demo.lua ]]
---- Dear ImGui WIP
--- (Demo Code) Port of imgui_demo.cpp (docking branch)
+-- dear imgui, v1.93.0 WIP
+-- (demo code) Port of imgui_demo.cpp (docking branch)
 -- This file: shared demo helpers, ShowDemoWindow(), DemoWindowMenuBar(), DemoWindowWidgets() dispatcher, example tree/image viewer helpers.
 -- Other parts (all global functions, loaded from the same bundle):
 
+-- Help:
+-- - Read FAQ at http://dearimgui.com/faq
+-- - Call and read ImGui.ShowDemoWindow() in imgui_demo.lua.
+-- - Need help integrating Dear ImGui in your codebase?
+--   - Read Getting Started https://github.com/ocornut/imgui/wiki/Getting-Started
+-- Read top of imgui.cpp and imgui.h for many details, documentation, comments, links.
+-- Get the latest version at https://github.com/ocornut/imgui
+
+-- How to easily locate code?
+-- - Use Tools->Item Picker to debug break in code by clicking any widgets: https://github.com/ocornut/imgui/wiki/Debug-Tools
+-- - Browse pthom's online imgui_explorer: web version the demo w/ source code browser: https://pthom.github.io/imgui_explorer
+-- - Find a visible string and search for it in the code!
+
+-----------------------------------------------------
+-- PLEASE DO NOT REMOVE THIS FILE FROM YOUR PROJECT!
+-----------------------------------------------------
+-- Message to the person tempted to delete this file when integrating Dear ImGui into their codebase:
+-- Think again! It is the most useful reference code that you and other coders will want to refer to and call.
+-- Have the ImGui.ShowDemoWindow() function wired in an always-available debug menu of your game/app!
+-- Also include Metrics! ItemPicker! DebugLog! and other debug features.
+-- Removing this file from your project is hindering access to documentation for everyone in your team,
+-- likely leading you to poorer usage of the library.
+-- Whenever you have Dear ImGui available you probably want this to be available for reference.
+-- Thank you,
+-- -Your beloved friend, imgui_demo.cpp (which you won't delete)
+
+----------------------------------------------
+-- ABOUT THE MEANING OF THE 'static' KEYWORD:
+----------------------------------------------
+-- In the upstream C++ demo code, 'static' variables inside functions are frequently used.
+-- A static variable persists across calls. It is essentially a global variable but declared inside the scope of the function.
+-- Think of "static int n = 0;" as "global int n = 0;" !
+-- (PORT: Lua has no function-local statics; this port keeps them as fields of file-level tables, e.g. `S`, `SL`, `ST`.)
+-- We do this IN THE DEMO because we want:
+-- - to gather code and data in the same place.
+-- - to make the demo source code faster to read, faster to change, smaller in size.
+-- - it is also a convenient way of storing simple UI related information as long as your function
+--   doesn't need to be reentrant or used in multiple threads.
+-- This might be a pattern you will want to use in your code, but most of the data you would be working
+-- with in a complex codebase is likely going to be stored outside your functions.
+
+-------------------------------------------
+-- ABOUT THE CODING STYLE OF OUR DEMO CODE
+-------------------------------------------
+-- The Demo code in this file is designed to be easy to copy-and-paste into your application!
+-- Because of this:
+-- - We never omit the ImGui. prefix when calling functions.
+
+-- Navigating this file:
+-- - You can search/grep for all sections listed in the index to find the section.
+
+-- Index of this file:
+--
+-- [SECTION] Helpers
+-- [SECTION] Demo Window / ShowDemoWindow()
+-- [SECTION] Helpers: ExampleTreeNode, ExampleMemberInfo (for use by Property Editor & Multi-Select demos)
+-- [SECTION] Helpers: ExampleImageViewer
+-- [SECTION] DemoWindowWidgetsBasic()
+-- [SECTION] DemoWindowWidgetsBullets()
+-- [SECTION] DemoWindowWidgetsCollapsingHeaders()
+-- [SECTION] DemoWindowWidgetsComboBoxes()
+-- [SECTION] DemoWindowWidgetsColorAndPickers()
+-- [SECTION] DemoWindowWidgetsDataTypes()
+-- [SECTION] DemoWindowWidgetsDisableBlocks()
+-- [SECTION] DemoWindowWidgetsDragAndDrop()
+-- [SECTION] DemoWindowWidgetsDragsAndSliders()
+-- [SECTION] DemoWindowWidgetsFonts()
+-- [SECTION] DemoWindowWidgetsImages()
+-- [SECTION] DemoWindowWidgetsListBoxes()
+-- [SECTION] DemoWindowWidgetsLiveEdit()
+-- [SECTION] DemoWindowWidgetsMixedValues()
+-- [SECTION] DemoWindowWidgetsMultiComponents()
+-- [SECTION] DemoWindowWidgetsPlotting()
+-- [SECTION] DemoWindowWidgetsProgressBars()
+-- [SECTION] DemoWindowWidgetsQueryingStatuses()
+-- [SECTION] DemoWindowWidgetsSelectables()
+-- [SECTION] DemoWindowWidgetsTabs()
+-- [SECTION] DemoWindowWidgetsText()
+-- [SECTION] DemoWindowWidgetsTextFilter()
+-- [SECTION] DemoWindowWidgetsTextInput()
+-- [SECTION] DemoWindowWidgetsTooltips()
+-- [SECTION] DemoWindowWidgetsTreeNodes()
+-- [SECTION] DemoWindowWidgetsVerticalSliders()
+-- [SECTION] DemoWindowWidgets()
+-- [SECTION] DemoWindowLayout()
+-- [SECTION] DemoWindowPopups()
+-- [SECTION] DemoWindowTables()
+-- [SECTION] About Window / ShowAboutWindow()
+-- [SECTION] Style Editor / ShowStyleEditor()
+-- [SECTION] User Guide / ShowUserGuide()
+-- [SECTION] Example App: Main Menu Bar / ShowExampleAppMainMenuBar()
+-- [SECTION] Example App: Debug Console / ShowExampleAppConsole()
+-- [SECTION] Example App: Debug Log / ShowExampleAppLog()
+-- [SECTION] Example App: Simple Layout / ShowExampleAppLayout()
+-- [SECTION] Example App: Property Editor / ShowExampleAppPropertyEditor()
+-- [SECTION] Example App: Long Text / ShowExampleAppLongText()
+-- [SECTION] Example App: Auto Resize / ShowExampleAppAutoResize()
+-- [SECTION] Example App: Constrained Resize / ShowExampleAppConstrainedResize()
+-- [SECTION] Example App: Simple overlay / ShowExampleAppSimpleOverlay()
+-- [SECTION] Example App: Fullscreen window / ShowExampleAppFullscreen()
+-- [SECTION] Example App: Manipulating window titles / ShowExampleAppWindowTitles()
+-- [SECTION] Example App: Custom Rendering using ImDrawList API / ShowExampleAppCustomRendering()
+-- [SECTION] Example App: Docking, DockSpace / ShowExampleAppDockSpace()
+-- [SECTION] Example App: Documents Handling / ShowExampleAppDocuments()
+
 local _
 
-----------------------------------------------------------------
--- Shared helpers (globals)
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Helpers
+-------------------------------------------------------------------------------
 
+-- Helper to wire demo markers located in code to an interactive browser (e.g. https://pthom.github.io/imgui_explorer)
 function IMGUI_DEMO_MARKER(_) end -- upstream hook, no-op here
 
---- Helper to display a little (?) mark which shows a tooltip when hovered.
+-- Helper to display a little (?) mark which shows a tooltip when hovered.
+-- In your own code you may want to display an actual icon if you are using a merged icon fonts (see docs/FONTS.md)
 function HelpMarker(desc)
     ImGui.TextDisabled("(?)")
     if ImGui.BeginItemTooltip() then
@@ -162,9 +269,9 @@ function DemoTextFilter()
     return f
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Demo Window data
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 --- Data to be shared across different functions of the demo.
 function ImGuiDemoWindowData()
@@ -202,10 +309,12 @@ function ImGuiDemoWindowData()
     }
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Helpers: ExampleTreeNode, ExampleMemberInfo (for use by Property Editor & Multi-Select demos)
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Simple representation for a tree
+-- (this is designed to be simple to understand for our demos, not to be fancy or efficient etc.)
 function ExampleTreeNode()
     return {
         -- Tree structure
@@ -213,7 +322,7 @@ function ExampleTreeNode()
         UID = 0,
         Parent = nil,
         Childs = {},         -- 1-based
-        IndexInParent = 0,   -- 0-based
+        IndexInParent = 0,   -- 0-based. Maintaining this allows us to implement linear traversal more easily
 
         -- Leaf Data
         HasData = false,     -- All leaves have data
@@ -237,8 +346,14 @@ end
 
 function ExampleTree_DestroyNode(node) end -- GC
 
---- Create example tree data
+-- Create example tree data
+-- (warning: this can allocates MANY MANY more times than other code in all of Dear ImGui + demo combined)
+-- (a real application managing one million nodes would likely store its tree data differently)
 function ExampleTree_CreateDemoTree()
+    --     20 root nodes ->    211 total nodes,   ~261 allocs.
+    --   1000 root nodes ->   ~11K total nodes,   ~14K allocs.
+    --  10000 root nodes ->  ~123K total nodes,  ~154K allocs.
+    -- 100000 root nodes -> ~1338K total nodes, ~1666K allocs.
     local ROOT_ITEMS_COUNT = 20
     local category_names = { "Apple", "Banana", "Cherry", "Kiwi", "Mango", "Orange", "Pear", "Pineapple", "Strawberry", "Watermelon" }
     local category_count = #category_names
@@ -264,9 +379,9 @@ function ExampleTree_CreateDemoTree()
     return node_L0
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Helpers: ExampleImageViewer
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 function ExampleImageViewerData()
     return {
@@ -282,7 +397,7 @@ function ExampleImageViewerData()
 end
 
 function ExampleImageViewer_DrawOptions(data)
-    ImGui.SetNextItemShortcut(ImGuiKey.G, ImGuiInputFlags.Tooltip)
+    ImGui.SetNextItemShortcut(ImGuiKey.G, ImGuiInputFlags.Tooltip) -- | ImGuiInputFlags.RouteGlobal
     _, data.GridEnabled = ImGui.Checkbox("Grid", data.GridEnabled)
     ImGui.SameLine()
     ImGui.SetNextItemWidth(ImGui.GetFontSize() * 10.0)
@@ -316,7 +431,7 @@ function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, image_w
             data.Zoom = DemoClamp(data.Zoom * (1.0 + io.MouseWheel * 0.10), data.ZoomMin, data.ZoomMax)
         end
     end
-    local zoom = data.Zoom
+    local zoom = data.Zoom -- (float)(int)ViewZoom;
     if ImGui.IsItemActive() and ImGui.IsMouseDragging(0) then
         data.ViewOffset.x = data.ViewOffset.x - io.MouseDelta.x / zoom
         data.ViewOffset.y = data.ViewOffset.y - io.MouseDelta.y / zoom
@@ -352,10 +467,11 @@ function ExampleImageViewer_DrawCanvas(data, canvas_size, image_tex_ref, image_w
     draw_list:PopClipRect()
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Demo Window / ShowDemoWindow()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Stored data
 local demo_data = ImGuiDemoWindowData()
 
 local no_titlebar       = false
@@ -413,6 +529,7 @@ local function DemoWindowMenuBar(data)
 
             ImGui.EndMenu()
         end
+        -- if ImGui.MenuItem("MenuItem") then end -- You can also use MenuItem() inside a menu bar!
         if ImGui.BeginMenu("Tools") then
             IMGUI_DEMO_MARKER("Menu/Tools")
             local io = ImGui.GetIO()
@@ -429,7 +546,7 @@ local function DemoWindowMenuBar(data)
             _, data.ShowDebugLog = ImGui.MenuItem("Debug Log", nil, data.ShowDebugLog, has_debug_tools and ImGui.ShowDebugLogWindow ~= nil)
             _, data.ShowIDStackTool = ImGui.MenuItem("ID Stack Tool", nil, data.ShowIDStackTool, has_debug_tools and ImGui.ShowIDStackToolWindow ~= nil)
             local is_debugger_present = io.ConfigDebugIsDebuggerPresent
-            if ImGui.MenuItem("Item Picker", nil, false, has_debug_tools and ImGui.DebugStartItemPicker ~= nil) then
+            if ImGui.MenuItem("Item Picker", nil, false, has_debug_tools and ImGui.DebugStartItemPicker ~= nil) then -- and is_debugger_present
                 ImGui.DebugStartItemPicker()
             end
             if not is_debugger_present then
@@ -537,6 +654,12 @@ local function DemoWindowConfiguration(io)
             ImGui.Unindent()
         end
 
+        -- ImGui.SeparatorText("DPI/Scaling")
+        -- CB("io.ConfigDpiScaleFonts", "ConfigDpiScaleFonts")
+        -- HM("Experimental: Automatically update style.FontScaleDpi when Monitor DPI changes. This will scale fonts but NOT style sizes/padding for now.")
+        -- CB("io.ConfigDpiScaleViewports", "ConfigDpiScaleViewports")
+        -- HM("Experimental: Scale Dear ImGui and Platform Windows when Monitor DPI changes.")
+
         ImGui.SeparatorText("Windows")
         CB("io.ConfigWindowsResizeFromEdges", "ConfigWindowsResizeFromEdges")
         HM("Enable resizing of windows from their edges and from the lower-left corner.\nThis requires ImGuiBackendFlags_HasMouseCursors for better mouse cursor feedback.")
@@ -610,6 +733,7 @@ local function DemoWindowConfiguration(io)
             "Here we expose them as read-only fields to avoid breaking interactions with your backend.")
 
         -- Make a local copy to avoid modifying actual backend flags.
+        -- FIXME: Maybe we need a BeginReadonly() equivalent to keep label bright?
         local B = ImGuiBackendFlags
         local backend_flags = io.BackendFlags
         ImGui.BeginDisabled()
@@ -663,10 +787,14 @@ local function DemoWindowConfiguration(io)
     end
 end
 
---- Demonstrate most Dear ImGui features (this is big function!)
+-- Demonstrate most Dear ImGui features (this is big function!)
+-- You may execute this function to experiment with the UI and understand what it does.
+-- You may then search for keywords in the code when you are interested by a specific feature.
 --- @param p_open? bool
 --- @return bool? p_open
 function ImGui.ShowDemoWindow(p_open)
+    -- Exceptionally add an extra assert here for people confused about initial Dear ImGui setup
+    -- Most functions would normally just assert/crash if the context is missing.
     IM_ASSERT(ImGui.GetCurrentContext() ~= nil, "Missing Dear ImGui context. Refer to examples app!")
 
     local data = demo_data
@@ -722,6 +850,7 @@ function ImGui.ShowDemoWindow(p_open)
     if no_close          then p_open = nil end -- Don't pass our bool* to Begin
 
     -- We specify a default position/size in case there's no data in the .ini file.
+    -- We only do it to make the demo applications a little more welcoming, but typically this isn't required.
     local main_viewport = ImGui.GetMainViewport()
     ImGui.SetNextWindowPos(ImVec2(main_viewport.WorkPos.x + 650, main_viewport.WorkPos.y + 20), ImGuiCond.FirstUseEver)
     ImGui.SetNextWindowSize(ImVec2(550, 680), ImGuiCond.FirstUseEver)
@@ -737,10 +866,18 @@ function ImGui.ShowDemoWindow(p_open)
     end
 
     -- Most framed widgets share a common width settings. Remaining width is used for the label.
+    -- The width of the frame may be changed with PushItemWidth() or SetNextItemWidth().
+    -- - Positive value for absolute size, negative value for right-alignment.
+    -- - The default value is about GetWindowWidth() * 0.65f.
+    -- - See 'Demo->Layout->Widgets Width' for details.
+    -- Here we change the frame width based on how much width we want to give to the label.
     local label_width_base = ImGui.GetFontSize() * 12                  -- Some amount of width for label, based on font size.
     local label_width_max = ImGui.GetContentRegionAvail().x * 0.40     -- ...but always leave some room for framed widgets.
     local label_width = math.min(label_width_base, label_width_max)
     ImGui.PushItemWidth(-label_width)                                  -- Right-align: framed items will leave 'label_width' available for the label.
+    -- ImGui.PushItemWidth(ImGui.GetContentRegionAvail().x * 0.40)      -- e.g. Use 40% width for framed widgets, leaving 60% width for labels.
+    -- ImGui.PushItemWidth(-ImGui.GetContentRegionAvail().x * 0.40)     -- e.g. Use 40% width for labels, leaving 60% width for framed widgets.
+    -- ImGui.PushItemWidth(ImGui.GetFontSize() * -12)                   -- e.g. Use XXX width for labels, leaving the rest for framed widgets.
 
     -- Menu Bar
     DemoWindowMenuBar(data)
@@ -809,9 +946,9 @@ function ImGui.ShowDemoWindow(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] DemoWindowWidgets()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 --- Calls a (global) demo section if it exists, otherwise shows a placeholder
 local function Sub(fn, title, ...)
@@ -821,6 +958,7 @@ local function Sub(fn, title, ...)
 end
 
 function DemoWindowWidgets(data)
+    -- ImGui.SetNextItemOpen(true, ImGuiCond.Once)
     if not ImGui.CollapsingHeader("Widgets") then
         return
     end
@@ -881,9 +1019,9 @@ function DemoWindowWidgets(data)
     end
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] User Guide / ShowUserGuide()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 function ImGui.ShowUserGuide()
     local io = ImGui.GetIO()
@@ -932,6 +1070,10 @@ do --[[ imgui_demo_2.lua ]]
 -- DemoWindowInputs() and all ShowExampleAppXXX() example apps.
 -- Port of imgui_demo.cpp (docking branch). Globals are shared with imgui_demo.lua (HelpMarker, ShowExampleMenuFile, ...)
 
+-- Helpers macros
+-- We normally try to not use many helpers in imgui_demo.cpp in order to make code easier to copy and paste,
+-- but making an exception here as those are largely simplifying code...
+-- In other imgui sources we can use nicer internal functions from imgui_internal.h (ImMin/ImMax) but not in the demo.
 local IM_MIN = math.min
 local IM_MAX = math.max
 local function IM_CLAMP(V, MN, MX) return (V < MN) and MN or (V > MX) and MX or V end
@@ -1120,6 +1262,10 @@ local function DemoWindowLayout_ChildWindows()
     ImGui.SeparatorText("Manual-resize")
     do
         DemoHelpMarker("Drag bottom border to resize. Double-click bottom border to auto-fit to vertical contents.")
+        -- if ImGui.Button("Set Height to 200") then
+        --     ImGui.SetNextWindowSize(ImVec2(-FLT_MIN, 200.0))
+        -- end
+
         ImGui.PushStyleColor(ImGuiCol.ChildBg, ImGui.GetStyleColorVec4(ImGuiCol.FrameBg))
         if BeginChild("ResizableChild", ImVec2(-FLT_MIN, ImGui.GetTextLineHeightWithSpacing() * 8), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeY)) then
             for n = 0, 9 do
@@ -1149,6 +1295,13 @@ local function DemoWindowLayout_ChildWindows()
 
     ImGui.SeparatorText("Misc/Advanced")
 
+    -- Demonstrate a few extra things
+    -- - Changing ImGuiCol.ChildBg (which is transparent black in default styles)
+    -- - Using SetCursorPos() to position child window (the child window is an item from the POV of parent window)
+    --   You can also call SetNextWindowPos() to position the child window. The parent window will effectively
+    --   layout from this position.
+    -- - Using ImGui.GetItemRectMin/Max() to query the "item" state (because the child window is an item from
+    --   the POV of the parent window). See 'Demo->Querying Status (Edited/Active/Hovered etc.)' for details.
     do
         if SL.child_flags == nil then SL.child_flags = bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeX, ImGuiChildFlags.ResizeY) end
         ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8)
@@ -1189,6 +1342,11 @@ local function DemoWindowLayout_WidgetsWidth()
     IMGUI_DEMO_MARKER("Layout/Widgets Width")
     _, SL.show_indented_items = ImGui.Checkbox("Show indented items", SL.show_indented_items)
 
+    -- Use SetNextItemWidth() to set the width of a single upcoming item.
+    -- Use PushItemWidth()/PopItemWidth() to set the width of a group of items.
+    -- In real code use you'll probably want to choose width values that are proportional to your font size
+    -- e.g. Using '20.0f * GetFontSize()' as width instead of '200.0f', etc.
+
     local function block(text, help, width, l1, l2)
         ImGui.Text(text)
         if help then ImGui.SameLine(); DemoHelpMarker(help) end
@@ -1207,6 +1365,7 @@ local function DemoWindowLayout_WidgetsWidth()
     block("SetNextItemWidth/PushItemWidth(-GetContentRegionAvail().x * 0.5f)", "Align to right edge minus half", -ImGui.GetContentRegionAvail().x * 0.5, "float##4a", "float (indented)##4b")
     block("SetNextItemWidth/PushItemWidth(-Min(GetContentRegionAvail().x * 0.40f, GetFontSize() * 12))", nil, -IM_MIN(ImGui.GetFontSize() * 12, ImGui.GetContentRegionAvail().x * 0.40), "float##5a", "float (indented)##5b")
     -- Demonstrate using PushItemWidth to surround three items.
+    -- Calling SetNextItemWidth() before each of them would have the same effect.
     block("SetNextItemWidth/PushItemWidth(-FLT_MIN)", "Align to right edge", -FLT_MIN, "##float6a", "float (indented)##6b")
 end
 
@@ -1274,6 +1433,7 @@ local function DemoWindowLayout_BasicHorizontal()
             NotPorted("ListBox")
         end
         ImGui.PopID()
+        -- ImGui.SetItemTooltip("ListBox %d hovered", i)
     end
     ImGui.PopItemWidth()
 
@@ -1285,6 +1445,7 @@ local function DemoWindowLayout_BasicHorizontal()
     ImGui.Button("B", button_sz)
 
     -- Manually wrapping
+    -- (we should eventually provide this as an automatic layout feature, but for now you can do it manually)
     IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/Manual wrapping")
     ImGui.Text("Manual wrapping:")
     local style = ImGui.GetStyle()
@@ -1358,6 +1519,9 @@ local function DemoWindowLayout_TextBaseline()
         ImGui.Button("Some framed item"); ImGui.SameLine()
         DemoHelpMarker("Baseline of button will look misaligned with text..")
 
+        -- If your line starts with text, call AlignTextToFramePadding() to align text to upcoming widgets.
+        -- (because we don't know what's coming after the Text() statement, we need to move the text baseline
+        -- down by FramePadding.y ahead of time)
         ImGui.AlignTextToFramePadding()
         ImGui.Text("OK Blahblah"); ImGui.SameLine()
         ImGui.Button("Some framed item##2"); ImGui.SameLine()
@@ -1368,6 +1532,7 @@ local function DemoWindowLayout_TextBaseline()
         ImGui.Text("TEST"); ImGui.SameLine()
         ImGui.SmallButton("TEST##2")
 
+        -- If your line starts with text, call AlignTextToFramePadding() to align text to upcoming widgets.
         ImGui.AlignTextToFramePadding()
         ImGui.Text("Text aligned to framed item"); ImGui.SameLine()
         ImGui.Button("Item##1"); ImGui.SameLine()
@@ -1408,6 +1573,7 @@ local function DemoWindowLayout_TextBaseline()
         ImGui.BulletText("Misc items:")
         ImGui.Indent()
 
+        -- SmallButton() sets FramePadding to zero. Text baseline is aligned to match baseline of previous Button.
         ImGui.Button("80x80", ImVec2(80, 80))
         ImGui.SameLine()
         ImGui.Button("50x50", ImVec2(50, 50))
@@ -1417,10 +1583,12 @@ local function DemoWindowLayout_TextBaseline()
         ImGui.SmallButton("SmallButton()")
 
         -- Tree
+        -- (here the node appears after a button and has odd intent, so we use ImGuiTreeNodeFlags.DrawLinesNone to disable hierarchy outline)
         local spacing = ImGui.GetStyle().ItemInnerSpacing.x
         ImGui.Button("Button##1") -- Will make line higher
         ImGui.SameLine(0.0, spacing)
         if ImGui.TreeNodeEx("Node##1", ImGuiTreeNodeFlags.DrawLinesNone) then
+            -- Placeholder tree data
             for i = 0, 5 do
                 ImGui.BulletText("Item %d..", i)
             end
@@ -1436,11 +1604,16 @@ local function DemoWindowLayout_TextBaseline()
             ImGui.TreePop()
         end
 
+        -- Vertically align text node a bit lower so it'll be vertically centered with upcoming widget.
+        -- Otherwise you can use SmallButton() (smaller fit).
         ImGui.AlignTextToFramePadding()
 
+        -- Common mistake to avoid: if we want to SameLine after TreeNode we need to do it before we add
+        -- other contents "inside" the node.
         local node_open = ImGui.TreeNode("Node##3")
         ImGui.SameLine(0.0, spacing); ImGui.Button("Button##3")
         if node_open then
+            -- Placeholder tree data
             for i = 0, 5 do
                 ImGui.BulletText("Item %d..", i)
             end
@@ -1471,12 +1644,12 @@ local function DemoWindowLayout_HorizontalContentsSizeWindow()
         "Test how different widgets react and impact the work rectangle growing when horizontal scrolling is enabled.\n\n" ..
         "Use 'Metrics->Tools->Show windows rectangles' to visualize rectangles.")
     _, SL.show_h_scrollbar = ImGui.Checkbox("H-scrollbar", SL.show_h_scrollbar)
-    _, SL.show_button = ImGui.Checkbox("Button", SL.show_button)
-    _, SL.show_tree_nodes = ImGui.Checkbox("Tree nodes", SL.show_tree_nodes)
-    _, SL.show_text_wrapped = ImGui.Checkbox("Text wrapped", SL.show_text_wrapped)
-    _, SL.show_columns = ImGui.Checkbox("Columns", SL.show_columns)
-    _, SL.show_tab_bar = ImGui.Checkbox("Tab bar", SL.show_tab_bar)
-    _, SL.show_child = ImGui.Checkbox("Child", SL.show_child)
+    _, SL.show_button = ImGui.Checkbox("Button", SL.show_button) -- Will grow contents size (unless explicitly overwritten)
+    _, SL.show_tree_nodes = ImGui.Checkbox("Tree nodes", SL.show_tree_nodes) -- Will grow contents size and display highlight over full width
+    _, SL.show_text_wrapped = ImGui.Checkbox("Text wrapped", SL.show_text_wrapped) -- Will grow and use contents size
+    _, SL.show_columns = ImGui.Checkbox("Columns", SL.show_columns) -- Will use contents size
+    _, SL.show_tab_bar = ImGui.Checkbox("Tab bar", SL.show_tab_bar) -- Will use contents size
+    _, SL.show_child = ImGui.Checkbox("Child", SL.show_child) -- Will grow and use contents size
     _, SL.explicit_content_size = ImGui.Checkbox("Explicit content size", SL.explicit_content_size)
     ImGui.Text("Scroll %.1f/%.1f %.1f/%.1f", ImGui.GetScrollX(), ImGui.GetScrollMaxX(), ImGui.GetScrollY(), ImGui.GetScrollMaxY())
     if SL.explicit_content_size then
@@ -1544,6 +1717,7 @@ end
 
 local function DemoWindowLayout_Scrolling()
     IMGUI_DEMO_MARKER("Layout/Scrolling/Vertical")
+    -- Vertical scroll functions
     DemoHelpMarker("Use SetScrollHereY() or SetScrollFromPosY() to scroll to a given vertical position.")
 
     _, SL.enable_extra_decorations = ImGui.Checkbox("Decoration", SL.enable_extra_decorations)
@@ -1634,7 +1808,7 @@ local function DemoWindowLayout_Scrolling()
         if scroll_to_pos then
             ImGui.SetScrollFromPosX(ImGui.GetCursorStartPos().x + SL.scroll_to_pos_px, i * 0.25)
         end
-        if child_is_visible then
+        if child_is_visible then -- Avoid calling SetScrollHereY when running with culled items
             for item = 0, 99 do
                 if item > 0 then
                     ImGui.SameLine()
@@ -1667,6 +1841,10 @@ local function DemoWindowLayout_Scrolling()
     local scrolling_child_size = ImVec2(0, ImGui.GetFrameHeightWithSpacing() * 7 + 30)
     BeginChild("scrolling", scrolling_child_size, ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar)
     for line = 0, SL.lines - 1 do
+        -- Display random stuff. For the sake of this trivial demo we are using basic Button() + SameLine()
+        -- If you want to create your own time line for a real application you may be better off manipulating
+        -- the cursor position yourself, aka using SetCursorPos/SetCursorScreenPos to position the widgets
+        -- yourself. You may also want to use the lower-level ImDrawList API.
         local num_buttons = 10 + ((line % 2 == 1) and line * 9 or line * 3)
         local base_w = ImGui.GetFontSize() * 3
         for n = 0, num_buttons - 1 do
@@ -1701,6 +1879,7 @@ local function DemoWindowLayout_Scrolling()
     ImGui.Text("%.0f/%.0f", scroll_x, scroll_max_x)
     if scroll_x_delta ~= 0.0 then
         -- Demonstrate a trick: you can use Begin to set yourself in the context of another window
+        -- (here we are already out of your child window)
         BeginChild("scrolling")
         ImGui.SetScrollX(ImGui.GetScrollX() + scroll_x_delta)
         ImGui.EndChild()
@@ -1765,7 +1944,7 @@ local function DemoWindowLayout_TextClipping()
             draw_list:AddText(text_pos, IM_COL32_WHITE, text_str)
             draw_list:PopClipRect()
         else
-            local clip_rect = ImVec4(p0.x, p0.y, p1.x, p1.y)
+            local clip_rect = ImVec4(p0.x, p0.y, p1.x, p1.y) -- AddText() takes a ImVec4 here so let's convert.
             draw_list:AddRectFilled(p0, p1, IM_COL32(90, 90, 120, 255))
             draw_list:AddText(ImGui.GetFont(), ImGui.GetFontSize(), text_pos, IM_COL32_WHITE, text_str, 1, #text_str + 1, 0.0, clip_rect)
         end
@@ -1789,6 +1968,9 @@ local function DemoWindowLayout_OverlapMode()
     ImGui.SetCursorScreenPos(button2_pos)
     ImGui.Button("Button 2", ImVec2(80, 80))
 
+    -- This is typically used with width-spanning items.
+    -- (note that Selectable() has a dedicated flag ImGuiSelectableFlags.AllowOverlap, which is a shortcut
+    -- for using SetNextItemAllowOverlap(). For demo purpose we use SetNextItemAllowOverlap() here.)
     if SL.enable_allow_overlap then
         ImGui.SetNextItemAllowOverlap()
     end
@@ -1830,6 +2012,8 @@ local function DemoWindowPopups_Popups()
     local names = { "Bream", "Haddock", "Mackerel", "Pollock", "Tilefish" }
     local toggles = SP.toggles
 
+    -- Simple selection popup (if you want to show the current selection inside the Button itself,
+    -- you may want to build a string using the "###" operator to preserve a constant ID with a variable label)
     if ImGui.Button("Select..") then
         ImGui.OpenPopup("my_select_popup")
     end
@@ -1911,7 +2095,20 @@ local function DemoWindowPopups_ContextMenus()
     IMGUI_DEMO_MARKER("Popups/Context menus")
     DemoHelpMarker("\"Context\" functions are simple helpers to associate a Popup to a given Item or Window identifier.")
 
+    -- BeginPopupContextItem() is a helper to provide common/simple popup behavior of essentially doing:
+    --     if id == 0 then
+    --         id = GetItemID() -- Use last item id
+    --     end
+    --     if IsItemHovered() and IsMouseReleased(ImGuiMouseButton.Right) then
+    --         OpenPopup(id)
+    --     end
+    --     return BeginPopup(id)
+    -- For advanced uses you may want to replicate and customize this code.
+    -- See more details in BeginPopupContextItem().
+
     -- Example 1
+    -- When used after an item that has an ID (e.g. Button), we can skip providing an ID to BeginPopupContextItem(),
+    -- and BeginPopupContextItem() will use the last item ID as the popup ID.
     do
         local names = { "Label1", "Label2", "Label3", "Label4", "Label5" }
         for n = 0, 4 do
@@ -1931,6 +2128,8 @@ local function DemoWindowPopups_ContextMenus()
     end
 
     -- Example 2
+    -- Popup on a Text() element which doesn't have an identifier: we need to provide an identifier to BeginPopupContextItem().
+    -- Using an explicit identifier is also convenient if you want to activate the popups from different locations.
     do
         DemoHelpMarker("Text() elements don't have stable identifiers so we need to provide one.")
         ImGui.Text("Value = %.3f <-- (1) right-click this text", SP.value)
@@ -1942,15 +2141,22 @@ local function DemoWindowPopups_ContextMenus()
             ImGui.EndPopup()
         end
 
+        -- We can also use OpenPopupOnItemClick() to toggle the visibility of a given popup.
+        -- Here we make it that right-clicking this other text element opens the same popup as above.
+        -- The popup itself will be submitted by the code above.
         ImGui.Text("(2) Or right-click this text")
         ImGui.OpenPopupOnItemClick("my popup", ImGuiPopupFlags.MouseButtonRight)
 
+        -- Back to square one: manually open the same popup.
         if ImGui.Button("(3) Or click this button") then
             ImGui.OpenPopup("my popup")
         end
     end
 
     -- Example 3
+    -- When using BeginPopupContextItem() with an implicit identifier (nil == use last item ID),
+    -- we need to make sure your item identifier is stable.
+    -- In this example we showcase altering the item label while preserving its identifier, using the ### operator (see FAQ).
     do
         DemoHelpMarker("Showcase using a popup ID linked to item ID, with the item having a changing label + stable ID using the ### operator.")
         if SP.name == nil then SP.name = Buf("Label1", 32) end
@@ -1983,6 +2189,9 @@ local function DemoWindowPopups_Modals()
     if ImGui.BeginPopupModal("Delete?", nil, ImGuiWindowFlags.AlwaysAutoResize) then
         ImGui.Text("All those beautiful files will be deleted.\nThis operation cannot be undone!")
         ImGui.Separator()
+
+        -- local unused_i = 0
+        -- unused_i = ImGui.Combo("Combo", unused_i, "Delete\0Delete harder\0")
 
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(0, 0))
         _, SP.dont_ask_me_next_time = ImGui.Checkbox("Don't ask me next time", SP.dont_ask_me_next_time)
@@ -2020,6 +2229,9 @@ local function DemoWindowPopups_Modals()
             ImGui.OpenPopup("Stacked 2")
         end
 
+        -- Also demonstrate passing a p_open bool to BeginPopupModal(), this will create a regular close button which
+        -- will close the popup. Note that the visibility state of popups is owned by imgui, so the input value
+        -- of the bool actually doesn't matter here.
         local unused_open = true
         if ImGui.BeginPopupModal("Stacked 2", unused_open) then
             ImGui.Text("Hello from Stacked The Second!")
@@ -2041,6 +2253,24 @@ function DemoWindowPopups()
     if not ImGui.CollapsingHeader("Popups & Modal windows") then
         return
     end
+
+    -- The properties of popups windows are:
+    -- - They block normal mouse hovering detection outside them. (*)
+    -- - Unless modal, they can be closed by clicking anywhere outside them, or by pressing ESCAPE.
+    -- - Their visibility state (~bool) is held internally by Dear ImGui instead of being held by the programmer as
+    --   we are used to with regular Begin() calls. User can manipulate the visibility state by calling OpenPopup().
+    -- (*) One can use IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup) to bypass it and detect hovering even
+    --     when normally blocked by a popup.
+    -- Those three properties are connected. The library needs to hold their visibility state BECAUSE it can close
+    -- popups at any time.
+
+    -- Typical use for regular windows:
+    --   local my_tool_is_active = false; if ImGui.Button("Open") then my_tool_is_active = true end; [...] if my_tool_is_active then my_tool_is_active, visible = ImGui.Begin("My Tool", my_tool_is_active); [...] ImGui.End() end
+    -- Typical use for popups:
+    --   if ImGui.Button("Open") then ImGui.OpenPopup("MyPopup") end; if ImGui.BeginPopup("MyPopup") then [...] ImGui.EndPopup() end
+
+    -- With popups we have to go through a library call (here OpenPopup) to manipulate the visibility state.
+    -- This may be a bit confusing at first but it should quickly make sense. Follow on the examples below.
 
     if ImGui.TreeNode("Popups") then DemoWindowPopups_Popups(); ImGui.TreePop() end
     if ImGui.TreeNode("Context menus") then DemoWindowPopups_ContextMenus(); ImGui.TreePop() end
@@ -2068,6 +2298,11 @@ end
 -- [SECTION] DemoWindowTables()
 -------------------------------------------------------------------------------
 
+-- Dummy data structure that we use for the Table demo.
+-- We are passing our own identifier to TableSetupColumn() to facilitate identifying columns in the sorting code.
+-- This identifier will be passed down into ImGuiTableSortSpec::ColumnUserID.
+-- But it is possible to omit the user id parameter of TableSetupColumn() and just use the column index instead! (ImGuiTableSortSpec::ColumnIndex)
+-- If you don't use sorting, you will generally never care about giving column an ID!
 -- MyItemColumnID
 local MyItemColumnID_ID, MyItemColumnID_Name, MyItemColumnID_Action, MyItemColumnID_Quantity, MyItemColumnID_Description = 0, 1, 2, 3, 4
 
@@ -2083,6 +2318,8 @@ local function MyItem_SortWithSortSpecs(sort_specs, items, items_count)
     end
     local function cmp(a, b) -- returns <0, 0, >0
         for n = 0, sort_specs.SpecsCount - 1 do
+            -- Here we identify columns using the ColumnUserID value that we ourselves passed to TableSetupColumn()
+            -- We could also choose to identify columns based on their index (sort_spec.ColumnIndex), which is simpler!
             local sort_spec = get_spec(n)
             local delta = 0
             local uid = sort_spec.ColumnUserID
@@ -2098,6 +2335,10 @@ local function MyItem_SortWithSortSpecs(sort_specs, items, items_count)
                 return (sort_spec.SortDirection == ImGuiSortDirection.Ascending) and -1 or 1
             end
         end
+
+        -- table.sort() is instable so always return a way to differentiate items.
+        -- Your own compare function may want to avoid fallback on implicit sort specs.
+        -- e.g. a Name compare if it wasn't already part of the sort specs.
         return a.ID - b.ID
     end
     local arr = items.Data or items
@@ -2205,11 +2446,16 @@ local function bor(...) return bit32.bor(...) end
 local TF = setmetatable({}, { __index = function(_, k) return ImGuiTableFlags[k] end })
 
 local ST = {} -- statics for DemoWindowTables (one sub-table per section)
+-- Using those as a base value to create width/height that are factor of the size of our font
 local TEXT_BASE_WIDTH, TEXT_BASE_HEIGHT = 0, 0
 
 local function Tables_Basic()
     IMGUI_DEMO_MARKER("Tables/Basic")
+    -- Here we will showcase three different ways to output a table.
+    -- They are very simple variations of a same thing!
+
     -- [Method 1] Using TableNextRow() to create a new row, and TableSetColumnIndex() to select the column.
+    -- In many situations, this is the most flexible and easy to use pattern.
     DemoHelpMarker("Using TableNextRow() + calling TableSetColumnIndex() _before_ each cell, in a loop.")
     if ImGui.BeginTable("table1", 3) then
         for row = 0, 3 do
@@ -2223,6 +2469,7 @@ local function Tables_Basic()
     end
 
     -- [Method 2] Using TableNextColumn() called multiple times, instead of using a for loop + TableSetColumnIndex().
+    -- This is generally more convenient when you have code manually submitting the contents of each column.
     DemoHelpMarker("Using TableNextRow() + calling TableNextColumn() _before_ each cell, manually.")
     if ImGui.BeginTable("table2", 3) then
         for row = 0, 3 do
@@ -2238,6 +2485,8 @@ local function Tables_Basic()
     end
 
     -- [Method 3] We call TableNextColumn() _before_ each cell. We never call TableNextRow(),
+    -- as TableNextColumn() will automatically wrap around and create new rows as needed.
+    -- This is generally more convenient when your cells all contains the same type of data.
     DemoHelpMarker(
         "Only using TableNextColumn(), which tends to be convenient for tables where every cell contains " ..
         "the same type of contents.\n This is also more similar to the old NextColumn() function of the " ..
@@ -2253,6 +2502,7 @@ end
 
 local function Tables_BordersBackground()
     IMGUI_DEMO_MARKER("Tables/Borders, background")
+    -- Expose a few Borders related flags interactively
     local CT_Text, CT_FillButton = 0, 1
     local s = ST.borders
     if s == nil then s = { flags = bor(TF.Borders, TF.RowBg), display_headers = false, contents_type = CT_Text }; ST.borders = s end
@@ -2287,6 +2537,8 @@ local function Tables_BordersBackground()
     PopStyleCompact()
 
     if ImGui.BeginTable("table1", 3, s.flags) then
+        -- Display headers so we can inspect their interaction with borders
+        -- (Headers are not the main purpose of this section of the demo, so we are not elaborating on them now. See other sections for details)
         if s.display_headers then
             ImGui.TableSetupColumn("One")
             ImGui.TableSetupColumn("Two")
@@ -2325,6 +2577,8 @@ end
 
 local function Tables_ResizableStretch()
     IMGUI_DEMO_MARKER("Tables/Resizable, stretch")
+    -- By default, if we don't enable ScrollX the sizing policy for each column is "Stretch"
+    -- All columns maintain a sizing weight, and they will occupy all available width.
     local s = ST.rstretch
     if s == nil then s = { flags = bor(TF.SizingStretchSame, TF.Resizable, TF.BordersOuter, TF.BordersV, TF.ContextMenuInBody) }; ST.rstretch = s end
     PushStyleCompact()
@@ -2340,6 +2594,10 @@ end
 
 local function Tables_ResizableFixed()
     IMGUI_DEMO_MARKER("Tables/Resizable, fixed")
+    -- Here we use ImGuiTableFlags.SizingFixedFit (even though _ScrollX is not set)
+    -- So columns will adopt the "Fixed" policy and will maintain a fixed width regardless of the whole available width (unless table is small)
+    -- If there is not enough available width to fit all columns, they will however be resized down.
+    -- FIXME-TABLE: Providing a stretch-on-init would make sense especially for tables which don't have saved settings
     DemoHelpMarker(
         "Using _Resizable + _SizingFixedFit flags.\n" ..
         "Fixed-width columns generally makes more sense if you want to use horizontal scrolling.\n\n" ..
@@ -2411,6 +2669,8 @@ local function Tables_Reorderable()
     PopStyleCompact()
 
     if ImGui.BeginTable("table1", 3, s.flags) then
+        -- Submit columns name with TableSetupColumn() and call TableHeadersRow() to create a row with a header in each column.
+        -- (Later we will show how TableSetupColumn() has other uses, optional flags, sizing weight etc.)
         ImGui.TableSetupColumn("One")
         ImGui.TableSetupColumn("Two")
         ImGui.TableSetupColumn("Three")
@@ -2426,6 +2686,7 @@ local function Tables_Reorderable()
     end
 
     -- Use outer_size.x == 0.0f instead of default to make the table as tight as possible
+    -- (only valid when no scrolling and no stretch column)
     if ImGui.BeginTable("table2", 3, bor(s.flags, TF.SizingFixedFit), ImVec2(0.0, 0.0)) then
         ImGui.TableSetupColumn("One")
         ImGui.TableSetupColumn("Two")
@@ -2444,6 +2705,8 @@ end
 
 local function Tables_Padding()
     IMGUI_DEMO_MARKER("Tables/Padding")
+    -- First example: showcase use of padding flags and effect of BorderOuterV/BorderInnerV on X padding.
+    -- We don't expose BorderOuterH/BorderInnerH here because they have no effect on X padding.
     DemoHelpMarker(
         "We often want outer padding activated when any using features which makes the edges of a column visible:\n" ..
         "e.g.:\n" ..
@@ -2457,7 +2720,7 @@ local function Tables_Padding()
     local s = ST.padding
     if s == nil then
         s = { flags1 = TF.BordersV, show_headers = false, flags2 = bor(TF.Borders, TF.RowBg), cell_padding = ImVec2(0.0, 0.0),
-              show_widget_frame_bg = true, text_bufs = {}, init = true }
+              show_widget_frame_bg = true, text_bufs = {}, init = true } -- text_bufs: Mini text storage for 3x5 cells
         ST.padding = s
     end
     PushStyleCompact()
@@ -2490,12 +2753,16 @@ local function Tables_Padding()
                     local buf = string.format("Hello %d,%d", column, row)
                     ImGui.Button(buf, ImVec2(-FLT_MIN, 0.0))
                 end
+                -- if bit32.band(ImGui.TableGetColumnFlags(), ImGuiTableColumnFlags.IsHovered) ~= 0 then
+                --     ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, IM_COL32(0, 100, 0, 255))
+                -- end
             end
         end
         ImGui.EndTable()
     end
 
     -- Second example: set style.CellPadding to (0.0) or a custom value.
+    -- FIXME-TABLE: Vertical border effectively not displayed the same way as horizontal one...
     DemoHelpMarker("Setting style.CellPadding to (0,0) or a custom value.")
 
     PushStyleCompact()
@@ -2553,6 +2820,9 @@ local function Tables_SizingPolicies()
         ImGui.SetNextItemWidth(TEXT_BASE_WIDTH * 30)
         s.sizing_policy_flags[table_n + 1] = EditTableSizingFlags(s.sizing_policy_flags[table_n + 1])
 
+        -- To make it easier to understand the different sizing policy,
+        -- For each policy: we display one table where the columns have equal contents width,
+        -- and one where the columns have different contents width.
         if ImGui.BeginTable("table1", 3, bor(s.sizing_policy_flags[table_n + 1], s.flags1)) then
             for row = 0, 2 do
                 ImGui.TableNextRow()
@@ -2643,6 +2913,8 @@ local function Tables_VerticalScrolling()
     _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_ScrollY", s.flags, TF.ScrollY)
     PopStyleCompact()
 
+    -- When using ScrollX or ScrollY we need to specify a size for our table container!
+    -- Otherwise by default the table will fit all available space, like a BeginChild() call.
     local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 8)
     if ImGui.BeginTable("table_scrolly", 3, s.flags, outer_size) then
         ImGui.TableSetupScrollFreeze(0, 1) -- Make top row always visible
@@ -2693,6 +2965,8 @@ local function Tables_HorizontalScrolling()
     s.freeze_rows = ImGui.DragInt("freeze_rows", s.freeze_rows, 0.2, 0, 9, nil, ImGuiSliderFlags.NoInput)
     PopStyleCompact()
 
+    -- When using ScrollX or ScrollY we need to specify a size for our table container!
+    -- Otherwise by default the table will fit all available space, like a BeginChild() call.
     local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 8)
     if ImGui.BeginTable("table_scrollx", 7, s.flags, outer_size) then
         ImGui.TableSetupScrollFreeze(s.freeze_cols, s.freeze_rows)
@@ -2707,6 +2981,12 @@ local function Tables_HorizontalScrolling()
         for row = 0, 19 do
             ImGui.TableNextRow()
             for column = 0, 6 do repeat
+                -- Both TableNextColumn() and TableSetColumnIndex() return true when a column is visible or performing width measurement.
+                -- Because here we know that:
+                -- - A) all our columns are contributing the same to row height
+                -- - B) column 0 is always visible,
+                -- We only always submit this one column and can skip others.
+                -- More advanced per-column clipping behaviors may benefit from polling the status flags via TableGetColumnFlags().
                 if not ImGui.TableSetColumnIndex(column) and column > 0 then
                     break -- continue
                 end
@@ -2747,11 +3027,12 @@ end
 
 local function Tables_ColumnsFlags()
     IMGUI_DEMO_MARKER("Tables/Columns flags")
+    -- Create a first table just to show all the options/flags we want to make visible in our example!
     local column_count = 3
     local column_names = { "One", "Two", "Three" }
     local s = ST.colflags
     if s == nil then
-        s = { column_flags = { ImGuiTableColumnFlags.DefaultSort, ImGuiTableColumnFlags.None, ImGuiTableColumnFlags.DefaultHide }, column_flags_out = { 0, 0, 0 } }
+        s = { column_flags = { ImGuiTableColumnFlags.DefaultSort, ImGuiTableColumnFlags.None, ImGuiTableColumnFlags.DefaultHide }, column_flags_out = { 0, 0, 0 } } -- column_flags_out: Output from TableGetColumnFlags()
         ST.colflags = s
     end
 
@@ -2776,6 +3057,10 @@ local function Tables_ColumnsFlags()
         ImGui.EndTable()
     end
 
+    -- Create the real table we care about for the example!
+    -- We use a scrolling table to be able to showcase the difference between the _IsEnabled and _IsVisible flags above,
+    -- otherwise in a non-scrolling table columns are always visible (unless using ImGuiTableFlags_NoKeepColumnsVisible
+    -- + resizing the parent window down).
     local flags = bor(TF.SizingFixedFit, TF.ScrollX, TF.ScrollY, TF.RowBg, TF.BordersOuter, TF.BordersV, TF.Resizable, TF.Reorderable, TF.Hideable, TF.Sortable)
     local outer_size = ImVec2(0.0, TEXT_BASE_HEIGHT * 9)
     if ImGui.BeginTable("table_columns_flags", column_count, flags, outer_size) then
@@ -2819,6 +3104,7 @@ local function Tables_ColumnsWidths()
     _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_NoBordersInBodyUntilResize", s.flags1, TF.NoBordersInBodyUntilResize)
     PopStyleCompact()
     if ImGui.BeginTable("table1", 3, s.flags1) then
+        -- We could also set ImGuiTableFlags_SizingFixedFit on the table and all columns will default to ImGuiTableColumnFlags_WidthFixed.
         ImGui.TableSetupColumn("one", CF.WidthFixed, 100.0) -- Default to 100.0f
         ImGui.TableSetupColumn("two", CF.WidthFixed, 200.0) -- Default to 200.0f
         ImGui.TableSetupColumn("three", CF.WidthFixed)      -- Default to auto
@@ -2847,6 +3133,8 @@ local function Tables_ColumnsWidths()
     _, s.flags2 = ImGui.CheckboxFlags("ImGuiTableFlags_BordersOuterV", s.flags2, TF.BordersOuterV)
     PopStyleCompact()
     if ImGui.BeginTable("table2", 4, s.flags2) then
+        -- We could also set ImGuiTableFlags_SizingFixedFit on the table and then all columns
+        -- will default to ImGuiTableColumnFlags_WidthFixed.
         ImGui.TableSetupColumn("", CF.WidthFixed, 100.0)
         ImGui.TableSetupColumn("", CF.WidthFixed, TEXT_BASE_WIDTH * 15.0)
         ImGui.TableSetupColumn("", CF.WidthFixed, TEXT_BASE_WIDTH * 30.0)
@@ -2964,6 +3252,8 @@ end
 
 local function Tables_OuterSize()
     IMGUI_DEMO_MARKER("Tables/Outer size")
+    -- Showcasing use of ImGuiTableFlags_NoHostExtendX and ImGuiTableFlags_NoHostExtendY
+    -- Important to that note how the two flags have slightly different behaviors!
     ImGui.Text("Using NoHostExtendX and NoHostExtendY:")
     PushStyleCompact()
     local s = ST.outer
@@ -3040,6 +3330,8 @@ local function Tables_BackgroundColor()
         for row = 0, 5 do
             ImGui.TableNextRow()
 
+            -- Demonstrate setting a row background color with 'ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBgX, ...)'
+            -- We use a transparent color so we can see the one behind in case our target is RowBg1 and RowBg0 was already targeted by the ImGuiTableFlags_RowBg flag.
             if s.row_bg_type ~= 0 then
                 local row_bg_color = ImGui.GetColorU32(s.row_bg_type == 1 and ImVec4(0.7, 0.3, 0.3, 0.65) or ImVec4(0.2 + row * 0.1, 0.2, 0.2, 0.65)) -- Flat or Gradient?
                 ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0 + s.row_bg_target, row_bg_color)
@@ -3050,6 +3342,10 @@ local function Tables_BackgroundColor()
                 ImGui.TableSetColumnIndex(column)
                 ImGui.Text("%s%s", string.char(65 + row), string.char(48 + column))
 
+                -- Change background of Cells B1->C2
+                -- Demonstrate setting a cell background color with 'ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ...)'
+                -- (the CellBg color will be blended over the RowBg and ColumnBg colors)
+                -- We can also pass a column number as a third parameter to TableSetBgColor() and do this outside the column loop.
                 if row >= 1 and row <= 2 and column >= 1 and column <= 2 and s.cell_bg_type == 1 then
                     local cell_bg_color = ImGui.GetColorU32(ImVec4(0.3, 0.3, 0.7, 0.65))
                     ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, cell_bg_color)
@@ -3060,6 +3356,7 @@ local function Tables_BackgroundColor()
     end
 end
 
+-- Simple storage to output a dummy file-system.
 local tree_view_nodes = {
     { Name = "Root with Long Name",           Type = "Folder",      Size = -1,     ChildIdx = 1,  ChildCount = 3  }, -- 0
     { Name = "Music",                         Type = "Folder",      Size = -1,     ChildIdx = 4,  ChildCount = 2  }, -- 1
@@ -3121,6 +3418,7 @@ local function Tables_TreeView()
 
     DemoHelpMarker("See \"Columns flags\" section to configure how indentation is applied to individual columns.")
     if ImGui.BeginTable("3ways", 3, s.table_flags) then
+        -- The first column will use the default _WidthStretch when ScrollX is Off and _WidthFixed when ScrollX is On
         ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.NoHide)
         ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, TEXT_BASE_WIDTH * 12.0)
         ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, TEXT_BASE_WIDTH * 18.0)
@@ -3170,6 +3468,7 @@ local function Tables_ItemWidth()
     end
 end
 
+-- Demonstrate using TableHeader() calls instead of TableHeadersRow()
 local function Tables_CustomHeaders()
     IMGUI_DEMO_MARKER("Tables/Custom headers")
     local COLUMNS_COUNT = 3
@@ -3179,9 +3478,15 @@ local function Tables_CustomHeaders()
         ImGui.TableSetupColumn("Cherry")
 
         -- Dummy entire-column selection storage
+        -- FIXME: It would be nice to actually demonstrate full-featured selection using those checkbox.
         if ST.column_selected == nil then ST.column_selected = { false, false, false } end
         local column_selected = ST.column_selected
 
+        -- Instead of calling TableHeadersRow() we'll submit custom headers ourselves.
+        -- (A different approach is also possible:
+        --    - Specify ImGuiTableColumnFlags_NoHeaderLabel in some TableSetupColumn() call.
+        --    - Call TableHeadersRow() normally. This will submit TableHeader() with no name.
+        --    - Then call TableSetColumnIndex() to position yourself in the column and submit your stuff e.g. Checkbox().)
         ImGui.TableNextRow(ImGuiTableRowFlags.Headers)
         for column = 0, COLUMNS_COUNT - 1 do
             ImGui.TableSetColumnIndex(column)
@@ -3208,6 +3513,7 @@ local function Tables_CustomHeaders()
     end
 end
 
+-- Demonstrate using ImGuiTableColumnFlags_AngledHeader flag to create angled headers
 local function Tables_AngledHeaders()
     IMGUI_DEMO_MARKER("Tables/Angled headers")
     local column_names = { "Track", "cabasa", "ride", "smash", "tom-hi", "tom-mid", "tom-low", "hihat-o", "hihat-c", "snare-s", "snare-c", "clap", "rim", "kick" }
@@ -3218,7 +3524,7 @@ local function Tables_AngledHeaders()
     if s == nil then
         s = { table_flags = bor(TF.SizingFixedFit, TF.ScrollX, TF.ScrollY, TF.BordersOuter, TF.BordersInnerH, TF.Hideable, TF.Resizable, TF.Reorderable, TF.HighlightHoveredColumn),
               column_flags = bor(ImGuiTableColumnFlags.AngledHeader, ImGuiTableColumnFlags.WidthFixed),
-              bools = {}, frozen_cols = 1, frozen_rows = 2 }
+              bools = {}, frozen_cols = 1, frozen_rows = 2 } -- bools: Dummy storage selection storage
         for i = 1, columns_count * rows_count do s.bools[i] = false end
         ST.angled = s
     end
@@ -3274,6 +3580,8 @@ local function Tables_AngledHeaders()
     end
 end
 
+-- Demonstrate creating custom context menus inside columns,
+-- while playing it nice with context menus provided by TableHeadersRow()/TableHeader()
 local function Tables_ContextMenus()
     IMGUI_DEMO_MARKER("Tables/Context menus")
     DemoHelpMarker(
@@ -3286,6 +3594,9 @@ local function Tables_ContextMenus()
     _, s.flags1 = ImGui.CheckboxFlags("ImGuiTableFlags_ContextMenuInBody", s.flags1, TF.ContextMenuInBody)
     PopStyleCompact()
 
+    -- Context Menus: first example
+    -- [1.1] Right-click on the TableHeadersRow() line to open the default table context menu.
+    -- [1.2] Right-click in columns also open the default table context menu (if ImGuiTableFlags_ContextMenuInBody is set)
     local COLUMNS_COUNT = 3
     if ImGui.BeginTable("table_context_menu", COLUMNS_COUNT, s.flags1) then
         ImGui.TableSetupColumn("One")
@@ -3306,6 +3617,10 @@ local function Tables_ContextMenus()
         ImGui.EndTable()
     end
 
+    -- Context Menus: second example
+    -- [2.1] Right-click on the TableHeadersRow() line to open the default table context menu.
+    -- [2.2] Right-click on the ".." to open a custom popup
+    -- [2.3] Right-click in columns to open another custom popup
     DemoHelpMarker(
         "Demonstrate mixing table context menu (over header), item context button (over button) " ..
         "and custom per-column context menu (over column body).")
@@ -3340,6 +3655,8 @@ local function Tables_ContextMenus()
         end
 
         -- [2.3] Right-click anywhere in columns to open another custom popup
+        -- (instead of testing for not IsAnyItemHovered() we could also call OpenPopup() with ImGuiPopupFlags_NoOpenOverExistingPopup
+        -- to manage popup priority as the popups triggers, here "are we hovering a column" are overlapping)
         local hovered_column = -1
         for column = 0, COLUMNS_COUNT do
             ImGui.PushID(column)
@@ -3368,6 +3685,7 @@ local function Tables_ContextMenus()
     end
 end
 
+-- Demonstrate creating multiple tables with the same ID
 local function Tables_SyncedInstances()
     IMGUI_DEMO_MARKER("Tables/Synced instances")
     DemoHelpMarker("Multiple tables with the same identifier will share their settings, width, visibility, order etc.")
@@ -3396,6 +3714,9 @@ local function Tables_SyncedInstances()
     end
 end
 
+-- Demonstrate using Sorting facilities
+-- This is a simplified version of the "Advanced" example, where we mostly focus on the code necessary to handle sorting.
+-- Note that the "Advanced" example also showcase manually triggering a sort (e.g. if item quantities have been modified)
 local template_items_names = {
     "Banana", "Apple", "Cherry", "Watermelon", "Grapefruit", "Strawberry", "Mango",
     "Kiwi", "Orange", "Pineapple", "Blueberry", "Plum", "Coconut", "Pear", "Apricot"
@@ -3403,6 +3724,7 @@ local template_items_names = {
 
 local function Tables_Sorting()
     IMGUI_DEMO_MARKER("Tables/Sorting")
+    -- Create item list
     local s = ST.sorting
     if s == nil then
         s = { items = {},
@@ -3415,6 +3737,7 @@ local function Tables_Sorting()
     end
     local items = s.items
 
+    -- Options
     PushStyleCompact()
     _, s.flags = ImGui.CheckboxFlags("ImGuiTableFlags_SortMulti", s.flags, TF.SortMulti)
     ImGui.SameLine(); DemoHelpMarker("When sorting is enabled: hold shift when clicking headers to sort on multiple column. TableGetSortSpecs() may return specs where (SpecsCount > 1).")
@@ -3424,6 +3747,13 @@ local function Tables_Sorting()
 
     if ImGui.BeginTable("table_sorting", 4, s.flags, ImVec2(0.0, TEXT_BASE_HEIGHT * 15), 0.0) then
         local CF = ImGuiTableColumnFlags
+        -- Declare columns
+        -- We use the "user_id" parameter of TableSetupColumn() to specify a user id that will be stored in the sort specifications.
+        -- This is so our sort function can identify a column given our own identifier. We could also identify them based on their index!
+        -- Demonstrate using a mixture of flags among available sort-related flags:
+        -- - ImGuiTableColumnFlags_DefaultSort
+        -- - ImGuiTableColumnFlags_NoSort / ImGuiTableColumnFlags_NoSortAscending / ImGuiTableColumnFlags_NoSortDescending
+        -- - ImGuiTableColumnFlags_PreferSortAscending / ImGuiTableColumnFlags_PreferSortDescending
         ImGui.TableSetupColumn("ID",       bor(CF.DefaultSort, CF.WidthFixed),            0.0, MyItemColumnID_ID)
         ImGui.TableSetupColumn("Name",     CF.WidthFixed,                                 0.0, MyItemColumnID_Name)
         ImGui.TableSetupColumn("Action",   bor(CF.NoSort, CF.WidthFixed),                 0.0, MyItemColumnID_Action)
@@ -3554,6 +3884,8 @@ local function Tables_AdvancedOptions(s)
             "- OuterSize.x = 0.0f will narrow fit the table unless there are any Stretch columns.\n" ..
             "- OuterSize.y then becomes the minimum size for the table, which will extend vertically if there are more rows (unless NoHostExtendY is set).")
 
+        -- From a user point of view we will tend to use 'inner_width' differently depending on whether our table is embedding scrolling.
+        -- To facilitate toying with this demo we will actually pass 0.0f to the BeginTable() when ScrollX is disabled.
         s.inner_width_with_scroll = ImGui.DragFloat("inner_width (when ScrollX active)", s.inner_width_with_scroll, 1.0, 0.0, FLT_MAX)
 
         s.row_min_height = ImGui.DragFloat("row_min_height", s.row_min_height, 1.0, 0.0, FLT_MAX)
@@ -3574,6 +3906,9 @@ local function Tables_AdvancedOptions(s)
     ImGui.Spacing()
 end
 
+-- In this example we'll expose most table flags and settings.
+-- For specific flags and settings refer to the corresponding section for more detailed explanation.
+-- This section is mostly useful to experiment with combining certain flags or settings with each others.
 local function Tables_Advanced()
     IMGUI_DEMO_MARKER("Tables/Advanced")
     local CT_Text, CT_Button, CT_SmallButton, CT_FillButton, CT_Selectable, CT_SelectableSpanRow = 0, 1, 2, 3, 4, 5
@@ -3587,6 +3922,7 @@ local function Tables_Advanced()
               items = {}, selection = {}, items_need_sort = false, show_debug_details = false }
         ST.advanced = s
     end
+    --ImGui.SetNextItemOpen(true, ImGuiCond.Once) -- FIXME-TABLE: Enabling this results in initial clipped first pass on table which tend to affect column sizing
     if ImGui.TreeNode("Options") then
         Tables_AdvancedOptions(s)
         ImGui.TreePop()
@@ -3606,7 +3942,7 @@ local function Tables_Advanced()
     local parent_draw_list = ImGui.GetWindowDrawList()
     local parent_draw_list_draw_cmd_count = parent_draw_list.CmdBuffer.Size
     local table_scroll_cur, table_scroll_max -- For debug display
-    local table_draw_list = nil
+    local table_draw_list = nil  -- "
 
     -- Submit table
     local flags = s.flags
@@ -3614,6 +3950,9 @@ local function Tables_Advanced()
     local inner_width_to_use = Has(flags, TF.ScrollX) and s.inner_width_with_scroll or 0.0
     local CF = ImGuiTableColumnFlags
     if ImGui.BeginTable("table_advanced", 6, flags, s.outer_size_enabled and s.outer_size_value or ImVec2(0, 0), inner_width_to_use) then
+        -- Declare columns
+        -- We use the "user_id" parameter of TableSetupColumn() to specify a user id that will be stored in the sort specifications.
+        -- This is so our sort function can identify a column given our own identifier. We could also identify them based on their index!
         ImGui.TableSetupColumn("ID",          bor(columns_base_flags, CF.DefaultSort, CF.WidthFixed, CF.NoHide), 0.0, MyItemColumnID_ID)
         ImGui.TableSetupColumn("Name",        bor(columns_base_flags, CF.WidthFixed), 0.0, MyItemColumnID_Name)
         ImGui.TableSetupColumn("Action",      bor(columns_base_flags, CF.NoSort, CF.WidthFixed), 0.0, MyItemColumnID_Action)
@@ -3633,6 +3972,8 @@ local function Tables_Advanced()
         end
         s.items_need_sort = false
 
+        -- Take note of whether we are currently sorting based on the Quantity field,
+        -- we will use this to trigger sorting when we know the data of this column has been modified.
         local sorts_specs_using_quantity = Has(ImGui.TableGetColumnFlags(3), CF.IsSorted)
 
         -- Show headers
@@ -3643,6 +3984,8 @@ local function Tables_Advanced()
             ImGui.TableHeadersRow()
         end
 
+        -- Show data
+        -- FIXME-TABLE FIXME-NAV: How we can get decent up/down even though we have the buttons here?
         -- Demonstrate using clipper for large vertical lists
         local clipper = ImGuiListClipper()
         clipper:Begin(#items)
@@ -3686,6 +4029,10 @@ local function Tables_Advanced()
                     ImGui.TextUnformatted(item.Name)
                 end
 
+                -- Here we demonstrate marking our data set as needing to be sorted again if we modified a quantity,
+                -- and we are currently sorting on the column showing the Quantity.
+                -- To avoid triggering a sort while holding the button, we only trigger it when the button has been released.
+                -- You will probably need some extra logic if you want to automatically sort when a specific entry changes.
                 if ImGui.TableSetColumnIndex(2) then
                     if ImGui.SmallButton("Chop") then item.Quantity = item.Quantity + 1 end
                     if sorts_specs_using_quantity and ImGui.IsItemDeactivated() then s.items_need_sort = true end
@@ -3735,6 +4082,8 @@ end
 
 local DCS = { selected = -1, h_borders = true, v_borders = true, columns_count = 4, foo = 1.0, bar = 1.0 }
 
+-- Demonstrate old/legacy Columns API!
+-- [2020: Columns are under-featured and not maintained. Prefer using the more flexible and powerful BeginTable() API!]
 local function DemoWindowColumns()
     local open = ImGui.TreeNode("Legacy Columns API")
     ImGui.SameLine()
@@ -3752,6 +4101,7 @@ local function DemoWindowColumns()
         for n = 0, 13 do
             local label = string.format("Item %d", n)
             if ImGui.Selectable(label) then end
+            --if ImGui.Button(label, ImVec2(-FLT_MIN,0.0)) then end
             ImGui.NextColumn()
         end
         ImGui.Columns(1)
@@ -3950,6 +4300,7 @@ local tables_sections = {
 }
 
 function DemoWindowTables()
+    --ImGui.SetNextItemOpen(true, ImGuiCond.Once)
     if not ImGui.CollapsingHeader("Tables & Columns") then
         return
     end
@@ -3979,6 +4330,16 @@ function DemoWindowTables()
     if disable_indent then
         ImGui.PushStyleVar(ImGuiStyleVar.IndentSpacing, 0.0)
     end
+
+    -- About Styling of tables
+    -- Most settings are configured on a per-table basis via the flags passed to BeginTable() and TableSetupColumns APIs.
+    -- There are however a few settings that a shared and part of the ImGuiStyle structure:
+    --   style.CellPadding                          -- Padding within each cell
+    --   style.Colors[ImGuiCol.TableHeaderBg]       -- Table header background
+    --   style.Colors[ImGuiCol.TableBorderStrong]   -- Table outer and header borders
+    --   style.Colors[ImGuiCol.TableBorderLight]    -- Table inner borders
+    --   style.Colors[ImGuiCol.TableRowBg]          -- Table row background when ImGuiTableFlags_RowBg is enabled (even rows)
+    --   style.Colors[ImGuiCol.TableRowBgAlt]       -- Table row background when ImGuiTableFlags_RowBg is enabled (odds rows)
 
     -- Demos
     for _, sec in ipairs(tables_sections) do
@@ -4011,26 +4372,36 @@ local function BufSet(buf, str)
     buf[#str + 1] = 0
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Debug Console / ShowExampleAppConsole()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate creating a simple console window, with scrolling, filtering, completion and history.
+-- For the console example, we are using a more C++ like approach of declaring a class to hold both data and functions.
 local Console = nil
 local function ConsoleNew()
+    -- HistoryPos: -1: new line, 0..#History-1 browsing history.
+    -- "CLASSIFY" is here to provide the test case where "C"+[tab] completes to "CL" and display multiple matches.
     local c = { InputBuf = Buf("", 256), Items = {}, Commands = { "HELP", "HISTORY", "CLEAR", "CLASSIFY" }, History = {},
         HistoryPos = -1, Filter = ImGuiTextFilter(), AutoScroll = true, ScrollToBottom = false }
     function c:ClearLog() self.Items = {} end
     function c:AddLog(fmt, ...)
+        -- FIXME-OPT
         local s = (select("#", ...) > 0) and string.format(fmt, ...) or fmt
         self.Items[#self.Items + 1] = s
     end
     function c:ExecCommand(command_line)
         self:AddLog("# %s\n", command_line)
+
+        -- Insert into history. First find match and delete it so it can be pushed to the back.
+        -- This isn't trying to be smart or optimal.
         self.HistoryPos = -1
         for i = #self.History, 1, -1 do
             if string.upper(self.History[i]) == string.upper(command_line) then table.remove(self.History, i); break end
         end
         self.History[#self.History + 1] = command_line
+
+        -- Process command
         local cmd = string.upper(command_line)
         if cmd == "CLEAR" then
             self:ClearLog()
@@ -4043,10 +4414,15 @@ local function ConsoleNew()
         else
             self:AddLog("Unknown command: '%s'\n", command_line)
         end
+
+        -- On command input, we scroll to bottom even if AutoScroll==false
         self.ScrollToBottom = true
     end
     function c:TextEditCallback(data)
+        --self:AddLog("cursor: %d, selection: %d-%d", data.CursorPos, data.SelectionStart, data.SelectionEnd)
         if data.EventFlag == ImGuiInputTextFlags.CallbackCompletion then
+            -- Example of TEXT COMPLETION
+
             -- Locate beginning of current word (positions are 0-based offsets into data.Buf)
             local word_end = data.CursorPos
             local word_start = word_end
@@ -4057,17 +4433,23 @@ local function ConsoleNew()
             end
             local word = ""
             for i = word_start + 1, word_end do word = word .. string.char(data.Buf[i]) end
+
+            -- Build a list of candidates
             local candidates = {}
             for i = 1, #self.Commands do
                 if string.upper(string.sub(self.Commands[i], 1, #word)) == string.upper(word) then candidates[#candidates + 1] = self.Commands[i] end
             end
             if #candidates == 0 then
+                -- No match
                 self:AddLog("No match for \"%s\"!\n", word)
             elseif #candidates == 1 then
+                -- Single match. Delete the beginning of the word and replace it entirely so we've got nice casing.
                 data:DeleteChars(word_start, word_end - word_start)
                 data:InsertChars(data.CursorPos, candidates[1])
                 data:InsertChars(data.CursorPos, " ")
             else
+                -- Multiple matches. Complete as much as we can..
+                -- So inputting "C"+Tab will complete to "CL" then display "CLEAR" and "CLASSIFY" as matches.
                 local match_len = word_end - word_start
                 while true do
                     local ch, all_match = nil, true
@@ -4082,10 +4464,13 @@ local function ConsoleNew()
                     data:DeleteChars(word_start, word_end - word_start)
                     data:InsertChars(data.CursorPos, string.sub(candidates[1], 1, match_len))
                 end
+
+                -- List matches
                 self:AddLog("Possible matches:\n")
                 for i = 1, #candidates do self:AddLog("- %s\n", candidates[i]) end
             end
         elseif data.EventFlag == ImGuiInputTextFlags.CallbackHistory then
+            -- Example of HISTORY
             local prev_history_pos = self.HistoryPos
             if data.EventKey == ImGuiKey.UpArrow then
                 if self.HistoryPos == -1 then self.HistoryPos = #self.History - 1
@@ -4096,6 +4481,8 @@ local function ConsoleNew()
                     if self.HistoryPos >= #self.History then self.HistoryPos = -1 end
                 end
             end
+
+            -- A better implementation would preserve the data on the current input line along with cursor position.
             if prev_history_pos ~= self.HistoryPos then
                 local history_str = (self.HistoryPos >= 0) and self.History[self.HistoryPos + 1] or ""
                 data:DeleteChars(0, data.BufTextLen)
@@ -4110,12 +4497,18 @@ local function ConsoleNew()
         p_open, visible = ImGui.Begin(title, p_open)
         if not visible then ImGui.End(); return p_open end
 
+        -- As a specific feature guaranteed by the library, after calling Begin() the last Item represent the title bar.
+        -- So e.g. IsItemHovered() will return true when hovering the title bar.
+        -- Here we create a context menu only available from the title bar.
         if ImGui.BeginPopupContextItem() then
             if ImGui.MenuItem("Close Console") then p_open = false end
             ImGui.EndPopup()
         end
         ImGui.TextWrapped("This example implements a console with basic coloring, completion (TAB key) and history (Up/Down keys). A more elaborate implementation may want to store entries along with extra data such as timestamp, emitter, etc.")
         ImGui.TextWrapped("Enter 'HELP' for help.")
+
+        -- TODO: display items starting from the bottom
+
         if ImGui.SmallButton("Add Debug Text") then self:AddLog("%d some text", #self.Items); self:AddLog("some more text"); self:AddLog("display very important message here!") end
         ImGui.SameLine()
         if ImGui.SmallButton("Add Debug Error") then self:AddLog("[error] something went wrong") end
@@ -4123,12 +4516,17 @@ local function ConsoleNew()
         if ImGui.SmallButton("Clear") then self:ClearLog() end
         ImGui.SameLine()
         local copy_to_clipboard = ImGui.SmallButton("Copy")
+        --local t = 0.0; if ImGui.GetTime() - t > 0.02 then t = ImGui.GetTime(); self:AddLog("Spam %f", t) end
+
         ImGui.Separator()
 
+        -- Options menu
         if ImGui.BeginPopup("Options") then
             _, self.AutoScroll = ImGui.Checkbox("Auto-scroll", self.AutoScroll)
             ImGui.EndPopup()
         end
+
+        -- Options, Filter
         ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.O), ImGuiInputFlags.Tooltip)
         if ImGui.Button("Options") then ImGui.OpenPopup("Options") end
         ImGui.SameLine()
@@ -4137,6 +4535,7 @@ local function ConsoleNew()
         self.Filter:DrawWithHint("##Filter", "Filter (incl -excl)")
         ImGui.Separator()
 
+        -- Reserve enough left-over height for 1 separator + 1 input text
         local style = ImGui.GetStyle()
         local footer_height_to_reserve = (style.SeparatorSize or 1.0) + style.ItemSpacing.y + ImGui.GetFrameHeightWithSpacing()
         if ImGui.BeginChild("ScrollingRegion", ImVec2(0, -footer_height_to_reserve), ImGuiChildFlags.NavFlattened, ImGuiWindowFlags.HorizontalScrollbar) then
@@ -4144,10 +4543,37 @@ local function ConsoleNew()
                 if ImGui.Selectable("Clear") then self:ClearLog() end
                 ImGui.EndPopup()
             end
-            ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(4, 1))
+
+            -- Display every line as a separate entry so we can change their color or add custom widgets.
+            -- If you only want raw text you can use ImGui.TextUnformatted(log.begin(), log.end())
+            -- NB- if you have thousands of entries this approach may be too inefficient and may require user-side clipping
+            -- to only process visible items. The clipper will automatically measure the height of your first item and then
+            -- "seek" to display only items in the visible area.
+            -- To use the clipper we can replace your standard loop:
+            --      for i = 1, #Items do
+            --   With:
+            --      local clipper = ImGuiListClipper()
+            --      clipper:Begin(#Items)
+            --      while clipper:Step() do
+            --         for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+            -- - That your items are evenly spaced (same height)
+            -- - That you have cheap random access to your elements (you can access them given their index,
+            --   without processing all the ones before)
+            -- You cannot this code as-is if a filter is active because it breaks the 'cheap random-access' property.
+            -- We would need random-access on the post-filtered list.
+            -- A typical application wanting coarse clipping and filtering may want to pre-compute an array of indices
+            -- or offsets of items that passed the filtering test, recomputing this array when user changes the filter,
+            -- and appending newly elements as they are inserted. This is left as a task to the user until we can manage
+            -- to improve this example code!
+            -- If your items are of variable height:
+            -- - Split them into same height items would be simpler and facilitate random-seeking into your list.
+            -- - Consider using manual call to IsRectVisible() and skipping extraneous decoration from your items.
+            ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(4, 1)) -- Tighten spacing
             if copy_to_clipboard then ImGui.LogToClipboard() end
             for _, item in ipairs(self.Items) do
                 if self.Filter:PassFilter(item) then
+                    -- Normally you would store more information in your item than just a string.
+                    -- (e.g. make Items[] an array of structure, store color/type etc.)
                     local color
                     if string.find(item, "[error]", 1, true) then color = ImVec4(1.0, 0.4, 0.4, 1.0)
                     elseif string.sub(item, 1, 2) == "# " then color = ImVec4(1.0, 0.8, 0.6, 1.0) end
@@ -4157,6 +4583,9 @@ local function ConsoleNew()
                 end
             end
             if copy_to_clipboard then ImGui.LogFinish() end
+
+            -- Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
+            -- Using a scrollbar or mouse-wheel will take away from the bottom edge.
             if self.ScrollToBottom or (self.AutoScroll and ImGui.GetScrollY() >= ImGui.GetScrollMaxY()) then ImGui.SetScrollHereY(1.0) end
             self.ScrollToBottom = false
             ImGui.PopStyleVar()
@@ -4164,6 +4593,7 @@ local function ConsoleNew()
         ImGui.EndChild()
         ImGui.Separator()
 
+        -- Command-line
         local reclaim_focus = false
         local IT = ImGuiInputTextFlags
         local input_text_flags = bit32.bor(IT.EnterReturnsTrue, IT.EscapeClearsAll, IT.CallbackCompletion, IT.CallbackHistory)
@@ -4173,8 +4603,10 @@ local function ConsoleNew()
             self.InputBuf[1] = 0
             reclaim_focus = true
         end
+
+        -- Auto-focus on window apparition
         ImGui.SetItemDefaultFocus()
-        if reclaim_focus then ImGui.SetKeyboardFocusHere(-1) end
+        if reclaim_focus then ImGui.SetKeyboardFocusHere(-1) end -- Auto focus previous widget
         ImGui.End()
         return p_open
     end
@@ -4187,13 +4619,17 @@ function ShowExampleAppConsole(p_open)
     return Console:Draw("Example: Console", p_open)
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Debug Log / ShowExampleAppLog()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Usage:
+--  local my_log = ExampleAppLog()
+--  my_log:AddLog("Hello %d world\n", 123)
+--  my_log:Draw("title")
 -- Lines are stored as a Lua array (equivalent of Buf + LineOffsets)
 local function ExampleAppLog()
-    local l = { Lines = { "" }, Filter = ImGuiTextFilter(), AutoScroll = true }
+    local l = { Lines = { "" }, Filter = ImGuiTextFilter(), AutoScroll = true } -- AutoScroll: Keep scrolling if already at the bottom.
     function l:Clear() self.Lines = { "" } end
     function l:AddLog(fmt, ...)
         local s = (select("#", ...) > 0) and string.format(fmt, ...) or fmt
@@ -4208,10 +4644,14 @@ local function ExampleAppLog()
         local visible
         p_open, visible = ImGui.Begin(title, p_open)
         if not visible then ImGui.End(); return p_open end
+
+        -- Options menu
         if ImGui.BeginPopup("Options") then
             _, self.AutoScroll = ImGui.Checkbox("Auto-scroll", self.AutoScroll)
             ImGui.EndPopup()
         end
+
+        -- Main window
         if ImGui.Button("Options") then ImGui.OpenPopup("Options") end
         ImGui.SameLine()
         local clear = ImGui.Button("Clear")
@@ -4227,10 +4667,27 @@ local function ExampleAppLog()
             ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(0, 0))
             local lines = self.Lines
             if self.Filter:IsActive() then
+                -- In this example we don't use the clipper when Filter is enabled.
+                -- This is because we don't have random access to the result of our filter.
+                -- A real application processing logs with ten of thousands of entries may want to store the result of
+                -- search/filter.. especially if the filtering function is not trivial (e.g. reg-exp).
                 for line_no = 1, #lines do
                     if self.Filter:PassFilter(lines[line_no]) then ImGui.TextUnformatted(lines[line_no]) end
                 end
             else
+                -- The simplest and easy way to display the entire buffer:
+                --   ImGui.TextUnformatted(buf_begin, buf_end)
+                -- And it'll just work. TextUnformatted() has specialization for large blob of text and will fast-forward
+                -- to skip non-visible lines. Here we instead demonstrate using the clipper to only process lines that are
+                -- within the visible area.
+                -- If you have tens of thousands of items and their processing cost is non-negligible, coarse clipping them
+                -- on your side is recommended. Using ImGuiListClipper requires
+                -- - A) random access into your data
+                -- - B) items all being the  same height,
+                -- both of which we can handle since we have an array pointing to the beginning of each line of text.
+                -- When using the filter (in the block of code above) we don't have random access into the data to display
+                -- anymore, which is why we don't use the clipper. Storing or skimming through the search result would make
+                -- it possible (and would be recommended if you want to search through tens of thousands of entries).
                 local clipper = ImGuiListClipper()
                 clipper:Begin(#lines)
                 while clipper:Step() do
@@ -4240,6 +4697,9 @@ local function ExampleAppLog()
             end
             ImGui.PopStyleVar()
             if copy then ImGui.LogFinish() end
+
+            -- Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
+            -- Using a scrollbar or mouse-wheel will take away from the bottom edge.
             if self.AutoScroll and ImGui.GetScrollY() >= ImGui.GetScrollMaxY() then ImGui.SetScrollHereY(1.0) end
         end
         ImGui.EndChild()
@@ -4249,9 +4709,14 @@ local function ExampleAppLog()
     return l
 end
 
+-- Demonstrate creating a simple log window with basic filtering.
 local AppLog, AppLogCounter = nil, 0
 function ShowExampleAppLog(p_open)
     AppLog = AppLog or ExampleAppLog()
+
+    -- For the demo: add a debug button _BEFORE_ the normal log window contents
+    -- We take advantage of a rarely used feature: multiple calls to Begin()/End() are appending to the _same_ window.
+    -- Most of the contents of the window will be added by the log:Draw() call.
     ImGui.SetNextWindowSize(ImVec2(500, 400), ImGuiCond.FirstUseEver)
     p_open = ImGui.Begin("Example: Log", p_open)
     if ImGui.SmallButton("[Debug] Add 5 entries") then
@@ -4265,13 +4730,16 @@ function ShowExampleAppLog(p_open)
         end
     end
     ImGui.End()
+
+    -- Actually call in the regular Log helper (which will Begin() into the same window as we just did)
     return AppLog:Draw("Example: Log", p_open)
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Simple Layout / ShowExampleAppLayout()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate create a window with multiple child windows.
 local LayoutSelected = 0
 function ShowExampleAppLayout(p_open)
     ImGui.SetNextWindowSize(ImVec2(500, 440), ImGuiCond.FirstUseEver)
@@ -4285,14 +4753,18 @@ function ShowExampleAppLayout(p_open)
             end
             ImGui.EndMenuBar()
         end
+
+        -- Left
         ImGui.BeginChild("left pane", ImVec2(150, 0), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeX))
         for i = 0, 99 do
             if ImGui.Selectable(string.format("MyObject %d", i), LayoutSelected == i, ImGuiSelectableFlags.SelectOnNav) then LayoutSelected = i end
         end
         ImGui.EndChild()
         ImGui.SameLine()
+
+        -- Right
         ImGui.BeginGroup()
-        ImGui.BeginChild("item view", ImVec2(0, -ImGui.GetFrameHeightWithSpacing()))
+        ImGui.BeginChild("item view", ImVec2(0, -ImGui.GetFrameHeightWithSpacing())) -- Leave room for 1 line below us
         ImGui.Text("MyObject: %d", LayoutSelected)
         ImGui.Separator()
         if ImGui.BeginTabBar("##Tabs", ImGuiTabBarFlags.None) then
@@ -4316,9 +4788,14 @@ function ShowExampleAppLayout(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Property Editor / ShowExampleAppPropertyEditor()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- Some of the interactions are a bit lack-luster:
+-- - We would want pressing validating or leaving the filter to somehow restore focus.
+-- - We may want more advanced filtering (child nodes) and clipper support: both will need extra work.
+-- - We would want to customize some keyboard interactions to easily keyboard navigate between the tree and the properties.
+-------------------------------------------------------------------------------
 
 -- ExampleMemberInfo equivalent: field name, data type, component count
 local ExampleTreeNodeMemberInfos = {
@@ -4330,19 +4807,30 @@ local ExampleTreeNodeMemberInfos = {
 
 local PropEd = { Filter = nil, SelectedNode = nil, UseClipper = false, NameBufs = setmetatable({}, { __mode = "k" }) }
 
+-- Custom search filter
+-- - Here we apply on root node only.
+-- - This does a case insensitive stristr which is pretty heavy. In a real large-scale app you would likely store a filtered list which in turns would be trivial to linearize.
 function PropEd:IsNodePassingFilter(node)
     return node.Parent.Parent ~= nil or self.Filter:PassFilter(node.Name)
 end
 
+-- To support node with same name we incorporate node.UID into the item ID.
+-- (this would more naturally be done using PushID(node.UID) + TreeNodeEx(node.Name, tree_flags),
+--   but it would require in DrawClippedTreeNodeAndAdvanceToNext() to add PushID() before TreePush(), and PopID() after TreePop(),
+--   so instead we use TreeNodeEx(node.UID, tree_flags, "%s", node.Name) here)
 function PropEd:DrawTreeNode(node)
     local TN = ImGuiTreeNodeFlags
     ImGui.TableNextRow()
     ImGui.TableNextColumn()
+    -- OpenOnArrow | OpenOnDoubleClick: Standard opening mode as we are likely to want to add selection afterwards
+    -- NavLeftJumpsToParent: Left arrow support
+    -- SpanFullWidth: Span full width for easier mouse reach
+    -- DrawLinesToNodes: Always draw hierarchy outlines
     local tree_flags = bit32.bor(TN.OpenOnArrow, TN.OpenOnDoubleClick, TN.NavLeftJumpsToParent, TN.SpanFullWidth, TN.DrawLinesToNodes)
-    if node == self.SelectedNode then tree_flags = bit32.bor(tree_flags, TN.Selected) end
-    if #node.Childs == 0 then tree_flags = bit32.bor(tree_flags, TN.Leaf, TN.Bullet, TN.NoTreePushOnOpen) end
+    if node == self.SelectedNode then tree_flags = bit32.bor(tree_flags, TN.Selected) end -- Draw selection highlight
+    if #node.Childs == 0 then tree_flags = bit32.bor(tree_flags, TN.Leaf, TN.Bullet, TN.NoTreePushOnOpen) end -- Use _NoTreePushOnOpen + set is_open=false to avoid unnecessarily push/pop on leaves.
     if node.DataMyBool == false then ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[ImGuiCol.TextDisabled]) end
-    ImGui.SetNextItemStorageID(node.UID)
+    ImGui.SetNextItemStorageID(node.UID) -- Use node.UID as storage id
     local is_open = ImGui.TreeNodeEx(node.UID, tree_flags, "%s", node.Name)
     if #node.Childs == 0 then is_open = false end
     if node.DataMyBool == false then ImGui.PopStyleColor() end
@@ -4350,6 +4838,10 @@ function PropEd:DrawTreeNode(node)
     return is_open
 end
 
+-- Basic version, recursive. This is how you would generally draw a tree.
+-- - Simple but going to be noticeably costly if you have a large amount of nodes as DrawTreeNode() is called for all of them.
+-- - On my desktop PC (2020), for 10K nodes in an optimized build this takes ~1.2 ms
+-- - Unlike arrays or grids which are very easy to clip, trees are currently more difficult to clip.
 function PropEd:DrawTree(node)
     for _, child in ipairs(node.Childs) do
         if self:IsNodePassingFilter(child) and self:DrawTreeNode(child) then
@@ -4361,6 +4853,7 @@ end
 
 function PropEd:DrawClippedTreeNodeAndAdvanceToNext(clipper, node)
     if self:IsNodePassingFilter(node) then
+        -- Draw node if within visible range
         local is_open
         if clipper.UserIndex >= clipper.DisplayStart and clipper.UserIndex < clipper.DisplayEnd then
             is_open = self:DrawTreeNode(node)
@@ -4369,8 +4862,12 @@ function PropEd:DrawClippedTreeNodeAndAdvanceToNext(clipper, node)
             if is_open then ImGui.TreePush(node.Name) end
         end
         clipper.UserIndex = clipper.UserIndex + 1
+
+        -- Next node: recurse into childs
         if is_open then return node.Childs[1] end
     end
+
+    -- Next node: next sibling, otherwise move back to parent
     while node ~= nil do
         if node.IndexInParent + 1 < #node.Parent.Childs then
             return node.Parent.Childs[node.IndexInParent + 2]
@@ -4382,8 +4879,18 @@ function PropEd:DrawClippedTreeNodeAndAdvanceToNext(clipper, node)
     return nil
 end
 
+-- More advanced version. Use a alternative clipping technique: fast-forwarding through non-visible chunks.
+-- - On my desktop PC (2020), for 10K nodes in an optimized build this takes ~0.1 ms
+--   (in ExampleTree_CreateDemoTree(), change 'ROOT_ITEMS_COUNT = 10000' to try with this amount of root nodes).
+-- - 1. Use clipper with indeterminate count (items_count = INT_MAX): we need to call SeekCursorForItem() at the end once we know the count.
+-- - 2. Use SetNextItemStorageID() to specify ID used for open/close storage, making it easy to call TreeNodeGetOpen() on any arbitrary node.
+-- - 3. Linearize tree during traversal: our tree data structure makes it easy to access sibling and parents.
+-- - Unlike clipping for a regular array or grid which may be done using random access limited to visible areas,
+--   this technique requires traversing most accessible nodes. This could be made more optimal with extra work,
+--   but this is a decent simplicity<>speed trade-off.
+-- See https://github.com/ocornut/imgui/issues/3823 for discussions about this.
 function PropEd:DrawClippedTree(root_node)
-    local node = root_node.Childs[1]
+    local node = root_node.Childs[1] -- First node
     local clipper = ImGuiListClipper()
     clipper:Begin(INT_MAX)
     while clipper:Step() do
@@ -4391,14 +4898,23 @@ function PropEd:DrawClippedTree(root_node)
             node = self:DrawClippedTreeNodeAndAdvanceToNext(clipper, node)
         end
     end
+
+    -- Keep going to count nodes and submit final count so we have a reliable scrollbar.
+    -- - One could consider caching this value and only refreshing it occasionally e.g. window is focused and an action occurs.
+    -- - Incorrect but cheap approximation would be to use 'clipper_current_idx = IM_MAX(clipper_current_idx, #root_node.Childs)' instead.
+    -- - If either of those is implemented, the general cost will approach zero when scrolling is at the top of the tree.
     while node ~= nil do
         node = self:DrawClippedTreeNodeAndAdvanceToNext(clipper, node)
     end
+    --clipper.UserIndex = math.max(clipper.UserIndex, #root_node.Childs) -- <-- Cheap approximation instead of while() loop above.
     clipper:SeekCursorForItem(clipper.UserIndex)
 end
 
 function PropEd:Draw(root_node)
     self.Filter = self.Filter or ImGuiTextFilter()
+    -- Left side: draw tree
+    -- - Currently using a table to benefit from RowBg feature
+    -- - Our tree node are all of equal height, facilitating the use of a clipper.
     if ImGui.BeginChild("##tree", ImVec2(300, 0), bit32.bor(ImGuiChildFlags.ResizeX, ImGuiChildFlags.Borders, ImGuiChildFlags.NavFlattened)) then
         ImGui.PushItemFlag(ImGuiItemFlags.NoNavDefaultFocus, true)
         _, self.UseClipper = ImGui.Checkbox("Use Clipper", self.UseClipper)
@@ -4417,18 +4933,24 @@ function PropEd:Draw(root_node)
     end
     ImGui.EndChild()
 
+    -- Right side: draw properties
     ImGui.SameLine()
-    ImGui.BeginGroup()
+
+    ImGui.BeginGroup() -- Lock X position
     local node = self.SelectedNode
     if node then
         ImGui.Text("%s", node.Name)
         ImGui.TextDisabled("UID: 0x%08X", node.UID)
         ImGui.Separator()
         if ImGui.BeginTable("##properties", 2, bit32.bor(ImGuiTableFlags.Resizable, ImGuiTableFlags.ScrollY)) then
+            -- Push object ID after we entered the table, so table is shared for all objects
             ImGui.PushID(node.UID)
             ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed)
-            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthStretch, 2.0)
+            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthStretch, 2.0) -- Default twice larger
             if node.HasData then
+                -- In a typical application, the structure description would be derived from a data-driven system.
+                -- - We try to mimic this with our ExampleMemberInfo structure and the ExampleTreeNodeMemberInfos[] array.
+                -- - Limits and some details are hard-coded to simplify the demo.
                 for _, field_desc in ipairs(ExampleTreeNodeMemberInfos) do
                     ImGui.TableNextRow()
                     ImGui.PushID(field_desc.Name)
@@ -4460,6 +4982,7 @@ function PropEd:Draw(root_node)
     ImGui.EndGroup()
 end
 
+-- Demonstrate creating a simple property editor.
 local DemoTree = nil
 function ShowExampleAppPropertyEditor(p_open, demo_data)
     ImGui.SetNextWindowSize(ImVec2(430, 450), ImGuiCond.FirstUseEver)
@@ -4473,10 +4996,11 @@ function ShowExampleAppPropertyEditor(p_open, demo_data)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Long Text / ShowExampleAppLongText()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate/test rendering huge amount of text, and the incidence of clipping.
 local LT = { test_type = 0, log = {}, lines = 0, bytes = 0 }
 function ShowExampleAppLongText(p_open)
     ImGui.SetNextWindowSize(ImVec2(520, 600), ImGuiCond.FirstUseEver)
@@ -4499,9 +5023,11 @@ function ShowExampleAppLongText(p_open)
     end
     ImGui.BeginChild("Log")
     if LT.test_type == 0 then
+        -- Single call to TextUnformatted() with a big buffer
         LT.text = LT.text or table.concat(LT.log)
         ImGui.TextUnformatted(LT.text)
     elseif LT.test_type == 1 then
+        -- Multiple calls to Text(), manually coarsely clipped - demonstrate how to use the ImGuiListClipper helper.
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(0, 0))
         local clipper = ImGuiListClipper()
         clipper:Begin(LT.lines)
@@ -4510,6 +5036,7 @@ function ShowExampleAppLongText(p_open)
         end
         ImGui.PopStyleVar()
     else
+        -- Multiple calls to Text(), not clipped (slow)
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(0, 0))
         for i = 0, LT.lines - 1 do ImGui.Text("%i The quick brown fox jumps over the lazy dog", i) end
         ImGui.PopStyleVar()
@@ -4519,10 +5046,11 @@ function ShowExampleAppLongText(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Auto Resize / ShowExampleAppAutoResize()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate creating a window which gets auto-resized according to its content.
 local AutoResizeLines = 10
 function ShowExampleAppAutoResize(p_open)
     local visible
@@ -4530,17 +5058,23 @@ function ShowExampleAppAutoResize(p_open)
     if not visible then ImGui.End(); return p_open end
     ImGui.TextUnformatted("Window will resize every-frame to the size of its content.\nNote that you probably don't want to query the window size to\noutput your content because that would create a feedback loop.")
     AutoResizeLines = ImGui.SliderInt("Number of lines", AutoResizeLines, 1, 20)
-    for i = 0, AutoResizeLines - 1 do ImGui.Text("%sThis is line %d", string.rep(" ", i * 4), i) end
+    for i = 0, AutoResizeLines - 1 do ImGui.Text("%sThis is line %d", string.rep(" ", i * 4), i) end -- Pad with space to extend size horizontally
     ImGui.End()
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Constrained Resize / ShowExampleAppConstrainedResize()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
-local CR = { auto_resize = false, window_padding = true, type = 6, display_lines = 10 }
+-- Demonstrate creating a window with custom resize constraints.
+-- Note that size constraints currently don't work on a docked window (when in 'docking' branch)
+-- Options
+local CR = { auto_resize = false, window_padding = true, type = 6, display_lines = 10 } -- type 6: Aspect Ratio
 function ShowExampleAppConstrainedResize(p_open)
+    -- Helper functions to demonstrate programmatic constraints
+    -- FIXME: This doesn't take account of decoration size (e.g. title bar), library should make this easier.
+    -- FIXME: None of the three demos works consistently when resizing from borders.
     local function AspectRatio(data) data.DesiredSize.y = math.floor(data.DesiredSize.x / data.UserData) end
     local function Square(data) local m = math.max(data.DesiredSize.x, data.DesiredSize.y); data.DesiredSize.x = m; data.DesiredSize.y = m end
     local function Step(data)
@@ -4549,17 +5083,19 @@ function ShowExampleAppConstrainedResize(p_open)
     end
     local test_desc = { "Between 100x100 and 500x500", "At least 100x100", "Resize vertical + lock current width", "Resize horizontal + lock current height",
         "Width Between 400 and 500", "Height at least 400", "Custom: Aspect Ratio 16:9", "Custom: Always Square", "Custom: Fixed Steps (100)" }
+    -- Submit constraint
     local t = CR.type
-    if t == 0 then ImGui.SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(500, 500)) end
-    if t == 1 then ImGui.SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(FLT_MAX, FLT_MAX)) end
-    if t == 2 then ImGui.SetNextWindowSizeConstraints(ImVec2(-1, 0), ImVec2(-1, FLT_MAX)) end
-    if t == 3 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, -1), ImVec2(FLT_MAX, -1)) end
-    if t == 4 then ImGui.SetNextWindowSizeConstraints(ImVec2(400, -1), ImVec2(500, -1)) end
-    if t == 5 then ImGui.SetNextWindowSizeConstraints(ImVec2(-1, 400), ImVec2(-1, FLT_MAX)) end
-    if t == 6 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), AspectRatio, 16.0 / 9.0) end
-    if t == 7 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), Square) end
-    if t == 8 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), Step, 100.0) end
+    if t == 0 then ImGui.SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(500, 500)) end         -- Between 100x100 and 500x500
+    if t == 1 then ImGui.SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(FLT_MAX, FLT_MAX)) end -- Width > 100, Height > 100
+    if t == 2 then ImGui.SetNextWindowSizeConstraints(ImVec2(-1, 0), ImVec2(-1, FLT_MAX)) end         -- Resize vertical + lock current width
+    if t == 3 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, -1), ImVec2(FLT_MAX, -1)) end         -- Resize horizontal + lock current height
+    if t == 4 then ImGui.SetNextWindowSizeConstraints(ImVec2(400, -1), ImVec2(500, -1)) end           -- Width Between and 400 and 500
+    if t == 5 then ImGui.SetNextWindowSizeConstraints(ImVec2(-1, 400), ImVec2(-1, FLT_MAX)) end       -- Height at least 400
+    if t == 6 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), AspectRatio, 16.0 / 9.0) end -- Aspect ratio
+    if t == 7 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), Square) end                  -- Always Square
+    if t == 8 then ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, FLT_MAX), Step, 100.0) end             -- Fixed Step
 
+    -- Submit window
     if not CR.window_padding then ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0.0, 0.0)) end
     local window_flags = CR.auto_resize and ImGuiWindowFlags.AlwaysAutoResize or 0
     local window_open
@@ -4567,6 +5103,7 @@ function ShowExampleAppConstrainedResize(p_open)
     if not CR.window_padding then ImGui.PopStyleVar() end
     if window_open then
         if ImGui.GetIO().KeyShift then
+            -- Display a dummy viewport (in your real app you would likely use ImageButton() to display a texture)
             local avail_size = ImGui.GetContentRegionAvail()
             local pos = ImGui.GetCursorScreenPos()
             ImGui.ColorButton("viewport", ImVec4(0.5, 0.2, 0.5, 1.0), bit32.bor(ImGuiColorEditFlags.NoTooltip, ImGuiColorEditFlags.NoDragDrop), avail_size)
@@ -4591,10 +5128,12 @@ function ShowExampleAppConstrainedResize(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Simple overlay / ShowExampleAppSimpleOverlay()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate creating a simple static window with no decoration
+-- + a context-menu to choose which corner of the screen to use.
 local OverlayLocation = 0
 function ShowExampleAppSimpleOverlay(p_open)
     local io = ImGui.GetIO()
@@ -4603,7 +5142,7 @@ function ShowExampleAppSimpleOverlay(p_open)
     if OverlayLocation >= 0 then
         local PAD = 10.0
         local viewport = ImGui.GetMainViewport()
-        local work_pos, work_size = viewport.WorkPos, viewport.WorkSize
+        local work_pos, work_size = viewport.WorkPos, viewport.WorkSize -- Use work area to avoid menu-bar/task-bar, if any!
         local right, bottom = OverlayLocation % 2 == 1, OverlayLocation >= 2
         local window_pos = ImVec2(right and (work_pos.x + work_size.x - PAD) or (work_pos.x + PAD), bottom and (work_pos.y + work_size.y - PAD) or (work_pos.y + PAD))
         local window_pos_pivot = ImVec2(right and 1.0 or 0.0, bottom and 1.0 or 0.0)
@@ -4611,10 +5150,11 @@ function ShowExampleAppSimpleOverlay(p_open)
         ImGui.SetNextWindowViewport(viewport.ID)
         window_flags = bit32.bor(window_flags, W.NoMove)
     elseif OverlayLocation == -2 then
+        -- Center window
         ImGui.SetNextWindowPos(ImGui.GetMainViewport():GetCenter(), ImGuiCond.Always, ImVec2(0.5, 0.5))
         window_flags = bit32.bor(window_flags, W.NoMove)
     end
-    ImGui.SetNextWindowBgAlpha(0.35)
+    ImGui.SetNextWindowBgAlpha(0.35) -- Transparent background
     local visible
     p_open, visible = ImGui.Begin("Example: Simple overlay", p_open, window_flags)
     if visible then
@@ -4636,12 +5176,15 @@ function ShowExampleAppSimpleOverlay(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Fullscreen window / ShowExampleAppFullscreen()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Demonstrate creating a window covering the entire screen/viewport
 local FS = { use_work_area = true, flags = bit32.bor(ImGuiWindowFlags.NoDecoration, ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoSavedSettings) }
 function ShowExampleAppFullscreen(p_open)
+    -- We demonstrate using the full viewport area or the work area (without menu-bars, task-bars etc.)
+    -- Based on your use case you may want one or the other.
     local viewport = ImGui.GetMainViewport()
     ImGui.SetNextWindowPos(FS.use_work_area and viewport.WorkPos or viewport.Pos)
     ImGui.SetNextWindowSize(FS.use_work_area and viewport.WorkSize or viewport.Size)
@@ -4665,13 +5208,21 @@ function ShowExampleAppFullscreen(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
--- [SECTION] Example App: Manipulating window titles / ShowExampleAppWindowTitles()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- [SECTION] Example App: Manipulating Window Titles / ShowExampleAppWindowTitles()
+-------------------------------------------------------------------------------
 
+-- Demonstrate the use of "##" and "###" in identifiers to manipulate ID generation.
+-- This applies to all regular items as well.
+-- Read FAQ section "How can I have multiple widgets with the same label?" for details.
 function ShowExampleAppWindowTitles(p_open)
     local viewport = ImGui.GetMainViewport()
     local base_pos = viewport.Pos
+
+    -- By default, Windows are uniquely identified by their title.
+    -- You can use the "##" and "###" markers to manipulate the display/ID.
+
+    -- Using "##" to display same title but have unique identifier.
     ImGui.SetNextWindowPos(ImVec2(base_pos.x + 100, base_pos.y + 100), ImGuiCond.FirstUseEver)
     ImGui.Begin("Same title as another window##1")
     ImGui.Text("This is window 1.\nMy title is the same as window 2, but my identifier is unique.")
@@ -4680,6 +5231,8 @@ function ShowExampleAppWindowTitles(p_open)
     ImGui.Begin("Same title as another window##2")
     ImGui.Text("This is window 2.\nMy title is the same as window 1, but my identifier is unique.")
     ImGui.End()
+
+    -- Using "###" to display a changing title but keep a static identifier "AnimatedTitle"
     local spin = "|/-\\"
     local k = math.floor(ImGui.GetTime() / 0.25) % 4 + 1
     local buf = string.format("Animated title %s %d###AnimatedTitle", string.sub(spin, k, k), ImGui.GetFrameCount())
@@ -4690,9 +5243,14 @@ function ShowExampleAppWindowTitles(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Custom Rendering using ImDrawList API / ShowExampleAppCustomRendering()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+-- See our Wiki guides:
+-- - ImDrawList Vector Rendering Reference: https://github.com/ocornut/imgui/wiki/Draw-List
+-- - Pixel Perfect Anti-aliased Rendering: https://github.com/ocornut/imgui/wiki/Pixel-Perfect-Rendering
+-- - How Anti-aliased Polyline Rendering is Implemented: https://github.com/ocornut/imgui/wiki/Polyline-Rendering
 
 local CRS = { sz = 42.0, base_rounding = 8.0, base_thickness = 3.0, animate_rounding = false, animate_thickness = false, ngon_segments = 6,
     circle_override = false, circle_override_v = 12, curve_override = false, curve_override_v = 8,
@@ -4706,6 +5264,9 @@ local function CustomRenderingPrimitives()
     ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInput, true)
     local draw_list = ImGui.GetWindowDrawList()
 
+    -- Draw gradients
+    -- (note that those are currently exacerbating our sRGB/Linear issues)
+    -- Calling ImGui.GetColorU32() multiplies the given colors by the current Style Alpha, but you may pass the IM_COL32() directly as well..
     ImGui.Text("Gradients")
     local gradient_size = ImVec2(ImGui.CalcItemWidth(), ImGui.GetFrameHeight())
     ImGui.InvisibleButton("##gradient1", gradient_size)
@@ -4715,11 +5276,12 @@ local function CustomRenderingPrimitives()
     col_a, col_b = ImGui.GetColorU32(IM_COL32(0, 255, 0, 255), nil, true), ImGui.GetColorU32(IM_COL32(255, 0, 0, 255), nil, true)
     draw_list:AddRectFilledMultiColor(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), col_a, col_b, col_b, col_a)
 
+    -- Draw a bunch of primitives
     ImGui.Text("All primitives")
     s.sz = ImGui.DragFloat("Size", s.sz, 0.2, 0.2, 100.0, "%.0f")
     local t = ImGui.GetTime()
     local rounding_wave = 1.0 - math.abs((t % 3.0) * (2.0 / 3.0) - 1.0)
-    local rounding = s.animate_rounding and (math.floor(rounding_wave * s.base_rounding * 10.0) / 10.0) or s.base_rounding
+    local rounding = s.animate_rounding and (math.floor(rounding_wave * s.base_rounding * 10.0) / 10.0) or s.base_rounding -- Sub-integer rounding works but has discontinuities in small values, so best disable we
     s.base_rounding = ImGui.DragFloat("Rounding", s.base_rounding, 0.02, 0.0, 32.0, "%.1f"); ImGui.SameLine()
     _, s.animate_rounding = ImGui.Checkbox("Animate##rounding", s.animate_rounding); ImGui.SameLine()
     ImGui.Text("%.2f", rounding)
@@ -4752,9 +5314,9 @@ local function CustomRenderingPrimitives()
     local half_sz = sz * 0.5
     local circle_segments = s.circle_override and s.circle_override_v or 0
     local curve_segments = s.curve_override and s.curve_override_v or 0
-    local cp3 = { ImVec2(0.0, sz * 0.6), ImVec2(sz * 0.5, -sz * 0.4), ImVec2(sz, sz) }
+    local cp3 = { ImVec2(0.0, sz * 0.6), ImVec2(sz * 0.5, -sz * 0.4), ImVec2(sz, sz) } -- Control points for curves
     local cp4 = { ImVec2(0.0, 0.0), ImVec2(sz * 1.3, sz * 0.3), ImVec2(sz - sz * 1.3, sz - sz * 0.3), ImVec2(sz, sz) }
-    local concave_shape = { { 0.0, 0.0 }, { 0.3, 0.0 }, { 0.3, 0.7 }, { 0.7, 0.7 }, { 0.7, 0.0 }, { 1.0, 0.0 }, { 1.0, 1.0 }, { 0.0, 1.0 } }
+    local concave_shape = { { 0.0, 0.0 }, { 0.3, 0.0 }, { 0.3, 0.7 }, { 0.7, 0.7 }, { 0.7, 0.0 }, { 1.0, 0.0 }, { 1.0, 1.0 }, { 0.0, 1.0 } } -- |_| looking shape. Normalized.
     local zigzag_shape = { { 0.0, 0.0 }, { 0.9, 0.0 }, { 1.0, 0.1 }, { 1.0, 0.9 }, { 0.9, 1.0 }, { 0.3, 1.0 }, { 0.3, 0.4 }, { 0.9, 0.4 } }
     local rotating_square = {}
     for side = 0, 3 do
@@ -4771,17 +5333,25 @@ local function CustomRenderingPrimitives()
         local draw_fill = (row == 2 or row == 3)
         local draw_strokes = (row == 0 or row == 1 or row == 3)
         if draw_fill then
+            -- FILLED SHAPES
             local col = ImGui.ColorConvertFloat4ToU32(s.colf_fill)
-            draw_list:AddNgonFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments); x = x + step
-            draw_list:AddCircleFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments); x = x + step
-            draw_list:AddEllipseFilled(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments); x = x + step
-            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col); x = x + step
-            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding); x = x + step
-            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, corners_tl_br); x = x + step
-            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col); x = x + step
-            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col); x = x + step - math.floor(sz * 0.6)
+            draw_list:AddNgonFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments); x = x + step -- N-gon
+            draw_list:AddCircleFilled(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments); x = x + step -- Circle
+            draw_list:AddEllipseFilled(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments); x = x + step -- Ellipse
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col); x = x + step -- Square
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding); x = x + step -- Square with all rounded corners
+            draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, corners_tl_br); x = x + step -- Square with two rounded corners
+            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col); x = x + step -- Triangle
+            draw_list:AddTriangleFilled(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col); x = x + step - math.floor(sz * 0.6) -- Thin triangle
+
+            -- Concave shape: U
             Shape(concave_shape, x, y); draw_list:PathFillConcave(col); x = x + step
+
+            -- Concave shape: Zig-Zag with sharp angles
             Shape(zigzag_shape, x, y); draw_list:PathFillConcave(col); x = x + step
+
+            -- Horizontal/Vertical lines
+            -- (here for consistency with the strokes section. AddRectFilled() is roughly close to AddLineH(), AddLineV()
             draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + thickness), col); x = x + step
             draw_list:AddRectFilled(ImVec2(x, y), ImVec2(x + thickness, y + sz), col); x = x + step - math.floor(half_sz)
             if not (draw_fill and draw_strokes) then
@@ -4793,10 +5363,16 @@ local function CustomRenderingPrimitives()
                 end
             end
             x = x + step - math.floor(half_sz)
+
+            -- Rotating square
             for n = 1, 4 do draw_list:PathLineTo(ImVec2(x + half_sz + rotating_square[n].x, y + half_sz + rotating_square[n].y)) end
             draw_list:PathFillConvex(col); x = x + step
+
+            -- Path
             draw_list:PathArcTo(ImVec2(x + half_sz, y + half_sz), half_sz, pi * -0.5, pi * 1.1)
             draw_list:PathFillConvex(col); x = x + step
+
+            -- Quadratic Bezier Curve (3 control points)
             draw_list:PathLineTo(ImVec2(x + cp3[1].x, y + cp3[1].y))
             draw_list:PathBezierQuadraticCurveTo(ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), curve_segments)
             draw_list:PathFillConvex(col); x = x + step
@@ -4807,18 +5383,26 @@ local function CustomRenderingPrimitives()
         end
         if draw_fill and draw_strokes then x = start_pos.x end
         if draw_strokes then
+            -- STROKES
+            -- First row uses a thickness of 1.0f, second row uses the configurable thickness
             local col = ImGui.ColorConvertFloat4ToU32(s.colf_stroke)
             local th = (row == 0) and 1.0 or thickness
-            draw_list:AddNgon(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments, th); x = x + step
-            draw_list:AddCircle(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments, th); x = x + step
-            draw_list:AddEllipse(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments, th); x = x + step
-            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, 0.0, th); x = x + step
-            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th); x = x + step
-            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th, corners_tl_br); x = x + step
-            draw_list:AddTriangle(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col, th); x = x + step
-            draw_list:AddTriangle(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col, th); x = x + step - math.floor(sz * 0.6)
+            draw_list:AddNgon(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments, th); x = x + step -- N-gon
+            draw_list:AddCircle(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments, th); x = x + step -- Circle
+            draw_list:AddEllipse(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments, th); x = x + step -- Ellipse
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, 0.0, th); x = x + step -- Square
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th); x = x + step -- Square with all rounded corners
+            draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th, corners_tl_br); x = x + step -- Square with two rounded corners
+            draw_list:AddTriangle(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col, th); x = x + step -- Triangle
+            draw_list:AddTriangle(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col, th); x = x + step - math.floor(sz * 0.6) -- Thin triangle
+
+            -- Concave shape: U
             Shape(concave_shape, x, y); draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+
+            -- Concave shape: Zig-Zag with sharp angles
             Shape(zigzag_shape, x, y); draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+
+            -- Horizontal/Vertical/Diagonal lines
             local off = math.floor(sz * 0.4)
             draw_list:AddLine(ImVec2(x, y), ImVec2(x + sz, y), col, th)
             draw_list:AddLine(ImVec2(x, y + off), ImVec2(x + sz, y + off), col, th); x = x + step
@@ -4829,11 +5413,19 @@ local function CustomRenderingPrimitives()
                 draw_list:AddLine(ImVec2(x, y + sz), ImVec2(x + half_sz, y), col, th)
             end
             x = x + step - math.floor(half_sz)
+
+            -- Rotating square
             for n = 1, 4 do draw_list:PathLineTo(ImVec2(x + half_sz + rotating_square[n].x, y + half_sz + rotating_square[n].y)) end
             draw_list:PathStroke(col, th, ImDrawFlags.Closed); x = x + step
+
+            -- Path
             draw_list:PathArcTo(ImVec2(x + half_sz, y + half_sz), half_sz, pi * -0.5, pi * 1.1)
             draw_list:PathStroke(col, th); x = x + step
+
+            -- Quadratic Bezier Curve (3 control points)
             draw_list:AddBezierQuadratic(ImVec2(x + cp3[1].x, y + cp3[1].y), ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), col, th, curve_segments); x = x + step
+
+            -- Cubic Bezier Curve (4 control points)
             if not (draw_fill and draw_strokes) then
                 draw_list:AddBezierCubic(ImVec2(x + cp4[1].x, y + cp4[1].y), ImVec2(x + cp4[2].x, y + cp4[2].y), ImVec2(x + cp4[3].x, y + cp4[3].y), ImVec2(x + cp4[4].x, y + cp4[4].y), col, th, curve_segments)
                 x = x + step
@@ -4853,22 +5445,40 @@ local function CustomRenderingCanvas()
     _, s.opt_enable_grid = ImGui.Checkbox("Enable grid", s.opt_enable_grid)
     _, s.opt_enable_context_menu = ImGui.Checkbox("Enable context menu", s.opt_enable_context_menu)
     ImGui.Text("Mouse Left: drag to add lines,\nMouse Right: drag to scroll, click for context menu.")
-    local canvas_p0 = ImGui.GetCursorScreenPos()
-    local canvas_sz = ImGui.GetContentRegionAvail()
+
+    -- Typically you would use a BeginChild()/EndChild() pair to benefit from a clipping region + own scrolling.
+    -- Here we demonstrate that this can be replaced by simple offsetting + custom drawing + PushClipRect/PopClipRect() calls.
+    -- To use a child window instead we could use, e.g:
+    --      ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0, 0))      -- Disable padding
+    --      ImGui.PushStyleColor(ImGuiCol.ChildBg, IM_COL32(50, 50, 50, 255))  -- Set a background color
+    --      ImGui.BeginChild("canvas", ImVec2(0.0, 0.0), ImGuiChildFlags.Borders, ImGuiWindowFlags.NoMove)
+    --      ImGui.PopStyleColor()
+    --      ImGui.PopStyleVar()
+    --      [...]
+    --      ImGui.EndChild()
+
+    -- Using InvisibleButton() as a convenience 1) it will advance the layout cursor and 2) allows us to use IsItemHovered()/IsItemActive()
+    local canvas_p0 = ImGui.GetCursorScreenPos()      -- ImDrawList API uses screen coordinates!
+    local canvas_sz = ImGui.GetContentRegionAvail()   -- Resize canvas to what's available
     if canvas_sz.x < 50.0 then canvas_sz.x = 50.0 end
     if canvas_sz.y < 50.0 then canvas_sz.y = 50.0 end
     local canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y)
+
+    -- Draw border and background color
     local io = ImGui.GetIO()
     local draw_list = ImGui.GetWindowDrawList()
     draw_list:AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255))
     draw_list:AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255))
 
+    -- This will catch our interactions
     ImGui.InvisibleButton("canvas", canvas_sz, bit32.bor(ImGuiButtonFlags.MouseButtonLeft, ImGuiButtonFlags.MouseButtonRight))
-    local is_hovered = ImGui.IsItemHovered()
-    local is_active = ImGui.IsItemActive()
-    local origin = ImVec2(canvas_p0.x + s.scrolling.x, canvas_p0.y + s.scrolling.y)
+    local is_hovered = ImGui.IsItemHovered() -- Hovered
+    local is_active = ImGui.IsItemActive()   -- Held
+    local origin = ImVec2(canvas_p0.x + s.scrolling.x, canvas_p0.y + s.scrolling.y) -- Lock scrolled origin
     local mouse_pos_in_canvas = ImVec2(io.MousePos.x - origin.x, io.MousePos.y - origin.y)
     local points = s.points
+
+    -- Add first and second point
     if is_hovered and not s.adding_line and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
         points[#points + 1] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
         points[#points + 1] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
@@ -4878,11 +5488,16 @@ local function CustomRenderingCanvas()
         points[#points] = ImVec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y)
         if not ImGui.IsMouseDown(ImGuiMouseButton.Left) then s.adding_line = false end
     end
+
+    -- Pan (we use a zero mouse threshold when there's no context menu)
+    -- You may decide to make that threshold dynamic based on whether the mouse is hovering something etc.
     local mouse_threshold_for_pan = s.opt_enable_context_menu and -1.0 or 0.0
     if is_active and ImGui.IsMouseDragging(ImGuiMouseButton.Right, mouse_threshold_for_pan) then
         s.scrolling.x = s.scrolling.x + io.MouseDelta.x
         s.scrolling.y = s.scrolling.y + io.MouseDelta.y
     end
+
+    -- Context menu (under default mouse threshold)
     local drag_delta = ImGui.GetMouseDragDelta(ImGuiMouseButton.Right)
     if s.opt_enable_context_menu and drag_delta.x == 0.0 and drag_delta.y == 0.0 then
         ImGui.OpenPopupOnItemClick("context", ImGuiPopupFlags.MouseButtonRight)
@@ -4894,6 +5509,8 @@ local function CustomRenderingCanvas()
         if ImGui.MenuItem("Remove all", nil, false, #points > 0) then table.clear(points) end
         ImGui.EndPopup()
     end
+
+    -- Draw grid + all lines in the canvas
     draw_list:PushClipRect(canvas_p0, canvas_p1, true)
     if s.opt_enable_grid then
         local GRID_STEP = 64.0
@@ -4908,6 +5525,7 @@ local function CustomRenderingCanvas()
     draw_list:PopClipRect()
 end
 
+-- Demonstrate using the low-level ImDrawList to draw custom shapes.
 function ShowExampleAppCustomRendering(p_open)
     local visible
     p_open, visible = ImGui.Begin("Example: Custom rendering", p_open)
@@ -4927,23 +5545,33 @@ function ShowExampleAppCustomRendering(p_open)
             if s.draw_fg then ImGui.GetForegroundDrawList():AddCircle(window_center, window_size.y * 0.6, IM_COL32(0, 255, 0, 200), 0, 10) end
             ImGui.EndTabItem()
         end
+
+        -- Demonstrate out-of-order rendering via channels splitting
+        -- We use functions in ImDrawList as each draw list contains a convenience splitter,
+        -- but you can also instantiate your own ImDrawListSplitter if you need to nest them.
         if ImGui.BeginTabItem("Draw Channels") then
             local draw_list = ImGui.GetWindowDrawList()
             ImGui.Text("Blue shape is drawn first: appears in back")
             ImGui.Text("Red shape is drawn after: appears in front")
             local p0 = ImGui.GetCursorScreenPos()
-            draw_list:AddRectFilled(ImVec2(p0.x, p0.y), ImVec2(p0.x + 50, p0.y + 50), IM_COL32(0, 0, 255, 255))
-            draw_list:AddRectFilled(ImVec2(p0.x + 25, p0.y + 25), ImVec2(p0.x + 75, p0.y + 75), IM_COL32(255, 0, 0, 255))
+            draw_list:AddRectFilled(ImVec2(p0.x, p0.y), ImVec2(p0.x + 50, p0.y + 50), IM_COL32(0, 0, 255, 255)) -- Blue
+            draw_list:AddRectFilled(ImVec2(p0.x + 25, p0.y + 25), ImVec2(p0.x + 75, p0.y + 75), IM_COL32(255, 0, 0, 255)) -- Red
             ImGui.Dummy(ImVec2(75, 75))
             ImGui.Separator()
             ImGui.Text("Blue shape is drawn first, into channel 1: appears in front")
             ImGui.Text("Red shape is drawn after, into channel 0: appears in back")
             local p1 = ImGui.GetCursorScreenPos()
+
+            -- Create 2 channels and draw a Blue shape THEN a Red shape.
+            -- You can create any number of channels. Tables API use 1 channel per column in order to better batch draw calls.
             draw_list:ChannelsSplit(2)
             draw_list:ChannelsSetCurrent(1)
-            draw_list:AddRectFilled(ImVec2(p1.x, p1.y), ImVec2(p1.x + 50, p1.y + 50), IM_COL32(0, 0, 255, 255))
+            draw_list:AddRectFilled(ImVec2(p1.x, p1.y), ImVec2(p1.x + 50, p1.y + 50), IM_COL32(0, 0, 255, 255)) -- Blue
             draw_list:ChannelsSetCurrent(0)
-            draw_list:AddRectFilled(ImVec2(p1.x + 25, p1.y + 25), ImVec2(p1.x + 75, p1.y + 75), IM_COL32(255, 0, 0, 255))
+            draw_list:AddRectFilled(ImVec2(p1.x + 25, p1.y + 25), ImVec2(p1.x + 75, p1.y + 75), IM_COL32(255, 0, 0, 255)) -- Red
+
+            -- Flatten/reorder channels. Red shape is in channel 0 and it appears below the Blue shape in channel 1.
+            -- This works by copying draw indices only (vertices are not copied).
             draw_list:ChannelsMerge()
             ImGui.Dummy(ImVec2(75, 75))
             ImGui.Text("After reordering, contents of channel 0 appears below channel 1.")
@@ -4955,17 +5583,35 @@ function ShowExampleAppCustomRendering(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Docking, DockSpace / ShowExampleAppDockSpace()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- KeepWindowPadding: Keep WindowPadding to help understand that DockSpace() is a widget inside the window.
 local DSA = { IsFullscreen = true, KeepWindowPadding = false, DockSpaceFlags = 0, opt_demo_mode = 0, opt_demo_mode_changed = false }
 
+-- THIS IS A DEMO FOR ADVANCED USAGE OF DockSpace().
+-- MOST REGULAR APPLICATIONS WANTING TO ALLOW DOCKING WINDOWS ON THE EDGE OF YOUR SCREEN CAN SIMPLY USE:
+--    ImGui.NewFrame() + ImGui.DockSpaceOverViewport()                                                   -- Create a dockspace in main viewport
+-- OR:
+--    ImGui.NewFrame() + ImGui.DockSpaceOverViewport(0, nil, ImGuiDockNodeFlags.PassthruCentralNode)     -- Create a dockspace in main viewport, where central node is transparent.
+-- Demonstrate using DockSpace() to create an explicit docking node within an existing window, with various options.
+-- Read https://github.com/ocornut/imgui/wiki/Docking for details.
+-- The reasons we do not use DockSpaceOverViewport() in this demo is because:
+-- - (1) we allow the host window to be floating/moveable instead of filling the viewport (when args.IsFullscreen == false)
+--       which is mostly to showcase the idea that DockSpace() may be submitted anywhere.
+--       Also see 'Demo->Examples->Documents' for a less abstract version of this.
+-- - (2) we allow the host window to have padding (when args.UsePadding == true)
+-- - (3) we expose variety of other flags.
 local function ShowExampleAppDockSpaceAdvanced(args, p_open)
     local dockspace_flags = args.DockSpaceFlags
+
+    -- We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
+    -- because it would be confusing to have two docking targets within each others.
     local W = ImGuiWindowFlags
     local window_flags = W.NoDocking
     if args.IsFullscreen then
+        -- Fullscreen dockspace: practically the same as calling DockSpaceOverViewport()
         local viewport = ImGui.GetMainViewport()
         ImGui.SetNextWindowPos(viewport.WorkPos)
         ImGui.SetNextWindowSize(viewport.WorkSize)
@@ -4974,12 +5620,24 @@ local function ShowExampleAppDockSpaceAdvanced(args, p_open)
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0)
         window_flags = bit32.bor(window_flags, W.NoTitleBar, W.NoCollapse, W.NoResize, W.NoMove, W.NoBringToFrontOnFocus, W.NoNavFocus, W.NoBackground)
     else
+        -- Floating dockspace
         dockspace_flags = bit32.band(dockspace_flags, bit32.bnot(ImGuiDockNodeFlags.PassthruCentralNode))
     end
+
+    -- Important: note that we proceed even if Begin() returns false (aka window is collapsed).
+    -- This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
+    -- all active windows docked into it will lose their parent and become undocked.
+    -- We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
+    -- any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
     if not args.KeepWindowPadding then ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(0.0, 0.0)) end
     p_open = ImGui.Begin("Window with a DockSpace", p_open, window_flags)
     if not args.KeepWindowPadding then ImGui.PopStyleVar() end
+
     if args.IsFullscreen then ImGui.PopStyleVar(2) end
+
+    -- Submit the DockSpace widget inside our window
+    -- - Note that the id here is different from the one used by DockSpaceOverViewport(), so docking state won't get transfered between "Basic" and "Advanced" demos.
+    -- - If we made the ShowExampleAppDockSpaceBasic() calculate its own ID and pass it to DockSpaceOverViewport() the ID could easily match.
     local dockspace_id = ImGui.GetID("MyDockSpace")
     ImGui.DockSpace(dockspace_id, ImVec2(0.0, 0.0), dockspace_flags)
     ImGui.End()
@@ -4989,10 +5647,20 @@ end
 function ShowExampleAppDockSpace(p_open)
     local args = DSA
     if args.opt_demo_mode == 0 then
+        -- Basic version which you can use in many apps:
+        -- e.g:
+        --   ImGui.DockSpaceOverViewport()
+        -- or:
+        --   ImGui.DockSpaceOverViewport(0, nil, ImGuiDockNodeFlags.PassthruCentralNode) -- Central node will be transparent
+        -- or:
+        --   local viewport = ImGui.GetMainViewport()
+        --   ImGui.DockSpaceOverViewport(0, viewport, ImGuiDockNodeFlags.None)
         ImGui.DockSpaceOverViewport(0, nil, args.DockSpaceFlags)
     else
         p_open = ShowExampleAppDockSpaceAdvanced(args, p_open)
     end
+
+    -- Refocus our window to minimize perceived loss of focus when changing mode (caused by the fact that each use a different window, which would not happen in a real app)
     if args.opt_demo_mode_changed then ImGui.SetNextWindowFocus() end
     p_open = ImGui.Begin("Examples: Dockspace", p_open, ImGuiWindowFlags.MenuBar)
     local c1, c2
@@ -5004,7 +5672,7 @@ function ShowExampleAppDockSpace(p_open)
     if bit32.band(ImGui.GetIO().ConfigFlags, ImGuiConfigFlags.DockingEnable) == 0 then
         ShowDockingDisabledMessage()
     elseif args.opt_demo_mode == 0 then
-        args.DockSpaceFlags = bit32.band(args.DockSpaceFlags, D.PassthruCentralNode)
+        args.DockSpaceFlags = bit32.band(args.DockSpaceFlags, D.PassthruCentralNode) -- Allowed flags
         _, args.DockSpaceFlags = ImGui.CheckboxFlags("Flag: PassthruCentralNode", args.DockSpaceFlags, D.PassthruCentralNode)
     else
         _, args.IsFullscreen = ImGui.Checkbox("Fullscreen", args.IsFullscreen)
@@ -5018,6 +5686,8 @@ function ShowExampleAppDockSpace(p_open)
             if D[n] then _, args.DockSpaceFlags = ImGui.CheckboxFlags("Flag: " .. n, args.DockSpaceFlags, D[n]) end
         end
     end
+
+    -- Show demo options and help
     if ImGui.BeginMenuBar() then
         if ImGui.BeginMenu("Help") then
             ImGui.TextUnformatted("This demonstrates the use of ImGui::DockSpace() which allows you to manually\ncreate a docking node _within_ another window.\nThe \"Basic\" version uses the ImGui::DockSpaceOverViewport() helper. Most applications can probably use this.")
@@ -5034,10 +5704,17 @@ function ShowExampleAppDockSpace(p_open)
     return p_open
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Documents Handling / ShowExampleAppDocuments()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 
+-- Simplified structure to mimic a Document model
+-- NameBuf: Document title
+-- UID: Unique ID (necessary as we can change title)
+-- Open: Set when open (we keep an array of all available documents to simplify demo code!)
+-- OpenPrev: Copy of Open from last update.
+-- Dirty: Set when the document has been modified
+-- Color: An arbitrary variable associated to the document
 local function MyDocument(uid, name, open, color)
     if open == nil then open = true end
     local d = { UID = uid, NameBuf = Buf(name, 32), Open = open, OpenPrev = open, Dirty = false, Color = color or ImVec4(1.0, 1.0, 1.0, 1.0) }
@@ -5063,13 +5740,16 @@ local function DocsInit()
         for _, d in ipairs(self.CloseQueue) do if d == doc then return end end
         self.CloseQueue[#self.CloseQueue + 1] = doc
     end
+    -- As we allow to change document name, we append a never-changing document ID so tabs are stable
     function app:GetTabName(doc) return string.format("%s###doc%d", doc:Name(), doc.UID) end
+    -- Display placeholder contents for the Document
     function app:DisplayDocContents(doc)
         ImGui.PushID("doc" .. doc.UID)
         ImGui.Text("Document \"%s\"", doc:Name())
         ImGui.PushStyleColor(ImGuiCol.Text, doc.Color)
         ImGui.TextWrapped("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
         ImGui.PopStyleColor()
+
         ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.R), ImGuiInputFlags.Tooltip)
         if ImGui.Button("Rename..") then self.RenamingDoc = doc; self.RenamingStarted = true end
         ImGui.SameLine()
@@ -5081,9 +5761,10 @@ local function DocsInit()
         ImGui.SameLine()
         ImGui.SetNextItemShortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.W), ImGuiInputFlags.Tooltip)
         if ImGui.Button("Close") then self:QueueClose(doc) end
-        ImGui.ColorEdit3("color", doc.Color)
+        ImGui.ColorEdit3("color", doc.Color) -- Useful to test drag and drop and hold-dragged-to-open-tab behavior.
         ImGui.PopID()
     end
+    -- Display context menu for the Document
     function app:DisplayDocContextMenu(doc)
         if not ImGui.BeginPopupContextItem() then return end
         if ImGui.MenuItem("Save " .. doc:Name(), "Ctrl+S", false, doc.Open) then doc:DoSave() end
@@ -5091,6 +5772,14 @@ local function DocsInit()
         if ImGui.MenuItem("Close", "Ctrl+W", false, doc.Open) then self:QueueClose(doc) end
         ImGui.EndPopup()
     end
+    -- [Optional] Notify the system of Tabs/Windows closure that happened outside the regular tab interface.
+    -- If a tab has been closed programmatically (aka closed from another source such as the Checkbox() in the demo,
+    -- as opposed to clicking on the regular tab closing button) and stops being submitted, it will take a frame for
+    -- the tab bar to notice its absence. During this frame there will be a gap in the tab bar, and if the tab that has
+    -- disappeared was the selected one, the tab bar will report no selected tab during the frame. This will effectively
+    -- give the impression of a flicker for one frame.
+    -- We call SetTabItemClosed() to manually notify the Tab Bar or Docking system of removed tabs to avoid this glitch.
+    -- Note that this completely optional, and only affect tab bars with the ImGuiTabBarFlags.Reorderable flag.
     function app:NotifyOfDocumentsClosedElsewhere()
         for _, doc in ipairs(self.Documents) do
             if not doc.Open and doc.OpenPrev then ImGui.SetTabItemClosed(doc:Name()) end
@@ -5103,7 +5792,18 @@ end
 function ShowExampleAppDocuments(p_open)
     Docs = Docs or DocsInit()
     local app = Docs
+    -- Options
+    -- Target_Tab: Create documents as local tab into a local tab bar
+    -- Target_DockSpaceAndWindow: Create documents as regular windows, and create an embedded dockspace
     local Target_Tab, Target_DockSpaceAndWindow = 1, 2
+
+    -- When (opt_target == Target_DockSpaceAndWindow) there is the possibily that one of our child Document window (e.g. "Eggplant")
+    -- that we emit gets docked into the same spot as the parent window ("Example: Documents").
+    -- This would create a problematic feedback loop because selecting the "Eggplant" tab would make the "Example: Documents" tab
+    -- not visible, which in turn would stop submitting the "Eggplant" window.
+    -- We avoid this problem by submitting our documents window even if our parent window is not currently visible.
+    -- Another solution may be to make the "Example: Documents" window use the ImGuiWindowFlags.NoDocking.
+
     local window_contents_visible
     p_open, window_contents_visible = ImGui.Begin("Example: Documents", p_open, ImGuiWindowFlags.MenuBar)
     if not window_contents_visible and app.opt_target ~= Target_DockSpaceAndWindow then
@@ -5111,6 +5811,7 @@ function ShowExampleAppDocuments(p_open)
         return p_open
     end
 
+    -- Menu
     if ImGui.BeginMenuBar() then
         if ImGui.BeginMenu("File") then
             local open_count = 0
@@ -5130,6 +5831,7 @@ function ShowExampleAppDocuments(p_open)
         ImGui.EndMenuBar()
     end
 
+    -- [Debug] List documents with one checkbox for each
     for doc_n, doc in ipairs(app.Documents) do
         if doc_n > 1 then ImGui.SameLine() end
         ImGui.PushID("doc" .. doc.UID)
@@ -5146,15 +5848,31 @@ function ShowExampleAppDocuments(p_open)
     if app.opt_target == Target_DockSpaceAndWindow then ImGui.SameLine(); redock_all = ImGui.Button("Redock all") end
     ImGui.Separator()
 
+    -- About the ImGuiWindowFlags.UnsavedDocument / ImGuiTabItemFlags.UnsavedDocument flags.
+    -- They have multiple effects:
+    -- - Display a dot next to the title.
+    -- - Tab is selected when clicking the X close button.
+    -- - Closure is not assumed (will wait for user to stop submitting the tab).
+    --   Otherwise closure is assumed when pressing the X, so if you keep submitting the tab may reappear at end of tab bar.
+    --   We need to assume closure by default otherwise waiting for "lack of submission" on the next frame would leave an empty
+    --   hole for one-frame, both in the tab-bar and in tab-contents when closing a tab/window.
+    --   The rarely used SetTabItemClosed() function is a way to notify of programmatic closure to avoid the one-frame hole.
+
+    -- Tabs
     if app.opt_target == Target_Tab then
         local tab_bar_flags = bit32.bor(app.opt_fitting_flags, app.opt_reorderable and ImGuiTabBarFlags.Reorderable or 0, ImGuiTabBarFlags.DrawSelectedOverline)
         if ImGui.BeginTabBar("##tabs", tab_bar_flags) then
             if app.opt_reorderable then app:NotifyOfDocumentsClosedElsewhere() end
+
+            -- Submit Tabs
             for _, doc in ipairs(app.Documents) do
                 if doc.Open then
+                    -- As we allow to change document name, we append a never-changing document id so tabs are stable
                     local tab_flags = doc.Dirty and ImGuiTabItemFlags.UnsavedDocument or 0
                     local visible
                     visible, doc.Open = ImGui.BeginTabItem(app:GetTabName(doc), doc.Open, tab_flags)
+
+                    -- Cancel attempt to close when unsaved add to save queue so we can display a popup.
                     if not doc.Open and doc.Dirty then
                         doc.Open = true
                         app:QueueClose(doc)
@@ -5171,14 +5889,20 @@ function ShowExampleAppDocuments(p_open)
     elseif app.opt_target == Target_DockSpaceAndWindow then
         if bit32.band(ImGui.GetIO().ConfigFlags, ImGuiConfigFlags.DockingEnable) ~= 0 then
             app:NotifyOfDocumentsClosedElsewhere()
+
+            -- Create a DockSpace node where any window can be docked
             local dockspace_id = ImGui.GetID("MyDockSpace")
             ImGui.DockSpace(dockspace_id)
+
+            -- Create Windows
             for _, doc in ipairs(app.Documents) do
                 if doc.Open then
                     ImGui.SetNextWindowDockID(dockspace_id, redock_all and ImGuiCond.Always or ImGuiCond.FirstUseEver)
                     local window_flags = doc.Dirty and ImGuiWindowFlags.UnsavedDocument or 0
                     local visible
                     doc.Open, visible = ImGui.Begin(doc:Name(), doc.Open, window_flags)
+
+                    -- Cancel attempt to close when unsaved add to save queue so we can display a popup.
                     if not doc.Open and doc.Dirty then
                         doc.Open = true
                         app:QueueClose(doc)
@@ -5193,11 +5917,13 @@ function ShowExampleAppDocuments(p_open)
         end
     end
 
+    -- Early out other contents
     if not window_contents_visible then
         ImGui.End()
         return p_open
     end
 
+    -- Display renaming UI
     if app.RenamingDoc ~= nil then
         if app.RenamingStarted then ImGui.OpenPopup("Rename") end
         if ImGui.BeginPopup("Rename") then
@@ -5214,10 +5940,12 @@ function ShowExampleAppDocuments(p_open)
         app.RenamingStarted = false
     end
 
+    -- Display closing confirmation UI
     if #app.CloseQueue > 0 then
         local close_queue_unsaved_documents = 0
         for _, doc in ipairs(app.CloseQueue) do if doc.Dirty then close_queue_unsaved_documents = close_queue_unsaved_documents + 1 end end
         if close_queue_unsaved_documents == 0 then
+            -- Close documents when all are unsaved
             for _, doc in ipairs(app.CloseQueue) do doc:DoForceClose() end
             app.CloseQueue = {}
         else
@@ -5270,6 +5998,10 @@ local ExampleNames = {
     "Bitter Gourd", "Bok Choy", "Broccoli", "Brussels Sprouts", "Burdock Root", "Cabbage", "Calabash", "Capers", "Carrot", "Cassava",
     "Cauliflower", "Celery", "Celery Root", "Celcuce", "Chayote", "Chinese Broccoli", "Corn", "Cucumber" }
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsBasic()
+-------------------------------------------------------------------------------
+
 S.basic = { clicked = 0, check = true, e = 0, counter = 0, str0 = Buf("Hello, world!", 128), str1 = Buf("", 128),
     i0 = 123, f0 = 0.001, d0 = 999999.00000001, f1 = 1.e10, vec4a = { 0.10, 0.20, 0.30, 0.44 },
     di1 = 50, di2 = 42, di3 = 128, df1 = 1.0, df2 = 0.0067, si1 = 0, sf1 = 0.123, sf2 = 0.0, angle = 0.0, elem = 0,
@@ -5287,6 +6019,8 @@ function DemoWindowWidgetsBasic()
     _, s.e = ImGui.RadioButton("radio c", s.e, 2)
     ImGui.AlignTextToFramePadding()
     ImGui.TextLinkOpenURL("Hyperlink", "https://github.com/ocornut/imgui/wiki/Error-Handling")
+
+    -- Color buttons, demonstrate using PushID() to add unique identifier in the ID stack, and changing style.
     for i = 0, 6 do
         if i > 0 then ImGui.SameLine() end
         ImGui.PushID(i)
@@ -5297,9 +6031,15 @@ function DemoWindowWidgetsBasic()
         ImGui.PopStyleColor(3)
         ImGui.PopID()
     end
+
+    -- Use AlignTextToFramePadding() to align text baseline to the baseline of framed widgets elements
+    -- (otherwise a Text+SameLine+Button sequence will have the text a little too high by default!)
+    -- See 'Demo->Layout->Text Baseline Alignment' for details.
     ImGui.AlignTextToFramePadding()
     ImGui.Text("Hold to repeat:")
     ImGui.SameLine()
+
+    -- Arrow buttons with Repeater
     local spacing = ImGui.GetStyle().ItemInnerSpacing.x
     ImGui.PushItemFlag(ImGuiItemFlags.ButtonRepeat, true)
     if ImGui.ArrowButton("##left", ImGuiDir.Left) then s.counter = s.counter - 1 end
@@ -5330,6 +6070,7 @@ function DemoWindowWidgetsBasic()
     s.di3 = ImGui.DragInt("drag int wrap 100..200", s.di3, 1, 100, 200, "%d", ImGuiSliderFlags.WrapAround)
     s.df1 = ImGui.DragFloat("drag float", s.df1, 0.005)
     s.df2 = ImGui.DragFloat("drag small float", s.df2, 0.0001, 0.0, 0.0, "%.06f ns")
+    -- ImGui.DragFloat("drag wrap -1..1", f3, 0.005, -1.0, 1.0, nil, ImGuiSliderFlags.WrapAround)
 
     ImGui.SeparatorText("Sliders")
     s.si1 = ImGui.SliderInt("slider int", s.si1, -1, 3)
@@ -5337,23 +6078,38 @@ function DemoWindowWidgetsBasic()
     s.sf1 = ImGui.SliderFloat("slider float", s.sf1, 0.0, 1.0, "ratio = %.3f")
     s.sf2 = ImGui.SliderFloat("slider float (log)", s.sf2, -10.0, 10.0, "%.4f", ImGuiSliderFlags.Logarithmic)
     s.angle = ImGui.SliderAngle("slider angle", s.angle)
+
+    -- Using the format string to display a name instead of an integer.
+    -- Here we completely omit '%d' from the format string, so it'll only display a name.
+    -- This technique can also be used with DragInt().
     local elems_names = { "Fire", "Earth", "Air", "Water" }
     local elem_name = elems_names[s.elem + 1] or "Unknown"
-    s.elem = ImGui.SliderInt("slider enum", s.elem, 0, 3, elem_name)
+    s.elem = ImGui.SliderInt("slider enum", s.elem, 0, 3, elem_name) -- Use ImGuiSliderFlags.NoInput flag to disable Ctrl+Click here.
     ImGui.SameLine(); HelpMarker("Using the format string parameter to display a name instead of the underlying integer.")
 
     ImGui.SeparatorText("Selectors/Pickers")
     ImGui.ColorEdit3("color 1", s.col1)
     ImGui.SameLine(); HelpMarker("Click on the color square to open a color picker.\nClick and hold to use drag and drop.\nRight-Click on the color square to show options.\nCtrl+Click on individual component to input value.\n")
     ImGui.ColorEdit4("color 2", s.col2)
+
+    -- Using the _simplified_ one-liner Combo() api here
+    -- See "Combo" section for examples of how to use the more flexible BeginCombo()/EndCombo() api.
     s.combo = ImGui.Combo("combo", s.combo, { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIIIIII", "JJJJ", "KKKKKKK" })
     ImGui.SameLine(); HelpMarker("Using the simplified one-liner Combo API here.")
+
+    -- Using the _simplified_ one-liner ListBox() api here
+    -- See "List boxes" section for examples of how to use the more flexible BeginListBox()/EndListBox() api.
     s.listbox = ImGui.ListBox("listbox", s.listbox, { "Apple", "Banana", "Cherry", "Kiwi", "Mango", "Orange", "Pineapple", "Strawberry", "Watermelon" }, 9, 4)
     ImGui.SameLine(); HelpMarker("Using the simplified one-liner ListBox API here.")
     ImGui.TreePop()
 end
 
 S.chdr = { closable_group = true }
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsBullets()
+-------------------------------------------------------------------------------
+
 function DemoWindowWidgetsBullets()
     if not ImGui.TreeNode("Bullets") then return end
     ImGui.BulletText("Bullet point 1")
@@ -5363,6 +6119,10 @@ function DemoWindowWidgetsBullets()
     ImGui.Bullet(); ImGui.SmallButton("Button")
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsCollapsingHeaders()
+-------------------------------------------------------------------------------
 
 function DemoWindowWidgetsCollapsingHeaders()
     if not ImGui.TreeNode("Collapsing Headers") then return end
@@ -5378,8 +6138,15 @@ function DemoWindowWidgetsCollapsingHeaders()
         ImGui.Text("IsItemHovered: %d", ImGui.IsItemHovered() and 1 or 0)
         for i = 0, 4 do ImGui.Text("More content %d", i) end
     end
+    -- if ImGui.CollapsingHeader("Header with a bullet", ImGuiTreeNodeFlags.Bullet) then
+    --     ImGui.Text("IsItemHovered: %d", ImGui.IsItemHovered())
+    -- end
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsColorAndPickers()
+-------------------------------------------------------------------------------
 
 IMGUI_PAYLOAD_TYPE_COLOR_3F = IMGUI_PAYLOAD_TYPE_COLOR_3F or "_COL3F"
 IMGUI_PAYLOAD_TYPE_COLOR_4F = IMGUI_PAYLOAD_TYPE_COLOR_4F or "_COL4F"
@@ -5418,9 +6185,11 @@ function DemoWindowWidgetsColorAndPickers()
     ImGui.ColorEdit4("MyColor##3", color, bit32.bor(CE.NoInputs, CE.NoLabel, base_flags))
 
     ImGui.Text("Color button with Custom Picker Popup:")
+
+    -- Generate a default palette. The palette will persist and can be edited.
     if s.palette == nil then
         s.palette = {}
-        for n = 0, 31 do s.palette[n] = HSV(n / 31.0, 0.8, 0.8, 1.0) end
+        for n = 0, 31 do s.palette[n] = HSV(n / 31.0, 0.8, 0.8, 1.0) end -- Alpha = 1.0
     end
     local open_popup = ImGui.ColorButton("MyColor##3b", color, base_flags)
     ImGui.SameLine(0, ImGui.GetStyle().ItemInnerSpacing.x)
@@ -5434,7 +6203,7 @@ function DemoWindowWidgetsColorAndPickers()
         ImGui.Separator()
         ImGui.ColorPicker4("##picker", color, bit32.bor(base_flags, CE.NoSidePreview, CE.NoSmallPreview))
         ImGui.SameLine()
-        ImGui.BeginGroup()
+        ImGui.BeginGroup() -- Lock X position
         ImGui.Text("Current")
         ImGui.ColorButton("##current", color, bit32.bor(CE.NoPicker, CE.AlphaPreviewHalf), ImVec2(60, 40))
         ImGui.Text("Previous")
@@ -5450,6 +6219,9 @@ function DemoWindowWidgetsColorAndPickers()
             if ImGui.ColorButton("##palette", pal, bit32.bor(CE.NoAlpha, CE.NoPicker, CE.NoTooltip), ImVec2(20, 20)) then
                 color.x = pal.x; color.y = pal.y; color.z = pal.z -- Preserve alpha!
             end
+
+            -- Allow user to drop colors into each palette entry. Note that ColorButton() is already a
+            -- drag source by default, unless specifying the ImGuiColorEditFlags.NoDragDrop flag.
             if ImGui.BeginDragDropTarget() then
                 local payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F)
                 if payload and payload.Data then pal.x, pal.y, pal.z = payload.Data[1], payload.Data[2], payload.Data[3] end
@@ -5488,8 +6260,8 @@ function DemoWindowWidgetsColorAndPickers()
     local flags = bit32.bor(base_flags, s.picker_flags)
     if s.picker_mode == 1 then flags = bit32.bor(flags, CE.PickerHueBar) end
     if s.picker_mode == 2 then flags = bit32.bor(flags, CE.PickerHueWheel) end
-    if s.display_mode == 1 then flags = bit32.bor(flags, CE.NoInputs) end
-    if s.display_mode == 2 then flags = bit32.bor(flags, CE.DisplayRGB) end
+    if s.display_mode == 1 then flags = bit32.bor(flags, CE.NoInputs) end -- Disable all RGB/HSV/Hex displays
+    if s.display_mode == 2 then flags = bit32.bor(flags, CE.DisplayRGB) end -- Override display mode
     if s.display_mode == 3 then flags = bit32.bor(flags, CE.DisplayHSV) end
     if s.display_mode == 4 then flags = bit32.bor(flags, CE.DisplayHex) end
     ImGui.ColorPicker4("MyColor##4", color, flags, s.ref_color and s.ref_color_v or nil)
@@ -5503,6 +6275,8 @@ function DemoWindowWidgetsColorAndPickers()
         ImGui.GetIO().ConfigColorEditFlags = bit32.bor(CE.Float, CE.HDR, CE.PickerHueWheel, CE.DisplayRGB, CE.InputRGB)
     end
 
+    -- Always display a small version of both types of pickers
+    -- (that's in order to make it more visible in the demo to people who are skimming quickly through it)
     ImGui.Text("Both types:")
     local w = (ImGui.GetContentRegionAvail().x - ImGui.GetStyle().ItemSpacing.y) * 0.40
     ImGui.SetNextItemWidth(w)
@@ -5512,6 +6286,8 @@ function DemoWindowWidgetsColorAndPickers()
     ImGui.ColorPicker3("##MyColor##6", color, bit32.bor(CE.PickerHueWheel, CE.NoSidePreview, CE.NoInputs, CE.NoAlpha))
     ImGui.PopID()
 
+    -- HSV encoded support (to avoid RGB<>HSV round trips and singularities when S==0 or V==0)
+    -- (s.hsv is stored as HSV!)
     ImGui.Spacing()
     ImGui.Text("HSV encoded colors")
     ImGui.SameLine(); HelpMarker("By default, colors are given to ColorEdit and ColorPicker in RGB, but ImGuiColorEditFlags_InputHSV allows you to store colors as HSV and pass them to ColorEdit and ColorPicker as HSV.")
@@ -5522,36 +6298,53 @@ function DemoWindowWidgetsColorAndPickers()
     ImGui.TreePop()
 end
 
-S.combo = { flags = 0, sel = 0, filter = nil, c2 = 0, c3 = -1, c4 = 0 }
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsComboBoxes()
+-------------------------------------------------------------------------------
+
+S.combo = { flags = 0, sel = 0, filter = nil, c2 = 0, c3 = -1, c4 = 0 } -- sel: Here we store our selection data as an index.
 function DemoWindowWidgetsComboBoxes()
     if not ImGui.TreeNode("Combo") then return end
     local s = S.combo
     local CF = ImGuiComboFlags
     local p
+    -- Combo Boxes are also called "Dropdown" in other systems
+    -- Expose flags as checkbox for the demo
     _, s.flags = ImGui.CheckboxFlags("ImGuiComboFlags_PopupAlignLeft", s.flags, CF.PopupAlignLeft)
     ImGui.SameLine(); HelpMarker("Only makes a difference if the popup is larger than the combo")
     p, s.flags = ImGui.CheckboxFlags("ImGuiComboFlags_NoArrowButton", s.flags, CF.NoArrowButton)
-    if p then s.flags = bit32.band(s.flags, bit32.bnot(CF.NoPreview)) end
+    if p then s.flags = bit32.band(s.flags, bit32.bnot(CF.NoPreview)) end -- Clear incompatible flags
     p, s.flags = ImGui.CheckboxFlags("ImGuiComboFlags_NoPreview", s.flags, CF.NoPreview)
-    if p then s.flags = bit32.band(s.flags, bit32.bnot(bit32.bor(CF.NoArrowButton, CF.WidthFitPreview))) end
+    if p then s.flags = bit32.band(s.flags, bit32.bnot(bit32.bor(CF.NoArrowButton, CF.WidthFitPreview))) end -- Clear incompatible flags
     p, s.flags = ImGui.CheckboxFlags("ImGuiComboFlags_WidthFitPreview", s.flags, CF.WidthFitPreview)
     if p then s.flags = bit32.band(s.flags, bit32.bnot(CF.NoPreview)) end
+
+    -- Override default popup height
     for _, h in ipairs({ "HeightSmall", "HeightRegular", "HeightLargest" }) do
         p, s.flags = ImGui.CheckboxFlags("ImGuiComboFlags_" .. h, s.flags, CF[h])
         if p then s.flags = bit32.band(s.flags, bit32.bnot(bit32.band(CF.HeightMask_, bit32.bnot(CF[h])))) end
     end
 
+    -- Using the generic BeginCombo() API, you have full control over how to display the combo contents.
+    -- (your selection data could be an index, a pointer to the object, an id for the object, a flag intrusively
+    -- stored in the object itself, etc.)
     local items = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIII", "JJJJ", "KKKK", "LLLLLLL", "MMMM", "OOOOOOO" }
+
+    -- Pass in the preview value visible before opening the combo (it could technically be different contents or not pulled from items[])
     local combo_preview_value = items[s.sel + 1]
     if ImGui.BeginCombo("combo 1", combo_preview_value, s.flags) then
         for n = 0, #items - 1 do
             local is_selected = (s.sel == n)
             if ImGui.Selectable(items[n + 1], is_selected) then s.sel = n end
+
+            -- Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
             if is_selected then ImGui.SetItemDefaultFocus() end
         end
         ImGui.EndCombo()
     end
 
+    -- Show case embedding a filter using a simple trick: displaying the filter inside combo contents.
+    -- See https://github.com/ocornut/imgui/issues/718 for advanced/esoteric alternatives.
     if ImGui.BeginCombo("combo 2 (w/ filter)", combo_preview_value, s.flags) then
         s.filter = s.filter or ImGuiTextFilter()
         if ImGui.IsWindowAppearing() then
@@ -5573,11 +6366,23 @@ function DemoWindowWidgetsComboBoxes()
     ImGui.Spacing()
     ImGui.SeparatorText("One-liner variants")
     HelpMarker("The Combo() function is not greatly useful apart from cases were you want to embed all options in a single strings.\nFlags above don't apply to this section.")
+
+    -- Simplified one-liner Combo() API, using values packed in a single constant string
+    -- This is a convenience for when the selection set is small and known at compile-time.
     s.c2 = ImGui.Combo("combo 3 (one-liner)", s.c2, "aaaa\0bbbb\0cccc\0dddd\0eeee\0\0")
-    s.c3 = ImGui.Combo("combo 4 (array)", s.c3, items, #items)
+
+    -- Simplified one-liner Combo() using an array of strings
+    -- This is not very useful (may obsolete): prefer using BeginCombo()/EndCombo() for full control.
+    s.c3 = ImGui.Combo("combo 4 (array)", s.c3, items, #items) -- If the selection isn't within 0..count, Combo won't display a preview
+
+    -- Simplified one-liner Combo() using an accessor function
     s.c4 = ImGui.Combo("combo 5 (function)", s.c4, function(data, n) return data[n + 1] end, items, #items)
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsDataTypes()
+-------------------------------------------------------------------------------
 
 S.dt = { s8 = 127, u8 = 255, s16 = 32767, u16 = 65535, s32 = -1, u32 = 0xFFFFFFFF, s64 = -1, u64 = 0, f32 = 0.123, f64 = 90000.01234567890123456789,
     drag_clamp = false, inputs_step = true, flags = 0 }
@@ -5585,7 +6390,22 @@ function DemoWindowWidgetsDataTypes()
     if not ImGui.TreeNode("Data Types") then return end
     local s = S.dt
     local DT = ImGuiDataType
+    -- DragScalar/InputScalar/SliderScalar functions allow various data types
+    -- - signed/unsigned
+    -- - 8/16/32/64-bits
+    -- - integer/float/double
+    -- To avoid polluting the public API with all possible combinations, we use the ImGuiDataType enum
+    -- to pass the type.
+    -- In practice, if you frequently use a given type that is not covered by the normal API entry points,
+    -- you can wrap it yourself inside a 1 line function which can take typed argument as value,
+    -- and then pass them to the generic function. For example:
+    --   local function MySliderU32(label, value, min, max, format)
+    --       return ImGui.SliderScalar(label, ImGuiDataType.U32, value, min or 0, max or 0, format or "%u")
+    --   end
+
     -- ponytail: Luau numbers are doubles, so S64/U64 are shown with S32/Double here (no 64-bit integer type)
+    -- Setup limits
+    -- Note: SliderScalar() functions have a maximum usable range of half the natural type maximum, hence the /2.
     local s32_min, s32_max = math.floor(-2147483648 / 2), math.floor(2147483647 / 2)
     local u32_max = math.floor(4294967295 / 2)
     local drag_speed = 0.2
@@ -5649,12 +6469,20 @@ function DemoWindowWidgetsDataTypes()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsDisableBlocks()
+-------------------------------------------------------------------------------
+
 function DemoWindowWidgetsDisableBlocks(demo_data)
     if not ImGui.TreeNode("Disable Blocks") then return end
     _, demo_data.DisableSections = ImGui.Checkbox("Disable entire section above", demo_data.DisableSections)
     ImGui.SameLine(); HelpMarker("Demonstrate using BeginDisabled()/EndDisabled() across other sections.")
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsDragAndDrop()
+-------------------------------------------------------------------------------
 
 S.dnd = { col1 = { 1.0, 0.0, 0.2 }, col2 = { 0.4, 0.7, 0.0, 0.5 }, mode = 0,
     names = { "Bobby", "Beatrice", "Betty", "Brianna", "Barry", "Bernard", "Bibi", "Blaine", "Bryn" },
@@ -5663,6 +6491,10 @@ function DemoWindowWidgetsDragAndDrop()
     if not ImGui.TreeNode("Drag and Drop") then return end
     local s = S.dnd
     if ImGui.TreeNode("Drag and drop in standard widgets") then
+        -- ColorEdit widgets automatically act as drag source and drag target.
+        -- They are using standardized payload strings IMGUI_PAYLOAD_TYPE_COLOR_3F and IMGUI_PAYLOAD_TYPE_COLOR_4F
+        -- to allow your own widgets to use colors in their drag and drop interaction.
+        -- Also see 'Demo->Widgets->Color/Picker Widgets->Palette' demo.
         HelpMarker("You can drag from the color squares.")
         ImGui.ColorEdit3("color 1", s.col1)
         ImGui.ColorEdit4("color 2", s.col2)
@@ -5679,8 +6511,14 @@ function DemoWindowWidgetsDragAndDrop()
             ImGui.PushID(n)
             if n % 3 ~= 0 then ImGui.SameLine() end
             ImGui.Button(names[n + 1], ImVec2(60, 60))
+
+            -- Our buttons are both drag sources and drag targets here!
             if ImGui.BeginDragDropSource(ImGuiDragDropFlags.None) then
+                -- Set payload to carry the index of our item (could be anything)
                 ImGui.SetDragDropPayload("DND_DEMO_CELL", n, 4)
+
+                -- Display preview (could be anything, e.g. when dragging an image we could decide to display
+                -- the filename and a small preview of the image, etc.)
                 if s.mode == Mode_Copy then ImGui.Text("Copy %s", names[n + 1]) end
                 if s.mode == Mode_Move then ImGui.Text("Move %s", names[n + 1]) end
                 if s.mode == Mode_Swap then ImGui.Text("Swap %s", names[n + 1]) end
@@ -5702,7 +6540,12 @@ function DemoWindowWidgetsDragAndDrop()
     end
 
     if ImGui.TreeNode("Drag to reorder items (simple)") then
+        -- FIXME: there is temporary (usually single-frame) ID Conflict during reordering as a same item may be submitting twice.
+        -- This code was always slightly faulty but in a way which was not easily noticeable.
+        -- Until we fix this, enable ImGuiItemFlags.AllowDuplicateId to disable detecting the issue.
         ImGui.PushItemFlag(ImGuiItemFlags.AllowDuplicateId, true)
+
+        -- Simple reordering
         HelpMarker("We don't use the drag and drop api at all here! Instead we query when the item is held but not hovered, and order items accordingly.")
         local item_names = s.item_names
         for n = 1, #item_names do
@@ -5723,6 +6566,7 @@ function DemoWindowWidgetsDragAndDrop()
 
     if ImGui.TreeNode("Tooltip at target location") then
         for n = 0, 1 do
+            -- Drop targets
             ImGui.Button((n == 1) and "drop here##1" or "drop here##0")
             if ImGui.BeginDragDropTarget() then
                 local drop_target_flags = bit32.bor(ImGuiDragDropFlags.AcceptBeforeDelivery, ImGuiDragDropFlags.AcceptNoPreviewTooltip)
@@ -5732,6 +6576,8 @@ function DemoWindowWidgetsDragAndDrop()
                 end
                 ImGui.EndDragDropTarget()
             end
+
+            -- Drop source
             if n == 0 then ImGui.ColorButton("drag me", s.col4) end
         end
         ImGui.TreePop()
@@ -5739,9 +6585,14 @@ function DemoWindowWidgetsDragAndDrop()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsDragsAndSliders()
+-------------------------------------------------------------------------------
+
 S.ds = { flags = 0, drag_f = 0.5, drag_f4 = { 0, 0, 0, 0 }, drag_i = 50, slider_f = 0.5, slider_f4 = { 0, 0, 0, 0 }, slider_i = 50 }
 function DemoWindowWidgetsDragsAndSliders()
     if not ImGui.TreeNode("Drag/Slider Flags") then return end
+    -- Demonstrate using advanced flags for DragXXX and SliderXXX functions. Note that the flags are the same!
     local s = S.ds
     local SF = ImGuiSliderFlags
     local function F(name, help)
@@ -5760,27 +6611,40 @@ function DemoWindowWidgetsDragsAndSliders()
     F("ColorMarkers")
     local flags = s.flags
 
+    -- Drags
     ImGui.Text("Underlying float value: %f", s.drag_f)
     s.drag_f = ImGui.DragFloat("DragFloat (0 -> 1)", s.drag_f, 0.005, 0.0, 1.0, "%.3f", flags)
     s.drag_f = ImGui.DragFloat("DragFloat (0 -> +inf)", s.drag_f, 0.005, 0.0, FLT_MAX, "%.3f", flags)
     s.drag_f = ImGui.DragFloat("DragFloat (-inf -> 1)", s.drag_f, 0.005, -FLT_MAX, 1.0, "%.3f", flags)
     s.drag_f = ImGui.DragFloat("DragFloat (-inf -> +inf)", s.drag_f, 0.005, -FLT_MAX, FLT_MAX, "%.3f", flags)
+    -- ImGui.DragFloat("DragFloat (0 -> 0)", drag_f, 0.005, 0.0, 0.0, "%.3f", flags)           -- To test ClampZeroRange
+    -- ImGui.DragFloat("DragFloat (100 -> 100)", drag_f, 0.005, 100.0, 100.0, "%.3f", flags)
     s.drag_i = ImGui.DragInt("DragInt (0 -> 100)", s.drag_i, 0.5, 0, 100, "%d", flags)
-    ImGui.DragFloat4("DragFloat4 (0 -> 1)", s.drag_f4, 0.005, 0.0, 1.0, "%.3f", flags)
+    ImGui.DragFloat4("DragFloat4 (0 -> 1)", s.drag_f4, 0.005, 0.0, 1.0, "%.3f", flags) -- Multi-component item, mostly here to document the effect of ImGuiSliderFlags.ColorMarkers.
 
+    -- Sliders
     local flags_for_sliders = bit32.band(flags, bit32.bnot(SF.WrapAround))
     ImGui.Text("Underlying float value: %f", s.slider_f)
     s.slider_f = ImGui.SliderFloat("SliderFloat (0 -> 1)", s.slider_f, 0.0, 1.0, "%.3f", flags_for_sliders)
     s.slider_i = ImGui.SliderInt("SliderInt (0 -> 100)", s.slider_i, 0, 100, "%d", flags_for_sliders)
-    ImGui.SliderFloat4("SliderFloat4 (0 -> 1)", s.slider_f4, 0.0, 1.0, "%.3f", flags_for_sliders)
+    ImGui.SliderFloat4("SliderFloat4 (0 -> 1)", s.slider_f4, 0.0, 1.0, "%.3f", flags_for_sliders) -- Multi-component item, mostly here to document the effect of ImGuiSliderFlags.ColorMarkers.
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsFonts()
+-------------------------------------------------------------------------------
 
 function DemoWindowWidgetsFonts()
     if not ImGui.TreeNode("Fonts") then return end
     if ImGui.ShowFontAtlas then ImGui.ShowFontAtlas(ImGui.GetIO().Fonts) else DemoNotPorted("ShowFontAtlas") end
+    -- FIXME-NEWATLAS: Provide a demo to add/create a procedural font?
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsImages()
+-------------------------------------------------------------------------------
 
 S.img = { viewer = nil, pressed_count = 0 }
 function DemoWindowWidgetsImages()
@@ -5788,17 +6652,29 @@ function DemoWindowWidgetsImages()
     local s = S.img
     local io = ImGui.GetIO()
     ImGui.TextWrapped("Below we are displaying the font texture (which is the only texture we have access to in this demo). Use the 'ImTextureID' type as storage to pass pointers or identifier to your own texture data. Hover the texture for a zoomed view!")
+
+    -- Below we are displaying the font texture because it is the only texture we have access to inside the demo!
+    -- Read description about ImTextureID/ImTextureRef and FAQ for details about texture identifiers.
+    -- - You can use ShowMetricsWindow() to inspect the draw data that are being passed to your renderer,
+    --   it will help you debug issues if you are confused about it.
+    -- - Consider using the lower-level ImDrawList:AddImage() API, via ImGui.GetWindowDrawList():AddImage().
+    -- - Read https://github.com/ocornut/imgui/blob/master/docs/FAQ.md
+    -- - Read https://github.com/ocornut/imgui/wiki/Image-Loading-and-Displaying-Examples
+
+    -- Grab the current texture identifier used by the font atlas.
     local atlas = io.Fonts
     local my_tex_id = atlas.TexRef
-    local my_tex_w = atlas.TexData and atlas.TexData.Width or 0
+    local my_tex_w = atlas.TexData and atlas.TexData.Width or 0 -- Regular user code should never have to care about TexData fields, but since we want to display the entire texture here, we pull Width/Height from it.
     local my_tex_h = atlas.TexData and atlas.TexData.Height or 0
     ImGui.Text("%.0fx%.0f", my_tex_w, my_tex_h)
 
+    -- Basic drawing
     ImGui.SeparatorText("Image()/ImageWithBg() function")
     ImGui.PushStyleVar(ImGuiStyleVar.ImageBorderSize, math.max(1.0, ImGui.GetStyle().ImageBorderSize))
-    ImGui.ImageWithBg(my_tex_id, ImVec2(my_tex_w, my_tex_h), ImVec2(0.0, 0.0), ImVec2(1.0, 1.0), ImVec4(0.0, 0.0, 0.0, 1.0))
+    ImGui.ImageWithBg(my_tex_id, ImVec2(my_tex_w, my_tex_h), ImVec2(0.0, 0.0), ImVec2(1.0, 1.0), ImVec4(0.0, 0.0, 0.0, 1.0)) -- uv_min: Top-left, uv_max: Lower-right
     ImGui.PopStyleVar()
 
+    -- Fancy widget
     ImGui.SeparatorText("Interactive Image Viewer")
     s.viewer = s.viewer or ExampleImageViewerData()
     local canvas_size = ImVec2(ImGui.GetContentRegionAvail().x, my_tex_h * 2.0)
@@ -5808,11 +6684,15 @@ function DemoWindowWidgetsImages()
     ImGui.SeparatorText("Textured Buttons")
     ImGui.TextWrapped("And now some textured buttons..")
     for i = 0, 7 do
+        -- UV coordinates are often (0.0, 0.0) and (1.0, 1.0) to display an entire textures.
+        -- Here are trying to display only a 32x32 pixels area of the texture, hence the UV computation.
+        -- Read about UV coordinates here: https://github.com/ocornut/imgui/wiki/Image-Loading-and-Displaying-Examples
         ImGui.PushID(i)
         if i > 0 then ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(i - 1.0, i - 1.0)) end
-        local size = ImVec2(32.0, 32.0)
-        local uv0 = ImVec2(0.0, 0.0)
-        local uv1 = ImVec2(32.0 / my_tex_w, 32.0 / my_tex_h)
+        local size = ImVec2(32.0, 32.0)                         -- Size of the image we want to make visible
+        local uv0 = ImVec2(0.0, 0.0)                            -- UV coordinates for lower-left
+        local uv1 = ImVec2(32.0 / my_tex_w, 32.0 / my_tex_h)    -- UV coordinates for (32,32) in our texture
+        -- bg_col: Black background, tint_col: No tint
         if ImGui.ImageButton("", my_tex_id, size, uv0, uv1, ImVec4(0.0, 0.0, 0.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0)) then
             s.pressed_count = s.pressed_count + 1
         end
@@ -5825,35 +6705,55 @@ function DemoWindowWidgetsImages()
     ImGui.TreePop()
 end
 
-S.lb = { sel = 0, highlight = false }
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsListBoxes()
+-------------------------------------------------------------------------------
+
+S.lb = { sel = 0, highlight = false } -- sel: Here we store our selected data as an index.
 function DemoWindowWidgetsListBoxes()
     if not ImGui.TreeNode("List Boxes") then return end
+    -- BeginListBox() is essentially a thin wrapper to using BeginChild()/EndChild()
+    -- using the ImGuiChildFlags.FrameStyle flag for stylistic changes + displaying a label.
+    -- You may be tempted to simply use BeginChild() directly. However note that BeginChild() requires EndChild()
+    -- to always be called (inconsistent with BeginListBox()/EndListBox()).
+
+    -- Using the generic BeginListBox() API, you have full control over how to display the combo contents.
+    -- (your selection data could be an index, a pointer to the object, an id for the object, a flag intrusively
+    -- stored in the object itself, etc.)
     local s = S.lb
     local items = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIII", "JJJJ", "KKKK", "LLLLLLL", "MMMM", "OOOOOOO" }
-    local item_highlighted_idx = -1
+    local item_highlighted_idx = -1 -- Here we store our highlighted data as an index.
     _, s.highlight = ImGui.Checkbox("Highlight hovered item in second listbox", s.highlight)
     if ImGui.BeginListBox("listbox 1") then
         for n = 0, #items - 1 do
             local is_selected = (s.sel == n)
             if ImGui.Selectable(items[n + 1], is_selected) then s.sel = n end
             if s.highlight and ImGui.IsItemHovered() then item_highlighted_idx = n end
+            -- Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
             if is_selected then ImGui.SetItemDefaultFocus() end
         end
         ImGui.EndListBox()
     end
     ImGui.SameLine(); HelpMarker("Here we are sharing selection state between both boxes.")
+
+    -- Custom size: use all width, 5 items tall
     ImGui.Text("Full-width:")
     if ImGui.BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 5 * ImGui.GetTextLineHeightWithSpacing())) then
         for n = 0, #items - 1 do
             local is_selected = (s.sel == n)
             local flags = (item_highlighted_idx == n) and ImGuiSelectableFlags.Highlight or 0
             if ImGui.Selectable(items[n + 1], is_selected, flags) then s.sel = n end
+            -- Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
             if is_selected then ImGui.SetItemDefaultFocus() end
         end
         ImGui.EndListBox()
     end
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsLiveEdit()
+-------------------------------------------------------------------------------
 
 S.le = { str = Buf("", 32), i = 0, f = 0.0 }
 function DemoWindowWidgetsLiveEdit(demo_data)
@@ -5878,15 +6778,22 @@ function DemoWindowWidgetsLiveEdit(demo_data)
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsMixedValues()
+-------------------------------------------------------------------------------
+
 S.mv = { use_liveedit = false, items = { 12.0, 0.0, 0.0 } }
 function DemoWindowWidgetsMixedValues()
     if not ImGui.TreeNode("Mixed Values") then return end
     local s = S.mv
     local items = s.items
+    -- This is designed for advanced property editors which are generally reusable and data-driven.
     HelpMarker("Using ImGuiItemFlags_MixedValue.")
     _, s.use_liveedit = ImGui.Checkbox("ImGuiItemFlags_LiveEditOnInput", s.use_liveedit)
     ImGui.SeparatorText("Scalar/Text Widgets")
     local is_mixed = items[1] ~= items[2] or items[1] ~= items[3]
+
+    -- Demonstrate Drags, Sliders, Inputs
     ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInput, s.use_liveedit)
     ImGui.PushItemFlag(ImGuiItemFlags.MixedValue, is_mixed)
     local edited, e = false, false
@@ -5901,27 +6808,32 @@ function DemoWindowWidgetsMixedValues()
     items[3] = ImGui.InputFloat("item 2", items[3])
     ImGui.PopItemFlag()
 
+    -- Demonstrate Checkbox(), RadioButton(), Combo(), ColorEdit4()
     ImGui.SeparatorText("Others Widgets")
-    ImGui.Text("(note: edits are not applied in this demo)")
+    ImGui.Text("(note: edits are not applied in this demo)") -- <-- Would need more state tracking.
     ImGui.Checkbox("Checkbox On", true)
     ImGui.Checkbox("Checkbox Off", false)
     ImGui.PushItemFlag(ImGuiItemFlags.MixedValue, true)
     ImGui.Checkbox("Checkbox Mixed", false)
     ImGui.RadioButtonEx("RadioButton Mixed", true)
     ImGui.SameLine()
-    ImGui.RadioButtonEx("RadioButton Mixed##2", true)
+    ImGui.RadioButtonEx("RadioButton Mixed##2", true) -- Showing 2 radio buttons makes the example more clear
     ImGui.Combo("Combo", 0, "One\0Two\0Three\0")
     ImGui.ColorEdit4("ColorEdit4", ImVec4(0.5, 0.5, 0.5, 0.5))
     ImGui.PopItemFlag()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsMultiComponents()
+-------------------------------------------------------------------------------
+
 S.mc = { vec4f = { 0.10, 0.20, 0.30, 0.44 }, vec4i = { 1, 5, 100, 255 }, flags = 0, b = 10, e = 90, bi = 100, ei = 1000 }
 function DemoWindowWidgetsMultiComponents()
     if not ImGui.TreeNode("Multi-component Widgets") then return end
     local s = S.mc
     local f, i = s.vec4f, s.vec4i
-    if ImGuiSliderFlags.ColorMarkers then _, s.flags = ImGui.CheckboxFlags("ImGuiSliderFlags_ColorMarkers", s.flags, ImGuiSliderFlags.ColorMarkers) end
+    if ImGuiSliderFlags.ColorMarkers then _, s.flags = ImGui.CheckboxFlags("ImGuiSliderFlags_ColorMarkers", s.flags, ImGuiSliderFlags.ColorMarkers) end -- Only passing this to Drag/Sliders
     local flags = s.flags
     for _, n in ipairs({ 2, 3, 4 }) do
         ImGui.SeparatorText(n .. "-wide")
@@ -5939,6 +6851,13 @@ function DemoWindowWidgetsMultiComponents()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsPlotting()
+-------------------------------------------------------------------------------
+
+-- Plot/Graph widgets are not very good.
+-- Consider using a third-party library such as ImPlot: https://github.com/epezent/implot
+-- (see others https://github.com/ocornut/imgui/wiki/Useful-Extensions)
 S.plot = { animate = true, arr = { 0.6, 0.1, 1.0, 0.5, 0.92, 0.1, 0.2 }, values = {}, values_offset = 0, refresh_time = 0.0, phase = 0.0,
     func_type = 0, display_count = 70 }
 for n = 1, 90 do S.plot.values[n] = 0.0 end
@@ -5949,22 +6868,32 @@ function DemoWindowWidgetsPlotting()
     ImGui.TextLinkOpenURL("https://github.com/epezent/implot")
     ImGui.Separator()
     _, s.animate = ImGui.Checkbox("Animate", s.animate)
+
+    -- Plot as lines and plot as histogram
     ImGui.PlotLines("Frame Times", s.arr, nil, #s.arr)
     ImGui.PlotHistogram("Histogram", s.arr, nil, #s.arr, 0, nil, 0.0, 1.0, ImVec2(0, 80.0))
+    -- ImGui.SameLine(); HelpMarker("Consider using ImPlot instead!")
 
+    -- Fill an array of contiguous float values to plot
     local values = s.values
     if not s.animate or s.refresh_time == 0.0 then s.refresh_time = ImGui.GetTime() end
-    while s.refresh_time < ImGui.GetTime() do
+    while s.refresh_time < ImGui.GetTime() do -- Create data at fixed 60 Hz rate for the demo
         values[s.values_offset + 1] = math.cos(s.phase)
         s.values_offset = (s.values_offset + 1) % #values
         s.phase = s.phase + 0.10 * s.values_offset
         s.refresh_time = s.refresh_time + 1.0 / 60.0
     end
+
+    -- Plots can display overlay texts
+    -- (in this example, we will display an average value)
     local average = 0.0
     for n = 1, #values do average = average + values[n] end
     average = average / #values
     ImGui.PlotLines("Lines", values, nil, #values, s.values_offset, string.format("avg %f", average), -1.0, 1.0, ImVec2(0, 80.0))
 
+    -- Use functions to generate output
+    -- FIXME: This is actually VERY awkward because current plot API only pass in indices.
+    -- We probably want an API passing floats and user provide sample rate/count.
     -- Getters receive a 1-based index in this port
     local function Sin(_, i) return math.sin((i - 1) * 0.1) end
     local function Saw(_, i) return ((i - 1) % 2 == 1) and 1.0 or -1.0 end
@@ -5979,23 +6908,38 @@ function DemoWindowWidgetsPlotting()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsProgressBars()
+-------------------------------------------------------------------------------
+
 S.pb = { accum = 0.0, dir = 1.0 }
 function DemoWindowWidgetsProgressBars()
     if not ImGui.TreeNode("Progress Bars") then return end
+    -- Animate a simple progress bar
     local s = S.pb
     s.accum = s.accum + s.dir * 0.4 * ImGui.GetIO().DeltaTime
     if s.accum >= 1.1 then s.accum = 1.1; s.dir = -s.dir end
     if s.accum <= -0.1 then s.accum = -0.1; s.dir = -s.dir end
     local progress = DemoClamp(s.accum, 0.0, 1.0)
+
+    -- Typically we would use ImVec2(-1.0,0.0) or ImVec2(-FLT_MIN,0.0) to use all available width,
+    -- or ImVec2(width,0.0) for a specified width. ImVec2(0.0,0.0) uses ItemWidth.
     ImGui.ProgressBar(progress, ImVec2(0.0, 0.0))
     ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
     ImGui.Text("Progress Bar")
     ImGui.ProgressBar(progress, ImVec2(0.0, 0.0), string.format("%d/%d", math.floor(progress * 1753), 1753))
+
+    -- Pass an animated negative value, e.g. -1.0 * ImGui.GetTime() is the recommended value.
+    -- Adjust the factor if you want to adjust the animation speed.
     ImGui.ProgressBar(-1.0 * ImGui.GetTime(), ImVec2(0.0, 0.0), "Searching..")
     ImGui.SameLine(0.0, ImGui.GetStyle().ItemInnerSpacing.x)
     ImGui.Text("Indeterminate")
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsQueryingStatuses()
+-------------------------------------------------------------------------------
 
 -- Selectable(label, bool* p_selected) overload: toggles on press
 local function SelectableP(label, sel, flags, size)
@@ -6012,6 +6956,7 @@ S.qs = { item_type = 4, item_disabled = false, item_mixedvalue = false, liveedit
 function DemoWindowWidgetsQueryingStatuses()
     local s = S.qs
     if ImGui.TreeNode("Querying Item Status (Edited/Active/Hovered etc.)") then
+        -- Select an item type
         local item_names = { "Text", "Button", "Button (w/ repeat)", "Checkbox", "SliderFloat", "InputText", "InputTextMultiline", "InputFloat",
             "InputFloat3", "ColorEdit4", "Selectable", "MenuItem", "TreeNode", "TreeNode (w/ double-click)", "Combo", "ListBox" }
         s.item_type = ImGui.Combo("Item Type", s.item_type, item_names, #item_names, #item_names)
@@ -6034,24 +6979,25 @@ function DemoWindowWidgetsQueryingStatuses()
             ImGui.PushItemFlag(ImGuiItemFlags.LiveEditOnInputScalar, bit32.band(s.liveedit_flags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0)
         end
 
+        -- Submit selected items so we can query their status in the code following it.
         local ret = false
         local t = s.item_type
         if s.item_disabled then ImGui.BeginDisabled(true) end
         if s.item_mixedvalue then ImGui.PushItemFlag(ImGuiItemFlags.MixedValue, true) end
-        if t == 0 then ImGui.Text("ITEM: Text") end
-        if t == 1 then ret = ImGui.Button("ITEM: Button") end
-        if t == 2 then ImGui.PushItemFlag(ImGuiItemFlags.ButtonRepeat, true); ret = ImGui.Button("ITEM: Button"); ImGui.PopItemFlag() end
-        if t == 3 then ret, s.b = ImGui.Checkbox("ITEM: Checkbox", s.b) end
-        if t == 4 then s.col4f[1], ret = ImGui.SliderFloat("ITEM: SliderFloat", s.col4f[1], 0.0, 1.0) end
-        if t == 5 then ret = ImGui.InputText("ITEM: InputText", s.str, 16) end
-        if t == 6 then ret = ImGui.InputTextMultiline("ITEM: InputTextMultiline", s.str, 16) end
-        if t == 7 then s.col4f[1], ret = ImGui.InputFloat("ITEM: InputFloat", s.col4f[1], 1.0) end
-        if t == 8 then ret = ImGui.InputFloat3("ITEM: InputFloat3", s.col4f) end
-        if t == 9 then ret = ImGui.ColorEdit4("ITEM: ColorEdit4", s.col4f) end
-        if t == 10 then ret = ImGui.Selectable("ITEM: Selectable") end
-        if t == 11 then ret = ImGui.MenuItem("ITEM: MenuItem") end
-        if t == 12 then ret = ImGui.TreeNode("ITEM: TreeNode"); if ret then ImGui.TreePop() end end
-        if t == 13 then ret = ImGui.TreeNodeEx("ITEM: TreeNode w/ ImGuiTreeNodeFlags_OpenOnDoubleClick", bit32.bor(ImGuiTreeNodeFlags.OpenOnDoubleClick, ImGuiTreeNodeFlags.NoTreePushOnOpen)) end
+        if t == 0 then ImGui.Text("ITEM: Text") end                                              -- Testing text items with no identifier/interaction
+        if t == 1 then ret = ImGui.Button("ITEM: Button") end                                    -- Testing button
+        if t == 2 then ImGui.PushItemFlag(ImGuiItemFlags.ButtonRepeat, true); ret = ImGui.Button("ITEM: Button"); ImGui.PopItemFlag() end -- Testing button (with repeater)
+        if t == 3 then ret, s.b = ImGui.Checkbox("ITEM: Checkbox", s.b) end                      -- Testing checkbox
+        if t == 4 then s.col4f[1], ret = ImGui.SliderFloat("ITEM: SliderFloat", s.col4f[1], 0.0, 1.0) end -- Testing basic item
+        if t == 5 then ret = ImGui.InputText("ITEM: InputText", s.str, 16) end                   -- Testing input text (which handles tabbing)
+        if t == 6 then ret = ImGui.InputTextMultiline("ITEM: InputTextMultiline", s.str, 16) end -- Testing input text (which uses a child window)
+        if t == 7 then s.col4f[1], ret = ImGui.InputFloat("ITEM: InputFloat", s.col4f[1], 1.0) end -- Testing +/- buttons on scalar input
+        if t == 8 then ret = ImGui.InputFloat3("ITEM: InputFloat3", s.col4f) end                 -- Testing multi-component items (IsItemXXX flags are reported merged)
+        if t == 9 then ret = ImGui.ColorEdit4("ITEM: ColorEdit4", s.col4f) end                   -- Testing multi-component items (IsItemXXX flags are reported merged)
+        if t == 10 then ret = ImGui.Selectable("ITEM: Selectable") end                           -- Testing selectable item
+        if t == 11 then ret = ImGui.MenuItem("ITEM: MenuItem") end                               -- Testing menu item (they use ImGuiButtonFlags.PressedOnRelease button policy)
+        if t == 12 then ret = ImGui.TreeNode("ITEM: TreeNode"); if ret then ImGui.TreePop() end end -- Testing tree node
+        if t == 13 then ret = ImGui.TreeNodeEx("ITEM: TreeNode w/ ImGuiTreeNodeFlags_OpenOnDoubleClick", bit32.bor(ImGuiTreeNodeFlags.OpenOnDoubleClick, ImGuiTreeNodeFlags.NoTreePushOnOpen)) end -- Testing tree node with ImGuiButtonFlags.PressedOnDoubleClick button policy.
         if t == 14 then s.combo, ret = ImGui.Combo("ITEM: Combo", s.combo, { "Apple", "Banana", "Cherry", "Kiwi" }) end
         if t == 15 then s.listbox, ret = ImGui.ListBox("ITEM: ListBox", s.listbox, { "Apple", "Banana", "Cherry", "Kiwi" }, 4, 4) end
 
@@ -6060,7 +7006,12 @@ function DemoWindowWidgetsQueryingStatuses()
         local hovered_delay_stationary = ImGui.IsItemHovered(HF.Stationary)
         local hovered_delay_short = ImGui.IsItemHovered(HF.DelayShort)
         local hovered_delay_normal = ImGui.IsItemHovered(HF.DelayNormal)
-        local hovered_delay_tooltip = ImGui.IsItemHovered(HF.ForTooltip)
+        local hovered_delay_tooltip = ImGui.IsItemHovered(HF.ForTooltip) -- = Normal + Stationary
+
+        -- Display the values of IsItemHovered() and other common item state functions.
+        -- Note that the ImGuiHoveredFlags.XXX flags can be combined.
+        -- Because BulletText is an item itself and that would affect the output of IsItemXXX functions,
+        -- we query every state in a single call to avoid storing them and to simplify the code.
         local rmin, rmax, rsize = ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), ImGui.GetItemRectSize()
         ImGui.BulletText(
             "Return value = %d\nIsItemFocused() = %d\nIsItemHovered() = %d\nIsItemHovered(_AllowWhenBlockedByPopup) = %d\n" ..
@@ -6094,6 +7045,7 @@ function DemoWindowWidgetsQueryingStatuses()
         if s.embed then ImGui.BeginChild("outer_child", ImVec2(0, ImGui.GetFontSize() * 20.0), ImGuiChildFlags.Borders) end
         local FF, HF = ImGuiFocusedFlags, ImGuiHoveredFlags
         local bor = bit32.bor
+        -- Testing IsWindowFocused() function with its various flags.
         ImGui.BulletText(
             "IsWindowFocused() = %d\nIsWindowFocused(_ChildWindows) = %d\nIsWindowFocused(_ChildWindows|_NoPopupHierarchy) = %d\n" ..
             "IsWindowFocused(_ChildWindows|_DockHierarchy) = %d\nIsWindowFocused(_ChildWindows|_RootWindow) = %d\n" ..
@@ -6105,6 +7057,8 @@ function DemoWindowWidgetsQueryingStatuses()
             B(ImGui.IsWindowFocused(bor(FF.ChildWindows, FF.RootWindow, FF.NoPopupHierarchy))), B(ImGui.IsWindowFocused(bor(FF.ChildWindows, FF.RootWindow, FF.DockHierarchy))),
             B(ImGui.IsWindowFocused(FF.RootWindow)), B(ImGui.IsWindowFocused(bor(FF.RootWindow, FF.NoPopupHierarchy))), B(ImGui.IsWindowFocused(bor(FF.RootWindow, FF.DockHierarchy))),
             B(ImGui.IsWindowFocused(FF.AnyWindow)))
+
+        -- Testing IsWindowHovered() function with its various flags.
         ImGui.BulletText(
             "IsWindowHovered() = %d\nIsWindowHovered(_AllowWhenBlockedByPopup) = %d\nIsWindowHovered(_AllowWhenBlockedByActiveItem) = %d\n" ..
             "IsWindowHovered(_ChildWindows) = %d\nIsWindowHovered(_ChildWindows|_NoPopupHierarchy) = %d\nIsWindowHovered(_ChildWindows|_DockHierarchy) = %d\n" ..
@@ -6123,10 +7077,15 @@ function DemoWindowWidgetsQueryingStatuses()
         ImGui.EndChild()
         if s.embed then ImGui.EndChild() end
 
+        -- Calling IsItemHovered() after begin returns the hovered status of the title bar.
+        -- This is useful in particular if you want to create a context menu associated to the title bar of a window.
+        -- This will also work when docked into a Tab (the Tab replace the Title Bar and guarantee the same properties).
         _, s.test_window = ImGui.Checkbox("Hovered/Active tests after Begin() for title bar testing", s.test_window)
         if s.test_window then
+            -- FIXME-DOCK: This window cannot be docked within the ImGui Demo window, this will cause a feedback loop and get them stuck.
+            -- Could we fix this through an ImGuiWindowClass feature? Or an API call to tag our parent as "don't skip items"?
             s.test_window = ImGui.Begin("Title bar Hovered/Active tests", s.test_window)
-            if ImGui.BeginPopupContextItem() then
+            if ImGui.BeginPopupContextItem() then -- <-- This is using IsItemHovered()
                 if ImGui.MenuItem("Close") then s.test_window = false end
                 ImGui.EndPopup()
             end
@@ -6138,13 +7097,25 @@ function DemoWindowWidgetsQueryingStatuses()
     end
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsSelectables()
+-------------------------------------------------------------------------------
+
 S.sel = { basic = { false, true, false, false }, multi = { false, false, false }, checked = { false, false, false, false, false }, selected_n = 0,
     tables = {}, grid = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, { 0, 0, 0, 1 } },
     align = { true, false, true, false, true, false, true, false, true } }
 for i = 1, 10 do S.sel.tables[i] = false end
 function DemoWindowWidgetsSelectables()
+    -- ImGui.SetNextItemOpen(true, ImGuiCond.Once)
     if not ImGui.TreeNode("Selectables") then return end
     local s = S.sel
+    -- Selectable() has 2 overloads:
+    -- - The one taking "bool selected" as a read-only selection information.
+    --   When Selectable() has been clicked it returns true and you can alter selection state accordingly.
+    -- - The one taking "bool* p_selected" as a read-write selection information (convenient in some cases)
+    --   (in this port: the SelectableP() helper above, which returns (pressed, selected))
+    -- The earlier is more flexible, as in real application your selection may be stored in many different ways
+    -- and not necessarily inside a bool value (e.g. in flags within objects, as an external list, etc).
     if ImGui.TreeNode("Basic") then
         local b = s.basic
         _, b[1] = SelectableP("1. I am selectable", b[1])
@@ -6157,10 +7128,17 @@ function DemoWindowWidgetsSelectables()
     end
 
     if ImGui.TreeNode("Multiple items on the same line") then
+        -- - Using SetNextItemAllowOverlap()
+        -- - Using the Selectable() override that takes "bool* p_selected" parameter, the bool value is toggled automatically.
         local m = s.multi
         ImGui.SetNextItemAllowOverlap(); _, m[1] = SelectableP("main.c", m[1]); ImGui.SameLine(); ImGui.SmallButton("Link 1")
         ImGui.SetNextItemAllowOverlap(); _, m[2] = SelectableP("hello.cpp", m[2]); ImGui.SameLine(); ImGui.SmallButton("Link 2")
         ImGui.SetNextItemAllowOverlap(); _, m[3] = SelectableP("hello.h", m[3]); ImGui.SameLine(); ImGui.SmallButton("Link 3")
+
+        -- (2)
+        -- - Using ImGuiSelectableFlags.AllowOverlap is a shortcut for calling SetNextItemAllowOverlap()
+        -- - No visible label, display contents inside the selectable bounds.
+        -- - We don't maintain actual selection in this example to keep things simple.
         ImGui.Spacing()
         local color_marker_w = ImGui.CalcTextSize("x").x
         for n = 0, 4 do
@@ -6185,7 +7163,7 @@ function DemoWindowWidgetsSelectables()
         if ImGui.BeginTable("split1", 3, bit32.bor(TF.Resizable, TF.NoSavedSettings, TF.Borders)) then
             for i = 0, 9 do
                 ImGui.TableNextColumn()
-                _, sel[i + 1] = SelectableP(string.format("Item %d", i), sel[i + 1])
+                _, sel[i + 1] = SelectableP(string.format("Item %d", i), sel[i + 1]) -- FIXME-TABLE: Selection overlap
             end
             ImGui.EndTable()
         end
@@ -6207,9 +7185,11 @@ function DemoWindowWidgetsSelectables()
 
     if ImGui.TreeNode("Grid") then
         local g = s.grid
+
+        -- Add in a bit of silly fun...
         local time = ImGui.GetTime()
         local winning_state = true
-        for y = 1, 4 do for x = 1, 4 do if g[y][x] == 0 then winning_state = false end end end
+        for y = 1, 4 do for x = 1, 4 do if g[y][x] == 0 then winning_state = false end end end -- If all cells are selected...
         if winning_state then
             ImGui.PushStyleVar(ImGuiStyleVar.SelectableTextAlign, ImVec2(0.5 + 0.5 * math.cos(time * 2.0), 0.5 + 0.5 * math.sin(time * 3.0)))
         end
@@ -6219,6 +7199,7 @@ function DemoWindowWidgetsSelectables()
                 if x > 1 then ImGui.SameLine() end
                 ImGui.PushID((y - 1) * 4 + (x - 1))
                 if ImGui.Selectable("Sailor", g[y][x] ~= 0, 0, ImVec2(size, size)) then
+                    -- Toggle clicked cell + toggle neighbors
                     g[y][x] = 1 - g[y][x]
                     if x > 1 then g[y][x - 1] = 1 - g[y][x - 1] end
                     if x < 4 then g[y][x + 1] = 1 - g[y][x + 1] end
@@ -6250,6 +7231,10 @@ function DemoWindowWidgetsSelectables()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsTabs()
+-------------------------------------------------------------------------------
+
 local function EditTabBarFittingPolicyFlags(flags)
     local TB = ImGuiTabBarFlags
     if bit32.band(flags, TB.FittingPolicyMask_) == 0 then flags = bit32.bor(flags, TB.FittingPolicyDefault_) end
@@ -6280,17 +7265,23 @@ function DemoWindowWidgetsTabs()
     end
 
     if ImGui.TreeNode("Advanced & Close Button") then
+        -- Expose a couple of the available flags. In most cases you may just call BeginTabBar() with no flags (0).
         for _, n in ipairs({ "Reorderable", "AutoSelectNewTabs", "TabListPopupButton", "NoCloseWithMiddleMouseButton", "DrawSelectedOverline" }) do
             _, s.adv_flags = ImGui.CheckboxFlags("ImGuiTabBarFlags_" .. n, s.adv_flags, TB[n])
         end
         s.adv_flags = EditTabBarFittingPolicyFlags(s.adv_flags)
+
+        -- Tab Bar
         ImGui.AlignTextToFramePadding()
         ImGui.Text("Opened:")
         local names = { "Artichoke", "Beetroot", "Celery", "Daikon" }
-        for n = 1, 4 do
+        for n = 1, 4 do -- s.opened: Persistent user state
             ImGui.SameLine()
             _, s.opened[n] = ImGui.Checkbox(names[n], s.opened[n])
         end
+
+        -- Passing an open flag to BeginTabItem() is similar to passing one to Begin():
+        -- the returned open value will be false when the tab is closed.
         if ImGui.BeginTabBar("MyTabBar", s.adv_flags) then
             for n = 1, 4 do
                 if s.opened[n] then
@@ -6310,14 +7301,22 @@ function DemoWindowWidgetsTabs()
     end
 
     if ImGui.TreeNode("TabItemButton & Leading/Trailing flags") then
-        if s.next_tab_id == 0 then
+        if s.next_tab_id == 0 then -- Initialize with some default tabs
             for _ = 1, 3 do s.active_tabs[#s.active_tabs + 1] = s.next_tab_id; s.next_tab_id = s.next_tab_id + 1 end
         end
+
+        -- TabItemButton() and Leading/Trailing flags are distinct features which we will demo together.
+        -- (It is possible to submit regular tabs with Leading/Trailing flags, or TabItemButton tabs without Leading/Trailing flags...
+        -- but they tend to make more sense together)
         _, s.show_leading = ImGui.Checkbox("Show Leading TabItemButton()", s.show_leading)
         _, s.show_trailing = ImGui.Checkbox("Show Trailing TabItemButton()", s.show_trailing)
         _, s.show_lt_tabs = ImGui.Checkbox("Show Leading+Trailing TabItem()", s.show_lt_tabs)
+
+        -- Expose some other flags which are useful to showcase how they interact with Leading/Trailing tabs
         s.tib_flags = EditTabBarFittingPolicyFlags(s.tib_flags)
+
         if ImGui.BeginTabBar("MyTabBar", s.tib_flags) then
+            -- Demo a Leading TabItemButton(): click the "?" button to open a menu
             if s.show_leading then
                 if ImGui.TabItemButton("?", bit32.bor(TI.Leading, TI.NoTooltip)) then ImGui.OpenPopup("MyHelpMenu") end
             end
@@ -6325,15 +7324,23 @@ function DemoWindowWidgetsTabs()
                 ImGui.Selectable("Hello!")
                 ImGui.EndPopup()
             end
+
+            -- Demo Leading/Trailing Tabs
             if s.show_lt_tabs then
                 if ImGui.BeginTabItem("Leading", nil, TI.Leading) then ImGui.EndTabItem() end
                 if ImGui.BeginTabItem("Trailing", nil, TI.Trailing) then ImGui.EndTabItem() end
             end
+
+            -- Demo Trailing Tabs: click the "+" button to add a new tab.
+            -- (In your app you may want to use a font icon instead of the "+")
+            -- We submit it before the regular tabs, but thanks to the ImGuiTabItemFlags.Trailing flag it will always appear at the end.
             if s.show_trailing then
                 if ImGui.TabItemButton("+", bit32.bor(TI.Trailing, TI.NoTooltip)) then
-                    s.active_tabs[#s.active_tabs + 1] = s.next_tab_id; s.next_tab_id = s.next_tab_id + 1
+                    s.active_tabs[#s.active_tabs + 1] = s.next_tab_id; s.next_tab_id = s.next_tab_id + 1 -- Add new tab
                 end
             end
+
+            -- Submit our regular tabs
             local n = 1
             while n <= #s.active_tabs do
                 local name = string.format("%04d", s.active_tabs[n])
@@ -6352,11 +7359,16 @@ function DemoWindowWidgetsTabs()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsText()
+-------------------------------------------------------------------------------
+
 S.text = { custom_size = 16.0, custom_scale = 1.0, wrap_width = 200.0, utf8 = Buf("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", 32) }
 function DemoWindowWidgetsText()
     if not ImGui.TreeNode("Text") then return end
     local s = S.text
     if ImGui.TreeNode("Colorful Text") then
+        -- Using shortcut. You can use PushStyleColor()/PopStyleColor() for more flexibility.
         ImGui.TextColored(ImVec4(1.0, 0.0, 1.0, 1.0), "Pink")
         ImGui.TextColored(ImVec4(1.0, 1.0, 0.0, 1.0), "Yellow")
         ImGui.TextDisabled("Disabled")
@@ -6369,8 +7381,9 @@ function DemoWindowWidgetsText()
         local global_scale = style.FontScaleMain * style.FontScaleDpi
         ImGui.Text("style.FontScaleMain = %0.2f", style.FontScaleMain)
         ImGui.Text("style.FontScaleDpi = %0.2f", style.FontScaleDpi)
-        ImGui.Text("global_scale = ~%0.2f", global_scale)
+        ImGui.Text("global_scale = ~%0.2f", global_scale) -- This is not technically accurate as internal scales may apply, but conceptually let's pretend it is.
         ImGui.Text("FontSize = %0.2f", ImGui.GetFontSize())
+
         ImGui.SeparatorText("")
         s.custom_size = ImGui.SliderFloat("custom_size", s.custom_size, 10.0, 100.0, "%.0f")
         ImGui.Text("ImGui::PushFont(nullptr, custom_size);")
@@ -6395,6 +7408,7 @@ function DemoWindowWidgetsText()
     end
 
     if ImGui.TreeNode("Word Wrapping") then
+        -- Using shortcut. You can use PushTextWrapPos()/PopTextWrapPos() for more flexibility.
         ImGui.TextWrapped("This text should automatically wrap on the edge of the window. The current implementation for text wrapping follows simple rules suitable for English and possibly other languages.")
         ImGui.Spacing()
         s.wrap_width = ImGui.SliderFloat("Wrap width", s.wrap_width, -20, 600, "%.0f")
@@ -6410,6 +7424,8 @@ function DemoWindowWidgetsText()
             else
                 ImGui.Text("aaaaaaaa bbbbbbbb, c cccccccc,dddddddd. d eeeeeeee   ffffffff. gggggggg!hhhhhhhh")
             end
+
+            -- Draw actual text bounding box, following by marker of our expected limit (should not overlap!)
             draw_list:AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), IM_COL32(255, 255, 0, 255))
             draw_list:AddRectFilled(marker_min, marker_max, IM_COL32(255, 0, 255, 255))
             ImGui.PopTextWrapPos()
@@ -6418,6 +7434,12 @@ function DemoWindowWidgetsText()
     end
 
     if ImGui.TreeNode("UTF-8 Text") then
+        -- UTF-8 test with Japanese characters
+        -- (Needs a suitable font? Try "Google Noto" or "Arial Unicode". See docs/FONTS.md for details.)
+        -- - FOR THIS DEMO FILE ONLY, WE ARE *NOT* INCLUDING RAW UTF-8
+        --   CHARACTERS IN THIS SOURCE FILE. Instead we are encoding a few strings with hexadecimal escapes.
+        -- Note that characters values are preserved even by InputText() if the font cannot be displayed,
+        -- so you can safely copy & paste garbled characters into another application.
         ImGui.TextWrapped("CJK text will only appear if the font was loaded with the appropriate CJK character ranges. Call io.Fonts->AddFontFromFileTTF() manually to load extra character ranges. Read docs/FONTS.md for details.")
         ImGui.Text("Hiragana: \xe3\x81\x8b\xe3\x81\x8d\xe3\x81\x8f\xe3\x81\x91\xe3\x81\x93 (kakikukeko)")
         ImGui.Text("Kanjis: \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e (nihongo)")
@@ -6427,9 +7449,15 @@ function DemoWindowWidgetsText()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsTextFilter()
+-------------------------------------------------------------------------------
+
 S.tf = { filter = nil }
 function DemoWindowWidgetsTextFilter()
     if not ImGui.TreeNode("Text Filter") then return end
+    -- Helper class to easy setup a text filter.
+    -- You may want to implement a more feature-full filtering scheme in your own application.
     S.tf.filter = S.tf.filter or ImGuiTextFilter()
     local filter = S.tf.filter
     HelpMarker("Not a widget per-se, but ImGuiTextFilter is a helper to perform simple filtering on text strings.")
@@ -6448,6 +7476,10 @@ function DemoWindowWidgetsTextFilter()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsTextInput()
+-------------------------------------------------------------------------------
+
 S.ti = {
     text = Buf("/*\n The Pentium F00F bug, shorthand for F0 0F C7 C8,\n the hexadecimal encoding of one offending instruction,\n more formally, the invalid operand with locked CMPXCHG8B\n instruction bug, is a design flaw in the majority of\n Intel Pentium, Pentium MMX, and Pentium OverDrive\n processors (all in the P5 microarchitecture).\n*/\n\nlabel:\n\tlock cmpxchg8b eax\n", 1024 * 16),
     ml_flags = ImGuiInputTextFlags.AllowTabInput,
@@ -6464,6 +7496,7 @@ function DemoWindowWidgetsTextInput()
         if IT[name] then _, s[key] = ImGui.CheckboxFlags("ImGuiInputTextFlags_" .. name, s[key], IT[name]) end
     end
     if ImGui.TreeNode("Multi-line Text Input") then
+        -- WE ARE USING A FIXED-SIZE BUFFER FOR SIMPLICITY HERE.
         HelpMarker("You can use the ImGuiInputTextFlags_CallbackResize facility if you need to wire InputTextMultiline() to a dynamic string type.")
         FlagBox("ml_flags", "ReadOnly")
         FlagBox("ml_flags", "WordWrap")
@@ -6477,12 +7510,14 @@ function DemoWindowWidgetsTextInput()
 
     if ImGui.TreeNode("Filtered Text Input") then
         local a, z, A, Z = string.byte("a"), string.byte("z"), string.byte("A"), string.byte("Z")
+        -- Modify character input by altering 'data.EventChar' (ImGuiInputTextFlags.CallbackCharFilter callback)
         local function FilterCasingSwap(data)
             local c = data.EventChar
-            if c >= a and c <= z then data.EventChar = c - (a - A)
-            elseif c >= A and c <= Z then data.EventChar = c + (a - A) end
+            if c >= a and c <= z then data.EventChar = c - (a - A) -- Lowercase becomes uppercase
+            elseif c >= A and c <= Z then data.EventChar = c + (a - A) end -- Uppercase becomes lowercase
             return 0
         end
+        -- Return 0 (pass) if the character is 'i' or 'm' or 'g' or 'u' or 'i', otherwise return 1 (filter out)
         local function FilterImGuiLetters(data)
             local c = data.EventChar
             if c < 256 and string.find("imgui", string.char(c), 1, true) then return 0 end
@@ -6494,8 +7529,8 @@ function DemoWindowWidgetsTextInput()
         ImGui.InputText("hexadecimal", f[3], 32, bit32.bor(IT.CharsHexadecimal, IT.CharsUppercase))
         ImGui.InputText("uppercase", f[4], 32, IT.CharsUppercase)
         ImGui.InputText("no blank", f[5], 32, IT.CharsNoBlank)
-        ImGui.InputText("casing swap", f[6], 32, IT.CallbackCharFilter, FilterCasingSwap)
-        ImGui.InputText("\"imgui\"", f[7], 32, IT.CallbackCharFilter, FilterImGuiLetters)
+        ImGui.InputText("casing swap", f[6], 32, IT.CallbackCharFilter, FilterCasingSwap) -- Use CharFilter callback to replace characters.
+        ImGui.InputText("\"imgui\"", f[7], 32, IT.CallbackCharFilter, FilterImGuiLetters) -- Use CharFilter callback to disable some characters.
         ImGui.TreePop()
     end
 
@@ -6522,9 +7557,12 @@ function DemoWindowWidgetsTextInput()
                     data:SelectAll()
                 end
             elseif data.EventFlag == IT.CallbackEdit then
+                -- Toggle casing of first character
                 local c = data.Buf[1]
                 if (c >= 97 and c <= 122) or (c >= 65 and c <= 90) then data.Buf[1] = bit32.bxor(c, 32) end
                 data.BufDirty = true
+
+                -- Increment a counter
                 local p_int = data.UserData
                 p_int[1] = p_int[1] + 1
             end
@@ -6564,12 +7602,25 @@ function DemoWindowWidgetsTextInput()
     ImGui.TreePop()
 end
 
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsTooltips()
+-------------------------------------------------------------------------------
+
 S.tt = { arr = { 0.6, 0.1, 1.0, 0.5, 0.92, 0.1, 0.2 }, always_on = 0 }
 function DemoWindowWidgetsTooltips()
     if not ImGui.TreeNode("Tooltips") then return end
     local s = S.tt
     local HF = ImGuiHoveredFlags
+    -- Tooltips are windows following the mouse. They do not take focus away.
     ImGui.SeparatorText("General")
+
+    -- Typical use cases:
+    -- - Short-form (text only):      SetItemTooltip("Hello")
+    -- - Short-form (any contents):   if BeginItemTooltip() then Text("Hello"); EndTooltip() end
+
+    -- - Full-form (text only):       if IsItemHovered(...) then SetTooltip("Hello") end
+    -- - Full-form (any contents):    if IsItemHovered(...) and BeginTooltip() then Text("Hello"); EndTooltip() end
+
     HelpMarker("Tooltip are typically created by using a IsItemHovered() + SetTooltip() sequence.\n\nWe provide a helper SetItemTooltip() function to perform the two with standards flags.")
     local sz = ImVec2(-FLT_MIN, 0.0)
     ImGui.Button("Basic", sz)
@@ -6583,6 +7634,9 @@ function DemoWindowWidgetsTooltips()
     end
 
     ImGui.SeparatorText("Always On")
+
+    -- Showcase NOT relying on a IsItemHovered() to emit a tooltip.
+    -- Here the tooltip is always emitted when 'always_on == true'.
     _, s.always_on = ImGui.RadioButton("Off", s.always_on, 0)
     ImGui.SameLine()
     _, s.always_on = ImGui.RadioButton("Always On (Simple)", s.always_on, 1)
@@ -6597,6 +7651,11 @@ function DemoWindowWidgetsTooltips()
 
     ImGui.SeparatorText("Custom")
     HelpMarker("Passing ImGuiHoveredFlags_ForTooltip to IsItemHovered() is the preferred way to standardize tooltip activation details across your application. You may however decide to use custom flags for a specific tooltip instance.")
+
+    -- The following examples are passed for documentation purpose but may not be useful to most users.
+    -- Passing ImGuiHoveredFlags.ForTooltip to IsItemHovered() will pull ImGuiHoveredFlags flags values from
+    -- 'style.HoverFlagsForTooltipMouse' or 'style.HoverFlagsForTooltipNav' depending on whether mouse or keyboard/gamepad is being used.
+    -- With default settings, ImGuiHoveredFlags.ForTooltip is equivalent to ImGuiHoveredFlags.DelayShort + ImGuiHoveredFlags.Stationary.
     ImGui.Button("Manual", sz)
     if ImGui.IsItemHovered(HF.ForTooltip) then ImGui.SetTooltip("I am a manually emitted tooltip.") end
     ImGui.Button("DelayNone", sz)
@@ -6607,12 +7666,19 @@ function DemoWindowWidgetsTooltips()
     if ImGui.IsItemHovered(bit32.bor(HF.DelayNormal, HF.NoSharedDelay)) then ImGui.SetTooltip("I am a tooltip with a long delay (%0.2f sec).", ImGui.GetStyle().HoverDelayNormal) end
     ImGui.Button("Stationary", sz)
     if ImGui.IsItemHovered(HF.Stationary) then ImGui.SetTooltip("I am a tooltip requiring mouse to be stationary before activating.") end
+
+    -- Using ImGuiHoveredFlags.ForTooltip will pull flags from 'style.HoverFlagsForTooltipMouse' or 'style.HoverFlagsForTooltipNav',
+    -- which default value include the ImGuiHoveredFlags.AllowWhenDisabled flag.
     ImGui.BeginDisabled()
     ImGui.Button("Disabled item", sz)
     if ImGui.IsItemHovered(HF.ForTooltip) then ImGui.SetTooltip("I am a tooltip for a disabled item.") end
     ImGui.EndDisabled()
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsTreeNodes()
+-------------------------------------------------------------------------------
 
 S.tn = { lines_flags = bit32.bor(ImGuiTreeNodeFlags.DrawLinesFull, ImGuiTreeNodeFlags.DefaultOpen), selection_mask = 0,
     adv_flags = bit32.bor(ImGuiTreeNodeFlags.OpenOnArrow, ImGuiTreeNodeFlags.OpenOnDoubleClick, ImGuiTreeNodeFlags.SpanAvailWidth),
@@ -6621,9 +7687,16 @@ function DemoWindowWidgetsTreeNodes()
     if not ImGui.TreeNode("Tree Nodes") then return end
     local s = S.tn
     local TN = ImGuiTreeNodeFlags
+    -- See see "Examples -> Property Editor" (ShowExampleAppPropertyEditor() function) for a fancier, data-driven tree.
     if ImGui.TreeNode("Basic Trees") then
         for i = 0, 4 do
+            -- Use SetNextItemOpen() so set the default state of a node to be open. We could
+            -- also use TreeNodeEx() with the ImGuiTreeNodeFlags.DefaultOpen flag to achieve the same thing!
             if i == 0 then ImGui.SetNextItemOpen(true, ImGuiCond.Once) end
+
+            -- Here we use PushID() to generate a unique base ID, and then the "" used as TreeNode id won't conflict.
+            -- An alternative to using 'PushID() + TreeNode("", ...)' to generate a unique ID is to use 'TreeNode(i, ...)',
+            -- aka pass a number value to be hashed. The demo below uses that technique. Both are fine.
             ImGui.PushID(i)
             if ImGui.TreeNode("", "Child %d", i) then
                 ImGui.Text("blah blah")
@@ -6659,8 +7732,18 @@ function DemoWindowWidgetsTreeNodes()
 
     if ImGui.TreeNode("Selectable Nodes") then
         HelpMarker("Manually implemented selectable nodes.\nClick to select, Ctrl+Click to toggle, click on arrows or double-click to open.")
+
+        -- Hold in 'selection_mask' a simple representation of what may be user-side selection state.
+        -- - You may retain selection state inside or outside your objects in whatever format you see fit.
+        --   You may use ImGuiSelectionBasicStorage which is conceptually close to a set<> of identifiers.
+        -- - We record which node was clicked and then apply selection at the end of the loop.
+        -- - This is a manual and simplified reimplementation of multi-selection, which the full
+        --   BeginMultiSelect() API implements better, but which is not trivial to wire for trees.
         local node_clicked_idx = -1
         for node_n = 0, 5 do
+            -- Disable the default "open on single-click behavior" + set Selected flag according to our selection.
+            -- To alter selection we use if 'IsItemClicked() and not IsItemToggledOpen()', so clicking on an arrow doesn't alter selection.
+            -- In a BeginMultiSelect()/EndMultiSelect() we could use IsItemToggledSelection() but here we reimplement and use our own logic.
             local flags = bit32.bor(TN.OpenOnArrow, TN.OpenOnDoubleClick, TN.SpanAvailWidth)
             if bit32.band(s.selection_mask, bit32.lshift(1, node_n)) ~= 0 then flags = bit32.bor(flags, TN.Selected) end
             local is_open = ImGui.TreeNodeEx(node_n, flags, "Selectable Node %d", node_n)
@@ -6671,10 +7754,11 @@ function DemoWindowWidgetsTreeNodes()
             end
         end
         if node_clicked_idx ~= -1 then
+            -- Update selection state (process outside of tree loop to avoid visual inconsistencies during the clicking frame)
             if ImGui.GetIO().KeyCtrl then
-                s.selection_mask = bit32.bxor(s.selection_mask, bit32.lshift(1, node_clicked_idx))
-            else
-                s.selection_mask = bit32.lshift(1, node_clicked_idx)
+                s.selection_mask = bit32.bxor(s.selection_mask, bit32.lshift(1, node_clicked_idx)) -- Ctrl+Click to toggle
+            else -- if not (selection_mask & (1 << node_clicked_idx)) -- Depending on selection behavior you want, may want to preserve selection when clicking on item that is part of the selection
+                s.selection_mask = bit32.lshift(1, node_clicked_idx) -- Click to single-select
             end
         end
         ImGui.TreePop()
@@ -6701,6 +7785,7 @@ function DemoWindowWidgetsTreeNodes()
         for node_n = 0, 5 do
             local node_flags = s.adv_flags
             if node_n < 3 then
+                -- Items 0..2 are Tree Node
                 local is_open = ImGui.TreeNodeEx(node_n, node_flags, "Selectable Node %d", node_n)
                 if s.use_dnd and ImGui.BeginDragDropSource() then
                     ImGui.SetDragDropPayload("MY_TREENODE_PAYLOAD_TYPE", nil, 0)
@@ -6708,6 +7793,7 @@ function DemoWindowWidgetsTreeNodes()
                     ImGui.EndDragDropSource()
                 end
                 if node_n == 2 and bit32.band(s.adv_flags, TN.SpanLabelWidth) ~= 0 then
+                    -- Item 2 has an additional inline button to help demonstrate SpanLabelWidth.
                     ImGui.SameLine()
                     if ImGui.SmallButton("button") then end
                 end
@@ -6718,7 +7804,10 @@ function DemoWindowWidgetsTreeNodes()
                     ImGui.TreePop()
                 end
             else
-                node_flags = bit32.bor(node_flags, TN.Leaf, TN.NoTreePushOnOpen)
+                -- Items 3..5 are Tree Leaves
+                -- The only reason we use TreeNode at all is to allow selection of the leaf. Otherwise we can
+                -- use BulletText() or advance the cursor by GetTreeNodeToLabelSpacing() and call Text().
+                node_flags = bit32.bor(node_flags, TN.Leaf, TN.NoTreePushOnOpen) -- ImGuiTreeNodeFlags.Bullet
                 ImGui.TreeNodeEx(node_n, node_flags, "Selectable Leaf %d", node_n)
                 if s.use_dnd and ImGui.BeginDragDropSource() then
                     ImGui.SetDragDropPayload("MY_TREENODE_PAYLOAD_TYPE", nil, 0)
@@ -6732,6 +7821,10 @@ function DemoWindowWidgetsTreeNodes()
     end
     ImGui.TreePop()
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] DemoWindowWidgetsVerticalSliders()
+-------------------------------------------------------------------------------
 
 S.vs = { int_value = 0, values = { 0.0, 0.60, 0.35, 0.9, 0.70, 0.20, 0.0 }, values2 = { 0.20, 0.80, 0.40, 0.25 } }
 function DemoWindowWidgetsVerticalSliders()
@@ -6789,11 +7882,16 @@ function DemoWindowWidgetsVerticalSliders()
     ImGui.TreePop()
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Example App: Main Menu Bar / ShowExampleAppMainMenuBar()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- - ShowExampleAppMainMenuBar()
+-- - ShowExampleMenuFile()
+-------------------------------------------------------------------------------
 
 S.menu = { enabled = true, f = 0.5, n = 0, b = true }
+-- Note that shortcuts are currently provided for display only
+-- (future version will add explicit flags to BeginMenu() to request processing shortcuts)
 function ShowExampleMenuFile()
     local s = S.menu
     ImGui.MenuItem("(demo menu)", nil, false, false)
@@ -6843,12 +7941,14 @@ function ShowExampleMenuFile()
     end
 
     -- Here we demonstrate appending again to the "Options" menu (which we already created above)
-    if ImGui.BeginMenu("Options") then
+    -- Of course in this demo it is a little bit silly that this function calls BeginMenu("Options") twice.
+    -- In a real code-base using it would make senses to use this feature from very different code locations.
+    if ImGui.BeginMenu("Options") then -- <-- Append!
         _, s.b = ImGui.Checkbox("SomeOption", s.b)
         ImGui.EndMenu()
     end
 
-    if ImGui.BeginMenu("Disabled", false) then
+    if ImGui.BeginMenu("Disabled", false) then -- Disabled
         IM_ASSERT(false)
     end
     if ImGui.MenuItem("Checked", nil, true) then end
@@ -6856,6 +7956,10 @@ function ShowExampleMenuFile()
     if ImGui.MenuItem("Quit", "Alt+F4") then end
 end
 
+-- Demonstrate creating a "main" fullscreen menu bar and populating it.
+-- Note the difference between BeginMainMenuBar() and BeginMenuBar():
+-- - BeginMenuBar() = menu-bar inside current window (which needs the ImGuiWindowFlags.MenuBar flag!)
+-- - BeginMainMenuBar() = helper to create menu-bar-sized window at the top of the main viewport + call BeginMenuBar() into it.
 function ShowExampleAppMainMenuBar()
     if ImGui.BeginMainMenuBar() then
         if ImGui.BeginMenu("File") then
@@ -6864,7 +7968,7 @@ function ShowExampleAppMainMenuBar()
         end
         if ImGui.BeginMenu("Edit") then
             if ImGui.MenuItem("Undo", "Ctrl+Z") then end
-            if ImGui.MenuItem("Redo", "Ctrl+Y", false, false) then end
+            if ImGui.MenuItem("Redo", "Ctrl+Y", false, false) then end -- Disabled item
             ImGui.Separator()
             if ImGui.MenuItem("Cut", "Ctrl+X") then end
             if ImGui.MenuItem("Copy", "Ctrl+C") then end
@@ -6875,9 +7979,12 @@ function ShowExampleAppMainMenuBar()
     end
 end
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] Style Editor / ShowStyleEditor()
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- - ShowStyleSelector()
+-- - ShowStyleEditor()
+-------------------------------------------------------------------------------
 
 -- Deep copy of an ImGuiStyle (ImVec2/ImVec4 fields and Colors[] are copied by value)
 local function StyleCopy(dst, src)
@@ -6902,7 +8009,10 @@ end
 local function ColorsEqual(a, b) return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4] end
 
 S.ss = { style_idx = -1 }
+-- Demo helper function to select among default colors. See ShowStyleEditor() for more advanced options.
 function ImGui.ShowStyleSelector(label)
+    -- FIXME: This is a bit tricky to get right as style are functions, they don't register a name nor the fact that one is active.
+    -- So we keep track of last active one among our limited selection.
     local s = S.ss
     local style_names = { "Dark", "Light", "Classic" }
     local ret = false
@@ -6931,13 +8041,19 @@ end
 
 S.se = { ref_saved_style = nil, init = true, output_dest = 0, output_only_modified = true, alpha_flags = 0, filter = nil }
 function ImGui.ShowStyleEditor(ref)
+    -- You can pass in a reference ImGuiStyle structure to compare to, revert to and save to
+    -- (without a reference style, we will use one compared locally as a reference)
     local se = S.se
     local style = ImGui.GetStyle()
     if se.ref_saved_style == nil then se.ref_saved_style = {} end
+
+    -- Default to using internal storage as reference
     if se.init and ref == nil then StyleCopy(se.ref_saved_style, style) end
     se.init = false
     if ref == nil then ref = se.ref_saved_style end
 
+    -- The logic behind dynamically changing 'max_border_size' is to not encourage people to increase border size too much: it'll likely reveal lots of subtle rendering artifacts and this isn't a priority right now.
+    -- Note that _MainScale is currently internal PLEASE DO NOT USE IN YOUR CODE.
     local default_border_size = math.floor(style._MainScale or 1.0)
     local max_border_size = math.max(default_border_size, 2.0)
     local function SF(name, mn, mx, fmt) if style[name] ~= nil then style[name] = ImGui.SliderFloat(name, style[name], mn, mx, fmt or "%.0f") end end
@@ -6946,6 +8062,7 @@ function ImGui.ShowStyleEditor(ref)
 
     ImGui.PushItemWidth(ImGui.GetWindowWidth() * 0.50)
 
+    -- General
     ImGui.SeparatorText("General")
     if bit32.band(ImGui.GetIO().BackendFlags, ImGuiBackendFlags.RendererHasTextures) == 0 then
         ImGui.BulletText("Warning: Font scaling will NOT be smooth, because\nImGuiBackendFlags_RendererHasTextures is not set!")
@@ -6957,7 +8074,7 @@ function ImGui.ShowStyleEditor(ref)
     if ImGui.ShowFontSelector then ImGui.ShowFontSelector("Fonts##Selector") end
     local changed
     style.FontSizeBase, changed = ImGui.DragFloat("FontSizeBase", style.FontSizeBase, 0.20, 5.0, 100.0, "%.0f")
-    if changed then style._NextFrameFontSizeBase = style.FontSizeBase end
+    if changed then style._NextFrameFontSizeBase = style.FontSizeBase end -- FIXME: Temporary hack until we finish remaining work.
     ImGui.SameLine(0.0, 0.0); ImGui.Text(" (out %.2f)", ImGui.GetFontSize())
     style.FontScaleMain = ImGui.DragFloat("FontScaleMain", style.FontScaleMain, 0.02, 0.5, 4.0)
     ImGui.BeginDisabled(ImGui.GetIO().ConfigDpiScaleFonts == true)
@@ -6965,8 +8082,9 @@ function ImGui.ShowStyleEditor(ref)
     ImGui.SetItemTooltip("When io.ConfigDpiScaleFonts is set, this value is automatically overwritten.")
     ImGui.EndDisabled()
 
+    -- Simplified Settings (expose floating-pointer border sizes as boolean representing 0.0 or 1.0)
     style.FrameRounding, changed = ImGui.SliderFloat("FrameRounding", style.FrameRounding, 0.0, 12.0, "%.0f")
-    if changed then style.GrabRounding = style.FrameRounding end
+    if changed then style.GrabRounding = style.FrameRounding end -- Make GrabRounding always the same value as FrameRounding
     local p, border
     p, border = ImGui.Checkbox("WindowBorder", style.WindowBorderSize > 0.0); if p then style.WindowBorderSize = border and default_border_size or 0.0 end
     ImGui.SameLine()
@@ -6974,6 +8092,7 @@ function ImGui.ShowStyleEditor(ref)
     ImGui.SameLine()
     p, border = ImGui.Checkbox("PopupBorder", style.PopupBorderSize > 0.0); if p then style.PopupBorderSize = border and default_border_size or 0.0 end
 
+    -- Save/Revert button
     if ImGui.Button("Save Ref") then StyleCopy(se.ref_saved_style, style); if ref ~= se.ref_saved_style then StyleCopy(ref, style) end end
     ImGui.SameLine()
     if ImGui.Button("Revert Ref") then StyleCopy(style, ref) end
@@ -6995,6 +8114,7 @@ function ImGui.ShowStyleEditor(ref)
             ImGui.SeparatorText("Rounding")
             SF("WindowRounding", 0.0, 12.0); SF("ChildRounding", 0.0, 12.0); SF("FrameRounding", 0.0, 12.0)
             SF("PopupRounding", 0.0, 12.0); SF("GrabRounding", 0.0, 12.0); SF("MenuItemRounding", 0.0, 12.0)
+            -- NB: SelectableRounding is intentionally NOT made visible here. We don't want to encourage people using that.
 
             ImGui.SeparatorText("Scrollbar")
             SF("ScrollbarSize", 1.0, 20.0); SF("ScrollbarRounding", 0.0, 12.0); SF("ScrollbarPadding", 0.0, 10.0)
@@ -7046,6 +8166,7 @@ function ImGui.ShowStyleEditor(ref)
             SF("LogSliderDeadzone", 0.0, 12.0); SF("ImageRounding", 0.0, 12.0); SF("ImageBorderSize", 0.0, max_border_size)
 
             ImGui.SeparatorText("Docking")
+            -- SetCursorPosX(GetCursorPosX() + CalcItemWidth() - GetFrameHeight())
             _, style.DockingNodeHasCloseButton = ImGui.Checkbox("DockingNodeHasCloseButton", style.DockingNodeHasCloseButton)
             SF("DockingSeparatorSize", 0.0, 12.0)
 
@@ -7115,6 +8236,9 @@ function ImGui.ShowStyleEditor(ref)
                     end
                     ImGui.ColorEdit4("##color", style.Colors[i], bit32.bor(CE.AlphaBar, se.alpha_flags))
                     if not ColorsEqual(style.Colors[i], ref.Colors[i]) then
+                        -- Tips: in a real user application, you may want to merge and use an icon font into the main font,
+                        -- so instead of "Save"/"Revert" you'd use icons!
+                        -- Read the FAQ and docs/FONTS.md about using icon fonts. It's really easy and super convenient!
                         ImGui.SameLine(0.0, style.ItemInnerSpacing.x); if ImGui.Button("Save") then ImVec4_Copy(ref.Colors[i], style.Colors[i]) end
                         ImGui.SameLine(0.0, style.ItemInnerSpacing.x); if ImGui.Button("Revert") then ImVec4_Copy(style.Colors[i], ref.Colors[i]) end
                     end
@@ -7151,6 +8275,7 @@ function ImGui.ShowStyleEditor(ref)
             if curve_err < 0.10 then curve_err = 0.10 end
             style.CurveTessellationTol = curve_err * curve_err
 
+            -- When editing the "Circle Segment Max Error" value, draw a preview of its effect on auto-tessellated circles.
             style.CircleTessellationMaxError = ImGui.DragFloat("Circle Tessellation Max Error", style.CircleTessellationMaxError, 0.005, 0.10, 5.0, "%.2f", ImGuiSliderFlags.AlwaysClamp)
             local show_samples = ImGui.IsItemActive()
             if show_samples then ImGui.SetNextWindowPos(ImGui.GetCursorScreenPos()) end
@@ -7163,6 +8288,8 @@ function ImGui.ShowStyleEditor(ref)
                     local RAD_MIN, RAD_MAX = 5.0, 70.0
                     local rad = RAD_MIN + (RAD_MAX - RAD_MIN) * n / (8.0 - 1.0)
                     ImGui.BeginGroup()
+
+                    -- N is not always exact here due to how PathArcTo() function work internally
                     ImGui.Text("R: %.f\nN: %d", rad, draw_list:_CalcCircleAutoSegmentCount(rad))
                     local canvas_width = math.max(min_widget_width, rad * 2.0)
                     local offset_x = math.floor(canvas_width * 0.5)
@@ -7170,6 +8297,11 @@ function ImGui.ShowStyleEditor(ref)
                     local p1 = ImGui.GetCursorScreenPos()
                     draw_list:AddCircle(ImVec2(p1.x + offset_x, p1.y + offset_y), rad, ImGui.GetColorU32(ImGuiCol.Text))
                     ImGui.Dummy(ImVec2(canvas_width, RAD_MAX * 2))
+
+                    -- local p2 = ImGui.GetCursorScreenPos()
+                    -- draw_list:AddCircleFilled(ImVec2(p2.x + offset_x, p2.y + offset_y), rad, ImGui.GetColorU32(ImGuiCol.Text))
+                    -- ImGui.Dummy(ImVec2(canvas_width, RAD_MAX * 2))
+
                     ImGui.EndGroup()
                     ImGui.SameLine()
                 end
@@ -7177,7 +8309,7 @@ function ImGui.ShowStyleEditor(ref)
             end
             ImGui.SameLine()
             HelpMarker("When drawing circle primitives with \"num_segments == 0\" tessellation will be calculated automatically.")
-            style.Alpha = ImGui.DragFloat("Global Alpha", style.Alpha, 0.005, 0.20, 1.0, "%.2f")
+            style.Alpha = ImGui.DragFloat("Global Alpha", style.Alpha, 0.005, 0.20, 1.0, "%.2f") -- Not exposing zero here so user doesn't "lose" the UI (zero alpha clips all widgets). But application code could have a toggle to switch between zero and non-zero.
             style.DisabledAlpha = ImGui.DragFloat("Disabled Alpha", style.DisabledAlpha, 0.005, 0.0, 1.0, "%.2f")
             ImGui.SameLine(); HelpMarker("Additional alpha multiplier for disabled items (multiply over current value of Alpha).")
             ImGui.PopItemWidth()
@@ -7193,9 +8325,10 @@ do --[[ About window ]]
 -- Demo tools: ShowAboutWindow(), ShowFontAtlas(), ShowFontSelector(), ShowDebugLogWindow(), ShowIDStackToolWindow()
 local _
 
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- [SECTION] About Window / ShowAboutWindow()
-----------------------------------------------------------------
+-- Access from Dear ImGui Demo -> Tools -> About
+-------------------------------------------------------------------------------
 
 local show_config_info = false
 function ImGui.ShowAboutWindow(p_open)
@@ -7226,7 +8359,7 @@ function ImGui.ShowAboutWindow(p_open)
         if copy_to_clipboard then
             ImGui.LogToClipboard()
             ImGui.LogText("// (Copy from the next line. Keep the ``` markers for formatting.)\n")
-            ImGui.LogText("```cpp\n")
+            ImGui.LogText("```cpp\n") -- Back quotes will make text appears without formatting when pasting on GitHub
         end
         ImGui.Text("Dear ImGui %s (%d)", IMGUI_VERSION, IMGUI_VERSION_NUM)
         ImGui.Separator()
