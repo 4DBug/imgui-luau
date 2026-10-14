@@ -61,6 +61,8 @@ jobs:
           grep -q "CACHED OK" /tmp/c.txt
           MINIFY=1 python3 tools/test/run.py --main tools/test/scripts/t_readme.luau --frames 30 --quiet --roblox --timeout 300 | tee /tmp/rm.txt
           grep -q "README OK" /tmp/rm.txt
+          python3 tools/test/run.py --main tools/test/scripts/t_fixes.luau --frames 25 --quiet --roblox --timeout 300 | tee /tmp/f.txt
+          grep -q "FIXES OK" /tmp/f.txt
           python3 tools/bundle.py --target love >/dev/null
           luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic | tee /tmp/h.txt
           cp build/imgui_love.lua /tmp/imgui_love.lua && cp dist/imgui_love.min.lua build/imgui_love.lua

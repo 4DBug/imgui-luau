@@ -57019,19 +57019,18 @@ end
 --  fmt = "blah blah"  -> return ""
 --  fmt = "%.3f"       -> return "%.3f"
 --  fmt = "hello %.3f" -> return "%.3f"
--- TODO: temporary patch. does not look good
+--  fmt = "%.3f hello" -> return "%.3f"
 --- @param fmt string
 local function ImParseFormatTrimDecorations(fmt)
     local fmt_start = ImParseFormatFindStart(fmt)
-    if string.byte(fmt, fmt_start) ~= 37 then -- '%'
+    if fmt_start == nil or string.byte(fmt, fmt_start) ~= 37 then -- '%'
         return ""
     end
-    --- @cast fmt_start int
     local fmt_end = ImParseFormatFindEnd(fmt, fmt_start)
-    if string.byte(fmt, fmt_end) ~= 37 then
+    if fmt_end > #fmt then -- If we only have leading decoration, we don't need to copy the data.
         return string.sub(fmt, fmt_start)
     end
-    return string.sub(fmt, fmt_start, fmt_end)
+    return string.sub(fmt, fmt_start, fmt_end - 1)
 end
 
 -- - For scanning we need to remove all width and precision fields and flags "%+3.7f" -> "%f". BUT don't strip types like "%I64d" which includes digits. ! "%07I64d" -> "%I64d"
@@ -60144,15 +60143,15 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                     in_len, c = ImStd.ImTextCharFromUtf8(clipboard, i, clipboard_end)
                     i = i + in_len
                     c, ret2 = InputTextFilterCharacter(g, state, c, callback, callback_user_data, true)
-                    if ret2 then
-                        break
+                    if not ret2 then
+                        break -- continue
                     end
 
                     local c_utf8 = {0, 0, 0, 0, 0}
                     ImStd.ImTextCharToUtf8(c_utf8, c)
                     local out_len = ImStd.ImStrlen(c_utf8)
                     clipboard_filtered:resize(clipboard_filtered.Size + out_len)
-                    ImStd.memmove(clipboard_filtered.Data, clipboard_filtered.Size - out_len, c_utf8, 1, out_len)
+                    ImStd.memmove(clipboard_filtered.Data, clipboard_filtered.Size - out_len + 1, c_utf8, 1, out_len)
 
                     until true
                 end
@@ -63664,7 +63663,7 @@ function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
     for n = 1, count do slice[n] = items[first + n - 1] end
     table.sort(slice, function(a, b)
         if a.Width ~= b.Width then return a.Width > b.Width end
-        return a.Index < b.Index
+        return a.Index > b.Index -- ShrinkWidthItemComparer: b->Index - a->Index (Width compared exactly: upstream's (int) truncation isn't a strict weak order, which table.sort rejects)
     end)
     for n = 1, count do items[first + n - 1] = slice[n] end
     local it = slice
