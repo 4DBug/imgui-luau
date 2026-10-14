@@ -1,6 +1,221 @@
 --- Dear ImGui
 -- This is a Lua port of original `imstb_textedit.h`
 
+-- [DEAR IMGUI]
+-- This is a slightly modified version of stb_textedit.h 1.14.
+-- Those changes would need to be pushed into nothings/stb:
+-- - Fix in stb_textedit_discard_redo (see https://github.com/nothings/stb/issues/321)
+-- - Fix in stb_textedit_find_charpos to handle last line (see https://github.com/ocornut/imgui/issues/6000 + #6783)
+-- - Added name to struct or it may be forward declared in our code.
+-- - Added UTF-8 support (see https://github.com/nothings/stb/issues/188 + https://github.com/ocornut/imgui/pull/7925)
+-- - Changed STB_TEXTEDIT_INSERTCHARS() to return inserted count (instead of 0/1 bool), allowing partial insertion.
+-- Grep for [DEAR IMGUI] to find some changes.
+-- - Also renamed macros used or defined outside of IMSTB_TEXTEDIT_IMPLEMENTATION block from STB_TEXTEDIT_* to IMSTB_TEXTEDIT_*
+
+-- stb_textedit.h - v1.14  - public domain - Sean Barrett
+-- Development of this library was sponsored by RAD Game Tools
+--
+-- This C header file implements the guts of a multi-line text-editing
+-- widget; you implement display, word-wrapping, and low-level string
+-- insertion/deletion, and stb_textedit will map user inputs into
+-- insertions & deletions, plus updates to the cursor position,
+-- selection state, and undo state.
+--
+-- It is intended for use in games and other systems that need to build
+-- their own custom widgets and which do not have heavy text-editing
+-- requirements (this library is not recommended for use for editing large
+-- texts, as its performance does not scale and it has limited undo).
+--
+-- Non-trivial behaviors are modelled after Windows text controls.
+--
+--
+-- LICENSE
+--
+-- See end of file for license information.
+--
+--
+-- DEPENDENCIES
+--
+-- Uses the C runtime function 'memmove', which you can override
+-- by defining IMSTB_TEXTEDIT_memmove before the implementation.
+-- (In this port: ImStb.TEXTEDIT_memmove.)
+--
+--
+-- VERSION HISTORY
+--
+--   !!!! (2025-10-23) changed STB_TEXTEDIT_INSERTCHARS() to return inserted count (instead of 0/1 bool), allowing partial insertion.
+--   1.14 (2021-07-11) page up/down, various fixes
+--   1.13 (2019-02-07) fix bug in undo size management
+--   1.12 (2018-01-29) user can change STB_TEXTEDIT_KEYTYPE, fix redo to avoid crash
+--   1.11 (2017-03-03) fix HOME on last line, dragging off single-line textfield
+--   1.10 (2016-10-25) suppress warnings about casting away const with -Wcast-qual
+--   1.9  (2016-08-27) customizable move-by-word
+--   1.8  (2016-04-02) better keyboard handling when mouse button is down
+--   1.7  (2015-09-13) change y range handling in case baseline is non-0
+--   1.6  (2015-04-15) allow STB_TEXTEDIT_memmove
+--   1.5  (2014-09-10) add support for secondary keys for OS X
+--   1.4  (2014-08-17) fix signed/unsigned warnings
+--   1.3  (2014-06-19) fix mouse clicking to round to nearest char boundary
+--   1.2  (2014-05-27) fix some RAD types that had crept into the new code
+--   1.1  (2013-12-15) move-by-word (requires STB_TEXTEDIT_IS_SPACE )
+--   1.0  (2012-07-26) improve documentation, initial public release
+--   0.3  (2012-02-24) bugfixes, single-line mode; insert mode
+--   0.2  (2011-11-28) fixes to undo/redo
+--   0.1  (2010-07-08) initial version
+--
+-- ADDITIONAL CONTRIBUTORS
+--
+--   Ulf Winklemann: move-by-word in 1.1
+--   Fabian Giesen: secondary key inputs in 1.5
+--   Martins Mozeiko: STB_TEXTEDIT_memmove in 1.6
+--   Louis Schnellbach: page up/down in 1.14
+--
+--   Bugfixes:
+--      Scott Graham
+--      Daniel Keller
+--      Omar Cornut
+--      Dan Thompson
+--
+-- USAGE
+--
+--   The basic concept is that you provide a "string" object which
+--   behaves like an array of characters. stb_textedit uses indices to
+--   refer to positions in the string, implicitly representing positions
+--   in the displayed textedit. This is true for both plain text and
+--   rich text; even with rich text stb_truetype interacts with your
+--   code as if there was an array of all the displayed characters.
+--
+-- Symbols you must define for implementation mode (in this port: fields of ImStb, see below):
+--
+--    STB_TEXTEDIT_STRING               the type of object representing a string being edited,
+--                                      typically this is a wrapper object with other data you need
+--
+--    STB_TEXTEDIT_STRINGLEN(obj)       the length of the string (ideally O(1))
+--    STB_TEXTEDIT_LAYOUTROW(r,obj,n)   returns the results of laying out a line of characters
+--                                        starting from character #n (see discussion below)
+--    STB_TEXTEDIT_GETWIDTH(obj,n,i)    returns the pixel delta from the xpos of the i'th character
+--                                        to the xpos of the i+1'th char for a line of characters
+--                                        starting at character #n (i.e. accounts for kerning
+--                                        with previous char)
+--    STB_TEXTEDIT_GETCHAR(obj,i)       returns the i'th character of obj, 1-based in this port
+--    STB_TEXTEDIT_NEWLINE              the character returned by _GETCHAR() we recognize
+--                                        as manually wordwrapping for end-of-line positioning
+--
+--    STB_TEXTEDIT_DELETECHARS(obj,i,n)      delete n characters starting at i
+--    STB_TEXTEDIT_INSERTCHARS(obj,i,c,c_offset,n)   try to insert n characters at i (taken from array c starting at c_offset)
+--                                           returns number of characters actually inserted. [DEAR IMGUI]
+--
+--    STB_TEXTEDIT_K_SHIFT       a power of two that is or'd in to a keyboard input to represent the shift key
+--
+--    STB_TEXTEDIT_K_LEFT        keyboard input to move cursor left
+--    STB_TEXTEDIT_K_RIGHT       keyboard input to move cursor right
+--    STB_TEXTEDIT_K_UP          keyboard input to move cursor up
+--    STB_TEXTEDIT_K_DOWN        keyboard input to move cursor down
+--    STB_TEXTEDIT_K_PGUP        keyboard input to move cursor up a page
+--    STB_TEXTEDIT_K_PGDOWN      keyboard input to move cursor down a page
+--    STB_TEXTEDIT_K_LINESTART   keyboard input to move cursor to start of line  -- e.g. HOME
+--    STB_TEXTEDIT_K_LINEEND     keyboard input to move cursor to end of line    -- e.g. END
+--    STB_TEXTEDIT_K_TEXTSTART   keyboard input to move cursor to start of text  -- e.g. ctrl-HOME
+--    STB_TEXTEDIT_K_TEXTEND     keyboard input to move cursor to end of text    -- e.g. ctrl-END
+--    STB_TEXTEDIT_K_DELETE      keyboard input to delete selection or character under cursor
+--    STB_TEXTEDIT_K_BACKSPACE   keyboard input to delete selection or character left of cursor
+--    STB_TEXTEDIT_K_UNDO        keyboard input to perform undo
+--    STB_TEXTEDIT_K_REDO        keyboard input to perform redo
+--
+--    STB_TEXTEDIT_MOVEWORDLEFT(obj,i)   custom handler for WORDLEFT, returns index to move cursor to
+--    STB_TEXTEDIT_MOVEWORDRIGHT(obj,i)  custom handler for WORDRIGHT, returns index to move cursor to
+--    STB_TEXTEDIT_K_WORDLEFT            keyboard input to move cursor left one word -- e.g. ctrl-LEFT
+--    STB_TEXTEDIT_K_WORDRIGHT           keyboard input to move cursor right one word -- e.g. ctrl-RIGHT
+--
+-- To support UTF-8:
+--
+--    STB_TEXTEDIT_GETPREVCHARINDEX      returns index of previous character
+--    STB_TEXTEDIT_GETNEXTCHARINDEX      returns index of next character
+--    Do NOT define STB_TEXTEDIT_KEYTOTEXT.
+--    Instead, call stb_textedit_text() directly for text contents.
+--
+-- Keyboard input must be encoded as a single integer value; e.g. a character code
+-- and some bitflags that represent shift states. to simplify the interface, SHIFT must
+-- be a bitflag, so we can test the shifted state of cursor movements to allow selection,
+-- i.e. (STB_TEXTEDIT_K_RIGHT|STB_TEXTEDIT_K_SHIFT) should be shifted right-arrow.
+--
+-- STB_TEXTEDIT_LAYOUTROW returns information about the shape of one displayed
+-- row of characters assuming they start on the i'th character--the width and
+-- the height and the number of characters consumed. This allows this library
+-- to traverse the entire layout incrementally. You need to compute word-wrapping
+-- here.
+--
+-- Each textfield keeps its own insert mode state, which is not how normal
+-- applications work. To keep an app-wide insert mode, update/copy the
+-- "insert_mode" field of STB_TexteditState before/after calling API functions.
+--
+-- API (in this port: fields of the table returned by this file)
+--
+--    initialize_state(state, is_single_line)
+--
+--    click(str, state, x, y)
+--    drag(str, state, x, y)
+--    cut(str, state) -> bool
+--    paste(str, state, text, len) -> bool
+--    key(str, state, key)
+--    text(str, state, text, text_len)
+--
+--    Each of these functions potentially updates the string and updates the
+--    state.
+--
+--      initialize_state:
+--          set the textedit state to a known good default state when initially
+--          constructing the textedit.
+--
+--      click:
+--          call this with the mouse x,y on a mouse down; it will update the cursor
+--          and reset the selection start/end to the cursor point. the x,y must
+--          be relative to the text widget, with (0,0) being the top left.
+--
+--      drag:
+--          call this with the mouse x,y on a mouse drag/up; it will update the
+--          cursor and the selection end point
+--
+--      cut:
+--          call this to delete the current selection; returns true if there was
+--          one. you should FIRST copy the current selection to the system paste buffer.
+--          (To copy, just copy the current selection out of the string yourself.)
+--
+--      paste:
+--          call this to paste text at the current cursor point or over the current
+--          selection if there is one.
+--
+--      key:
+--          call this for keyboard inputs sent to the textfield. you can use it
+--          for "key down" events or for "translated" key events.
+--
+--      text: (added 2025)
+--          call this to directly send text input the textfield, which is required
+--          for UTF-8 support, because stb_textedit_key() + STB_TEXTEDIT_KEYTOTEXT()
+--          cannot infer text length.
+--
+--
+--   When rendering, you can read the cursor position and selection state from
+--   the STB_TexteditState.
+--
+--
+-- Notes:
+--
+-- This is designed to be usable in IMGUI, so it allows for the possibility of
+-- running in an IMGUI that has NOT cached the multi-line layout. For this
+-- reason, it provides an interface that is compatible with computing the
+-- layout incrementally--we try to make sure we make as few passes through
+-- as possible. (For example, to locate the mouse pointer in the text, we
+-- could define functions that return the X and Y positions of characters
+-- and binary search Y and then X, but if we're doing dynamic layout this
+-- will run the layout algorithm many times, so instead we manually search
+-- forward in one pass. Similar logic applies to e.g. up-arrow and
+-- down-arrow movement.)
+--
+-- If it's run in a widget that *has* cached the layout, then this is less
+-- efficient, but it's not horrible on modern computers. But you wouldn't
+-- want to edit million-line files with it.
+
 -- ALL TABLES IN THIS FILE ARE 1-BASED!
 -- Character Indexing:
 --     idx=n, the n'th char (1-based)
@@ -13,6 +228,10 @@ local STB_TEXTEDIT_STRINGLEN = ImStb.TEXTEDIT_STRINGLEN
 local STB_TEXTEDIT_GETCHAR   = ImStb.TEXTEDIT_GETCHAR
 local STB_TEXTEDIT_GETWIDTH  = ImStb.TEXTEDIT_GETWIDTH
 local STB_TEXTEDIT_LAYOUTROW = ImStb.TEXTEDIT_LAYOUTROW
+-- [DEAR IMGUI]
+-- Functions must be implemented for UTF8 support
+-- Code in this file that uses those functions is modified for [DEAR IMGUI] and deviates from the original stb_textedit.
+-- There is not necessarily a '[DEAR IMGUI]' at the usage sites.
 local IMSTB_TEXTEDIT_GETNEXTCHARINDEX = ImStb.TEXTEDIT_GETNEXTCHARINDEX
 local IMSTB_TEXTEDIT_GETPREVCHARINDEX = ImStb.TEXTEDIT_GETPREVCHARINDEX
 local STB_TEXTEDIT_MOVEWORDLEFT  = ImStb.TEXTEDIT_MOVEWORDLEFT
@@ -22,34 +241,35 @@ local STB_TEXTEDIT_MOVELINEEND   = ImStb.TEXTEDIT_MOVELINEEND
 local STB_TEXTEDIT_DELETECHARS   = ImStb.TEXTEDIT_DELETECHARS
 local STB_TEXTEDIT_INSERTCHARS   = ImStb.TEXTEDIT_INSERTCHARS
 
-STB_TEXTEDIT_NEWLINE     = 10
+STB_TEXTEDIT_NEWLINE     = 10 -- the character returned by _GETCHAR() we recognize as manually wordwrapping for end-of-line positioning
 STB_TEXTEDIT_K_LEFT      = 0x200000 -- keyboard input to move cursor left
 STB_TEXTEDIT_K_RIGHT     = 0x200001 -- keyboard input to move cursor right
 STB_TEXTEDIT_K_UP        = 0x200002 -- keyboard input to move cursor up
 STB_TEXTEDIT_K_DOWN      = 0x200003 -- keyboard input to move cursor down
-STB_TEXTEDIT_K_LINESTART = 0x200004 -- keyboard input to move cursor to start of line
-STB_TEXTEDIT_K_LINEEND   = 0x200005 -- keyboard input to move cursor to end of line
-STB_TEXTEDIT_K_TEXTSTART = 0x200006 -- keyboard input to move cursor to start of text
-STB_TEXTEDIT_K_TEXTEND   = 0x200007 -- keyboard input to move cursor to end of text
+STB_TEXTEDIT_K_LINESTART = 0x200004 -- keyboard input to move cursor to start of line  -- e.g. HOME
+STB_TEXTEDIT_K_LINEEND   = 0x200005 -- keyboard input to move cursor to end of line    -- e.g. END
+STB_TEXTEDIT_K_TEXTSTART = 0x200006 -- keyboard input to move cursor to start of text  -- e.g. ctrl-HOME
+STB_TEXTEDIT_K_TEXTEND   = 0x200007 -- keyboard input to move cursor to end of text    -- e.g. ctrl-END
 STB_TEXTEDIT_K_DELETE    = 0x200008 -- keyboard input to delete selection or character under cursor
 STB_TEXTEDIT_K_BACKSPACE = 0x200009 -- keyboard input to delete selection or character left of cursor
 STB_TEXTEDIT_K_UNDO      = 0x20000A -- keyboard input to perform undo
 STB_TEXTEDIT_K_REDO      = 0x20000B -- keyboard input to perform redo
-STB_TEXTEDIT_K_WORDLEFT  = 0x20000C -- keyboard input to move cursor left one word
-STB_TEXTEDIT_K_WORDRIGHT = 0x20000D -- keyboard input to move cursor right one word
+STB_TEXTEDIT_K_WORDLEFT  = 0x20000C -- keyboard input to move cursor left one word -- e.g. ctrl-LEFT
+STB_TEXTEDIT_K_WORDRIGHT = 0x20000D -- keyboard input to move cursor right one word -- e.g. ctrl-RIGHT
 STB_TEXTEDIT_K_PGUP      = 0x20000E -- keyboard input to move cursor up a page
 STB_TEXTEDIT_K_PGDOWN    = 0x20000F -- keyboard input to move cursor down a page
-STB_TEXTEDIT_K_SHIFT     = 0x400000
+STB_TEXTEDIT_K_SHIFT     = 0x400000 -- a power of two that is or'd in to a keyboard input to represent the shift key
 
-IMSTB_TEXTEDIT_UNDOSTATECOUNT = 99
-local IMSTB_TEXTEDIT_UNDOCHARCOUNT  = 999
+IMSTB_TEXTEDIT_UNDOSTATECOUNT = 99 -- the number of undo states to allow
+local IMSTB_TEXTEDIT_UNDOCHARCOUNT  = 999 -- the number of characters to store in the undo buffer
 local IMSTB_TEXTEDIT_memmove = ImStb.TEXTEDIT_memmove
 
+-- forward declarations
 local stb_text_undo
 local stb_text_redo
 
-----------------------------------------------------------------
-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 ---
 --- STB_TexteditState
 ---
@@ -72,6 +292,7 @@ local stb_text_redo
 --- @nodiscard
 local function StbUndoRecord()
     return {
+        -- private data
         where         = 1,
         insert_length = 0,
         delete_length = 0,
@@ -101,6 +322,7 @@ local function StbUndoState()
     end
 
     return {
+        -- private data
         undo_rec        = undo_rec,
         undo_char       = undo_char,
 
@@ -131,16 +353,34 @@ end
 --- @nodiscard
 function STB_TexteditState()
     return {
-        cursor = 0,
+        ---------------------
+        --
+        -- public data
+        --
 
-        select_start = 0,
+        cursor = 0,
+        -- position of the text cursor within the string
+
+        select_start = 0, -- selection start point
         select_end   = 0,
+        -- selection start and end point in characters; if equal, no selection.
+        -- note that start may be less than or greater than end (e.g. when
+        -- dragging the mouse, start is where the initial click was, and you
+        -- can drag in either direction)
 
         insert_mode = false,
+        -- each textfield keeps its own insert mode state. to keep an app-wide
+        -- insert mode, copy this value in/out of the app state
 
         row_count_per_page = 0,
+        -- page size in number of row.
+        -- this value MUST be set to >0 for pageup or pagedown in multilines documents.
 
-        cursor_at_end_of_line = false,
+        ---------------------
+        --
+        -- private data
+        --
+        cursor_at_end_of_line = false, -- not implemented yet
         initialized           = false,
         has_preferred_x       = false,
         single_line           = false,
@@ -148,7 +388,7 @@ function STB_TexteditState()
         padding2 = 0,
         padding3 = 0,
 
-        preferred_x = 0.0,
+        preferred_x = 0.0, -- this determines where the cursor up/down tries to seek to along x
 
         undostate = StbUndoState()
     }
@@ -159,12 +399,20 @@ local function STB_TEXT_HAS_SELECTION(s)
     return s.select_start ~= s.select_end
 end
 
+-------------------------------------------------------------------------------
+---
+--- StbTexteditRow
+---
+--- Result of layout query, used by stb_textedit to determine where
+--- the text in each row is.
+
+-- result of layout query
 --- @class StbTexteditRow
---- @field x0               float # starting x location
+--- @field x0               float # starting x location, end x location (allows for align=right, etc)
 --- @field x1               float # end x location
 --- @field baseline_y_delta float # position of baseline relative to previous row's baseline
---- @field ymin             float # height of row above baseline
---- @field ymax             float # height of row below baseline
+--- @field ymin             float # height of row above and below baseline
+--- @field ymax             float # height of row above and below baseline
 --- @field num_chars        int
 
 --- @return StbTexteditRow
@@ -196,8 +444,13 @@ end
 ----------------------------------------
 ----------------------------------------
 ---
---- Implementation
+--- Implementation mode
 ---
+---
+
+-------------------------------------------------------------------------------
+---
+---      Mouse input handling
 ---
 
 local stb_text_locate_coord do
@@ -351,6 +604,7 @@ end
 ---
 ---
 
+-- forward declarations
 local stb_text_makeundo_insert
 local stb_text_makeundo_delete
 local stb_text_makeundo_replace
@@ -399,8 +653,8 @@ function stb_textedit_find_charpos(find, str, n, single_line)
     local z = STB_TEXTEDIT_STRINGLEN(str)
     local first
 
-    -- special case if it's at the end (may not be needed?)
     if n == z + 1 and single_line then
+        -- special case if it's at the end (may not be needed?)
         STB_TEXTEDIT_LAYOUTROW(r, str, 1)
         find.y = 0
         find.first_char = 1
@@ -420,18 +674,18 @@ function stb_textedit_find_charpos(find, str, n, single_line)
         if n < i + r.num_chars - 1 then
             break
         end
-        if str.LastMoveDirectionLR == ImGuiDir.Right and str.Stb.cursor > 1 and str.Stb.cursor == i + r.num_chars and STB_TEXTEDIT_GETCHAR(str, i + r.num_chars - 1) ~= STB_TEXTEDIT_NEWLINE then -- [IMGUI] Wrapping point handling
+        if str.LastMoveDirectionLR == ImGuiDir.Right and str.Stb.cursor > 1 and str.Stb.cursor == i + r.num_chars and STB_TEXTEDIT_GETCHAR(str, i + r.num_chars - 1) ~= STB_TEXTEDIT_NEWLINE then -- [DEAR IMGUI] Wrapping point handling
             break
         end
-        if (i - 1) + r.num_chars == z and z > 0 and STB_TEXTEDIT_GETCHAR(str, z) ~= STB_TEXTEDIT_NEWLINE then -- [IMGUI] special handling for last line
-            break
+        if (i - 1) + r.num_chars == z and z > 0 and STB_TEXTEDIT_GETCHAR(str, z) ~= STB_TEXTEDIT_NEWLINE then -- [DEAR IMGUI] special handling for last line
+            break -- [DEAR IMGUI]
         end
         prev_start = i
         i = i + r.num_chars
         find.y = find.y + r.baseline_y_delta
-        if i == z + 1 then -- [IMGUI]
-            r.num_chars = 0
-            break
+        if i == z + 1 then -- [DEAR IMGUI]
+            r.num_chars = 0 -- [DEAR IMGUI]
+            break -- [DEAR IMGUI]
         end
     end
 
@@ -479,7 +733,7 @@ local function stb_textedit_delete(str, state, where, len)
     state.has_preferred_x = false
 end
 
--- delete the selection
+-- delete the section
 --- @param str   IMSTB_TEXTEDIT_STRING
 --- @param state STB_TexteditState
 local function stb_textedit_delete_selection(str, state)
@@ -498,7 +752,7 @@ local function stb_textedit_delete_selection(str, state)
     end
 end
 
--- canonicalize the selection so start <= end
+-- canoncialize the selection so start <= end
 --- @param state STB_TexteditState
 local function stb_textedit_sortselection(state)
     if state.select_end < state.select_start then
@@ -579,7 +833,7 @@ local function stb_textedit_paste_internal(str, state, text, len)
 end
 
 -- API key: process text input
--- [IMGUI] Added stb_textedit_text(), extracted out and called by stb_textedit_key() for backward compatibility.
+-- [DEAR IMGUI] Added stb_textedit_text(), extracted out and called by stb_textedit_key() for backward compatibility.
 --- @param str       IMSTB_TEXTEDIT_STRING
 --- @param state     STB_TexteditState
 --- @param text      IMSTB_TEXTEDIT_CHARTYPE[]
@@ -732,7 +986,7 @@ function stb_textedit_key(str, state, key)
                 break
             end
 
-            -- [IMGUI]
+            -- [DEAR IMGUI]
             -- going down while being on the last line shouldn't bring us to that line end
             --if STB_TEXTEDIT_GETCHAR(str, find.first_char + find.length - 1) ~= STB_TEXTEDIT_NEWLINE then
             --   break
@@ -929,8 +1183,8 @@ end
 -----------------------------------------------------
 ---
 --- Undo processing
---- OPTIMIZE: the undo/redo buffer should be circular
 ---
+--- @OPTIMIZE: the undo/redo buffer should be circular
 
 --- @param state StbUndoState
 local function stb_textedit_flush_redo(state)
@@ -950,7 +1204,7 @@ local function stb_textedit_discard_undo(state)
             IMSTB_TEXTEDIT_memmove(state.undo_char, 1, state.undo_char, n + 1, state.undo_char_point - 1)
             for i = 1, state.undo_point do
                 if state.undo_rec[i].char_storage >= 0 then
-                    state.undo_rec[i].char_storage = state.undo_rec[i].char_storage - n -- OPTIMIZE: get rid of char_storage and infer it
+                    state.undo_rec[i].char_storage = state.undo_rec[i].char_storage - n -- @OPTIMIZE: get rid of char_storage and infer it
                 end
             end
         end
@@ -983,7 +1237,7 @@ local function stb_textedit_discard_redo(state)
         end
 
         -- now move all the redo records towards the end of the buffer; the first one is at 'redo_point'
-        -- [IMGUI]
+        -- [DEAR IMGUI]
         local move_size = IMSTB_TEXTEDIT_UNDOSTATECOUNT - state.redo_point - 1
         IMSTB_TEXTEDIT_memmove(state.undo_rec, state.redo_point + 1, state.undo_rec, state.redo_point, move_size)
 
@@ -1129,6 +1383,9 @@ function stb_text_redo(str, state)
     local u = s.undo_rec[s.undo_point]
     local r = s.undo_rec[s.redo_point]
 
+    -- we KNOW there must be room for the undo record, because the redo record
+    -- was derived from an undo record
+
     u.delete_length = r.insert_length
     u.insert_length = r.delete_length
     u.where = r.where
@@ -1137,6 +1394,7 @@ function stb_text_redo(str, state)
     if r.delete_length > 0 then
         -- the redo record requires us to delete characters, so the undo record
         -- needs to store the characters
+
         if s.undo_char_point + u.insert_length > s.redo_char_point then
             u.insert_length = 0
             u.delete_length = 0
@@ -1144,6 +1402,7 @@ function stb_text_redo(str, state)
             u.char_storage = s.undo_char_point
             s.undo_char_point = s.undo_char_point + u.insert_length
 
+            -- now save the characters
             for i = 0, u.insert_length - 1 do
                 s.undo_char[u.char_storage + i] = STB_TEXTEDIT_GETCHAR(str, u.where + i)
             end
@@ -1153,6 +1412,7 @@ function stb_text_redo(str, state)
     end
 
     if r.insert_length ~= 0 then
+        -- easy case: need to insert n characters
         r.insert_length = STB_TEXTEDIT_INSERTCHARS(str, r.where, s.undo_char, r.char_storage, r.insert_length)
         s.redo_char_point = s.redo_char_point + r.insert_length
     end
@@ -1199,6 +1459,7 @@ function stb_text_makeundo_replace(str, state, where, old_length, new_length)
     end
 end
 
+-- reset the state to default
 --- @param state          STB_TexteditState
 --- @param is_single_line bool
 local function stb_textedit_clear_state(state, is_single_line)
@@ -1222,7 +1483,7 @@ return {
     click = stb_textedit_click,
     drag = stb_textedit_drag,
     createundo = stb_text_createundo,
-    initialize_state = stb_textedit_clear_state,
+    initialize_state = stb_textedit_clear_state, -- API initialize
 
     text = stb_textedit_text,
     key = stb_textedit_key,
@@ -1236,3 +1497,43 @@ return {
 
     HAS_SELECTION = STB_TEXT_HAS_SELECTION
 }
+
+-------------------------------------------------------------------------------
+-- This software is available under 2 licenses -- choose whichever you prefer.
+-------------------------------------------------------------------------------
+-- ALTERNATIVE A - MIT License
+-- Copyright (c) 2017 Sean Barrett
+-- Permission is hereby granted, free of charge, to any person obtaining a copy of
+-- this software and associated documentation files (the "Software"), to deal in
+-- the Software without restriction, including without limitation the rights to
+-- use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+-- of the Software, and to permit persons to whom the Software is furnished to do
+-- so, subject to the following conditions:
+-- The above copyright notice and this permission notice shall be included in all
+-- copies or substantial portions of the Software.
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+-- SOFTWARE.
+-------------------------------------------------------------------------------
+-- ALTERNATIVE B - Public Domain (www.unlicense.org)
+-- This is free and unencumbered software released into the public domain.
+-- Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+-- software, either in source code form or as a compiled binary, for any purpose,
+-- commercial or non-commercial, and by any means.
+-- In jurisdictions that recognize copyright laws, the author or authors of this
+-- software dedicate any and all copyright interest in the software to the public
+-- domain. We make this dedication for the benefit of the public at large and to
+-- the detriment of our heirs and successors. We intend this dedication to be an
+-- overt act of relinquishment in perpetuity of all present and future rights to
+-- this software under copyright law.
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+-- AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+-- ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+-- WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-------------------------------------------------------------------------------
