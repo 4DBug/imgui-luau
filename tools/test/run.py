@@ -16,6 +16,8 @@ G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, 
 
 def build_run(args, flags):
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle.py"), TMP] + (["--no-demo"] if os.environ.get("NO_DEMO") else []), check=True, stdout=subprocess.DEVNULL)
+    if os.environ.get("MINIFY"):  # test the minified bundle instead (error line numbers won't map back to sources)
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "minify.py"), os.path.join(TMP, "ImGui.luau"), os.path.join(TMP, "ImGui.luau")], check=True, stdout=subprocess.DEVNULL)
     out = ["--" if args.roblox else "--!native", "--!optimize 2", flags, "local SOURCE_FNS = {}"]
     def add(key, path):
         s = "\n".join(l for l in open(path).read().split("\n") if not l.startswith("--!"))
