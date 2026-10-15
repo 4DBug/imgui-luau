@@ -14,18 +14,18 @@ polyline stroker (AddPolyline), Lua-native replacements (ImGuiStorage, ImStr*, I
 upstream file              funcs    ported   by size  similarity     stubs
 imgui.cpp                    786     87.4%     93.5%       75.1%         2
 imgui_widgets.cpp            308     93.8%     98.7%       78.4%         1
-imgui_draw.cpp               258     86.8%     94.4%       61.2%         2
+imgui_draw.cpp               258     96.1%     98.2%       61.1%         1
 imgui_tables.cpp             113     96.5%     99.0%       74.0%         0
 imgui_demo.cpp                56    100.0%    100.0%       55.8%         0
-imgui.h                      110     53.6%     37.4%       60.0%         0
+imgui.h                      110     58.2%     41.7%       60.2%         0
 imgui_internal.h             269     63.2%     67.5%       68.5%         1
-TOTAL                       1900     83.9%     95.6%       70.4%         6
+TOTAL                       1900     85.4%     96.1%       70.3%         5
 
-upstream code reproduced (similarity x ported size / all upstream size):  67.2%
+upstream code reproduced (similarity x ported size / all upstream size):  67.5%
 Public API (imgui.h, namespace ImGui)                 368 /  376   97.9%
 Internal API (imgui_internal.h, namespace ImGui)      417 /  443   94.1%
 Enum values (imgui.h + imgui_internal.h)             1037 / 1078   96.2%
-Struct fields (imgui.h + imgui_internal.h)           1839 / 1926   95.5%
+Struct fields (imgui.h + imgui_internal.h)           1840 / 1926   95.5%
 
 Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)
 
@@ -43,7 +43,7 @@ imgui.cpp
   -- USER FACING STRUCTURES (ImGuiStyle, ImGuiIO, ImGuiPlatformIO)
   [x]   33%  ImGuiStyle::ImGuiStyle                                     imgui_internal.lua:1530          
   [x]   83%  ImGuiStyle::ScaleAllSizes                                  imgui.lua:4779                   
-  [x]   12%  ImGuiIO::ImGuiIO                                           imgui_h.lua:1187                 
+  [x]   12%  ImGuiIO::ImGuiIO                                           imgui_h.lua:1215                 
   [x]   83%  ImGuiIO::AddInputCharacter                                 imgui.lua:7983                   
   [x]   83%  ImGuiIO::AddInputCharacterUTF16                            imgui.lua:8004                   
   [ ]        ImGuiIO::AddInputCharactersUTF8                                                             
@@ -61,7 +61,7 @@ imgui.cpp
   [x]   96%  ImGuiIO::AddMouseSourceEvent                               imgui.lua:8173                   
   [x]   87%  ImGuiIO::AddMouseViewportEvent                             imgui.lua:8180                   
   [x]   84%  ImGuiIO::AddFocusEvent                                     imgui.lua:8209                   
-  [x]   15%  ImGuiPlatformIO::ImGuiPlatformIO                           imgui_h.lua:1525                 
+  [x]   15%  ImGuiPlatformIO::ImGuiPlatformIO                           imgui_h.lua:1553                 
 
   -- MISC HELPERS/UTILITIES (Geometry functions)
   [ ]        ImBezierCubicClosestPoint                                                                   
@@ -148,8 +148,8 @@ imgui.cpp
   [x]   56%  ImGuiTextFilter::PassFilter                                imgui.lua:19454                  
 
   -- ImGuiTextBuffer, ImGuiTextIndex
-  [x]    5%  ImGuiTextBuffer::append                                    imgui_h.lua:2748                 
-  [x]   17%  ImGuiTextBuffer::appendf                                   imgui_h.lua:2749                 
+  [x]    5%  ImGuiTextBuffer::append                                    imgui_h.lua:2776                 
+  [x]   17%  ImGuiTextBuffer::appendf                                   imgui_h.lua:2777                 
   [ ]        ImGuiTextBuffer::appendfv                                                                   
   [ ]        ImGuiTextIndex::append                                                                      
 
@@ -1093,9 +1093,9 @@ imgui_widgets.cpp
   [ ]        ImGuiInputTextState::ReloadUserBufAndSelectAll                                              
   [ ]        ImGuiInputTextState::ReloadUserBufAndKeepSelection                                          
   [ ]        ImGuiInputTextState::ReloadUserBufAndMoveToEnd                                              
-  [x]   18%  ImGuiInputTextCallbackData::ImGuiInputTextCallbackData     imgui_h.lua:2468                 
-  [x]   61%  ImGuiInputTextCallbackData::DeleteChars                    imgui_h.lua:2472                 
-  [x]   33%  ImGuiInputTextCallbackData::InsertChars                    imgui_h.lua:2489                 
+  [x]   18%  ImGuiInputTextCallbackData::ImGuiInputTextCallbackData     imgui_h.lua:2496                 
+  [x]   61%  ImGuiInputTextCallbackData::DeleteChars                    imgui_h.lua:2500                 
+  [x]   33%  ImGuiInputTextCallbackData::InsertChars                    imgui_h.lua:2517                 
   [x]   92%  ImGui::PushPasswordFont                                    imgui_widgets.lua:4843           
   [x]   98%  ImGui::PopPasswordFont                                     imgui_widgets.lua:4858           
   [x]   80%  InputTextFilterCharacter                                   imgui_widgets.lua:4878           
@@ -1275,107 +1275,107 @@ imgui_draw.cpp
   -- ImDrawList
   [x]   30%  ImDrawListSharedData::ImDrawListSharedData                 imgui_internal.lua:1132          
   [-]        ImDrawListSharedData::~ImDrawListSharedData                                                 c++-only
-  [x]   57%  ImDrawListSharedData::SetCircleTessellationMaxError        imgui_draw.lua:3918              
+  [x]   57%  ImDrawListSharedData::SetCircleTessellationMaxError        imgui_draw.lua:4188              
   [x]    6%  ImDrawList::ImDrawList                                     imgui_h.lua:657                  
   [-]        ImDrawList::~ImDrawList                                                                     c++-only
-  [x]   88%  ImDrawList::_SetDrawListSharedData                         imgui_draw.lua:3935              
-  [x]   43%  ImDrawList::_ResetForNewFrame                              imgui_draw.lua:3948              
-  [x]   64%  ImDrawList::_ClearFreeMemory                               imgui_draw.lua:3976              
+  [x]   88%  ImDrawList::_SetDrawListSharedData                         imgui_draw.lua:4205              
+  [x]   43%  ImDrawList::_ResetForNewFrame                              imgui_draw.lua:4218              
+  [x]   64%  ImDrawList::_ClearFreeMemory                               imgui_draw.lua:4246              
   [ ]        ImDrawList::CloneOutput                                                                     
-  [x]   77%  ImDrawList::AddDrawCmd                                     imgui_draw.lua:3995              
-  [x]   88%  ImDrawList::_PopUnusedDrawCmd                              imgui_draw.lua:4012              
-  [x]   57%  ImDrawList::AddCallback                                    imgui_draw.lua:4026              
-  [x]   42%  ImDrawList::_TryMergeDrawCmds                              imgui_draw.lua:4101              
-  [x]   33%  ImDrawList::_OnChangedClipRect                             imgui_draw.lua:4113              
-  [x]   55%  ImDrawList::_OnChangedTexture                              imgui_draw.lua:4140              
-  [x]   91%  ImDrawList::_OnChangedVtxOffset                            imgui_draw.lua:4166              
-  [x]   57%  ImDrawList::_CalcCircleAutoSegmentCount                    imgui_draw.lua:6582              
-  [x]   86%  ImDrawList::PushClipRect                                   imgui_draw.lua:6594              
-  [x]   60%  ImDrawList::PushClipRectFullScreen                         imgui_draw.lua:6617              
-  [x]   39%  ImDrawList::PopClipRect                                    imgui_draw.lua:6622              
-  [x]   67%  ImDrawList::PushTexture                                    imgui_draw.lua:4382              
-  [x]   81%  ImDrawList::PopTexture                                     imgui_draw.lua:4391              
-  [x]   62%  ImDrawList::PushDrawFlag                                   imgui_draw.lua:4400              
-  [x]   85%  ImDrawList::PopDrawFlag                                    imgui_draw.lua:4412              
-  [x]   83%  ImDrawList::_SetTexture                                    imgui_draw.lua:4419              
-  [x]   89%  ImDrawList::_SetPixelDensity                               imgui_draw.lua:4429              
-  [x]   57%  ImDrawList::PrimReserve                                    imgui_draw.lua:4469              = PrimReserve
-  [x]   68%  ImDrawList::PrimUnreserve                                  imgui_draw.lua:4472              
-  [x]    8%  ImDrawList::PrimRect                                       imgui_draw.lua:4519              
-  [x]   13%  ImDrawList::PrimRectUV                                     imgui_draw.lua:4528              
+  [x]   77%  ImDrawList::AddDrawCmd                                     imgui_draw.lua:4265              
+  [x]   88%  ImDrawList::_PopUnusedDrawCmd                              imgui_draw.lua:4282              
+  [x]   57%  ImDrawList::AddCallback                                    imgui_draw.lua:4296              
+  [x]   42%  ImDrawList::_TryMergeDrawCmds                              imgui_draw.lua:4371              
+  [x]   33%  ImDrawList::_OnChangedClipRect                             imgui_draw.lua:4383              
+  [x]   55%  ImDrawList::_OnChangedTexture                              imgui_draw.lua:4410              
+  [x]   91%  ImDrawList::_OnChangedVtxOffset                            imgui_draw.lua:4436              
+  [x]   57%  ImDrawList::_CalcCircleAutoSegmentCount                    imgui_draw.lua:6852              
+  [x]   86%  ImDrawList::PushClipRect                                   imgui_draw.lua:6864              
+  [x]   60%  ImDrawList::PushClipRectFullScreen                         imgui_draw.lua:6887              
+  [x]   39%  ImDrawList::PopClipRect                                    imgui_draw.lua:6892              
+  [x]   67%  ImDrawList::PushTexture                                    imgui_draw.lua:4652              
+  [x]   81%  ImDrawList::PopTexture                                     imgui_draw.lua:4661              
+  [x]   62%  ImDrawList::PushDrawFlag                                   imgui_draw.lua:4670              
+  [x]   85%  ImDrawList::PopDrawFlag                                    imgui_draw.lua:4682              
+  [x]   83%  ImDrawList::_SetTexture                                    imgui_draw.lua:4689              
+  [x]   89%  ImDrawList::_SetPixelDensity                               imgui_draw.lua:4699              
+  [x]   57%  ImDrawList::PrimReserve                                    imgui_draw.lua:4739              = PrimReserve
+  [x]   68%  ImDrawList::PrimUnreserve                                  imgui_draw.lua:4742              
+  [x]    8%  ImDrawList::PrimRect                                       imgui_draw.lua:4789              
+  [x]   13%  ImDrawList::PrimRectUV                                     imgui_draw.lua:4798              
   [ ]        ImDrawList::PrimQuadUV                                                                      
-  [x]   83%  ImDrawList::_CalculateCenterBiasedOffset                   imgui_draw.lua:4566              = _CalculateCenterBiasedOffset
-  [x]   77%  ImAlphaMultiply                                            imgui_draw.lua:3830              
-  [x]   72%  ImDrawList::_SelectLineTexture                             imgui_draw.lua:4601              = _SelectLineTexture
-  [x]   37%  ImDrawList::_AddPolyline                                   imgui_draw.lua:4614              
-  [x]   43%  ImDrawList::AddConvexPolyFilled                            imgui_draw.lua:4984              
-  [x]   59%  CalcCornerArcStepAndCount                                  imgui_draw.lua:3897              
-  [x]   64%  ImDrawList::_PathArcToFastEx                               imgui_draw.lua:6741              
-  [x]   63%  ImDrawList::_PathArcToN                                    imgui_draw.lua:6761              
-  [x]   10%  ImDrawList::PathArcToFast                                  imgui_draw.lua:6747              
-  [x]   46%  ImDrawList::PathArcTo                                      imgui_draw.lua:6787              
-  [x]   61%  ImDrawList::PathEllipticalArcTo                            imgui_draw.lua:7377              
-  [x]   88%  ImBezierCubicCalc                                          imgui_draw.lua:7389              
-  [x]   89%  ImBezierQuadraticCalc                                      imgui_draw.lua:7395              
-  [x]   85%  PathBezierCubicCurveToCasteljau                            imgui_draw.lua:7402              
-  [x]   90%  PathBezierQuadraticCurveToCasteljau                        imgui_draw.lua:7420              
-  [x]   91%  ImDrawList::PathBezierCubicCurveTo                         imgui_draw.lua:7434              
-  [x]   90%  ImDrawList::PathBezierQuadraticCurveTo                     imgui_draw.lua:7446              
-  [x]    8%  ImDrawList::PathRect                                       imgui_draw.lua:5234              
-  [x]   46%  ImDrawList::_AddLine                                       imgui_draw.lua:5366              
-  [x]    4%  ImDrawList::AddLine                                        imgui_draw.lua:5375              
-  [x]    9%  ImDrawList::AddLineH                                       imgui_draw.lua:5403              
-  [x]    9%  ImDrawList::AddLineV                                       imgui_draw.lua:5459              
-  [x]   18%  ImDrawList::_AddRectBaked                                  imgui_draw.lua:5619              
-  [x]   42%  ImDrawList::_AddRectTinyRounding                           imgui_draw.lua:5636              
-  [x]   12%  ImDrawList::AddRect                                        imgui_draw.lua:5762              
-  [x]   10%  ImDrawList::_AddRectFilledBaked                            imgui_draw.lua:5980              
-  [x]   11%  ImDrawList::AddRectFilled                                  imgui_draw.lua:5990              
-  [x]   26%  ImDrawList::AddRectFilledMultiColor                        imgui_draw.lua:6096              
-  [x]   59%  ImDrawList::AddQuad                                        imgui_draw.lua:6119              
-  [x]   71%  ImDrawList::AddQuadFilled                                  imgui_draw.lua:6136              
-  [x]   59%  ImDrawList::AddTriangle                                    imgui_draw.lua:6148              
-  [x]   73%  ImDrawList::AddTriangleFilled                              imgui_draw.lua:6165              
-  [x]  100%  ApproxApothem                                              imgui_draw.lua:3907              
-  [x]   47%  ImDrawList::AddCircle                                      imgui_draw.lua:6181              
-  [x]   32%  ImDrawList::AddCircleFilled                                imgui_draw.lua:6246              
-  [x]   86%  ImDrawList::AddNgon                                        imgui_draw.lua:6284              
-  [x]   95%  ImDrawList::AddNgonFilled                                  imgui_draw.lua:6332              
-  [x]   80%  ImDrawList::AddEllipse                                     imgui_draw.lua:6357              
-  [x]   88%  ImDrawList::AddEllipseFilled                               imgui_draw.lua:6394              
-  [x]   73%  ImDrawList::AddBezierCubic                                 imgui_draw.lua:6435              
-  [x]   71%  ImDrawList::AddBezierQuadratic                             imgui_draw.lua:6451              
-  [x]   65%  ImDrawList::AddText                                        imgui_draw.lua:6476              
-  [x]   69%  ImDrawList::AddImage                                       imgui_draw.lua:6519              
+  [x]   83%  ImDrawList::_CalculateCenterBiasedOffset                   imgui_draw.lua:4836              = _CalculateCenterBiasedOffset
+  [x]   77%  ImAlphaMultiply                                            imgui_draw.lua:4100              
+  [x]   72%  ImDrawList::_SelectLineTexture                             imgui_draw.lua:4871              = _SelectLineTexture
+  [x]   37%  ImDrawList::_AddPolyline                                   imgui_draw.lua:4884              
+  [x]   43%  ImDrawList::AddConvexPolyFilled                            imgui_draw.lua:5254              
+  [x]   59%  CalcCornerArcStepAndCount                                  imgui_draw.lua:4167              
+  [x]   64%  ImDrawList::_PathArcToFastEx                               imgui_draw.lua:7011              
+  [x]   63%  ImDrawList::_PathArcToN                                    imgui_draw.lua:7031              
+  [x]   10%  ImDrawList::PathArcToFast                                  imgui_draw.lua:7017              
+  [x]   46%  ImDrawList::PathArcTo                                      imgui_draw.lua:7057              
+  [x]   61%  ImDrawList::PathEllipticalArcTo                            imgui_draw.lua:7647              
+  [x]   88%  ImBezierCubicCalc                                          imgui_draw.lua:7659              
+  [x]   89%  ImBezierQuadraticCalc                                      imgui_draw.lua:7665              
+  [x]   85%  PathBezierCubicCurveToCasteljau                            imgui_draw.lua:7672              
+  [x]   90%  PathBezierQuadraticCurveToCasteljau                        imgui_draw.lua:7690              
+  [x]   91%  ImDrawList::PathBezierCubicCurveTo                         imgui_draw.lua:7704              
+  [x]   90%  ImDrawList::PathBezierQuadraticCurveTo                     imgui_draw.lua:7716              
+  [x]    8%  ImDrawList::PathRect                                       imgui_draw.lua:5504              
+  [x]   46%  ImDrawList::_AddLine                                       imgui_draw.lua:5636              
+  [x]    4%  ImDrawList::AddLine                                        imgui_draw.lua:5645              
+  [x]    9%  ImDrawList::AddLineH                                       imgui_draw.lua:5673              
+  [x]    9%  ImDrawList::AddLineV                                       imgui_draw.lua:5729              
+  [x]   18%  ImDrawList::_AddRectBaked                                  imgui_draw.lua:5889              
+  [x]   42%  ImDrawList::_AddRectTinyRounding                           imgui_draw.lua:5906              
+  [x]   12%  ImDrawList::AddRect                                        imgui_draw.lua:6032              
+  [x]   10%  ImDrawList::_AddRectFilledBaked                            imgui_draw.lua:6250              
+  [x]   11%  ImDrawList::AddRectFilled                                  imgui_draw.lua:6260              
+  [x]   26%  ImDrawList::AddRectFilledMultiColor                        imgui_draw.lua:6366              
+  [x]   59%  ImDrawList::AddQuad                                        imgui_draw.lua:6389              
+  [x]   71%  ImDrawList::AddQuadFilled                                  imgui_draw.lua:6406              
+  [x]   59%  ImDrawList::AddTriangle                                    imgui_draw.lua:6418              
+  [x]   73%  ImDrawList::AddTriangleFilled                              imgui_draw.lua:6435              
+  [x]  100%  ApproxApothem                                              imgui_draw.lua:4177              
+  [x]   47%  ImDrawList::AddCircle                                      imgui_draw.lua:6451              
+  [x]   32%  ImDrawList::AddCircleFilled                                imgui_draw.lua:6516              
+  [x]   86%  ImDrawList::AddNgon                                        imgui_draw.lua:6554              
+  [x]   95%  ImDrawList::AddNgonFilled                                  imgui_draw.lua:6602              
+  [x]   80%  ImDrawList::AddEllipse                                     imgui_draw.lua:6627              
+  [x]   88%  ImDrawList::AddEllipseFilled                               imgui_draw.lua:6664              
+  [x]   73%  ImDrawList::AddBezierCubic                                 imgui_draw.lua:6705              
+  [x]   71%  ImDrawList::AddBezierQuadratic                             imgui_draw.lua:6721              
+  [x]   65%  ImDrawList::AddText                                        imgui_draw.lua:6746              
+  [x]   69%  ImDrawList::AddImage                                       imgui_draw.lua:6789              
   [ ]        ImDrawList::AddImageQuad                                                                    
-  [x]   84%  ImDrawList::AddImageRounded                                imgui_draw.lua:6549              
+  [x]   84%  ImDrawList::AddImageRounded                                imgui_draw.lua:6819              
 
   -- ImTriangulator, ImDrawList concave polygon fill
-  [x]   35%  ImTriangulatorNode::Unlink                                 imgui_draw.lua:7478              
-  [x]   50%  ImTriangulatorNodeSpan::push_back                          imgui_draw.lua:7491              
-  [x]   66%  ImTriangulatorNodeSpan::find_erase_unsorted                imgui_draw.lua:7492              
-  [x]   84%  ImTriangulator::EstimateTriangleCount                      imgui_draw.lua:7508              
-  [x]   71%  ImTriangulator::EstimateScratchBufferSize                  imgui_draw.lua:7510              
-  [x]   38%  ImTriangulator::Init                                       imgui_draw.lua:7516              
-  [x]   45%  ImTriangulator::BuildNodes                                 imgui_draw.lua:7541              
-  [x]   32%  ImTriangulator::BuildReflexes                              imgui_draw.lua:7554              
-  [x]   38%  ImTriangulator::BuildEars                                  imgui_draw.lua:7566              
-  [x]   53%  ImTriangulator::GetNextTriangle                            imgui_draw.lua:7582              
-  [x]   65%  ImTriangulator::FlipNodeList                               imgui_draw.lua:7620              
-  [x]   56%  ImTriangulator::IsEar                                      imgui_draw.lua:7643              
-  [x]   58%  ImTriangulator::ReclassifyNode                             imgui_draw.lua:7658              
-  [x]   39%  ImDrawList::AddConcavePolyFilled                           imgui_draw.lua:7701              
+  [x]   35%  ImTriangulatorNode::Unlink                                 imgui_draw.lua:7748              
+  [x]   50%  ImTriangulatorNodeSpan::push_back                          imgui_draw.lua:7761              
+  [x]   66%  ImTriangulatorNodeSpan::find_erase_unsorted                imgui_draw.lua:7762              
+  [x]   84%  ImTriangulator::EstimateTriangleCount                      imgui_draw.lua:7778              
+  [x]   71%  ImTriangulator::EstimateScratchBufferSize                  imgui_draw.lua:7780              
+  [x]   38%  ImTriangulator::Init                                       imgui_draw.lua:7786              
+  [x]   45%  ImTriangulator::BuildNodes                                 imgui_draw.lua:7811              
+  [x]   32%  ImTriangulator::BuildReflexes                              imgui_draw.lua:7824              
+  [x]   38%  ImTriangulator::BuildEars                                  imgui_draw.lua:7836              
+  [x]   53%  ImTriangulator::GetNextTriangle                            imgui_draw.lua:7852              
+  [x]   65%  ImTriangulator::FlipNodeList                               imgui_draw.lua:7890              
+  [x]   56%  ImTriangulator::IsEar                                      imgui_draw.lua:7913              
+  [x]   58%  ImTriangulator::ReclassifyNode                             imgui_draw.lua:7928              
+  [x]   39%  ImDrawList::AddConcavePolyFilled                           imgui_draw.lua:7971              
 
   -- ImDrawListSplitter
-  [x]   58%  ImDrawListSplitter::ClearFreeMemory                        imgui_draw.lua:4201              
-  [x]   63%  ImDrawListSplitter::Split                                  imgui_draw.lua:4219              
-  [x]   54%  ImDrawListSplitter::Merge                                  imgui_draw.lua:4245              
-  [x]   29%  ImDrawListSplitter::SetCurrentChannel                      imgui_draw.lua:4336              
+  [x]   58%  ImDrawListSplitter::ClearFreeMemory                        imgui_draw.lua:4471              
+  [x]   63%  ImDrawListSplitter::Split                                  imgui_draw.lua:4489              
+  [x]   54%  ImDrawListSplitter::Merge                                  imgui_draw.lua:4515              
+  [x]   29%  ImDrawListSplitter::SetCurrentChannel                      imgui_draw.lua:4606              
 
   -- ImDrawData
-  [x]   60%  ImDrawData::Clear                                          imgui_draw.lua:3848              
-  [x]   68%  ImGui::AddDrawListToDrawDataEx                             imgui_draw.lua:3861              
-  [x]   94%  ImDrawData::AddDrawList                                    imgui_draw.lua:3883              
+  [x]   60%  ImDrawData::Clear                                          imgui_draw.lua:4118              
+  [x]   68%  ImGui::AddDrawListToDrawDataEx                             imgui_draw.lua:4131              
+  [x]   94%  ImDrawData::AddDrawList                                    imgui_draw.lua:4153              
   [ ]        ImDrawData::DeIndexAllBuffers                                                               
   [ ]        ImDrawData::ScaleClipRects                                                                  
 
@@ -1388,11 +1388,11 @@ imgui_draw.cpp
   [x]   20%  ImFontConfig::ImFontConfig                                 imgui_h.lua:957                  
 
   -- ImTextureData
-  [x]   76%  ImTextureDataGetFormatBytesPerPixel                        imgui_draw.lua:2601              
-  [ ]        ImTextureDataGetStatusName                                                                  
-  [ ]        ImTextureDataGetFormatName                                                                  
-  [x]   80%  ImTextureData::Create                                      imgui_draw.lua:2611              
-  [x]   71%  ImTextureData::DestroyPixels                               imgui_draw.lua:2596              
+  [x]   76%  ImTextureDataGetFormatBytesPerPixel                        imgui_draw.lua:2685              
+  [x]   75%  ImTextureDataGetStatusName                                 imgui_draw.lua:2662              
+  [x]   79%  ImTextureDataGetFormatName                                 imgui_draw.lua:2673              
+  [x]   80%  ImTextureData::Create                                      imgui_draw.lua:2695              
+  [x]   71%  ImTextureData::DestroyPixels                               imgui_draw.lua:2680              
 
   -- ImFontAtlas, ImFontAtlasBuilder
   [x]   39%  ImFontAtlas::ImFontAtlas                                   imgui_h.lua:1038                 
@@ -1403,111 +1403,111 @@ imgui_draw.cpp
   [x]   70%  ImFontAtlas::ClearTexData                                  imgui_draw.lua:602               
   [x]  100%  ImFontAtlas::CompactCache                                  imgui_draw.lua:612               
   [x]  100%  ImFontAtlas::SetFontLoader                                 imgui_draw.lua:580               
-  [x]   81%  ImFontAtlasBuildUpdateRendererHasTexturesFromContext       imgui_draw.lua:1887              
+  [x]   81%  ImFontAtlasBuildUpdateRendererHasTexturesFromContext       imgui_draw.lua:1926              
   [x]   78%  ImFontAtlasUpdateNewFrame                                  imgui_draw.lua:690               
   [x]   93%  ImTextureDataUpdateNewFrame                                imgui_draw.lua:640               
   [x]   44%  ImFontAtlasTextureBlockConvert                             imgui_draw.lua:781               
   [x]  100%  ImFontAtlasTextureBlockPostProcess                         imgui_draw.lua:826               
   [x]   48%  ImFontAtlasTextureBlockPostProcessMultiply                 imgui_draw.lua:835               
-  [ ]        ImFontAtlasTextureBlockFill                                                                 
+  [x]   32%  ImFontAtlasTextureBlockFill                                imgui_draw.lua:893               
   [x]   87%  ImFontAtlasTextureBlockCopy                                imgui_draw.lua:877               
-  [x]  100%  ImFontAtlasTextureBlockQueueUpload                         imgui_draw.lua:926               
-  [x]   99%  ImTextureDataQueueUpload                                   imgui_draw.lua:897               
+  [x]  100%  ImFontAtlasTextureBlockQueueUpload                         imgui_draw.lua:948               
+  [x]   99%  ImTextureDataQueueUpload                                   imgui_draw.lua:919               
   [-]        GetTexDataAsFormat                                                                          obsolete
   [-]        ImFontAtlas::GetTexDataAsAlpha8                                                             obsolete
   [-]        ImFontAtlas::GetTexDataAsRGBA32                                                             obsolete
   [-]        ImFontAtlas::Build                                                                          obsolete
-  [x]   83%  ImFontAtlas::AddFont                                       imgui_draw.lua:3512              
-  [ ]        Decode85Byte                                                                                
-  [ ]        Decode85                                                                                    
-  [x]   35%  GetExpectedContextFontSize                                 imgui_draw.lua:3600              
-  [x]   97%  ImFontAtlas::AddFontDefault                                imgui_draw.lua:3608              
-  [x]   68%  ImFontAtlas::AddFontDefaultBitmap                          imgui_draw.lua:3675              
-  [x]   66%  ImFontAtlas::AddFontDefaultVector                          imgui_draw.lua:3697              
-  [x]   56%  ImFontAtlas::AddFontFromFileTTF                            imgui_draw.lua:3635              
-  [x]   90%  ImFontAtlas::AddFontFromMemoryTTF                          imgui_draw.lua:3616              
-  [~]    0%  ImFontAtlas::AddFontFromMemoryCompressedTTF                imgui_draw.lua:3631              stub
-  [ ]        ImFontAtlas::AddFontFromMemoryCompressedBase85TTF                                           
-  [x]   92%  ImFontAtlasBuildNotifySetFont                              imgui_draw.lua:2523              
-  [ ]        ImFontAtlas::RemoveFont                                                                     
-  [x]   93%  ImFontAtlas::AddCustomRect                                 imgui_draw.lua:3764              
-  [ ]        ImFontAtlas::RemoveCustomRect                                                               
+  [x]   83%  ImFontAtlas::AddFont                                       imgui_draw.lua:3697              
+  [x]   78%  Decode85Byte                                               imgui_draw.lua:3785              
+  [x]   20%  Decode85                                                   imgui_draw.lua:3788              
+  [x]   35%  GetExpectedContextFontSize                                 imgui_draw.lua:3804              
+  [x]   97%  ImFontAtlas::AddFontDefault                                imgui_draw.lua:3812              
+  [x]   68%  ImFontAtlas::AddFontDefaultBitmap                          imgui_draw.lua:3938              
+  [x]   66%  ImFontAtlas::AddFontDefaultVector                          imgui_draw.lua:3960              
+  [x]   56%  ImFontAtlas::AddFontFromFileTTF                            imgui_draw.lua:3898              
+  [x]   90%  ImFontAtlas::AddFontFromMemoryTTF                          imgui_draw.lua:3820              
+  [x]   49%  ImFontAtlas::AddFontFromMemoryCompressedTTF                imgui_draw.lua:3836              
+  [x]   87%  ImFontAtlas::AddFontFromMemoryCompressedBase85TTF          imgui_draw.lua:3860              
+  [x]   92%  ImFontAtlasBuildNotifySetFont                              imgui_draw.lua:2562              
+  [x]   69%  ImFontAtlas::RemoveFont                                    imgui_draw.lua:3869              
+  [x]   93%  ImFontAtlas::AddCustomRect                                 imgui_draw.lua:4027              
+  [x]  100%  ImFontAtlas::RemoveCustomRect                              imgui_draw.lua:4051              
   [-]        ImFontAtlas::AddCustomRectFontGlyph                                                         obsolete
   [-]        ImFontAtlas::AddCustomRectFontGlyphForSize                                                  obsolete
-  [x]   93%  ImFontAtlas::GetCustomRect                                 imgui_draw.lua:3716              
-  [x]   78%  ImFontAtlasGetMouseCursorTexData                           imgui_draw.lua:3741              
-  [x]   87%  ImFontAtlasBuildMain                                       imgui_draw.lua:2565              
-  [x]   80%  ImFontAtlasBuildGetOversampleFactors                       imgui_draw.lua:951               
-  [x]   91%  ImFontAtlasBuildSetupFontLoader                            imgui_draw.lua:1857              
-  [ ]        ImFontAtlasBuildLegacyPreloadAllGlyphRanges                                                 
-  [~]    0%  ImFontAtlasBuildUpdatePointers                             imgui_draw.lua:1903              stub
-  [x]   52%  ImFontAtlasBuildRenderBitmapFromString                     imgui_draw.lua:2392              
-  [x]   91%  ImFontAtlasBuildUpdateTexDataBasic                         imgui_draw.lua:2423              
-  [x]   58%  InitCornerGeometry                                         imgui_draw.lua:2088              
-  [x]   78%  SampleConvex                                               imgui_draw.lua:2135              
-  [x]   96%  SampleCornerFillOrStroke                                   imgui_draw.lua:2146              
-  [x]   73%  ImFontAtlasBuildUpdateTexDataCorners                       imgui_draw.lua:2162              
-  [x]   64%  ImFontAtlasBuildUpdateTexDataLines                         imgui_draw.lua:2252              
-  [x]   89%  ImFontAtlasFontInitOutput                                  imgui_draw.lua:1681              
-  [x]   86%  ImFontAtlasFontDestroyOutput                               imgui_draw.lua:1693              
-  [ ]        ImFontAtlasFontRebuildOutput                                                                
-  [x]   94%  ImFontAtlasFontSourceInit                                  imgui_draw.lua:1706              
-  [x]   95%  ImFontAtlasFontSourceAddToFont                             imgui_draw.lua:1717              
-  [x]   54%  ImFontAtlasFontDestroySourceData                           imgui_draw.lua:1730              
-  [x]   95%  ImFontAtlasBuildSetupFontBakedEllipsis                     imgui_draw.lua:1792              
-  [x]   91%  ImFontAtlasBuildSetupFontBakedFallback                     imgui_draw.lua:1836              
-  [x]   88%  ImFontAtlasBuildSetupFontBakedBlanks                       imgui_draw.lua:1528              
-  [x]   90%  ImFontAtlasBuildSetupFontSpecialGlyphs                     imgui_draw.lua:1748              
-  [ ]        ImFontAtlasBakedDiscardFontGlyph                                                            
-  [x]   81%  ImFontAtlasBakedAdd                                        imgui_draw.lua:1551              
-  [x]   89%  ImFontAtlasBakedGetClosestMatch                            imgui_draw.lua:1588              
-  [x]   74%  ImFontAtlasBakedDiscard                                    imgui_draw.lua:1630              
-  [x]   83%  ImFontAtlasFontDiscardBakes                                imgui_draw.lua:1659              
-  [x]   83%  ImFontAtlasBuildDiscardBakes                               imgui_draw.lua:968               
-  [x]   92%  ImFontAtlasAddDrawListSharedData                           imgui_draw.lua:991               
-  [x]   92%  ImFontAtlasRemoveDrawListSharedData                        imgui_draw.lua:998               
-  [x]   79%  ImFontAtlasUpdateDrawListsTextures                         imgui_draw.lua:1916              
-  [x]   94%  ImFontAtlasUpdateDrawListsSharedData                       imgui_draw.lua:2454              
-  [x]   98%  ImFontAtlasBuildSetTexture                                 imgui_draw.lua:1945              
-  [x]  100%  ImFontAtlasBuildUpdateTexData                              imgui_draw.lua:1955              
-  [x]   91%  ImFontAtlasTextureAdd                                      imgui_draw.lua:1962              
+  [x]   93%  ImFontAtlas::GetCustomRect                                 imgui_draw.lua:3979              
+  [x]   78%  ImFontAtlasGetMouseCursorTexData                           imgui_draw.lua:4004              
+  [x]   87%  ImFontAtlasBuildMain                                       imgui_draw.lua:2604              
+  [x]   80%  ImFontAtlasBuildGetOversampleFactors                       imgui_draw.lua:973               
+  [x]   91%  ImFontAtlasBuildSetupFontLoader                            imgui_draw.lua:1896              
+  [x]   76%  ImFontAtlasBuildLegacyPreloadAllGlyphRanges                imgui_draw.lua:2629              
+  [~]    0%  ImFontAtlasBuildUpdatePointers                             imgui_draw.lua:1942              stub
+  [x]   52%  ImFontAtlasBuildRenderBitmapFromString                     imgui_draw.lua:2431              
+  [x]   91%  ImFontAtlasBuildUpdateTexDataBasic                         imgui_draw.lua:2462              
+  [x]   58%  InitCornerGeometry                                         imgui_draw.lua:2127              
+  [x]   78%  SampleConvex                                               imgui_draw.lua:2174              
+  [x]   96%  SampleCornerFillOrStroke                                   imgui_draw.lua:2185              
+  [x]   73%  ImFontAtlasBuildUpdateTexDataCorners                       imgui_draw.lua:2201              
+  [x]   64%  ImFontAtlasBuildUpdateTexDataLines                         imgui_draw.lua:2291              
+  [x]   89%  ImFontAtlasFontInitOutput                                  imgui_draw.lua:1715              
+  [x]   86%  ImFontAtlasFontDestroyOutput                               imgui_draw.lua:1727              
+  [x]  100%  ImFontAtlasFontRebuildOutput                               imgui_draw.lua:1737              
+  [x]   94%  ImFontAtlasFontSourceInit                                  imgui_draw.lua:1745              
+  [x]   95%  ImFontAtlasFontSourceAddToFont                             imgui_draw.lua:1756              
+  [x]   54%  ImFontAtlasFontDestroySourceData                           imgui_draw.lua:1769              
+  [x]   95%  ImFontAtlasBuildSetupFontBakedEllipsis                     imgui_draw.lua:1831              
+  [x]   91%  ImFontAtlasBuildSetupFontBakedFallback                     imgui_draw.lua:1875              
+  [x]   88%  ImFontAtlasBuildSetupFontBakedBlanks                       imgui_draw.lua:1550              
+  [x]   90%  ImFontAtlasBuildSetupFontSpecialGlyphs                     imgui_draw.lua:1787              
+  [x]   70%  ImFontAtlasBakedDiscardFontGlyph                           imgui_draw.lua:1568              
+  [x]   81%  ImFontAtlasBakedAdd                                        imgui_draw.lua:1585              
+  [x]   89%  ImFontAtlasBakedGetClosestMatch                            imgui_draw.lua:1622              
+  [x]   74%  ImFontAtlasBakedDiscard                                    imgui_draw.lua:1664              
+  [x]   83%  ImFontAtlasFontDiscardBakes                                imgui_draw.lua:1693              
+  [x]   83%  ImFontAtlasBuildDiscardBakes                               imgui_draw.lua:990               
+  [x]   92%  ImFontAtlasAddDrawListSharedData                           imgui_draw.lua:1013              
+  [x]   92%  ImFontAtlasRemoveDrawListSharedData                        imgui_draw.lua:1020              
+  [x]   79%  ImFontAtlasUpdateDrawListsTextures                         imgui_draw.lua:1955              
+  [x]   94%  ImFontAtlasUpdateDrawListsSharedData                       imgui_draw.lua:2493              
+  [x]   98%  ImFontAtlasBuildSetTexture                                 imgui_draw.lua:1984              
+  [x]  100%  ImFontAtlasBuildUpdateTexData                              imgui_draw.lua:1994              
+  [x]   91%  ImFontAtlasTextureAdd                                      imgui_draw.lua:2001              
   [-]        ImFontAtlasDebugWriteTexToDisk                                                              if0
-  [x]   91%  ImFontAtlasTextureRepack                                   imgui_draw.lua:1006              
-  [x]   94%  ImFontAtlasTextureGrow                                     imgui_draw.lua:1088              
-  [x]   99%  ImFontAtlasTextureMakeSpace                                imgui_draw.lua:1127              
-  [x]   96%  ImFontAtlasTextureGetSizeEstimate                          imgui_draw.lua:1997              
-  [x]   85%  ImFontAtlasBuildClear                                      imgui_draw.lua:2032              
-  [x]   95%  ImFontAtlasTextureCompact                                  imgui_draw.lua:2050              
-  [x]   93%  ImFontAtlasBuildInit                                       imgui_draw.lua:2465              
-  [x]   91%  ImFontAtlasBuildDestroy                                    imgui_draw.lua:2507              
-  [x]   75%  ImFontAtlasPackInit                                        imgui_draw.lua:2065              
-  [x]   85%  ImFontAtlasPackAllocRectEntry                              imgui_draw.lua:1144              
-  [x]   93%  ImFontAtlasPackReuseRectEntry                              imgui_draw.lua:1168              
-  [x]   82%  ImFontAtlasPackDiscardRect                                 imgui_draw.lua:1178              
-  [x]   91%  ImFontAtlasPackAddRect                                     imgui_draw.lua:1206              
-  [x]   75%  ImFontAtlasPackGetRect                                     imgui_draw.lua:1257              
-  [x]   82%  ImFontAtlasPackGetRectSafe                                 imgui_draw.lua:1272              
-  [x]   66%  ImFontAtlasBuildAcceptCodepointForSource                   imgui_draw.lua:1297              
-  [x]   97%  ImFontBaked_BuildGrowIndex                                 imgui_draw.lua:1315              
-  [ ]        ImFont::AddRemapCodepoint                                                                   
+  [x]   91%  ImFontAtlasTextureRepack                                   imgui_draw.lua:1028              
+  [x]   94%  ImFontAtlasTextureGrow                                     imgui_draw.lua:1110              
+  [x]   99%  ImFontAtlasTextureMakeSpace                                imgui_draw.lua:1149              
+  [x]   96%  ImFontAtlasTextureGetSizeEstimate                          imgui_draw.lua:2036              
+  [x]   85%  ImFontAtlasBuildClear                                      imgui_draw.lua:2071              
+  [x]   95%  ImFontAtlasTextureCompact                                  imgui_draw.lua:2089              
+  [x]   93%  ImFontAtlasBuildInit                                       imgui_draw.lua:2504              
+  [x]   91%  ImFontAtlasBuildDestroy                                    imgui_draw.lua:2546              
+  [x]   75%  ImFontAtlasPackInit                                        imgui_draw.lua:2104              
+  [x]   85%  ImFontAtlasPackAllocRectEntry                              imgui_draw.lua:1166              
+  [x]   93%  ImFontAtlasPackReuseRectEntry                              imgui_draw.lua:1190              
+  [x]   82%  ImFontAtlasPackDiscardRect                                 imgui_draw.lua:1200              
+  [x]   91%  ImFontAtlasPackAddRect                                     imgui_draw.lua:1228              
+  [x]   75%  ImFontAtlasPackGetRect                                     imgui_draw.lua:1279              
+  [x]   82%  ImFontAtlasPackGetRectSafe                                 imgui_draw.lua:1294              
+  [x]   66%  ImFontAtlasBuildAcceptCodepointForSource                   imgui_draw.lua:1319              
+  [x]   97%  ImFontBaked_BuildGrowIndex                                 imgui_draw.lua:1337              
+  [x]   69%  ImFont::AddRemapCodepoint                                  imgui_draw.lua:3037              
   [ ]        ImFont::AddRemapCodepointToGlyphIndex                                                       
-  [x]   29%  ImFontAtlas_FontHookRemapCodepoint                         imgui_draw.lua:2873              
-  [x]   70%  ImFontBaked_BuildLoadGlyph                                 imgui_draw.lua:2888              
-  [x]   77%  ImFontBaked_BuildLoadGlyphAdvanceX                         imgui_draw.lua:2968              
-  [x]   67%  BuildLoadGlyphGetAdvanceOrFallback                         imgui_draw.lua:3013              
+  [x]   26%  ImFontAtlas_FontHookRemapCodepoint                         imgui_draw.lua:3048              
+  [x]   70%  ImFontBaked_BuildLoadGlyph                                 imgui_draw.lua:3063              
+  [x]   77%  ImFontBaked_BuildLoadGlyphAdvanceX                         imgui_draw.lua:3143              
+  [x]   67%  BuildLoadGlyphGetAdvanceOrFallback                         imgui_draw.lua:3188              
   [ ]        ImFontAtlasDebugLogTextureRequests                                                          
 
   -- ImFontAtlas: backend for stb_truetype
-  [x]   84%  ImGui_ImplStbTrueType_FontSrcInit                          imgui_draw.lua:1351              
-  [x]   53%  ImGui_ImplStbTrueType_FontSrcDestroy                       imgui_draw.lua:1386              
+  [x]   84%  ImGui_ImplStbTrueType_FontSrcInit                          imgui_draw.lua:1373              
+  [x]   53%  ImGui_ImplStbTrueType_FontSrcDestroy                       imgui_draw.lua:1408              
   [ ]        ImGui_ImplStbTrueType_FontSrcGetGlyphIndexFromCodepoint                                     
-  [x]   43%  ImGui_ImplStbTrueType_FontSrcContainsGlyph                 imgui_draw.lua:1391              
-  [x]   88%  ImGui_ImplStbTrueType_FontBakedInit                        imgui_draw.lua:1400              
-  [x]   85%  ImGui_ImplStbTrueType_FontBakedLoadGlyph                   imgui_draw.lua:1427              
-  [x]   74%  ImFontAtlasGetFontLoaderForStbTruetype                     imgui_draw.lua:1511              
+  [x]   43%  ImGui_ImplStbTrueType_FontSrcContainsGlyph                 imgui_draw.lua:1413              
+  [x]   88%  ImGui_ImplStbTrueType_FontBakedInit                        imgui_draw.lua:1422              
+  [x]   85%  ImGui_ImplStbTrueType_FontBakedLoadGlyph                   imgui_draw.lua:1449              
+  [x]   74%  ImFontAtlasGetFontLoaderForStbTruetype                     imgui_draw.lua:1533              
 
   -- ImFontAtlas: glyph ranges helpers
-  [ ]        ImFontAtlas::GetGlyphRangesDefault                                                          
+  [x]   15%  ImFontAtlas::GetGlyphRangesDefault                         imgui_draw.lua:2729              
   [-]        ImFontAtlas::GetGlyphRangesGreek                                                            obsolete
   [-]        ImFontAtlas::GetGlyphRangesKorean                                                           obsolete
   [-]        ImFontAtlas::GetGlyphRangesChineseFull                                                      obsolete
@@ -1519,59 +1519,59 @@ imgui_draw.cpp
   [-]        ImFontAtlas::GetGlyphRangesVietnamese                                                       obsolete
 
   -- ImFontGlyphRangesBuilder
-  [ ]        ImFontGlyphRangesBuilder::AddText                                                           
-  [ ]        ImFontGlyphRangesBuilder::AddRanges                                                         
-  [ ]        ImFontGlyphRangesBuilder::BuildRanges                                                       
+  [x]   64%  ImFontGlyphRangesBuilder::AddText                          imgui_draw.lua:2739              
+  [x]   52%  ImFontGlyphRangesBuilder::AddRanges                        imgui_draw.lua:2755              
+  [x]   78%  ImFontGlyphRangesBuilder::BuildRanges                      imgui_draw.lua:2768              
 
   -- ImFontBaked, ImFont
   [x]   12%  ImFontBaked::ImFontBaked                                   imgui_h.lua:844                  
-  [x]   79%  ImFontBaked::ClearOutputData                               imgui_draw.lua:2636              
+  [x]   79%  ImFontBaked::ClearOutputData                               imgui_draw.lua:2788              
   [x]   10%  ImFont::ImFont                                             imgui_h.lua:901                  
   [-]        ImFont::~ImFont                                                                             c++-only
-  [x]   49%  ImFont::ClearOutputData                                    imgui_draw.lua:2690              
-  [ ]        ImFont::IsGlyphRangeUnused                                                                  
-  [x]   87%  ImFontAtlasBakedAddFontGlyph                               imgui_draw.lua:2756              
-  [x]   87%  ImFontAtlasBakedAddFontGlyphAdvancedX                      imgui_draw.lua:2814              
-  [x]   84%  ImFontAtlasBakedSetFontGlyphBitmap                         imgui_draw.lua:940               
-  [x]   85%  ImFontBaked::FindGlyph                                     imgui_draw.lua:2650              
-  [x]   88%  ImFontBaked::FindGlyphNoFallback                           imgui_draw.lua:2673              
-  [x]   49%  ImFontBaked::IsGlyphLoaded                                 imgui_draw.lua:2665              
-  [x]   50%  ImFont::IsGlyphInFont                                      imgui_draw.lua:2985              
-  [x]   86%  ImFontBaked::GetCharAdvance                                imgui_draw.lua:3001              
-  [x]   46%  ImFontAtlasBakedGetId                                      imgui_draw.lua:2705              
-  [x]   90%  ImFont::GetFontBaked                                       imgui_draw.lua:2839              
-  [x]   91%  ImFontAtlasBakedGetOrAdd                                   imgui_draw.lua:2715              
-  [x]   55%  ImTextCalcWordWrapNextLineStart                            imgui_draw.lua:3023              
-  [x]   81%  ImTextClassifierClear                                      imgui_draw.lua:3043              
-  [x]   53%  ImTextClassifierSetCharClass                               imgui_draw.lua:3054              
-  [x]   60%  ImTextClassifierSetCharClassFromStr                        imgui_draw.lua:3062              
-  [x]   88%  ImTextInitClassifiers                                      imgui_draw.lua:3080              
-  [x]   35%  ImFontCalcWordWrapPositionEx                               imgui_draw.lua:3111              
-  [ ]        ImFont::CalcWordWrapPosition                                                                
-  [x]   49%  ImFontCalcTextSizeEx                                       imgui_draw.lua:3285              
-  [x]   91%  ImFont::CalcTextSizeA                                      imgui_draw.lua:3446              
-  [x]   85%  ImFont::RenderChar                                         imgui_draw.lua:3459              
-  [x]   66%  ImFont::RenderText                                         imgui_draw.lua:6853              
+  [x]   49%  ImFont::ClearOutputData                                    imgui_draw.lua:2842              
+  [x]   58%  ImFont::IsGlyphRangeUnused                                 imgui_draw.lua:2855              
+  [x]   87%  ImFontAtlasBakedAddFontGlyph                               imgui_draw.lua:2923              
+  [x]   87%  ImFontAtlasBakedAddFontGlyphAdvancedX                      imgui_draw.lua:2981              
+  [x]   84%  ImFontAtlasBakedSetFontGlyphBitmap                         imgui_draw.lua:962               
+  [x]   85%  ImFontBaked::FindGlyph                                     imgui_draw.lua:2802              
+  [x]   88%  ImFontBaked::FindGlyphNoFallback                           imgui_draw.lua:2825              
+  [x]   49%  ImFontBaked::IsGlyphLoaded                                 imgui_draw.lua:2817              
+  [x]   50%  ImFont::IsGlyphInFont                                      imgui_draw.lua:3160              
+  [x]   86%  ImFontBaked::GetCharAdvance                                imgui_draw.lua:3176              
+  [x]   46%  ImFontAtlasBakedGetId                                      imgui_draw.lua:2872              
+  [x]   90%  ImFont::GetFontBaked                                       imgui_draw.lua:3006              
+  [x]   91%  ImFontAtlasBakedGetOrAdd                                   imgui_draw.lua:2882              
+  [x]   55%  ImTextCalcWordWrapNextLineStart                            imgui_draw.lua:3198              
+  [x]   81%  ImTextClassifierClear                                      imgui_draw.lua:3218              
+  [x]   53%  ImTextClassifierSetCharClass                               imgui_draw.lua:3229              
+  [x]   60%  ImTextClassifierSetCharClassFromStr                        imgui_draw.lua:3237              
+  [x]   88%  ImTextInitClassifiers                                      imgui_draw.lua:3255              
+  [x]   35%  ImFontCalcWordWrapPositionEx                               imgui_draw.lua:3286              
+  [x]   93%  ImFont::CalcWordWrapPosition                               imgui_draw.lua:3451              
+  [x]   49%  ImFontCalcTextSizeEx                                       imgui_draw.lua:3470              
+  [x]   91%  ImFont::CalcTextSizeA                                      imgui_draw.lua:3631              
+  [x]   85%  ImFont::RenderChar                                         imgui_draw.lua:3644              
+  [x]   66%  ImFont::RenderText                                         imgui_draw.lua:7123              
 
   -- ImGui Internal Render Helpers
-  [x]   58%  ImGui::RenderArrow                                         imgui_draw.lua:7100              
-  [x]   88%  ImGui::RenderBullet                                        imgui_draw.lua:7132              
-  [x]   66%  ImGui::RenderCheckMark                                     imgui_draw.lua:7144              
-  [x]   90%  ImGui::RenderArrowPointingAt                               imgui_draw.lua:7169              
+  [x]   58%  ImGui::RenderArrow                                         imgui_draw.lua:7370              
+  [x]   88%  ImGui::RenderBullet                                        imgui_draw.lua:7402              
+  [x]   66%  ImGui::RenderCheckMark                                     imgui_draw.lua:7414              
+  [x]   90%  ImGui::RenderArrowPointingAt                               imgui_draw.lua:7439              
   [x]   93%  ImGui::RenderArrowDockMenu                                 imgui.lua:4551                   
-  [x]  100%  ImAcos01                                                   imgui_draw.lua:7182              
-  [x]   95%  ImGui::RenderRectFilledInRangeH                            imgui_draw.lua:7198              
-  [x]   80%  ImGui::RenderRectFilledWithHole                            imgui_draw.lua:7355              
-  [x]   81%  ImGui::CalcRoundingFlagsForRectInRect                      imgui_draw.lua:7253              
-  [x]   79%  ImGui::RenderColorRectWithAlphaCheckerboard                imgui_draw.lua:7289              
+  [x]  100%  ImAcos01                                                   imgui_draw.lua:7452              
+  [x]   95%  ImGui::RenderRectFilledInRangeH                            imgui_draw.lua:7468              
+  [x]   80%  ImGui::RenderRectFilledWithHole                            imgui_draw.lua:7625              
+  [x]   81%  ImGui::CalcRoundingFlagsForRectInRect                      imgui_draw.lua:7523              
+  [x]   79%  ImGui::RenderColorRectWithAlphaCheckerboard                imgui_draw.lua:7559              
 
   -- Decompression code
-  [ ]        stb_decompress_length                                                                       
-  [ ]        stb__match                                                                                  
-  [ ]        stb__lit                                                                                    
-  [ ]        stb_decompress_token                                                                        
-  [ ]        stb_adler32                                                                                 
-  [ ]        stb_decompress                                                                              
+  [x]   59%  stb_decompress_length                                      imgui_draw.lua:8085              
+  [x]   49%  stb__match                                                 imgui_draw.lua:8093              
+  [x]   80%  stb__lit                                                   imgui_draw.lua:8109              
+  [x]   50%  stb_decompress_token                                       imgui_draw.lua:8121              
+  [x]   34%  stb_adler32                                                imgui_draw.lua:8142              
+  [x]   44%  stb_decompress                                             imgui_draw.lua:8164              
 
   -- Default font data (ProggyClean.ttf)
   [ ]        ImGui_GetDefaultCompressedFontDataProggyClean                                               
@@ -1909,16 +1909,16 @@ imgui.h
   [ ]        IM_MSVC_RUNTIME_CHECKS_OFF::index_from_ptr                                                  
 
   -- Misc data structures (ImGuiInputTextCallbackData, ImGuiSizeCallbackData, ImGuiPayload)
-  [x]   80%  ImGuiInputTextCallbackData::SelectAll                      imgui_h.lua:2518                 
+  [x]   80%  ImGuiInputTextCallbackData::SelectAll                      imgui_h.lua:2546                 
   [ ]        ImGuiInputTextCallbackData::SetSelection                                                    
-  [x]   83%  ImGuiInputTextCallbackData::ClearSelection                 imgui_h.lua:2519                 
-  [x]   89%  ImGuiInputTextCallbackData::HasSelection                   imgui_h.lua:2520                 
-  [x]   29%  ImGuiWindowClass::ImGuiWindowClass                         imgui_h.lua:2384                 
-  [x]    0%  ImGuiPayload::ImGuiPayload                                 imgui_h.lua:2728                 
-  [x]   61%  ImGuiPayload::Clear                                        imgui_h.lua:2724                 
-  [x]   55%  ImGuiPayload::IsDataType                                   imgui_h.lua:2725                 
-  [x]  100%  ImGuiPayload::IsPreview                                    imgui_h.lua:2726                 
-  [x]  100%  ImGuiPayload::IsDelivery                                   imgui_h.lua:2727                 
+  [x]   83%  ImGuiInputTextCallbackData::ClearSelection                 imgui_h.lua:2547                 
+  [x]   89%  ImGuiInputTextCallbackData::HasSelection                   imgui_h.lua:2548                 
+  [x]   29%  ImGuiWindowClass::ImGuiWindowClass                         imgui_h.lua:2412                 
+  [x]    0%  ImGuiPayload::ImGuiPayload                                 imgui_h.lua:2756                 
+  [x]   61%  ImGuiPayload::Clear                                        imgui_h.lua:2752                 
+  [x]   55%  ImGuiPayload::IsDataType                                   imgui_h.lua:2753                 
+  [x]  100%  ImGuiPayload::IsPreview                                    imgui_h.lua:2754                 
+  [x]  100%  ImGuiPayload::IsDelivery                                   imgui_h.lua:2755                 
 
   -- Helpers (ImGuiOnceUponAFrame, ImGuiTextFilter, ImGuiTextBuffer, ImGuiStorage, ImGuiListClipper, Math Operators, ImColor)
   [ ]        ImGuiOnceUponAFrame::ImGuiOnceUponAFrame                                                    
@@ -1926,15 +1926,15 @@ imgui.h
   [x]   80%  ImGuiTextFilter::Clear                                     imgui.lua:19388                  
   [x]  100%  ImGuiTextFilter::IsActive                                  imgui.lua:19389                  
   [-]        ImGuiTextFilter::Draw                                                                       obsolete
-  [x]    0%  ImGuiTextBuffer::ImGuiTextBuffer                           imgui_h.lua:2745                 
+  [x]    0%  ImGuiTextBuffer::ImGuiTextBuffer                           imgui_h.lua:2773                 
   [ ]        ImGuiTextBuffer::begin                                                                      
   [ ]        ImGuiTextBuffer::end                                                                        
-  [x]   14%  ImGuiTextBuffer::size                                      imgui_h.lua:2751                 
-  [x]   33%  ImGuiTextBuffer::empty                                     imgui_h.lua:2747                 
-  [x]   40%  ImGuiTextBuffer::clear                                     imgui_h.lua:2746                 
+  [x]   14%  ImGuiTextBuffer::size                                      imgui_h.lua:2779                 
+  [x]   33%  ImGuiTextBuffer::empty                                     imgui_h.lua:2775                 
+  [x]   40%  ImGuiTextBuffer::clear                                     imgui_h.lua:2774                 
   [ ]        ImGuiTextBuffer::resize                                                                     
   [ ]        ImGuiTextBuffer::reserve                                                                    
-  [x]   31%  ImGuiTextBuffer::c_str                                     imgui_h.lua:2750                 
+  [x]   31%  ImGuiTextBuffer::c_str                                     imgui_h.lua:2778                 
   [ ]        ImGuiStoragePair::ImGuiStoragePair                                                          
   [ ]        ImGuiStorage::Clear                                                                         
   [x]  100%  ImGuiListClipper::IncludeItemByIndex                       imgui.lua:19619                  
@@ -1948,7 +1948,7 @@ imgui.h
   [-]        operator/=                                                                                  c++-only
   [-]        operator==                                                                                  c++-only
   [-]        operator!=                                                                                  c++-only
-  [x]   n/a  IM_MSVC_RUNTIME_CHECKS_RESTORE::ImColor                    imgui_h.lua:2761                 = setmetatable ( { } , {
+  [x]   n/a  IM_MSVC_RUNTIME_CHECKS_RESTORE::ImColor                    imgui_h.lua:2789                 = setmetatable ( { } , {
   [-]        IM_MSVC_RUNTIME_CHECKS_RESTORE::operatorImU32                                               c++-only
   [-]        IM_MSVC_RUNTIME_CHECKS_RESTORE::operatorImVec4                                              c++-only
   [ ]        IM_MSVC_RUNTIME_CHECKS_RESTORE::SetHSV                                                      
@@ -1961,7 +1961,7 @@ imgui.h
   [x]   14%  ImDrawCmd::ImDrawCmd                                       imgui_h.lua:507                  
   [x]   18%  ImDrawListSplitter::ImDrawListSplitter                     imgui_h.lua:594                  
   [-]        ImDrawListSplitter::~ImDrawListSplitter                                                     c++-only
-  [x]   92%  ImDrawListSplitter::Clear                                  imgui_draw.lua:4196              
+  [x]   92%  ImDrawListSplitter::Clear                                  imgui_draw.lua:4466              
   [ ]        ImDrawList::GetClipRectMin                                                                  
   [ ]        ImDrawList::GetClipRectMax                                                                  
   [x]   80%  ImDrawList::AddPolyline                                    imgui_internal.lua:1089          
@@ -1969,11 +1969,11 @@ imgui.h
   [x]   16%  ImDrawList::PathLineTo                                     imgui_internal.lua:1045          
   [x]   48%  ImDrawList::PathLineToMergeDuplicate                       imgui_internal.lua:1055          
   [x]   94%  ImDrawList::PathFillConvex                                 imgui_internal.lua:1065          
-  [x]   94%  ImDrawList::PathFillConcave                                imgui_draw.lua:7795              
+  [x]   94%  ImDrawList::PathFillConcave                                imgui_draw.lua:8065              
   [x]   75%  ImDrawList::PathStroke                                     imgui_internal.lua:1073          
-  [x]   89%  ImDrawList::ChannelsSplit                                  imgui_draw.lua:4377              
-  [x]   80%  ImDrawList::ChannelsMerge                                  imgui_draw.lua:4378              
-  [x]   89%  ImDrawList::ChannelsSetCurrent                             imgui_draw.lua:4380              
+  [x]   89%  ImDrawList::ChannelsSplit                                  imgui_draw.lua:4647              
+  [x]   80%  ImDrawList::ChannelsMerge                                  imgui_draw.lua:4648              
+  [x]   89%  ImDrawList::ChannelsSetCurrent                             imgui_draw.lua:4650              
   [x]   16%  ImDrawList::PrimWriteVtx                                   imgui_h.lua:631                  
   [x]   44%  ImDrawList::PrimWriteIdx                                   imgui_h.lua:641                  
   [x]   89%  ImDrawList::PrimVtx                                        imgui_h.lua:649                  
@@ -1996,11 +1996,11 @@ imgui.h
 
   -- Font API (ImFontConfig, ImFontGlyph, ImFontAtlasFlags, ImFontAtlas, ImFontGlyphRangesBuilder, ImFont)
   [x]   21%  ImFontGlyph::ImFontGlyph                                   imgui_h.lua:1126                 
-  [ ]        ImFontGlyphRangesBuilder::ImFontGlyphRangesBuilder                                          
-  [ ]        ImFontGlyphRangesBuilder::Clear                                                             
-  [ ]        ImFontGlyphRangesBuilder::GetBit                                                            
-  [ ]        ImFontGlyphRangesBuilder::SetBit                                                            
-  [ ]        ImFontGlyphRangesBuilder::AddChar                                                           
+  [x]   13%  ImFontGlyphRangesBuilder::ImFontGlyphRangesBuilder         imgui_h.lua:1150                 
+  [x]   63%  ImFontGlyphRangesBuilder::Clear                            imgui_h.lua:1156                 
+  [x]   68%  ImFontGlyphRangesBuilder::GetBit                           imgui_h.lua:1163                 
+  [x]   51%  ImFontGlyphRangesBuilder::SetBit                           imgui_h.lua:1165                 
+  [x]  100%  ImFontGlyphRangesBuilder::AddChar                          imgui_h.lua:1167                 
   [x]   14%  ImFontAtlasRect::ImFontAtlasRect                           imgui_h.lua:1098                 
   [-]        ImFontAtlas::SetTexID                                                                       obsolete
   [-]        ImFontAtlas::IsBuilt                                                                        obsolete
@@ -2014,14 +2014,14 @@ imgui.h
   [ ]        ImDrawCmd::GetTexID                                                                         
 
   -- Viewports
-  [x]    7%  ImGuiViewport::ImGuiViewport                               imgui_h.lua:1491                 
+  [x]    7%  ImGuiViewport::ImGuiViewport                               imgui_h.lua:1519                 
   [-]        ImGuiViewport::~ImGuiViewport                                                               c++-only
-  [x]   90%  ImGuiViewport::GetCenter                                   imgui_h.lua:1481                 
-  [x]   90%  ImGuiViewport::GetWorkCenter                               imgui_h.lua:1485                 
+  [x]   90%  ImGuiViewport::GetCenter                                   imgui_h.lua:1509                 
+  [x]   90%  ImGuiViewport::GetWorkCenter                               imgui_h.lua:1513                 
 
   -- ImGuiPlatformIO + other Platform Dependent Interfaces (ImGuiPlatformMonitor, ImGuiPlatformImeData)
-  [x]   42%  ImGuiPlatformMonitor::ImGuiPlatformMonitor                 imgui_h.lua:1585                 
-  [x]   24%  ImGuiPlatformImeData::ImGuiPlatformImeData                 imgui_h.lua:1391                 
+  [x]   42%  ImGuiPlatformMonitor::ImGuiPlatformMonitor                 imgui_h.lua:1613                 
+  [x]   24%  ImGuiPlatformImeData::ImGuiPlatformImeData                 imgui_h.lua:1419                 
 
   -- Obsolete functions and types
   [-]        PushFont                                                                                    obsolete
@@ -2265,7 +2265,7 @@ imgui_internal.h
   -- Settings support
   [x]   18%  ImGuiWindowSettings::ImGuiWindowSettings                   imgui_internal.lua:2662          
   [ ]        ImGuiWindowSettings::GetName                                                                
-  [x]   13%  ImGuiSettingsHandler::ImGuiSettingsHandler                 imgui_h.lua:2898                 
+  [x]   13%  ImGuiSettingsHandler::ImGuiSettingsHandler                 imgui_h.lua:2926                 
 
   -- Metrics, Debug Tools
   [x]    7%  ImGuiDebugAllocInfo::ImGuiDebugAllocInfo                   imgui_internal.lua:1865          
@@ -2521,7 +2521,7 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImFontBaked                                17 /   17
   ImFontConfig                               25 /   25
   ImFontGlyph                                14 /   14
-  ImFontGlyphRangesBuilder                    0 /    1   missing: UsedChars
+  ImFontGlyphRangesBuilder                    1 /    1
   ImFontLoader                                2 /    2
   ImFontStackData                             3 /    3
   ImGuiBoxSelectState                        16 /   16

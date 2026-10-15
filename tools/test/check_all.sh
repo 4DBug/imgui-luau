@@ -25,6 +25,7 @@ CHECKS=(
 "dock_ini|ROUNDTRIP OK|$R --main tools/test/scripts/t_dock_ini.luau --frames 60"
 "dock_move|OK|$R --main tools/test/scripts/t_dock_move.luau --frames 80"
 "passthru|PASSTHRU OK|$R --main tools/test/scripts/t_passthru.luau --frames 40"
+"fonts|FONTS OK|$R --main tools/test/scripts/t_fonts.luau --frames 8"
 "textproxy|PROXY OK|$R --main tools/test/scripts/t_textproxy.luau --frames 30"
 "style_editor|SE OK|$R --main tools/test/scripts/t_style_editor.luau --frames 20"
 "style_leak|STYLE OK|$R --main tools/test/scripts/t_style_leak.luau --frames 60 --open"

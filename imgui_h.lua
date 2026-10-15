@@ -1138,6 +1138,34 @@ function ImFontGlyph()
     }
 end
 
+-- Helper to build glyph ranges from text/string data. Feed your application strings/characters to it then call BuildRanges().
+-- This is essentially a tightly packed of vector of 64k booleans = 8KB storage.
+--- @class ImFontGlyphRangesBuilder
+--- @field UsedChars ImVector<ImU32> # Store 1-bit per Unicode code point (0=unused, 1=used)
+MT.ImFontGlyphRangesBuilder = {}
+MT.ImFontGlyphRangesBuilder.__index = MT.ImFontGlyphRangesBuilder
+
+--- @return ImFontGlyphRangesBuilder
+--- @nodiscard
+function ImFontGlyphRangesBuilder()
+    local this = setmetatable({ UsedChars = ImVector() }, MT.ImFontGlyphRangesBuilder)
+    this:Clear()
+    return this
+end
+
+function MT.ImFontGlyphRangesBuilder:Clear()
+    local size_in_bytes = (IM_UNICODE_CODEPOINT_MAX + 1) / 8
+    self.UsedChars:resize(size_in_bytes / 4)
+    local data = self.UsedChars.Data
+    for i = 1, self.UsedChars.Size do data[i] = 0 end
+end
+-- Get bit n in the array
+function MT.ImFontGlyphRangesBuilder:GetBit(n) local off = bit32.rshift(n, 5); local mask = bit32.lshift(1, bit32.band(n, 31)); return bit32.band(self.UsedChars.Data[off + 1], mask) ~= 0 end
+-- Set bit n in the array
+function MT.ImFontGlyphRangesBuilder:SetBit(n) local off = bit32.rshift(n, 5); local mask = bit32.lshift(1, bit32.band(n, 31)); self.UsedChars.Data[off + 1] = bit32.bor(self.UsedChars.Data[off + 1], mask) end
+-- Add character
+function MT.ImFontGlyphRangesBuilder:AddChar(c) self:SetBit(c) end
+
 -------------------------------------------------------------------------------
 -- [SECTION] ImGuiIO
 -------------------------------------------------------------------------------

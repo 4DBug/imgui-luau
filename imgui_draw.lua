@@ -888,6 +888,28 @@ function ImFontAtlasTextureBlockCopy(src_tex, src_x, src_y, dst_tex, dst_x, dst_
     end
 end
 
+--- @param dst_tex ImTextureData
+--- @param col     ImU32
+function ImFontAtlasTextureBlockFill(dst_tex, dst_x, dst_y, w, h, col)
+    if dst_tex.Format == ImTextureFormat.Alpha8 then
+        local col_a = bit32.band(bit32.rshift(col, IM_COL32_A_SHIFT), 0xFF)
+        for y = 0, h - 1 do
+            local p, base = dst_tex:GetPixelsAt(dst_x, dst_y + y)
+            for i = base, base + w - 1 do p[i] = col_a end
+        end
+    else
+        -- [Luau] Pixels is a byte table: write the 4 bytes of the little-endian ImU32
+        local c0, c1, c2, c3 = bit32.band(col, 0xFF), bit32.band(bit32.rshift(col, 8), 0xFF), bit32.band(bit32.rshift(col, 16), 0xFF), bit32.band(bit32.rshift(col, 24), 0xFF)
+        for y = 0, h - 1 do
+            local p, i = dst_tex:GetPixelsAt(dst_x, dst_y + y)
+            for _ = w, 1, -1 do
+                p[i] = c0; p[i + 1] = c1; p[i + 2] = c2; p[i + 3] = c3
+                i = i + 4
+            end
+        end
+    end
+end
+
 -- Queue texture block update for renderer backend
 --- @param tex   ImTextureData
 --- @param x     int
@@ -1542,6 +1564,18 @@ function ImFontAtlasBuildSetupFontBakedBlanks(atlas, baked)
     end
 end
 
+--- @param glyph ImFontGlyph
+function ImFontAtlasBakedDiscardFontGlyph(atlas, font, baked, glyph)
+    if glyph.PackId ~= ImFontAtlasRectId_Invalid then
+        ImFontAtlasPackDiscardRect(atlas, glyph.PackId)
+        glyph.PackId = ImFontAtlasRectId_Invalid
+    end
+    local c = glyph.Codepoint
+    IM_ASSERT(font.FallbackChar ~= c and font.EllipsisChar ~= c) -- Unsupported for simplicity
+    baked.IndexLookup.Data[c + 1] = IM_FONTGLYPH_INDEX_UNUSED
+    baked.IndexAdvanceX.Data[c + 1] = baked.FallbackAdvanceX
+end
+
 --- @param atlas                   ImFontAtlas
 --- @param font                    ImFont
 --- @param font_size               float
@@ -1698,6 +1732,11 @@ function ImFontAtlasFontDestroyOutput(atlas, font)
             loader.FontSrcDestroy(atlas, src)
         end
     end
+end
+
+function ImFontAtlasFontRebuildOutput(atlas, font)
+    ImFontAtlasFontDestroyOutput(atlas, font)
+    ImFontAtlasFontInitOutput(atlas, font)
 end
 
 --- @param atlas ImFontAtlas
@@ -2586,12 +2625,57 @@ function ImFontAtlasBuildMain(atlas)
     atlas.TexIsBuilt = true
 end
 
+-- [Luau] Ported but its call above stays disabled: the Roblox/LÖVE backends support RendererHasTextures.
+function ImFontAtlasBuildLegacyPreloadAllGlyphRanges(atlas)
+    atlas.Builder.PreloadedAllGlyphsRanges = true
+    for _, font in atlas.Fonts:iter() do
+        local baked = font:GetFontBaked(font.LegacySize)
+        if font.FallbackChar ~= 0 then
+            baked:FindGlyph(font.FallbackChar)
+        end
+        if font.EllipsisChar ~= 0 then
+            baked:FindGlyph(font.EllipsisChar)
+        end
+        for _, src in font.Sources:iter() do
+            local ranges = src.GlyphRanges and src.GlyphRanges or atlas:GetGlyphRangesDefault()
+            local i = 1
+            while ranges[i] ~= 0 do
+                local c = ranges[i]
+                while c <= ranges[i + 1] and c <= IM_UNICODE_CODEPOINT_MAX do
+                    baked:FindGlyph(c)
+                    c = c + 1
+                end
+                i = i + 2
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 -- [SECTION] ImTextureData
 -------------------------------------------------------------------------------
 -- - ImTextureData:Create()
 -- - ImTextureData:DestroyPixels()
 -------------------------------------------------------------------------------
+
+--- @param status ImTextureStatus
+function ImTextureDataGetStatusName(status)
+    if status == ImTextureStatus.OK then return "OK"
+    elseif status == ImTextureStatus.Destroyed then return "Destroyed"
+    elseif status == ImTextureStatus.WantCreate then return "WantCreate"
+    elseif status == ImTextureStatus.WantUpdates then return "WantUpdates"
+    elseif status == ImTextureStatus.WantDestroy then return "WantDestroy"
+    end
+    return "N/A"
+end
+
+--- @param format ImTextureFormat
+function ImTextureDataGetFormatName(format)
+    if format == ImTextureFormat.Alpha8 then return "Alpha8"
+    elseif format == ImTextureFormat.RGBA32 then return "RGBA32"
+    end
+    return "N/A"
+end
 
 function MT.ImTextureData:DestroyPixels()
     self.Pixels = nil
@@ -2627,6 +2711,74 @@ function MT.ImTextureData:Create(format, w, h)
     self.UpdateRect.y = 65535
     self.UpdateRect.w = 0
     self.UpdateRect.h = 0
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontAtlas: glyph ranges helpers
+-------------------------------------------------------------------------------
+-- - GetGlyphRangesDefault()
+-- [Luau] The obsolete GetGlyphRangesXXX() (IMGUI_DISABLE_OBSOLETE_FUNCTIONS) are not ported.
+-------------------------------------------------------------------------------
+
+-- Retrieve list of range (2 int per range, values are inclusive)
+local GlyphRangesDefault =
+{
+    0x0020, 0x00FF, -- Basic Latin + Latin Supplement
+    0,
+}
+function MT.ImFontAtlas:GetGlyphRangesDefault()
+    return GlyphRangesDefault
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] ImFontGlyphRangesBuilder
+-------------------------------------------------------------------------------
+
+--- @param text      ImString
+--- @param text_end? int       # exclusive, 1-based
+function MT.ImFontGlyphRangesBuilder:AddText(text, text_end)
+    if text_end == nil then
+        text_end = #text + 1
+    end
+    local s = 1
+    while s < text_end do
+        local c_len, c = ImStd.ImTextCharFromUtf8(text, s, text_end)
+        s = s + c_len
+        if c_len == 0 then
+            break
+        end
+        self:AddChar(c)
+    end
+end
+
+--- @param ranges ImWchar[] # 1-based, zero-terminated
+function MT.ImFontGlyphRangesBuilder:AddRanges(ranges)
+    local i = 1
+    while ranges[i] ~= 0 do
+        local c = ranges[i]
+        while c <= ranges[i + 1] and c <= IM_UNICODE_CODEPOINT_MAX do
+            self:AddChar(c)
+            c = c + 1
+        end
+        i = i + 2
+    end
+end
+
+--- @param out_ranges ImVector<ImWchar>
+function MT.ImFontGlyphRangesBuilder:BuildRanges(out_ranges)
+    local max_codepoint = IM_UNICODE_CODEPOINT_MAX
+    local n = 0
+    while n <= max_codepoint do
+        if self:GetBit(n) then
+            out_ranges:push_back(n)
+            while n < max_codepoint and self:GetBit(n + 1) do
+                n = n + 1
+            end
+            out_ranges:push_back(n)
+        end
+        n = n + 1
+    end
+    out_ranges:push_back(0)
 end
 
 -------------------------------------------------------------------------------
@@ -2696,6 +2848,21 @@ function MT.ImFont:ClearOutputData()
 
     for i = 1, (IM_UNICODE_CODEPOINT_MAX + 1) / 8192 / 8 do self.Used8kPagesMap[i] = 0 end
     self.LastBaked = nil
+end
+
+-- API is designed this way to avoid exposing the 8K page size
+-- e.g. use with IsGlyphRangeUnused(0, 255)
+function MT.ImFont:IsGlyphRangeUnused(c_begin, c_last)
+    local page_begin = math.floor(c_begin / 8192)
+    local page_last = math.floor(c_last / 8192)
+    for page_n = page_begin, page_last do
+        if bit32.rshift(page_n, 3) < (IM_UNICODE_CODEPOINT_MAX + 1) / 8192 / 8 then -- sizeof(Used8kPagesMap)
+            if bit32.band(self.Used8kPagesMap[bit32.rshift(page_n, 3) + 1] or 0, bit32.lshift(1, bit32.band(page_n, 7))) ~= 0 then
+                return false
+            end
+        end
+    end
+    return true
 end
 
 --- @param font_id            ImGuiID
@@ -2865,6 +3032,14 @@ function MT.ImFont:GetFontBaked(size, density)
     return baked
 end
 
+-- Makes 'from_codepoint' character points to 'to_codepoint' glyph.
+-- [Luau] AddRemapCodepointToGlyphIndex() not ported: needs the 1.93 loader split (FontSrcGetGlyphIndexFromCodepoint).
+function MT.ImFont:AddRemapCodepoint(from_codepoint, to_codepoint)
+    local data = to_codepoint
+    IM_ASSERT(bit32.band(data, bit32.lshift(1, 31)) == 0)
+    self.RemapPairs[from_codepoint] = data
+end
+
 --- @param atlas ImFontAtlas
 --- @param font  ImFont
 --- @param c     ImWchar
@@ -2872,7 +3047,7 @@ end
 --- @nodiscard
 local function ImFontAtlas_FontHookRemapCodepoint(atlas, font, c)
     -- IM_UNUSED(atlas)
-    if #font.RemapPairs > 0 then
+    if next(font.RemapPairs) ~= nil then -- [Luau] font->RemapPairs.Data.Size != 0 (RemapPairs is a hash table)
         local ret = font.RemapPairs[c]
         return (ret ~= nil) and ret or c
     end
@@ -3267,6 +3442,16 @@ function ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end,
     return s
 end
 
+--- @param size       float
+--- @param text       ImString
+--- @param pos        int      # [Luau] 1-based start position (C++ 'text' pointer)
+--- @param text_end   int      # exclusive
+--- @param wrap_width float
+--- @return int
+function MT.ImFont:CalcWordWrapPosition(size, text, pos, text_end, wrap_width)
+    return ImFontCalcWordWrapPositionEx(self, size, text, pos, text_end, wrap_width, ImDrawTextFlags.None)
+end
+
 --- @param font              ImFont
 --- @param size              float
 --- @param max_width         float
@@ -3594,6 +3779,25 @@ function MT.ImFontAtlas:AddFont(font_cfg_in)
     return font
 end
 
+-- Default font TTF is compressed with stb_compress then base85 encoded (see misc/fonts/binary_to_compressed_c.cpp for encoder)
+local stb_decompress_length
+local stb_decompress
+local function Decode85Byte(c) return (c >= 92) and (c - 36) or (c - 35) end -- c >= '\\'
+--- @param src string
+--- @param dst buffer
+local function Decode85(src, dst)
+    local d = 0
+    local src_len = #src
+    local s = 1
+    while s + 4 <= src_len do -- [Luau] while (*src): stop at the last complete 5-char group
+        local b0, b1, b2, b3, b4 = string.byte(src, s, s + 4)
+        local tmp = (Decode85Byte(b0) + 85 * (Decode85Byte(b1) + 85 * (Decode85Byte(b2) + 85 * (Decode85Byte(b3) + 85 * Decode85Byte(b4))))) % 4294967296
+        buffer.writeu8(dst, d + 0, tmp % 256); buffer.writeu8(dst, d + 1, math.floor(tmp / 256) % 256); buffer.writeu8(dst, d + 2, math.floor(tmp / 65536) % 256); buffer.writeu8(dst, d + 3, math.floor(tmp / 16777216) % 256) -- We can't assume little-endianness.
+        s = s + 5
+        d = d + 4
+    end
+end
+
 -- This duplicates some of the logic in UpdateFontsNewFrame() which is a bit chicken-and-eggy/tricky to extract due to variety of codepaths and possible initialization ordering.
 --- @param ctx ImGuiContext
 --- @return float
@@ -3627,9 +3831,68 @@ function MT.ImFontAtlas:AddFontFromMemoryTTF(font_data, font_data_size, size_pix
     return self:AddFont(font_cfg)
 end
 
--- TODO: GetDefaultCompressedFontDataProggyClean, GetDefaultCompressedFontDataProggyForever
-function MT.ImFontAtlas:AddFontFromMemoryCompressedTTF()
-    -- TODO:
+--- @param compressed_ttf_data buffer|string|ImU8[] # [Luau] stb_compress() output: buffer, string or 1-based byte table
+--- @param compressed_ttf_size int
+function MT.ImFontAtlas:AddFontFromMemoryCompressedTTF(compressed_ttf_data, compressed_ttf_size, size_pixels, font_cfg_template, glyph_ranges)
+    -- [Luau] normalize input to a buffer
+    if type(compressed_ttf_data) == "string" then
+        compressed_ttf_data = buffer.fromstring(compressed_ttf_data)
+    elseif type(compressed_ttf_data) == "table" then
+        local b = buffer.create(compressed_ttf_size)
+        for n = 1, compressed_ttf_size do buffer.writeu8(b, n - 1, compressed_ttf_data[n]) end
+        compressed_ttf_data = b
+    end
+    local buf_decompressed_size = stb_decompress_length(compressed_ttf_data)
+    local buf_decompressed_data = buffer.create(buf_decompressed_size)
+    stb_decompress(buf_decompressed_data, compressed_ttf_data, compressed_ttf_size)
+
+    -- [Luau] FontData is a 1-based byte table (see stbtt / ImFileLoadToMemory)
+    local ttf_data = table.create and table.create(buf_decompressed_size) or {}
+    for n = 1, buf_decompressed_size do ttf_data[n] = buffer.readu8(buf_decompressed_data, n - 1) end
+
+    local font_cfg = font_cfg_template and font_cfg_template or ImFontConfig()
+    IM_ASSERT(font_cfg.FontData == nil)
+    font_cfg.FontDataOwnedByAtlas = true
+    return self:AddFontFromMemoryTTF(ttf_data, buf_decompressed_size, size_pixels or 0.0, font_cfg, glyph_ranges)
+end
+
+--- @param compressed_ttf_data_base85 string
+function MT.ImFontAtlas:AddFontFromMemoryCompressedBase85TTF(compressed_ttf_data_base85, size_pixels, font_cfg, glyph_ranges)
+    local compressed_ttf_size = math.floor((#compressed_ttf_data_base85 + 4) / 5) * 4
+    local compressed_ttf = buffer.create(compressed_ttf_size)
+    Decode85(compressed_ttf_data_base85, compressed_ttf)
+    local font = self:AddFontFromMemoryCompressedTTF(compressed_ttf, compressed_ttf_size, size_pixels, font_cfg, glyph_ranges)
+    return font
+end
+
+--- @param font ImFont
+function MT.ImFontAtlas:RemoveFont(font)
+    IM_ASSERT(not self.Locked, "Cannot modify a locked ImFontAtlas!")
+
+    ImFontAtlasFontDestroyOutput(self, font)
+    for _, src in font.Sources:iter() do
+        ImFontAtlasFontDestroySourceData(self, src)
+    end
+    local src_n = 1
+    while src_n <= self.Sources.Size do
+        if self.Sources.Data[src_n].DstFont == font then
+            self.Sources:erase(src_n)
+        else
+            src_n = src_n + 1
+        end
+    end
+
+    local removed = self.Fonts:find_erase(font)
+    IM_ASSERT(removed)
+
+    ImFontAtlasBuildUpdatePointers(self)
+
+    font.OwnerAtlas = nil
+
+    -- Notify external systems
+    local new_current_font = nil
+    if self.Fonts.Size > 0 then new_current_font = self.Fonts.Data[1] end
+    ImFontAtlasBuildNotifySetFont(self, font, new_current_font)
 end
 
 function MT.ImFontAtlas:AddFontFromFileTTF(filename, size_pixels, font_cfg_template, glyph_ranges)
@@ -3783,6 +4046,13 @@ function MT.ImFontAtlas:AddCustomRect(width, height, out_r)
     end
 
     return r_id
+end
+
+function MT.ImFontAtlas:RemoveCustomRect(id)
+    if ImFontAtlasPackGetRectSafe(self, id) == nil then
+        return
+    end
+    ImFontAtlasPackDiscardRect(self, id)
 end
 
 local function IM_NORMALIZE2F_OVER_ZERO(VX, VY)
@@ -7795,6 +8065,136 @@ end
 function MT.ImDrawList:PathFillConcave(col)
     self:AddConcavePolyFilled(self._Path.Data, self._Path.Size, col)
     self._Path.Size = 0
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Decompression code
+-------------------------------------------------------------------------------
+-- Compressed with stb_compress() then converted to a C array and encoded as base85.
+-- Use the program in misc/fonts/binary_to_compressed_c.cpp to create the array from a TTF file.
+-- The purpose of encoding as base85 instead of "0x00,0x01,..." style is only save on _source code_ size.
+-- Decompression from stb.h (public domain) by Sean Barrett https://github.com/nothings/stb/blob/master/stb.h
+-- [Luau] Input and output are buffers, pointers are 0-based byte offsets into them.
+-------------------------------------------------------------------------------
+
+do
+local readu8 = buffer.readu8
+local writeu8 = buffer.writeu8
+
+--- @param input buffer
+function stb_decompress_length(input)
+    return readu8(input, 8) * 16777216 + readu8(input, 9) * 65536 + readu8(input, 10) * 256 + readu8(input, 11)
+end
+
+local stb__barrier_out_e, stb__barrier_out_b
+local stb__barrier_in_b
+local stb__dout
+local stb__out, stb__in -- [Luau] buffers the offsets above point into
+local function stb__match(data, length)
+    -- INVERSE of memmove... write each byte before copying the next...
+    IM_ASSERT(stb__dout + length <= stb__barrier_out_e)
+    if stb__dout + length > stb__barrier_out_e then stb__dout = stb__dout + length; return end
+    if data < stb__barrier_out_b then stb__dout = stb__barrier_out_e + 1; return end
+    if stb__dout - data >= length then -- [Luau] no overlap: block copy
+        buffer.copy(stb__out, stb__dout, stb__out, data, length)
+        stb__dout = stb__dout + length
+        return
+    end
+    local out = stb__out
+    local dout = stb__dout
+    for n = 0, length - 1 do writeu8(out, dout + n, readu8(out, data + n)) end
+    stb__dout = dout + length
+end
+
+local function stb__lit(data, length)
+    IM_ASSERT(stb__dout + length <= stb__barrier_out_e)
+    if stb__dout + length > stb__barrier_out_e then stb__dout = stb__dout + length; return end
+    if data < stb__barrier_in_b then stb__dout = stb__barrier_out_e + 1; return end
+    buffer.copy(stb__out, stb__dout, stb__in, data, length)
+    stb__dout = stb__dout + length
+end
+
+local function stb__in2(i, x) return readu8(stb__in, i + x) * 256 + readu8(stb__in, i + x + 1) end
+local function stb__in3(i, x) return readu8(stb__in, i + x) * 65536 + stb__in2(i, x + 1) end
+local function stb__in4(i, x) return readu8(stb__in, i + x) * 16777216 + stb__in3(i, x + 1) end
+
+local function stb_decompress_token(i)
+    local i0 = readu8(stb__in, i)
+    if i0 >= 0x20 then -- use fewer if's for cases that expand small
+        if i0 >= 0x80 then       stb__match(stb__dout - readu8(stb__in, i + 1) - 1, i0 - 0x80 + 1); i = i + 2
+        elseif i0 >= 0x40 then   stb__match(stb__dout - (stb__in2(i, 0) - 0x4000 + 1), readu8(stb__in, i + 2) + 1); i = i + 3
+        else --[[ *i >= 0x20 ]]  stb__lit(i + 1, i0 - 0x20 + 1); i = i + 1 + (i0 - 0x20 + 1)
+        end
+    else -- more ifs for cases that expand large, since overhead is amortized
+        if i0 >= 0x18 then       stb__match(stb__dout - (stb__in3(i, 0) - 0x180000 + 1), readu8(stb__in, i + 3) + 1); i = i + 4
+        elseif i0 >= 0x10 then   stb__match(stb__dout - (stb__in3(i, 0) - 0x100000 + 1), stb__in2(i, 3) + 1); i = i + 5
+        elseif i0 >= 0x08 then   stb__lit(i + 2, stb__in2(i, 0) - 0x0800 + 1); i = i + 2 + (stb__in2(i, 0) - 0x0800 + 1)
+        elseif i0 == 0x07 then   stb__lit(i + 3, stb__in2(i, 1) + 1); i = i + 3 + (stb__in2(i, 1) + 1)
+        elseif i0 == 0x06 then   stb__match(stb__dout - (stb__in3(i, 1) + 1), readu8(stb__in, i + 4) + 1); i = i + 5
+        elseif i0 == 0x04 then   stb__match(stb__dout - (stb__in3(i, 1) + 1), stb__in2(i, 4) + 1); i = i + 6
+        end
+    end
+    return i
+end
+
+--- @param buf    buffer
+--- @param buflen int
+local function stb_adler32(adler32, buf, buflen)
+    local ADLER_MOD = 65521
+    local s1 = adler32 % 65536
+    local s2 = math.floor(adler32 / 65536)
+    local blocklen = buflen % 5552
+
+    local p = 0
+    while buflen > 0 do
+        for _ = 1, blocklen do
+            s1 = s1 + readu8(buf, p); s2 = s2 + s1
+            p = p + 1
+        end
+
+        s1 = s1 % ADLER_MOD; s2 = s2 % ADLER_MOD
+        buflen = buflen - blocklen
+        blocklen = 5552
+    end
+    return s2 * 65536 + s1
+end
+
+--- @param output buffer
+--- @param i      buffer
+function stb_decompress(output, i, length)
+    stb__in = i
+    if stb__in4(0, 0) ~= 0x57bC0000 then return 0 end
+    if stb__in4(0, 4) ~= 0 then return 0 end -- error! stream is > 4GB
+    local olen = stb_decompress_length(i)
+    stb__barrier_in_b = 0
+    stb__barrier_out_e = olen
+    stb__barrier_out_b = 0
+    stb__out = output
+    local p = 16
+
+    stb__dout = 0
+    while true do
+        local old_p = p
+        p = stb_decompress_token(p)
+        if p == old_p then
+            if readu8(i, p) == 0x05 and readu8(i, p + 1) == 0xfa then
+                IM_ASSERT(stb__dout == olen)
+                if stb__dout ~= olen then return 0 end
+                if stb_adler32(1, output, olen) ~= stb__in4(p, 2) then
+                    return 0
+                end
+                return olen
+            else
+                IM_ASSERT(false) -- NOTREACHED
+                return 0
+            end
+        end
+        IM_ASSERT(stb__dout <= olen)
+        if stb__dout > olen then
+            return 0
+        end
+    end
+end
 end
 
 return true -- [Roblox] ModuleScripts must return exactly one value
