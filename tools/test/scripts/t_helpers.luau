@@ -1,5 +1,6 @@
 -- Small upstream helpers: ImGuiInputTextState selection API + ReloadUserBuf*, ImGuiInputTextCallbackData:SetSelection, ImDrawList AddImageQuad/PrimQuadUV/
--- CloneOutput, ImDrawData DeIndexAllBuffers/ScaleClipRects, ImBitVector/ImBitArray*, ImGuiPackedDate, ImParseFormatSanitizeForPrinting, drag cancel (ShortcutsForCancel)
+-- CloneOutput, ImDrawData DeIndexAllBuffers/ScaleClipRects, ImBitVector/ImBitArray*, ImGuiPackedDate, ImParseFormatSanitizeForPrinting, drag cancel (ShortcutsForCancel),
+-- log decorations, ImGuiDataType.S64/U64, BringWindowToDisplayBehind, ImGuiSizeCallbackData
 local G = require(game:GetService("ReplicatedStorage"):WaitForChild("ImGui"))
 local ImGui, ImVec2 = G.ImGui, G.ImVec2
 ImGui.CreateContext(); G.ImGui_ImplRoblox.Init()
@@ -40,6 +41,7 @@ local function cb(data)
     return 0
 end
 local df, rect_df = 10.0, nil
+local s64_v = 2 ^ 40
 local f = 0
 local function center(r) return (r[1].x + r[2].x) / 2, (r[1].y + r[2].y) / 2 end
 
@@ -218,8 +220,82 @@ game:GetService("RunService").Stepped:Connect(function()
         check(not string.find(ImGui.SaveIniSettingsToMemory(), "LastUsed", 1, true), "ConfigIniSettingsSaveLastUsedDate = false")
         io.ConfigIniSettingsSaveLastUsedDate = true
         pio.Platform_SessionDate = 0
+
+        -- Log decorations: Selectable/Button/Checkbox/MenuItem shortcut
+        ImGui.LogToBuffer()
+        ImGui.Selectable("sel item")
+        ImGui.Button("btn")
+        ImGui.Checkbox("chk", true)
+        ImGui.MenuItem("mi", "Ctrl+M")
+        local log = g.LogBuffer:c_str()
+        ImGui.LogFinish()
+        check(string.find(log, "[sel item]", 1, true) == nil and string.find(log, "sel item", 1, true) ~= nil, "Selectable logs plain label: " .. log)
+        check(string.find(log, "[ btn ]", 1, true) ~= nil and string.find(log, "[x]", 1, true) ~= nil and string.find(log, "mi ( Ctrl+M )", 1, true) ~= nil, "LogSetNextTextDecoration [ ]: " .. log)
+
+        -- DragScalar S64/U64 (doubles) + DataTypeFormatString
+        local v64, ch = ImGui.DragScalar("##s64", G.ImGuiDataType.S64, 2 ^ 40, 1.0)
+        check(v64 == 2 ^ 40 and ch == false, "DragScalar S64 idle")
+        local b64 = {}
+        local n = ImGui.DataTypeFormatString(b64, 64, G.ImGuiDataType.S64, -(2 ^ 40), "%lld")
+        check(G.ImGui._ByteArrayToString(b64, 1, n + 1) == "-1099511627776", "DataTypeFormatString S64")
+        n = ImGui.DataTypeFormatString(b64, 64, G.ImGuiDataType.U64, 18446744073709551615, "%llu")
+        check(G.ImGui._ByteArrayToString(b64, 1, n + 1) == "18446744073709551615", "DataTypeFormatString U64 max")
+        n = ImGui.DataTypeFormatString(b64, 64, G.ImGuiDataType.S32, -5, "%X")
+        check(G.ImGui._ByteArrayToString(b64, 1, n + 1) == "FFFFFFFB", "DataTypeFormatString S32 hex")
+        local tb = ImGui.NewTextBuffer("-123456789012", 64)
+        local r64, c64 = ImGui.DataTypeApplyFromText(tb, G.ImGuiDataType.S64, 0, "%lld")
+        check(r64 == -123456789012 and c64, "DataTypeApplyFromText S64 " .. tostring(r64))
+        check(ImGui.DataTypeApplyOp(G.ImGuiDataType.S64, 43, 2 ^ 62, 2 ^ 62) == 9223372036854775807, "DataTypeApplyOp S64 clamp")
+        check(G.ImGuiDataType.Float == 8 and G.ImGuiDataType.COUNT == 12 and ImGui.DataTypeGetInfo(G.ImGuiDataType.Float).Name == "float", "ImGuiDataType layout")
     end
+    -- DragScalar S64: drag with the mouse
+    local s64_rect
+    s64_v = ImGui.DragScalar("##drag_s64", G.ImGuiDataType.S64, s64_v, 1.0)
+    do local a, b = ImGui.GetItemRectMin(), ImGui.GetItemRectMax(); s64_rect = { ImVec2(a.x, a.y), ImVec2(b.x, b.y) } end
+    if f == 33 then io:AddMousePosEvent(center(s64_rect)) end
+    if f == 34 then io:AddMouseButtonEvent(0, true) end
+    if f == 35 then local x, y = center(s64_rect); io:AddMousePosEvent(x + 30, y) end
+    if f == 37 then io:AddMouseButtonEvent(0, false); check(s64_v > 2 ^ 40 and s64_v == math.floor(s64_v), "DragScalar S64 drag " .. s64_v) end
     ImGui.End()
+
+    -- BringWindowToDisplayBehind
+    if f == 38 then
+        local g = ImGui.GetCurrentContext()
+        local wa, wb, wc = ImGui.FindWindowByName("WA"), ImGui.FindWindowByName("WB"), ImGui.FindWindowByName("WC")
+        local function idx(w) return ImGui.FindWindowDisplayIndex(w) end
+        ImGui.BringWindowToDisplayFront(wa); ImGui.BringWindowToDisplayFront(wb); ImGui.BringWindowToDisplayFront(wc)
+        local n0 = g.Windows.Size
+        ImGui.BringWindowToDisplayBehind(wc, wa) -- move forward-placed window behind: WC WA WB
+        check(idx(wc) + 1 == idx(wa) and idx(wa) + 1 == idx(wb) and g.Windows.Size == n0, ("BringWindowToDisplayBehind back %d %d %d"):format(idx(wa), idx(wb), idx(wc)))
+        ImGui.BringWindowToDisplayBehind(wa, wb) -- already directly behind: unchanged
+        check(idx(wc) + 1 == idx(wa) and idx(wa) + 1 == idx(wb), "BringWindowToDisplayBehind no-op")
+        ImGui.BringWindowToDisplayBehind(wc, wb) -- WA WC WB
+        check(idx(wa) + 1 == idx(wc) and idx(wc) + 1 == idx(wb) and g.Windows.Size == n0, ("BringWindowToDisplayBehind fwd %d %d %d"):format(idx(wa), idx(wb), idx(wc)))
+    end
+    for _, name in { "WA", "WB", "WC" } do
+        ImGui.SetNextWindowPos(ImVec2(820, 10)); ImGui.SetNextWindowSize(ImVec2(80, 60))
+        ImGui.Begin(name); ImGui.End()
+    end
+
+    -- Size callback (Step + AspectRatio)
+    ImGui.SetNextWindowPos(ImVec2(10, 420))
+    if f <= 3 then ImGui.SetNextWindowSize(ImVec2(237, 160)) end
+    ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(G.FLT_MAX, G.FLT_MAX), function(data)
+        local step = data.UserData
+        check(data.Pos ~= nil and data.CurrentSize ~= nil and not rawequal(data.DesiredSize, data.CurrentSize), "ImGuiSizeCallbackData fields")
+        data.DesiredSize = ImVec2(math.floor(data.DesiredSize.x / step + 0.5) * step, math.floor(data.DesiredSize.y / step + 0.5) * step)
+    end, 100.0)
+    ImGui.Begin("Step"); local step_size = ImGui.GetWindowSize(); ImGui.End()
+    ImGui.SetNextWindowPos(ImVec2(300, 420))
+    if f <= 3 then ImGui.SetNextWindowSize(ImVec2(320, 100)) end
+    ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(G.FLT_MAX, G.FLT_MAX), function(data)
+        data.DesiredSize.y = math.floor(data.DesiredSize.x / data.UserData)
+    end, 16 / 9)
+    ImGui.Begin("Aspect"); local asp_size = ImGui.GetWindowSize(); ImGui.End()
+    if f == 5 then
+        check(step_size.x == 200 and step_size.y == 200, ("size callback Step %gx%g"):format(step_size.x, step_size.y))
+        check(asp_size.x == 320 and asp_size.y == 180, ("size callback AspectRatio %gx%g"):format(asp_size.x, asp_size.y))
+    end
     ImGui.Render(); G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
-    if f == 32 and #failed == 0 then print("HELPERS OK") end
+    if f == 40 and #failed == 0 then print("HELPERS OK") end
 end)

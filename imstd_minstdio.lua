@@ -3,7 +3,8 @@
 
 -- Supports:
 -- - %x, %X, %nx, %nX (where n is a number)
--- - %d, %nd (where n is a number)
+-- - %d, %nd, %u, %nu (where n is a number)
+-- - length modifiers h, hh, l, ll, I64 on integers: ll/I64 = 64-bit range (doubles: exact only within +-2^53)
 -- - %f, %lf (very limited)
 --
 -- Returns items_matched instead of EOF on error
@@ -17,6 +18,9 @@ local CHAR_0, CHAR_9 = _byte'0', _byte'9'
 local CHAR_a, CHAR_A = _byte'a', _byte'A'
 local CHAR_d = _byte'd'
 local CHAR_l = _byte'l'
+local CHAR_h = _byte'h'
+local CHAR_u = _byte'u'
+local CHAR_I = _byte'I'
 local CHAR_f, CHAR_F = _byte'f', _byte'F'
 local CHAR_x, CHAR_X = _byte'x', _byte'X'
 
@@ -37,10 +41,15 @@ local function hex_digit_to_int(c)
 end
 
 -- we force this behavior by default
-local function clamp_if_overflow(spec, val)
+local function clamp_if_overflow(spec, val, is_64)
     if spec == CHAR_d or spec == CHAR_x or spec == CHAR_X then
-        if val > INT_MAX then return INT_MAX end
-        if val < INT_MIN then return INT_MIN end
+        local max = is_64 and 9223372036854775807 or INT_MAX
+        local min = is_64 and -9223372036854775808 or INT_MIN
+        if val > max then return max end
+        if val < min then return min end
+    elseif spec == CHAR_u then
+        local max = is_64 and 18446744073709551615 or UINT_MAX
+        if val > max then return max end
     end
 
     return val
@@ -104,22 +113,27 @@ local function sscanf(buffer, buffer_begin, format, result)
             width = math.huge
         end
 
+        -- length modifiers
+        local n_l = 0
+        while _byte(format, f, f) == CHAR_l or _byte(format, f, f) == CHAR_h do
+            if _byte(format, f, f) == CHAR_l then n_l = n_l + 1 end
+            f = f + 1
+        end
+        if _byte(format, f, f) == CHAR_I and string.sub(format, f, f + 2) == "I64" then
+            n_l = 2
+            f = f + 3
+        end
+        local is_64 = n_l >= 2
+
         local spec = _byte(format, f, f)
         local base
         local is_float = false
         if     spec == CHAR_x or spec == CHAR_X then
             base = 16
-        elseif spec == CHAR_d then
+        elseif spec == CHAR_d or spec == CHAR_u then
             base = 10
         elseif spec == CHAR_f or spec == CHAR_F then
-            is_float = true
-        elseif spec == CHAR_l then
-            f = f + 1
-            if _byte(format, f, f) == CHAR_f then
-                is_float = true -- TODO: distinguish from float?
-            else
-                return items_matched
-            end
+            is_float = true -- TODO: distinguish %lf from %f?
         else
             return items_matched
         end
@@ -197,10 +211,13 @@ local function sscanf(buffer, buffer_begin, format, result)
                 val = val * base + sign * hex_digit_to_int(c)
 
                 local old_val = val
-                val = clamp_if_overflow(spec, val)
+                val = clamp_if_overflow(spec, val, is_64)
                 if old_val ~= val then
                     break
                 end
+            end
+            if spec == CHAR_u and val < 0 then
+                val = val + (is_64 and 18446744073709551616 or 4294967296) -- unsigned wrap-around like strtoul()
             end
         end
 

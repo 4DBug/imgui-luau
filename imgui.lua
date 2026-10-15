@@ -6489,7 +6489,7 @@ function ImGui.IsMouseDragPastThreshold(button, lock_threshold)
     if lock_threshold == nil then lock_threshold = -1.0 end
 
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     if lock_threshold < 0.0 then
         lock_threshold = g.IO.MouseDragThreshold
     end
@@ -6502,7 +6502,7 @@ function ImGui.IsMouseDragging(button, lock_threshold)
     if lock_threshold == nil then lock_threshold = -1.0 end
 
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     if not g.IO.MouseDown[button] then
         return false
     end
@@ -7048,7 +7048,7 @@ function ImGui.EndGroup()
     IM_ASSERT(group_data.WindowID == window.ID) -- EndGroup() in wrong window?
 
     if (window.DC.IsSetPos) then
-        -- TODO: ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
+        ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     end
 
     -- Include LastItemData.Rect.Max as a workaround for e.g. EndTable() undershooting with CursorMaxPos report. (#7543)
@@ -7515,7 +7515,16 @@ function ImGui.BringWindowToDisplayBehind(window, behind_window)
     local g = GImGui
     window = window.RootWindow
     behind_window = behind_window.RootWindow
-    -- TODO:
+    local pos_wnd = ImGui.FindWindowDisplayIndex(window) + 1 -- 1-based
+    local pos_beh = ImGui.FindWindowDisplayIndex(behind_window) + 1
+    local data = g.Windows.Data
+    if pos_wnd < pos_beh then
+        for i = pos_wnd, pos_beh - 2 do data[i] = data[i + 1] end -- memmove
+        data[pos_beh - 1] = window
+    else
+        for i = pos_wnd, pos_beh + 1, -1 do data[i] = data[i - 1] end -- memmove
+        data[pos_beh] = window
+    end
 end
 
 --- @param under_this_window? ImGuiWindow
@@ -8298,7 +8307,7 @@ function MT.ImGuiIO:ClearInputMouse()
 
     self.MousePos = ImVec2(-FLT_MAX, -FLT_MAX)
 
-    for n = 0, 2 do -- IM_COUNTOF(MouseDown)
+    for n = 0, ImGuiMouseButton.COUNT - 1 do
         self.MouseDown[n] = false
         self.MouseDownDuration[n] = -1.0
         self.MouseDownDurationPrev[n] = -1.0
@@ -8841,7 +8850,6 @@ function ImGui.IsKeyPressedEx(key, flags, owner_id)
     return true
 end
 
--- TODO:
 -- Return untranslated names: on macOS, Cmd key will show as Ctrl, Ctrl key will show as super.
 function ImGui.GetKeyChordName(key_chord)
     local key = bit32.band(key_chord, bit32.bnot(ImGuiMod_Mask_))
@@ -9290,7 +9298,7 @@ end
 --- @return bool
 function ImGui.IsAnyMouseDown()
     local g = GImGui
-    for n = 0, 2 do -- IM_COUNTOF(g.IO.MouseDown) - 1
+    for n = 0, ImGuiMouseButton.COUNT - 1 do
         if g.IO.MouseDown[n] then
             return true
         end
@@ -9304,7 +9312,7 @@ function ImGui.IsMouseDown(button, owner_id)
     if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
 
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseDown[button] and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id) -- Should be same as IsKeyDown(MouseButtonToKey(button), owner_id), but this allows legacy code hijacking the io.Mousedown[] array.
 end
 
@@ -9324,7 +9332,7 @@ function ImGui.IsMouseClickedEx(button, flags, owner_id)
     if owner_id  == nil  then owner_id = ImGuiKeyOwner_Any end
 
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
 
     if not g.IO.MouseDown[button] then -- In theory this should already be encoded as (DownDuration < 0.0f), but testing this facilitates eating mechanism (until we finish work on key ownership)
         return false
@@ -9355,7 +9363,7 @@ function ImGui.IsMouseReleased(button, owner_id)
     if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
 
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseReleased[button] and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id) -- Should be same as IsKeyReleased(MouseButtonToKey(button), owner_id)
 end
 
@@ -9368,7 +9376,7 @@ end
 function ImGui.IsMouseReleasedWithDelay(button, delay)
     if delay == nil then delay = -1.0 end
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     if ImGui.IsMouseDown(button) then
         return false
     end
@@ -9384,14 +9392,14 @@ end
 function ImGui.IsMouseDoubleClicked(button, owner_id)
     if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseClickedCount[button] == 2 and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id)
 end
 
 --- @param button ImGuiMouseButton
 function ImGui.GetMouseClickedCount(button)
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseClickedCount[button]
 end
 
@@ -9482,7 +9490,7 @@ function ImGui.GetMouseDragDelta(button, lock_threshold)
     if button == nil then button = 0 end
     if lock_threshold == nil then lock_threshold = -1.0 end
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     if lock_threshold < 0.0 then
         lock_threshold = g.IO.MouseDragThreshold
     end
@@ -9500,7 +9508,7 @@ end
 function ImGui.ResetMouseDragDelta(button)
     if button == nil then button = 0 end
     local g = GImGui
-    IM_ASSERT(button >= 0 and button < 3)
+    IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) -- IM_COUNTOF(g.IO.MouseDown)
     -- NB: We don't need to reset g.IO.MouseDragMaxDistanceSqr
     ImVec2_Copy(g.IO.MouseClickedPos[button], g.IO.MousePos)
 end
@@ -9945,14 +9953,13 @@ local function CalcWindowSizeAfterConstraint(window, size_desired)
         new_size.x = (cr.Min.x >= 0 and cr.Max.x >= 0) and ImClamp(new_size.x, cr.Min.x, cr.Max.x) or window.SizeFull.x
         new_size.y = (cr.Min.y >= 0 and cr.Max.y >= 0) and ImClamp(new_size.y, cr.Min.y, cr.Max.y) or window.SizeFull.y
         if g.NextWindowData.SizeCallback then
-            local data = {} -- TODO: ImGuiSizeCallbackData
+            local data = ImGuiSizeCallbackData()
             data.UserData = g.NextWindowData.SizeCallbackUserData
-            data.Pos = ImVec2(window.Pos.x, window.Pos.y)
-            data.CurrentSize = ImVec2(window.SizeFull.x, window.SizeFull.y)
-            data.DesiredSize = ImVec2(new_size.x, new_size.y)
+            ImVec2_Copy(data.Pos, window.Pos)
+            ImVec2_Copy(data.CurrentSize, window.SizeFull)
+            ImVec2_Copy(data.DesiredSize, new_size)
             g.NextWindowData.SizeCallback(data)
-            new_size.x = data.DesiredSize.x
-            new_size.y = data.DesiredSize.y
+            ImVec2_Copy(new_size, data.DesiredSize)
         end
         new_size.x = IM_TRUNC(new_size.x)
         new_size.y = IM_TRUNC(new_size.y)
@@ -11161,6 +11168,7 @@ local function SetCurrentWindow(window)
     local g = GImGui
     --- @diagnostic disable-next-line
     g.CurrentWindow = window
+    g.StackSizesInBeginForCurrentWindow = window and g.CurrentWindowStack:back().StackSizesInBegin or nil
     g.CurrentTable = (window and window.DC.CurrentTableIdx ~= -1) and g.Tables:GetByIndex(window.DC.CurrentTableIdx) or nil
 
     if window then
@@ -11177,7 +11185,6 @@ local function SetCurrentWindow(window)
     end
 end
 
--- TODO:
 function ImGui.GcCompactTransientMiscBuffers()
     local g = GImGui
     g.ItemFlagsStack:clear()
@@ -13399,7 +13406,6 @@ local function FindHoveredWindowEx(pos, find_first_and_in_any_viewport)
     return hovered_window, hovered_window_under_moving_window
 end
 
--- TODO:
 -- The reason this is exposed in imgui_internal.h is: on touch-based system that don't have hovering, we want to dispatch inputs to the right target (imgui vs imgui+app)
 function ImGui.UpdateHoveredWindowAndCaptureFlags(mouse_pos)
     local g = GImGui
@@ -13436,7 +13442,7 @@ function ImGui.UpdateHoveredWindowAndCaptureFlags(mouse_pos)
     local mouse_earliest_down = -1
     local mouse_any_down = false
 
-    for i = 0, 2 do -- IM_COUNTOF(io.MouseDown)
+    for i = 0, ImGuiMouseButton.COUNT - 1 do
         if io.MouseClicked[i] then
             io.MouseDownOwned[i] = (g.HoveredWindow ~= nil) or has_open_popup
             io.MouseDownOwnedUnlessPopupClose[i] = (g.HoveredWindow ~= nil) or has_open_modal
@@ -13525,7 +13531,7 @@ function ImGui.UpdateKeyboardInputs()
     end
 
     -- Update aliases
-    for n = 0, 2 do -- TODO: ImGuiMouseButton.COUNT - 1
+    for n = 0, ImGuiMouseButton.COUNT - 1 do
         ImGui.UpdateAliasKey(ImGui.MouseButtonToKey(n), io.MouseDown[n], io.MouseDown[n] and 1.0 or 0.0)
     end
     ImGui.UpdateAliasKey(ImGuiKey.MouseWheelX, io.MouseWheelH ~= 0.0, io.MouseWheelH)
@@ -13633,7 +13639,7 @@ function ImGui.UpdateMouseInputs()
         g.NavHighlightItemUnderNav = false
     end
 
-    for i = 0, 2 do -- IM_COUNTOF(io.MouseDown)
+    for i = 0, ImGuiMouseButton.COUNT - 1 do
         io.MouseClicked[i] = io.MouseDown[i] and (io.MouseDownDuration[i] < 0.0)
         io.MouseClickedCount[i] = 0 -- Will be filled below
         io.MouseReleased[i] = not io.MouseDown[i] and (io.MouseDownDuration[i] >= 0.0)
@@ -14585,7 +14591,6 @@ function ImGui.EndFrame()
     ImGui.CallContextHooks(g, ImGuiContextHookType.EndFramePost)
 end
 
--- TODO:
 -- Prepare the data for rendering so you can call GetDrawData()
 -- (As with anything within the ImGui:: namespace this doesn't touch your GPU or graphics API at all:
 -- it is the role of the ImGui_ImplXXXX_RenderDrawData() function provided by the renderer backend)
@@ -16452,7 +16457,7 @@ end
 
 function ImGui.PopFocusScope()
     local g = GImGui
-    -- TODO: IM_ASSERT_USER_ERROR_RET(g.FocusScopeStack.Size > g.StackSizesInBeginForCurrentWindow.SizeOfFocusScopeStack, "Calling PopFocusScope() too many times!")
+    IM_ASSERT_USER_ERROR_RET(g.FocusScopeStack.Size > g.StackSizesInBeginForCurrentWindow.SizeOfFocusScopeStack, "Calling PopFocusScope() too many times!")
     g.FocusScopeStack:pop_back()
     if g.FocusScopeStack.Size > 0 then
         g.CurrentFocusScopeId = g.FocusScopeStack:back().ID
@@ -19467,9 +19472,10 @@ function ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     window.DC.IsSetPos = false
     if window.DC.CursorPos.x <= window.DC.CursorMaxPos.x and window.DC.CursorPos.y <= window.DC.CursorMaxPos.y then return end
     if window.SkipItems then return end
-    -- Upstream asserts (user error): "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.
-    -- Please submit an item e.g. Dummy() afterwards". We keep the old, tolerant behavior instead of erroring.
-    window.DC.CursorMaxPos = ImMax(window.DC.CursorMaxPos, window.DC.CursorPos)
+    IM_ASSERT_USER_ERROR(false, "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.\nPlease submit an item e.g. Dummy() afterwards in order to grow window/parent boundaries.")
+
+    -- For reference, the old behavior was essentially:
+    --window.DC.CursorMaxPos = ImMax(window.DC.CursorMaxPos, window.DC.CursorPos)
 end
 
 -------------------------------------------------------------------------------
@@ -22456,11 +22462,12 @@ function ImGui.ShowMetricsWindow(p_open)
         if ImGui.IsMousePosValid() then ImGui.Text("Mouse pos: (%g, %g)", io.MousePos.x, io.MousePos.y) else ImGui.Text("Mouse pos: <INVALID>") end
         ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
         ImGui.Text("Mouse down:")
-        for i = 0, 2 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end
+        local count = ImGuiMouseButton.COUNT -- IM_COUNTOF(io.MouseDown)
+        for i = 0, count - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end
         ImGui.Text("Mouse clicked:")
-        for i = 0, 2 do if ImGui.IsMouseClicked(i) then ImGui.SameLine(); ImGui.Text("b%d (%d)", i, io.MouseClickedCount[i]) end end
+        for i = 0, count - 1 do if ImGui.IsMouseClicked(i) then ImGui.SameLine(); ImGui.Text("b%d (%d)", i, io.MouseClickedCount[i]) end end
         ImGui.Text("Mouse released:")
-        for i = 0, 2 do if ImGui.IsMouseReleased(i) then ImGui.SameLine(); ImGui.Text("b%d", i) end end
+        for i = 0, count - 1 do if ImGui.IsMouseReleased(i) then ImGui.SameLine(); ImGui.Text("b%d", i) end end
         ImGui.Text("Mouse wheel: %.1f", io.MouseWheel)
         ImGui.Text("MouseStationaryTimer: %.2f", g.MouseStationaryTimer)
         ImGui.Text("Mouse source: %s", GetMouseSourceName(io.MouseSource))
