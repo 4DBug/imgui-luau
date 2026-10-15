@@ -136,6 +136,89 @@ game:GetService("RunService").Stepped:Connect(function()
         local cr2 = clone.CmdBuffer.Data[1].ClipRect
         check(cr2.x == x1 * 2 and cr2.y == y1 * 3 and cr2.z == z1 * 2 and cr2.w == w1 * 3 and dl.CmdBuffer.Data[1].ClipRect.z == z1, "ScaleClipRects")
     end
+
+    if f == 31 then
+        local g = ImGui.GetCurrentContext()
+        local style = ImGui.GetStyle()
+        local window = ImGui.GetCurrentWindow()
+        check(G.ImGuiKey["0"] == G.ImGuiKey.K0 and G.ImGuiKey["9"] == G.ImGuiKey.K9, "ImGuiKey digit aliases")
+
+        -- Style vars (enum values must match GStyleVarsInfo order)
+        local sv = G.ImGuiStyleVar
+        local b1, b2, b3 = style.SeparatorSize, style.SeparatorTextBorderSize, style.DockingSeparatorSize
+        ImGui.PushStyleVar(sv.SeparatorSize, 5); ImGui.PushStyleVar(sv.SeparatorTextBorderSize, 6); ImGui.PushStyleVar(sv.DockingSeparatorSize, 7)
+        check(style.SeparatorSize == 5 and style.SeparatorTextBorderSize == 6 and style.DockingSeparatorSize == 7, "PushStyleVar SeparatorSize/SeparatorTextBorderSize/DockingSeparatorSize")
+        ImGui.PushStyleVar(sv.SeparatorTextPadding, ImVec2(3, 4))
+        check(style.SeparatorTextPadding.x == 3 and style.SeparatorTextPadding.y == 4, "PushStyleVar SeparatorTextPadding")
+        ImGui.PopStyleVar(4)
+        check(style.SeparatorSize == b1 and style.SeparatorTextBorderSize == b2 and style.DockingSeparatorSize == b3, "PopStyleVar restores")
+
+        -- Log flags
+        ImGui.LogToBuffer()
+        check(g.LogEnabled and g.LogFlags == G.ImGuiLogFlags.OutputBuffer, "LogToBuffer sets ImGuiLogFlags.OutputBuffer")
+        ImGui.Text("logged")
+        check(string.find(g.LogBuffer:c_str(), "logged", 1, true) ~= nil, "LogToBuffer captures text")
+        ImGui.LogFinish()
+        check(g.LogFlags == G.ImGuiLogFlags.None and not g.LogEnabled, "LogFinish clears LogFlags")
+
+        -- Combo preview (no ImGuiComboFlags.CustomPreview needed since 1.93)
+        if ImGui.BeginCombo("##cb", "") then ImGui.EndCombo() end
+        local pd = g.ComboPreviewData
+        local work_max_x, content_max_x = window.WorkRect.Max.x, window.ContentRegionRect.Max.x
+        local opened = ImGui.BeginComboPreview()
+        check(opened and pd.WithinPreview and window.WorkRect.Max.x == pd.PreviewRect.Max.x - style.FramePadding.x and window.ContentRegionRect.Max.x == window.WorkRect.Max.x, "BeginComboPreview sets WorkRect")
+        if opened then
+            ImGui.Text("preview")
+            ImGui.EndComboPreview()
+        end
+        check(not pd.WithinPreview and window.WorkRect.Max.x == work_max_x and window.ContentRegionRect.Max.x == content_max_x, "EndComboPreview restores WorkRect")
+        if ImGui.BeginCombo("##cb2", "x", G.ImGuiComboFlags.NoPreview) then ImGui.EndCombo() end
+        check(not ImGui.BeginComboPreview(), "BeginComboPreview with NoPreview returns false")
+
+        -- ListClipper in a table: ImGuiListClipperFlags.NoSetTableRowCounters
+        local rows = {}
+        ImGui.SetNextWindowPos(ImVec2(500, 10)); ImGui.SetNextWindowSize(ImVec2(300, 400))
+        ImGui.Begin("Clip")
+        for pass = 1, 2 do
+            if ImGui.BeginTable("##clip" .. pass, 1, G.ImGuiTableFlags.ScrollY, ImVec2(0, 60)) then
+                local clipper = G.ImGuiListClipper()
+                if pass == 2 then clipper.Flags = G.ImGuiListClipperFlags.NoSetTableRowCounters end
+                clipper:Begin(1000)
+                while clipper:Step() do
+                    for i = clipper.DisplayStart, clipper.DisplayEnd - 1 do ImGui.TableNextRow(); ImGui.TableNextColumn(); ImGui.Text("%d", i) end
+                end
+                clipper:End()
+                rows[pass] = ImGui.GetCurrentTable().CurrentRow
+                local tbl = ImGui.GetCurrentTable()
+                ImGui.EndTable()
+                if pass == 1 then ImGui.SetNextItemOpen(true); ImGui.DebugNodeTable(tbl) end -- DebugNodeTableGetSizingPolicyDesc()
+            end
+        end
+        ImGui.End()
+        check(rows[1] ~= nil and rows[2] ~= nil and rows[1] >= 990 and rows[2] < 100, ("clipper row counters %s / NoSetTableRowCounters %s"):format(tostring(rows[1]), tostring(rows[2])))
+
+        -- .ini LastUsed dates + CleanupIniSettings()
+        local pio = ImGui.GetPlatformIO()
+        pio.Platform_SessionDate = 20261015
+        g.SessionDate = G.ImGuiPackedDate(pio.Platform_SessionDate) -- (normally done by NewFrame())
+        io.ConfigIniSettingsAutoDiscardMonths = 6
+        ImGui.LoadIniSettingsFromMemory("[Window][Old]\nPos=1,1\nLastUsed=20250101\n\n[Window][NoDate]\nPos=2,2\n\n[Window][Recent]\nPos=3,3\nLastUsed=20260901\n\n")
+        io.ConfigIniSettingsAutoDiscardMonths = 0
+        local function ws(name) for _, st in g.SettingsWindows.Data do if st.Name == name then return st end end; return nil end
+        check(ws("Old").WantDelete and ws("NoDate").WantDelete and not ws("Recent").WantDelete and ws("Recent").LastUsedDate == 20260901, "ConfigIniSettingsAutoDiscardMonths discards old/undated entries")
+        local args = G.ImGuiSettingsCleanupArgs()
+        args.SetCurrentSessionDateToAll = true
+        args.TypeHashFilter = G.ImHashStr("Window")
+        ImGui.CleanupIniSettings(args)
+        check(ws("Recent").LastUsedDate == 20261015, "CleanupIniSettings SetCurrentSessionDateToAll")
+        local ini = ImGui.SaveIniSettingsToMemory()
+        check(not string.find(ini, "[Window][Old]", 1, true) and string.find(ini, "[Window][Recent]\nPos=3,3\nCollapsed=0\nLastUsed=20261015\n", 1, true) ~= nil
+            and string.find(ini, "[Window][H]\nPos=10,10\nSize=400,300\nCollapsed=0\nLastUsed=20261015\n", 1, true) ~= nil, "LastUsed written to .ini:\n" .. ini)
+        io.ConfigIniSettingsSaveLastUsedDate = false
+        check(not string.find(ImGui.SaveIniSettingsToMemory(), "LastUsed", 1, true), "ConfigIniSettingsSaveLastUsedDate = false")
+        io.ConfigIniSettingsSaveLastUsedDate = true
+        pio.Platform_SessionDate = 0
+    end
     ImGui.End()
     ImGui.Render(); G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     if f == 32 and #failed == 0 then print("HELPERS OK") end
