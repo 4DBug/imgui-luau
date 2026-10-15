@@ -75,6 +75,14 @@ function ImU32(val) return bitAnd(val, 0xFFFFFFFF) end
 --- @return ImS32
 function ImS32(val) return bitAnd(val, 0xFFFFFFFF) end
 
+-- [Luau] 64-bit integers are stored in doubles (exact only within +-2^53): the cast just truncates toward zero like a C double->int64 cast.
+--- @param val number
+--- @return ImS64
+function ImS64(val) if val >= 0 then return math.floor(val) end return -math.floor(-val) end
+--- @param val number
+--- @return ImU64
+function ImU64(val) if val >= 0 then return math.floor(val) end return -math.floor(-val) end
+
 --- @alias float          number
 --- @class double : number
 
@@ -155,15 +163,17 @@ ImGuiDataType =
     U16    = 3, -- unsigned short
     S32    = 4, -- int
     U32    = 5, -- unsigned int
-    Float  = 6, -- float
-    Double = 7, -- double
-    Bool   = 8, -- bool (provided for user convenience, not supported by scalar widgets)
-    String = 9, -- string (provided for user convenience, not supported by scalar widgets)
-    COUNT  = 10
+    S64    = 6, -- long long / __int64 -- [Luau] stored in a double: exact only within +-2^53
+    U64    = 7, -- unsigned long long / unsigned __int64 -- [Luau] stored in a double: exact only within 0..2^53
+    Float  = 8, -- float
+    Double = 9, -- double
+    Bool   = 10, -- bool (provided for user convenience, not supported by scalar widgets)
+    String = 11, -- string (provided for user convenience, not supported by scalar widgets)
+    COUNT  = 12
 }
 -- Extend ImGuiDataType_
-ImGuiDataType.Pointer = 11 -- [internal]
-ImGuiDataType.ID      = 12 -- [internal]
+ImGuiDataType.Pointer = ImGuiDataType.COUNT -- [internal]
+ImGuiDataType.ID      = ImGuiDataType.COUNT + 1 -- [internal]
 
 ImTextureID_Invalid = -1
 
@@ -673,7 +683,7 @@ function ImDrawList(data)
         _Splitter      = ImDrawListSplitter(), -- [Internal] for channels api (note: prefer using your own persistent instance of ImDrawListSplitter!)
         _ClipRectStack = ImVector(), -- [Internal]
         _TextureStack  = ImVector(), -- [Internal]
-        _CallbacksDataBuf = nil, -- [Internal]
+        _CallbacksDataBuf = ImVector(), -- [Internal] [Lua] copies of AddCallback() userdata (userdata_size > 0)
         _DrawFlagsStack = ImVector(), -- [Internal] ImSmallStack_<ImDrawFlags,3>: capacity checked by PushDrawFlag()
         _FringeScale = 1.0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content -- [Luau] 1.0 instead of memset 0 so a list used before _SetPixelDensity() still works
         _InvFringeScale = 1.0, -- [internal] 1.0 / _FringeScale // FIXME: Consider renaming to _PixelDensity.
@@ -1258,7 +1268,7 @@ function ImGuiIO()
 
         MouseDelta = ImVec2(), -- Mouse delta. Note that this is zero if either current or previous position are invalid (-FLT_MAX,-FLT_MAX), so a disappearing/reappearing mouse won't have a huge delta.
 
-        MouseDown = {[0] = false, [1] = false, [2] = false}, -- Mouse buttons: 0=left, 1=right, 2=middle + extras (ImGuiMouseButton.COUNT == 5). Dear ImGui mostly uses left and right buttons. Other buttons allow us to track if the mouse is being used by your application + available to user as a convenience via IsMouse** API.
+        MouseDown = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse buttons: 0=left, 1=right, 2=middle + extras (ImGuiMouseButton.COUNT == 5). Dear ImGui mostly uses left and right buttons. Other buttons allow us to track if the mouse is being used by your application + available to user as a convenience via IsMouse** API.
 
         MouseWheel = 0, -- Mouse wheel Vertical: 1 unit scrolls about 5 lines text. >0 scrolls Up, <0 scrolls Down. Hold Shift to turn vertical scroll into horizontal scroll.
         MouseWheelH = 0, -- Mouse wheel Horizontal. >0 scrolls Left, <0 scrolls Right. Most users don't have a mouse with a horizontal wheel, may not be filled by all backends.
@@ -1360,23 +1370,23 @@ function ImGuiIO()
         -- (you can visualize and interact with all options in 'Demo->Configuration')
         MouseDrawCursor = false, -- = false          -- Request ImGui to draw a mouse cursor for you (if you are on a platform without a mouse cursor). Cannot be easily renamed to 'io.ConfigXXX' because this is frequently used by backend implementations.
 
-        MouseClicked          = {[0] = false, [1] = false, [2] = false}, -- Mouse button went from !Down to Down (same as MouseClickedCount[x] != 0)
-        MouseReleased         = {[0] = false, [1] = false, [2] = false}, -- Mouse button went from Down to !Down
-        MouseClickedCount     = {[0] =  0, [1] =  0, [2] =  0}, -- == 0 (not clicked), == 1 (same as MouseClicked[]), == 2 (double-clicked), == 3 (triple-clicked) etc. when going from !Down to Down
-        MouseClickedLastCount = {[0] =  0, [1] =  0, [2] =  0}, -- Count successive number of clicks. Stays valid after mouse release. Reset after another click is done.
-        MouseDownDuration     = {[0] = -1, [1] = -1, [2] = -1}, -- Duration the mouse button has been down (0.0f == just clicked)
-        MouseDownDurationPrev = {[0] = -1, [1] = -1, [2] = -1}, -- Previous time the mouse button has been down
+        MouseClicked          = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse button went from !Down to Down (same as MouseClickedCount[x] != 0)
+        MouseReleased         = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse button went from Down to !Down
+        MouseClickedCount     = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- == 0 (not clicked), == 1 (same as MouseClicked[]), == 2 (double-clicked), == 3 (triple-clicked) etc. when going from !Down to Down
+        MouseClickedLastCount = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Count successive number of clicks. Stays valid after mouse release. Reset after another click is done.
+        MouseDownDuration     = {[0] = -1, [1] = -1, [2] = -1, [3] = -1, [4] = -1}, -- Duration the mouse button has been down (0.0f == just clicked)
+        MouseDownDurationPrev = {[0] = -1, [1] = -1, [2] = -1, [3] = -1, [4] = -1}, -- Previous time the mouse button has been down
 
-        MouseDragMaxDistanceAbs = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2()}, -- Maximum distance, absolute, on each axis, of how much mouse has traveled from the clicking point
-        MouseDragMaxDistanceSqr = {[0] = 0, [1] = 0, [2] = 0}, -- Squared maximum distance of how much mouse has traveled from the clicking point (used for moving thresholds)
+        MouseDragMaxDistanceAbs = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2(), [3] = ImVec2(), [4] = ImVec2()}, -- Maximum distance, absolute, on each axis, of how much mouse has traveled from the clicking point
+        MouseDragMaxDistanceSqr = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Squared maximum distance of how much mouse has traveled from the clicking point (used for moving thresholds)
 
-        MouseDownOwned    = {[0] = nil, [1] = nil, [2] = nil}, -- Track if button was clicked inside a dear imgui window or over void blocked by a popup. We don't request mouse capture from the application if click started outside ImGui bounds.
-        MouseDownOwnedUnlessPopupClose = {[0] = nil, [1] = nil, [2] = nil}, -- Track if button was clicked inside a dear imgui window.
-        MouseClickedTime  = {[0] = 0, [1] = 0, [2] = 0}, -- Time of last click (used to figure out double-click)
-        MouseReleasedTime = {[0] = 0, [1] = 0, [2] = 0}, -- Time of last released (rarely used! but useful to handle delayed single-click when trying to disambiguate them from double-click).
-        MouseClickedPos   = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2()}, -- Position at time of clicking
+        MouseDownOwned    = {[0] = nil, [1] = nil, [2] = nil, [3] = nil, [4] = nil}, -- Track if button was clicked inside a dear imgui window or over void blocked by a popup. We don't request mouse capture from the application if click started outside ImGui bounds.
+        MouseDownOwnedUnlessPopupClose = {[0] = nil, [1] = nil, [2] = nil, [3] = nil, [4] = nil}, -- Track if button was clicked inside a dear imgui window.
+        MouseClickedTime  = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Time of last click (used to figure out double-click)
+        MouseReleasedTime = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Time of last released (rarely used! but useful to handle delayed single-click when trying to disambiguate them from double-click).
+        MouseClickedPos   = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2(), [3] = ImVec2(), [4] = ImVec2()}, -- Position at time of clicking
 
-        MouseDoubleClicked = {[0] = false, [1] = false, [2] = false}, -- Has mouse button been double-clicked? (same as MouseClickedCount[x] == 2)
+        MouseDoubleClicked = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Has mouse button been double-clicked? (same as MouseClickedCount[x] == 2)
 
         -- Inputs Behaviors
         -- (other variables, ones which are expected to be tweaked within UI code, are exposed in ImGuiStyle)
@@ -2777,6 +2787,17 @@ ImGuiTableBgTarget = { None = 0, RowBg0 = 1, RowBg1 = 2, CellBg = 3 }
 --- @enum ImGuiSortDirection
 ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
 
+-- Resizing callback data to apply custom constraint. As enabled by SetNextWindowSizeConstraints(). Callback is called during the next Begin().
+-- NB: For basic min/max size constraint on each axis you don't need to use the callback! The SetNextWindowSizeConstraints() parameters are enough.
+--- @class ImGuiSizeCallbackData
+--- @field UserData    any     Read-only.   What user passed to SetNextWindowSizeConstraints(). Generally store an integer or float in here.
+--- @field Pos         ImVec2  Read-only.   Window position, for reference.
+--- @field CurrentSize ImVec2  Read-only.   Current window size.
+--- @field DesiredSize ImVec2  Read-write.  Desired size, based on user's mouse position. Write to this field to restrain resizing.
+--- @return ImGuiSizeCallbackData
+function ImGuiSizeCallbackData()
+    return { UserData = nil, Pos = ImVec2(), CurrentSize = ImVec2(), DesiredSize = ImVec2() }
+end
 
 
 -- Data payload for Drag and Drop operations: AcceptDragDropPayload(), GetDragDropPayload()

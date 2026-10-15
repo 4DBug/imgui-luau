@@ -14,7 +14,7 @@ CHECKS=(
 "cached|CACHED OK|$R --main tools/test/scripts/t_cached_window.luau --frames 130"
 "fixes|FIXES OK|$R --main tools/test/scripts/t_fixes.luau --frames 55"
 "debugtools|DEBUGTOOLS OK|$R --main tools/test/scripts/t_debugtools.luau --frames 65"
-"helpers|HELPERS OK|$R --main tools/test/scripts/t_helpers.luau --frames 35"
+"helpers|HELPERS OK|$R --main tools/test/scripts/t_helpers.luau --frames 45"
 "multiselect|MULTISELECT OK|$R --main tools/test/scripts/t_multiselect.luau --frames 380"
 "nodemo|NODEMO OK|NO_DEMO=1 $R --main tools/test/scripts/t_nodemo.luau --frames 25"
 "widgets|OK|$R --main tools/test/scripts/t_widgets.luau --frames 80"

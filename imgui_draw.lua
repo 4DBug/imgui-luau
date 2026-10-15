@@ -4144,6 +4144,16 @@ function ImGui.AddDrawListToDrawDataEx(draw_data, out_list, draw_list)
         IM_ASSERT(draw_list._VtxCurrentIdx == draw_list.VtxBuffer.Size + 1)
     end
 
+    -- Resolve callback data pointers
+    local cb_buf = draw_list._CallbacksDataBuf
+    if cb_buf.Size > 0 then
+        for _, cmd in draw_list.CmdBuffer:iter() do
+            if cmd.UserCallback ~= nil and cmd.UserCallbackDataOffset ~= -1 and cmd.UserCallbackDataSize > 0 then
+                cmd.UserCallbackData = cb_buf.Data[cmd.UserCallbackDataOffset + 1]
+            end
+        end
+    end
+
     -- Add to output list + records state in ImDrawData
     out_list:push_back(draw_list)
     draw_data.TotalVtxCount = draw_data.TotalVtxCount + draw_list.VtxBuffer.Size
@@ -4250,7 +4260,6 @@ end
 
 -- Initialize before use in a new frame. We always have a command ready in the buffer.
 -- In the majority of cases, you would want to call PushClipRect() and PushTexture() after this.
--- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
     self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
     if self._Splitter._Count > 1 then
@@ -4272,6 +4281,7 @@ function MT.ImDrawList:_ResetForNewFrame()
     self._IdxWritePtr = 1
     self._ClipRectStack:resize(0)
     self._TextureStack:resize(0)
+    self._CallbacksDataBuf:resize(0)
     self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:resize(0)
 
@@ -4292,7 +4302,7 @@ function MT.ImDrawList:_ClearFreeMemory()
 
     self._ClipRectStack:clear()
     self._TextureStack:clear()
-    -- self._CallbacksDataBuf:clear()
+    self._CallbacksDataBuf:clear()
     self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:clear()
     self._Splitter:ClearFreeMemory()
@@ -4365,15 +4375,27 @@ function MT.ImDrawList:AddCallback(callback, userdata, userdata_size)
         curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     end
     curr_cmd.UserCallback = callback
-    -- TODO: _CallbacksDataBuf?
     if userdata_size == 0 then
         -- Store user data directly in command (no indirection)
         curr_cmd.UserCallbackData = userdata
-
+        curr_cmd.UserCallbackDataSize = 0
+        curr_cmd.UserCallbackDataOffset = -1
     else
+        -- Copy and store user data in a buffer
+        -- [Lua] No raw bytes: the "copy" is a shallow copy of a table userdata (other values are immutable and stored as is),
+        -- so later changes to the caller's table don't affect this command. userdata_size is only recorded.
         IM_ASSERT(userdata ~= nil)
-        IM_ASSERT(userdata_size < bit32.lshift(1, 31))
-
+        IM_ASSERT(userdata_size < 2147483648) -- (1u << 31)
+        curr_cmd.UserCallbackData = nil -- Will be resolved during Render()
+        curr_cmd.UserCallbackDataSize = userdata_size
+        curr_cmd.UserCallbackDataOffset = self._CallbacksDataBuf.Size -- 0-based
+        local copy = userdata
+        if type(userdata) == "table" then
+            copy = {}
+            for k, v in pairs(userdata) do copy[k] = v end
+            setmetatable(copy, getmetatable(userdata))
+        end
+        self._CallbacksDataBuf:push_back(copy) -- memcpy()
     end
 
     self:AddDrawCmd() -- Force a new command after us (see comment below)

@@ -138,7 +138,7 @@ if not utf8 then
 end
 
 
-local ImGui, ImVec2, ImVec4, ImRect, HelpMarker, ImVec2_Copy, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImDrawFlags, ImGuiInputFlags, ImRect_Copy, ImStb, ImGuiDataType, IM_TRUNC, ImGuiStyleVarInfo, ImVec2_CopyV, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImFormatString, ImHashStr, IM_ASSERT_USER_ERROR_RET, ImIsPowerOfTwo, ImS32, ImGuiColorEditFlags, ImVec4_Copy, ImAbs, ExampleAppConsoleMT, IM_ROUND, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, IM_ASSERT_PARANOID, ImU16, ExampleNames, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImColor, ImCos, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiListClipper, ImGuiLocKey, ImU32, ExampleTreeFuncs, ImS16, _PathArcToFastExXY, ImGuiMultiSelectFlags, ImSin, ImGuiTabBarFlags, ImLengthSqr, ImUpperPowerOfTwo, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, DockSettingsRenameNodeReferences, ExampleDualListBoxMT, IM_DRAWLIST_TEX_LINES_WIDTH_MAX, ImCeil, ImFabs, ImGuiCol, ImGuiSelectionBasicStorage, ImS8, ImU8, ExampleAppPropertyEditorMT, ImGuiChildFlags, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ImLog, ExampleSelectionWithDeletionMT, CustomConstraints, ExampleAppLogMT, ImFontAtlasBuildInit, ImFontAtlasFontDestroyOutput, ImGuiComboFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, MyDocument, ShowExampleMenuFile, CalcCornerArcStepAndCount, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImFontConfig, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleAsset_s_current_sort_specs, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC, ImFontAtlasBuildNotifySetFont, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroySourceData, ImFontAtlasFontSourceAddToFont, ImFontAtlasFontSourceInit, ImGuiTableColumn, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, IM_FREE, ImDrawListSplitter, ImGuiDragDropFlags, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND, STB_TEXTEDIT_K_TEXTSTART, STB_TEXTEDIT_K_UNDO
+local ImGui, ImVec2, ImVec4, ImRect, ImVec2_Copy, HelpMarker, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImDrawFlags, ImGuiInputFlags, ImRect_Copy, ImStb, ImGuiDataType, IM_TRUNC, ImGuiStyleVarInfo, ImVec2_CopyV, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImHashStr, IM_ASSERT_USER_ERROR_RET, ImIsPowerOfTwo, ImS32, ImGuiColorEditFlags, ImVec4_Copy, ImAbs, ExampleAppConsoleMT, IM_ROUND, ImFormatString, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, IM_ASSERT_PARANOID, ImU16, ExampleNames, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImColor, ImCos, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiListClipper, ImGuiLocKey, ImU32, ExampleTreeFuncs, ImS16, _PathArcToFastExXY, ImGuiMultiSelectFlags, ImSin, ImGuiTabBarFlags, ImLengthSqr, ImUpperPowerOfTwo, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, ImS64, DockSettingsRenameNodeReferences, ExampleDualListBoxMT, IM_DRAWLIST_TEX_LINES_WIDTH_MAX, ImCeil, ImFabs, ImGuiCol, ImGuiSelectionBasicStorage, ImS8, ImU8, ExampleAppPropertyEditorMT, ImGuiChildFlags, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ExampleSelectionWithDeletionMT, CustomConstraints, ExampleAppLogMT, IMGUI_DEBUG_LOG_FONT, ImFontAtlasBuildInit, ImFontAtlasFontDestroyOutput, ImGuiComboFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, MyDocument, ShowExampleMenuFile, CalcCornerArcStepAndCount, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImFontConfig, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleAsset_s_current_sort_specs, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC, ImFontAtlasBuildNotifySetFont, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroySourceData, ImFontAtlasFontSourceAddToFont, ImGuiTableColumn, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, IM_FREE, ImDrawListSplitter, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND, STB_TEXTEDIT_K_TEXTSTART, STB_TEXTEDIT_K_UNDO, STB_TEXTEDIT_K_UP
 local type, mathMin, mathMax, mathFloor, mathCeil, bitOr, bitLShift = type, math.min, math.max, math.floor, math.ceil, bit32.bor, bit32.lshift
 local function IM_COL32(R, G, B, A) return (bitOr(bitLShift(A, 24 --[[IM_COL32_A_SHIFT]]), bitLShift(B, 16 --[[IM_COL32_B_SHIFT]]), bitLShift(G, 8 --[[IM_COL32_G_SHIFT]]), bitLShift(R, 0 --[[IM_COL32_R_SHIFT]]))) end
 
@@ -6671,7 +6671,7 @@ function ImGui.IsMouseDragPastThreshold(button, lock_threshold)
     if lock_threshold == nil then lock_threshold = -1.0 end
 
     local g = GImGui
-    assert(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     if lock_threshold < 0.0 then
         lock_threshold = g.IO.MouseDragThreshold
     end
@@ -6684,7 +6684,7 @@ function ImGui.IsMouseDragging(button, lock_threshold)
     if lock_threshold == nil then lock_threshold = -1.0 end
 
     local g = GImGui
-    assert(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     if not g.IO.MouseDown[button] then
         return false
     end
@@ -7230,7 +7230,7 @@ function ImGui.EndGroup()
     assert(group_data.WindowID == window.ID) -- EndGroup() in wrong window?
 
     if (window.DC.IsSetPos) then
-        -- TODO: ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
+        ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     end
 
     -- Include LastItemData.Rect.Max as a workaround for e.g. EndTable() undershooting with CursorMaxPos report. (#7543)
@@ -7697,7 +7697,16 @@ function ImGui.BringWindowToDisplayBehind(window, behind_window)
     local g = GImGui
     window = window.RootWindow
     behind_window = behind_window.RootWindow
-    -- TODO:
+    local pos_wnd = ImGui.FindWindowDisplayIndex(window) + 1 -- 1-based
+    local pos_beh = ImGui.FindWindowDisplayIndex(behind_window) + 1
+    local data = g.Windows.Data
+    if pos_wnd < pos_beh then
+        for i = pos_wnd, pos_beh - 2 do data[i] = data[i + 1] end -- memmove
+        data[pos_beh - 1] = window
+    else
+        for i = pos_wnd, pos_beh + 1, -1 do data[i] = data[i - 1] end -- memmove
+        data[pos_beh] = window
+    end
 end
 
 --- @param under_this_window? ImGuiWindow
@@ -7903,7 +7912,7 @@ function ImGui.PushOverrideID(id)
     local g = GImGui
     local window = g.CurrentWindow
     if g.DebugHookIdInfoId == id and id ~= 0 then
-        ImGui.DebugHookIdInfo(id, 12 --[[ImGuiDataType.ID]], nil)
+        ImGui.DebugHookIdInfo(id, 13 --[[ImGuiDataType.ID]], nil)
     end
     -- [Luau] inline window.IDStack:push_back(id)
     local stack = window.IDStack
@@ -7936,7 +7945,7 @@ function MT.ImGuiWindow:GetID(id)
     end
     local g = GImGui
     if g.DebugHookIdInfoId == h and h ~= 0 then
-        ImGui.DebugHookIdInfo(h, (type(id) == "string") and 9 --[[ImGuiDataType.String]] or 4 --[[ImGuiDataType.S32]], id)
+        ImGui.DebugHookIdInfo(h, (type(id) == "string") and 11 --[[ImGuiDataType.String]] or 4 --[[ImGuiDataType.S32]], id)
     end
     return h
 end
@@ -7984,7 +7993,7 @@ function ImGui.GetIDWithSeed(a, b, c)
         id = ImHashStr(a, b and (b - 1) or nil, c)
     end
     if GImGui.DebugHookIdInfoId == id and id ~= 0 then
-        ImGui.DebugHookIdInfo(id, (type(a) == "number") and 4 --[[ImGuiDataType.S32]] or 9 --[[ImGuiDataType.String]], (b and type(a) == "string") and string.sub(a, 1, b - 1) or a)
+        ImGui.DebugHookIdInfo(id, (type(a) == "number") and 4 --[[ImGuiDataType.S32]] or 11 --[[ImGuiDataType.String]], (b and type(a) == "string") and string.sub(a, 1, b - 1) or a)
     end
     return id
 end
@@ -8480,7 +8489,7 @@ function MT.ImGuiIO:ClearInputMouse()
 
     self.MousePos = ImVec2(-3.4028234663853e+38 --[[FLT_MAX]], -3.4028234663853e+38 --[[FLT_MAX]])
 
-    for n = 0, 2 do -- IM_COUNTOF(MouseDown)
+    for n = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do
         self.MouseDown[n] = false
         self.MouseDownDuration[n] = -1.0
         self.MouseDownDurationPrev[n] = -1.0
@@ -9023,7 +9032,6 @@ function ImGui.IsKeyPressedEx(key, flags, owner_id)
     return true
 end
 
--- TODO:
 -- Return untranslated names: on macOS, Cmd key will show as Ctrl, Ctrl key will show as super.
 function ImGui.GetKeyChordName(key_chord)
     local key = bit32.band(key_chord, bit32.bnot(61440 --[[ImGuiMod_Mask_]]))
@@ -9472,7 +9480,7 @@ end
 --- @return bool
 function ImGui.IsAnyMouseDown()
     local g = GImGui
-    for n = 0, 2 do -- IM_COUNTOF(g.IO.MouseDown) - 1
+    for n = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do
         if g.IO.MouseDown[n] then
             return true
         end
@@ -9486,7 +9494,7 @@ function ImGui.IsMouseDown(button, owner_id)
     if owner_id == nil then owner_id = 0 --[[ImGuiKeyOwner_Any]] end
 
     local g = GImGui
-    assert(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseDown[button] and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id) -- Should be same as IsKeyDown(MouseButtonToKey(button), owner_id), but this allows legacy code hijacking the io.Mousedown[] array.
 end
 
@@ -9506,7 +9514,7 @@ function ImGui.IsMouseClickedEx(button, flags, owner_id)
     if owner_id  == nil  then owner_id = 0 --[[ImGuiKeyOwner_Any]] end
 
     local g = GImGui
-    assert(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
 
     if not g.IO.MouseDown[button] then -- In theory this should already be encoded as (DownDuration < 0.0f), but testing this facilitates eating mechanism (until we finish work on key ownership)
         return false
@@ -9537,7 +9545,7 @@ function ImGui.IsMouseReleased(button, owner_id)
     if owner_id == nil then owner_id = 0 --[[ImGuiKeyOwner_Any]] end
 
     local g = GImGui
-    assert(button >= 0 and button < 3) -- IM_COUNTOF(g.IO.MouseDown)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseReleased[button] and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id) -- Should be same as IsKeyReleased(MouseButtonToKey(button), owner_id)
 end
 
@@ -9550,7 +9558,7 @@ end
 function ImGui.IsMouseReleasedWithDelay(button, delay)
     if delay == nil then delay = -1.0 end
     local g = GImGui
-    assert(button >= 0 and button < 3)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     if ImGui.IsMouseDown(button) then
         return false
     end
@@ -9566,14 +9574,14 @@ end
 function ImGui.IsMouseDoubleClicked(button, owner_id)
     if owner_id == nil then owner_id = 0 --[[ImGuiKeyOwner_Any]] end
     local g = GImGui
-    assert(button >= 0 and button < 3)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseClickedCount[button] == 2 and ImGui.TestKeyOwner(ImGui.MouseButtonToKey(button), owner_id)
 end
 
 --- @param button ImGuiMouseButton
 function ImGui.GetMouseClickedCount(button)
     local g = GImGui
-    assert(button >= 0 and button < 3)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     return g.IO.MouseClickedCount[button]
 end
 
@@ -9664,7 +9672,7 @@ function ImGui.GetMouseDragDelta(button, lock_threshold)
     if button == nil then button = 0 end
     if lock_threshold == nil then lock_threshold = -1.0 end
     local g = GImGui
-    assert(button >= 0 and button < 3)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     if lock_threshold < 0.0 then
         lock_threshold = g.IO.MouseDragThreshold
     end
@@ -9682,7 +9690,7 @@ end
 function ImGui.ResetMouseDragDelta(button)
     if button == nil then button = 0 end
     local g = GImGui
-    assert(button >= 0 and button < 3)
+    assert(button >= 0 and button < 5 --[[ImGuiMouseButton.COUNT]]) -- IM_COUNTOF(g.IO.MouseDown)
     -- NB: We don't need to reset g.IO.MouseDragMaxDistanceSqr
     ImVec2_Copy(g.IO.MouseClickedPos[button], g.IO.MousePos)
 end
@@ -10127,14 +10135,13 @@ local function CalcWindowSizeAfterConstraint(window, size_desired)
         new_size.x = (cr.Min.x >= 0 and cr.Max.x >= 0) and ImClamp(new_size.x, cr.Min.x, cr.Max.x) or window.SizeFull.x
         new_size.y = (cr.Min.y >= 0 and cr.Max.y >= 0) and ImClamp(new_size.y, cr.Min.y, cr.Max.y) or window.SizeFull.y
         if g.NextWindowData.SizeCallback then
-            local data = {} -- TODO: ImGuiSizeCallbackData
+            local data = ImGuiSizeCallbackData()
             data.UserData = g.NextWindowData.SizeCallbackUserData
-            data.Pos = ImVec2(window.Pos.x, window.Pos.y)
-            data.CurrentSize = ImVec2(window.SizeFull.x, window.SizeFull.y)
-            data.DesiredSize = ImVec2(new_size.x, new_size.y)
+            ImVec2_Copy(data.Pos, window.Pos)
+            ImVec2_Copy(data.CurrentSize, window.SizeFull)
+            ImVec2_Copy(data.DesiredSize, new_size)
             g.NextWindowData.SizeCallback(data)
-            new_size.x = data.DesiredSize.x
-            new_size.y = data.DesiredSize.y
+            ImVec2_Copy(new_size, data.DesiredSize)
         end
         new_size.x = IM_TRUNC(new_size.x)
         new_size.y = IM_TRUNC(new_size.y)
@@ -11343,6 +11350,7 @@ local function SetCurrentWindow(window)
     local g = GImGui
     --- @diagnostic disable-next-line
     g.CurrentWindow = window
+    g.StackSizesInBeginForCurrentWindow = window and g.CurrentWindowStack:back().StackSizesInBegin or nil
     g.CurrentTable = (window and window.DC.CurrentTableIdx ~= -1) and g.Tables:GetByIndex(window.DC.CurrentTableIdx) or nil
 
     if window then
@@ -11359,7 +11367,6 @@ local function SetCurrentWindow(window)
     end
 end
 
--- TODO:
 function ImGui.GcCompactTransientMiscBuffers()
     local g = GImGui
     g.ItemFlagsStack:clear()
@@ -13581,7 +13588,6 @@ local function FindHoveredWindowEx(pos, find_first_and_in_any_viewport)
     return hovered_window, hovered_window_under_moving_window
 end
 
--- TODO:
 -- The reason this is exposed in imgui_internal.h is: on touch-based system that don't have hovering, we want to dispatch inputs to the right target (imgui vs imgui+app)
 function ImGui.UpdateHoveredWindowAndCaptureFlags(mouse_pos)
     local g = GImGui
@@ -13618,7 +13624,7 @@ function ImGui.UpdateHoveredWindowAndCaptureFlags(mouse_pos)
     local mouse_earliest_down = -1
     local mouse_any_down = false
 
-    for i = 0, 2 do -- IM_COUNTOF(io.MouseDown)
+    for i = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do
         if io.MouseClicked[i] then
             io.MouseDownOwned[i] = (g.HoveredWindow ~= nil) or has_open_popup
             io.MouseDownOwnedUnlessPopupClose[i] = (g.HoveredWindow ~= nil) or has_open_modal
@@ -13707,7 +13713,7 @@ function ImGui.UpdateKeyboardInputs()
     end
 
     -- Update aliases
-    for n = 0, 2 do -- TODO: ImGuiMouseButton.COUNT - 1
+    for n = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do
         ImGui.UpdateAliasKey(ImGui.MouseButtonToKey(n), io.MouseDown[n], io.MouseDown[n] and 1.0 or 0.0)
     end
     ImGui.UpdateAliasKey(661 --[[ImGuiKey.MouseWheelX]], io.MouseWheelH ~= 0.0, io.MouseWheelH)
@@ -13815,7 +13821,7 @@ function ImGui.UpdateMouseInputs()
         g.NavHighlightItemUnderNav = false
     end
 
-    for i = 0, 2 do -- IM_COUNTOF(io.MouseDown)
+    for i = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do
         io.MouseClicked[i] = io.MouseDown[i] and (io.MouseDownDuration[i] < 0.0)
         io.MouseClickedCount[i] = 0 -- Will be filled below
         io.MouseReleased[i] = not io.MouseDown[i] and (io.MouseDownDuration[i] >= 0.0)
@@ -14767,7 +14773,6 @@ function ImGui.EndFrame()
     ImGui.CallContextHooks(g, 3 --[[ImGuiContextHookType.EndFramePost]])
 end
 
--- TODO:
 -- Prepare the data for rendering so you can call GetDrawData()
 -- (As with anything within the ImGui:: namespace this doesn't touch your GPU or graphics API at all:
 -- it is the role of the ImGui_ImplXXXX_RenderDrawData() function provided by the renderer backend)
@@ -15345,9 +15350,9 @@ function ImGui.PushStyleVar(idx, val)
     local g = GImGui
     local var_info = ImGui.GetStyleVarInfo(idx)
     if type(val) == "number" then
-        IM_ASSERT_USER_ERROR_RET(var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 1, "Calling PushStyleVar() with wrong type!")
+        IM_ASSERT_USER_ERROR_RET(var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 1, "Calling PushStyleVar() with wrong type!")
     else -- ImVec2
-        IM_ASSERT_USER_ERROR_RET(var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVar() with wrong type!")
+        IM_ASSERT_USER_ERROR_RET(var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVar() with wrong type!")
     end
     local var = g.Style[var_info.Key]
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, var))
@@ -15363,7 +15368,7 @@ end
 function ImGui.PushStyleVarX(idx, val_x)
     local g = GImGui
     local var_info = ImGui.GetStyleVarInfo(idx)
-    IM_ASSERT_USER_ERROR_RET(var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVarX() with wrong type!")
+    IM_ASSERT_USER_ERROR_RET(var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVarX() with wrong type!")
     local pvar = g.Style[var_info.Key]
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, pvar))
     pvar.x = val_x
@@ -15374,7 +15379,7 @@ end
 function ImGui.PushStyleVarY(idx, val_y)
     local g = GImGui
     local var_info = ImGui.GetStyleVarInfo(idx)
-    IM_ASSERT_USER_ERROR_RET(var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVarY() with wrong type!")
+    IM_ASSERT_USER_ERROR_RET(var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 2, "Calling PushStyleVarY() with wrong type!")
     local pvar = g.Style[var_info.Key]
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, pvar))
     pvar.y = val_y
@@ -15394,9 +15399,9 @@ function ImGui.PopStyleVar(count)
         local backup = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
         local var_info = ImGui.GetStyleVarInfo(backup.VarIdx)
         local data = g.Style[var_info.Key]
-        if (var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 1) then
+        if (var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 1) then
             g.Style[var_info.Key] = backup.BackupVal[1]
-        elseif (var_info.DataType == 6 --[[ImGuiDataType.Float]] and var_info.Count == 2) then
+        elseif (var_info.DataType == 8 --[[ImGuiDataType.Float]] and var_info.Count == 2) then
             data.x = backup.BackupVal[1]; data.y = backup.BackupVal[2]
         end
         stack.Size = stack.Size - 1
@@ -16634,7 +16639,7 @@ end
 
 function ImGui.PopFocusScope()
     local g = GImGui
-    -- TODO: IM_ASSERT_USER_ERROR_RET(g.FocusScopeStack.Size > g.StackSizesInBeginForCurrentWindow.SizeOfFocusScopeStack, "Calling PopFocusScope() too many times!")
+    IM_ASSERT_USER_ERROR_RET(g.FocusScopeStack.Size > g.StackSizesInBeginForCurrentWindow.SizeOfFocusScopeStack, "Calling PopFocusScope() too many times!")
     g.FocusScopeStack:pop_back()
     if g.FocusScopeStack.Size > 0 then
         g.CurrentFocusScopeId = g.FocusScopeStack:back().ID
@@ -19649,9 +19654,10 @@ function ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     window.DC.IsSetPos = false
     if window.DC.CursorPos.x <= window.DC.CursorMaxPos.x and window.DC.CursorPos.y <= window.DC.CursorMaxPos.y then return end
     if window.SkipItems then return end
-    -- Upstream asserts (user error): "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.
-    -- Please submit an item e.g. Dummy() afterwards". We keep the old, tolerant behavior instead of erroring.
-    window.DC.CursorMaxPos = ImMax(window.DC.CursorMaxPos, window.DC.CursorPos)
+    IM_ASSERT_USER_ERROR(false, "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries.\nPlease submit an item e.g. Dummy() afterwards in order to grow window/parent boundaries.")
+
+    -- For reference, the old behavior was essentially:
+    --window.DC.CursorMaxPos = ImMax(window.DC.CursorMaxPos, window.DC.CursorPos)
 end
 
 -------------------------------------------------------------------------------
@@ -21650,7 +21656,7 @@ function ImGui.DebugHookIdInfo(id, data_type, data_id)
     if info == nil or info.ID ~= id then return end
     if info.Desc == nil then
         if data_type == 4 --[[ImGuiDataType.S32]] then info.Desc = string.format("%d", data_id)
-        elseif data_type == 9 --[[ImGuiDataType.String]] then info.Desc = tostring(data_id)
+        elseif data_type == 11 --[[ImGuiDataType.String]] then info.Desc = tostring(data_id)
         else info.Desc = string.format("0x%08X [override]", id) end -- PushOverrideID() is often used to avoid hashing twice, which would lead to 2 calls to DebugHookIdInfo(). We prioritize the first one.
     end
     info.QuerySuccess = true
@@ -21667,7 +21673,7 @@ local function DebugItemPathQuery_FormatLevelInfo(query, n, format_for_ui)
     local info = query.Results[n + 1]
     local window = (info.Desc == nil and n == 0) and ImGui.FindWindowByID(info.ID) or nil
     if window then return string.format(format_for_ui and "\"%s\" [window]" or "%s", SkipUncontributingPrefix(window.Name)) end -- Source: window name (because the root ID don't call GetID() and so doesn't get hooked)
-    if info.QuerySuccess then return string.format((format_for_ui and info.DataType == 9 --[[ImGuiDataType.String]]) and "\"%s\"" or "%s", SkipUncontributingPrefix(info.Desc)) end -- Source: GetID() hooks (prioritize over ItemInfo() because we frequently use patterns like: PushID(str), Button("") where they both have same id)
+    if info.QuerySuccess then return string.format((format_for_ui and info.DataType == 11 --[[ImGuiDataType.String]]) and "\"%s\"" or "%s", SkipUncontributingPrefix(info.Desc)) end -- Source: GetID() hooks (prioritize over ItemInfo() because we frequently use patterns like: PushID(str), Button("") where they both have same id)
     if query.Step < #query.Results then return "" end -- Only start using fallback below when all queries are done, so during queries we don't flickering ??? markers.
     return "???"
 end
@@ -22638,11 +22644,12 @@ function ImGui.ShowMetricsWindow(p_open)
         if ImGui.IsMousePosValid() then ImGui.Text("Mouse pos: (%g, %g)", io.MousePos.x, io.MousePos.y) else ImGui.Text("Mouse pos: <INVALID>") end
         ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
         ImGui.Text("Mouse down:")
-        for i = 0, 2 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end
+        local count = 5 --[[ImGuiMouseButton.COUNT]] -- IM_COUNTOF(io.MouseDown)
+        for i = 0, count - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end
         ImGui.Text("Mouse clicked:")
-        for i = 0, 2 do if ImGui.IsMouseClicked(i) then ImGui.SameLine(); ImGui.Text("b%d (%d)", i, io.MouseClickedCount[i]) end end
+        for i = 0, count - 1 do if ImGui.IsMouseClicked(i) then ImGui.SameLine(); ImGui.Text("b%d (%d)", i, io.MouseClickedCount[i]) end end
         ImGui.Text("Mouse released:")
-        for i = 0, 2 do if ImGui.IsMouseReleased(i) then ImGui.SameLine(); ImGui.Text("b%d", i) end end
+        for i = 0, count - 1 do if ImGui.IsMouseReleased(i) then ImGui.SameLine(); ImGui.Text("b%d", i) end end
         ImGui.Text("Mouse wheel: %.1f", io.MouseWheel)
         ImGui.Text("MouseStationaryTimer: %.2f", g.MouseStationaryTimer)
         ImGui.Text("Mouse source: %s", GetMouseSourceName(io.MouseSource))
@@ -24324,7 +24331,8 @@ S.DemoWindowWidgetsDataTypes = {
     u16_v = 65535,
     s32_v = -1,
     u32_v = 4294967295, -- (ImU32)-1
-    -- [Port] s64_v / u64_v: 64-bit integer types are not supported (Lua numbers are doubles)
+    s64_v = -1,
+    u64_v = 18446744073709551615, -- (ImU64)-1 [Port] Lua numbers are doubles: 64-bit values are exact only within +-2^53
     f32_v = 0.123,
     f64_v = 90000.01234567890123456789,
     drag_clamp = false,
@@ -24355,14 +24363,15 @@ function DemoWindowWidgetsDataTypes()
 
         -- Setup limits (as helper variables so we can take their address, as explained above)
         -- Note: SliderScalar() functions have a maximum usable range of half the natural type maximum, hence the /2.
-        -- [Port] LLONG_MIN/LLONG_MAX/ULLONG_MAX fallback block dropped: no 64-bit integer types
+        local LLONG_MIN, LLONG_MAX, ULLONG_MAX = -9223372036854775808, 9223372036854775807, 18446744073709551615 -- [Port] doubles (LLONG_MAX/ULLONG_MAX round up)
         local s8_zero,  s8_one,  s8_fifty,  s8_min,  s8_max  = 0, 1, 50, -128, 127
         local u8_zero,  u8_one,  u8_fifty,  u8_min,  u8_max  = 0, 1, 50, 0, 255
         local s16_zero, s16_one, s16_fifty, s16_min, s16_max = 0, 1, 50, -32768, 32767
         local u16_zero, u16_one, u16_fifty, u16_min, u16_max = 0, 1, 50, 0, 65535
         local s32_zero, s32_one, s32_fifty, s32_min, s32_max, s32_hi_a, s32_hi_b = 0, 1, 50, -1073741824, 1073741823, 1073741823 - 100, 1073741823 -- INT_MIN/2, INT_MAX/2
         local u32_zero, u32_one, u32_fifty, u32_min, u32_max, u32_hi_a, u32_hi_b = 0, 1, 50, 0, 2147483647, 2147483647 - 100, 2147483647 -- UINT_MAX/2
-        -- [Port] s64_* / u64_* limits: ImGuiDataType.S64/U64 are not supported
+        local s64_zero, s64_one, s64_fifty, s64_min, s64_max, s64_hi_a, s64_hi_b = 0, 1, 50, LLONG_MIN / 2, LLONG_MAX / 2, LLONG_MAX / 2 - 100, LLONG_MAX / 2
+        local u64_zero, u64_one, u64_fifty, u64_min, u64_max, u64_hi_a, u64_hi_b = 0, 1, 50, 0, ULLONG_MAX / 2, ULLONG_MAX / 2 - 100, ULLONG_MAX / 2
         local f32_zero, f32_one, f32_lo_a, f32_hi_a = 0.0, 1.0, -10000000000.0, 10000000000.0
         local f64_zero, f64_one, f64_lo_a, f64_hi_a = 0.0, 1.0, -1000000000000000.0, 1000000000000000.0
 
@@ -24384,12 +24393,12 @@ function DemoWindowWidgetsDataTypes()
         s.s32_v = ImGui.DragScalar("drag s32",       4 --[[ImGuiDataType.S32]],    s.s32_v, drag_speed, drag_clamp and s32_zero or nil, drag_clamp and s32_fifty or nil)
         s.s32_v = ImGui.DragScalar("drag s32 hex",   4 --[[ImGuiDataType.S32]],    s.s32_v, drag_speed, drag_clamp and s32_zero or nil, drag_clamp and s32_fifty or nil, "0x%08X")
         s.u32_v = ImGui.DragScalar("drag u32",       5 --[[ImGuiDataType.U32]],    s.u32_v, drag_speed, drag_clamp and u32_zero or nil, drag_clamp and u32_fifty or nil, "%u ms")
-        -- [Port] ImGui.DragScalar("drag s64",       ImGuiDataType.S64,    s64_v, ...) -- 64-bit types not supported
-        -- [Port] ImGui.DragScalar("drag u64",       ImGuiDataType.U64,    u64_v, ...) -- 64-bit types not supported
-        s.f32_v = ImGui.DragScalar("drag float",     6 --[[ImGuiDataType.Float]],  s.f32_v, 0.005,  f32_zero, f32_one, "%f")
-        s.f32_v = ImGui.DragScalar("drag float log", 6 --[[ImGuiDataType.Float]],  s.f32_v, 0.005,  f32_zero, f32_one, "%f", 32 --[[ImGuiSliderFlags.Logarithmic]])
-        s.f64_v = ImGui.DragScalar("drag double",    7 --[[ImGuiDataType.Double]], s.f64_v, 0.0005, f64_zero, nil,     "%.10f grams")
-        s.f64_v = ImGui.DragScalar("drag double log",7 --[[ImGuiDataType.Double]], s.f64_v, 0.0005, f64_zero, f64_one, "0 < %.10f < 1", 32 --[[ImGuiSliderFlags.Logarithmic]])
+        s.s64_v = ImGui.DragScalar("drag s64",       6 --[[ImGuiDataType.S64]],    s.s64_v, drag_speed, drag_clamp and s64_zero or nil, drag_clamp and s64_fifty or nil)
+        s.u64_v = ImGui.DragScalar("drag u64",       7 --[[ImGuiDataType.U64]],    s.u64_v, drag_speed, drag_clamp and u64_zero or nil, drag_clamp and u64_fifty or nil)
+        s.f32_v = ImGui.DragScalar("drag float",     8 --[[ImGuiDataType.Float]],  s.f32_v, 0.005,  f32_zero, f32_one, "%f")
+        s.f32_v = ImGui.DragScalar("drag float log", 8 --[[ImGuiDataType.Float]],  s.f32_v, 0.005,  f32_zero, f32_one, "%f", 32 --[[ImGuiSliderFlags.Logarithmic]])
+        s.f64_v = ImGui.DragScalar("drag double",    9 --[[ImGuiDataType.Double]], s.f64_v, 0.0005, f64_zero, nil,     "%.10f grams")
+        s.f64_v = ImGui.DragScalar("drag double log",9 --[[ImGuiDataType.Double]], s.f64_v, 0.0005, f64_zero, f64_one, "0 < %.10f < 1", 32 --[[ImGuiSliderFlags.Logarithmic]])
 
         IMGUI_DEMO_MARKER("Widgets/Data Types/Sliders")
         ImGui.SeparatorText("Sliders")
@@ -24404,21 +24413,26 @@ function DemoWindowWidgetsDataTypes()
         s.u32_v = ImGui.SliderScalar("slider u32 low",       5 --[[ImGuiDataType.U32]],    s.u32_v, u32_zero, u32_fifty,"%u")
         s.u32_v = ImGui.SliderScalar("slider u32 high",      5 --[[ImGuiDataType.U32]],    s.u32_v, u32_hi_a, u32_hi_b, "%u")
         s.u32_v = ImGui.SliderScalar("slider u32 full",      5 --[[ImGuiDataType.U32]],    s.u32_v, u32_min,  u32_max,  "%u")
-        -- [Port] "slider s64 low" / "slider s64 high" / "slider s64 full" (ImGuiDataType.S64): 64-bit types not supported
-        -- [Port] "slider u64 low" / "slider u64 high" / "slider u64 full" (ImGuiDataType.U64): 64-bit types not supported
-        s.f32_v = ImGui.SliderScalar("slider float low",     6 --[[ImGuiDataType.Float]],  s.f32_v, f32_zero, f32_one)
-        s.f32_v = ImGui.SliderScalar("slider float low log", 6 --[[ImGuiDataType.Float]],  s.f32_v, f32_zero, f32_one,  "%.10f", 32 --[[ImGuiSliderFlags.Logarithmic]])
-        s.f32_v = ImGui.SliderScalar("slider float high",    6 --[[ImGuiDataType.Float]],  s.f32_v, f32_lo_a, f32_hi_a, "%e")
-        s.f64_v = ImGui.SliderScalar("slider double low",    7 --[[ImGuiDataType.Double]], s.f64_v, f64_zero, f64_one,  "%.10f grams")
-        s.f64_v = ImGui.SliderScalar("slider double low log",7 --[[ImGuiDataType.Double]], s.f64_v, f64_zero, f64_one,  "%.10f", 32 --[[ImGuiSliderFlags.Logarithmic]])
-        s.f64_v = ImGui.SliderScalar("slider double high",   7 --[[ImGuiDataType.Double]], s.f64_v, f64_lo_a, f64_hi_a, "%e grams")
+        s.s64_v = ImGui.SliderScalar("slider s64 low",       6 --[[ImGuiDataType.S64]],    s.s64_v, s64_zero, s64_fifty,"%lld") -- "%" PRId64
+        s.s64_v = ImGui.SliderScalar("slider s64 high",      6 --[[ImGuiDataType.S64]],    s.s64_v, s64_hi_a, s64_hi_b, "%lld")
+        s.s64_v = ImGui.SliderScalar("slider s64 full",      6 --[[ImGuiDataType.S64]],    s.s64_v, s64_min,  s64_max,  "%lld")
+        s.u64_v = ImGui.SliderScalar("slider u64 low",       7 --[[ImGuiDataType.U64]],    s.u64_v, u64_zero, u64_fifty,"%llu ms") -- "%" PRIu64 " ms"
+        s.u64_v = ImGui.SliderScalar("slider u64 high",      7 --[[ImGuiDataType.U64]],    s.u64_v, u64_hi_a, u64_hi_b, "%llu ms")
+        s.u64_v = ImGui.SliderScalar("slider u64 full",      7 --[[ImGuiDataType.U64]],    s.u64_v, u64_min,  u64_max,  "%llu ms")
+        s.f32_v = ImGui.SliderScalar("slider float low",     8 --[[ImGuiDataType.Float]],  s.f32_v, f32_zero, f32_one)
+        s.f32_v = ImGui.SliderScalar("slider float low log", 8 --[[ImGuiDataType.Float]],  s.f32_v, f32_zero, f32_one,  "%.10f", 32 --[[ImGuiSliderFlags.Logarithmic]])
+        s.f32_v = ImGui.SliderScalar("slider float high",    8 --[[ImGuiDataType.Float]],  s.f32_v, f32_lo_a, f32_hi_a, "%e")
+        s.f64_v = ImGui.SliderScalar("slider double low",    9 --[[ImGuiDataType.Double]], s.f64_v, f64_zero, f64_one,  "%.10f grams")
+        s.f64_v = ImGui.SliderScalar("slider double low log",9 --[[ImGuiDataType.Double]], s.f64_v, f64_zero, f64_one,  "%.10f", 32 --[[ImGuiSliderFlags.Logarithmic]])
+        s.f64_v = ImGui.SliderScalar("slider double high",   9 --[[ImGuiDataType.Double]], s.f64_v, f64_lo_a, f64_hi_a, "%e grams")
 
         ImGui.SeparatorText("Sliders (reverse)")
         s.s8_v  = ImGui.SliderScalar("slider s8 reverse",    0 --[[ImGuiDataType.S8]],   s.s8_v,  s8_max,    s8_min,   "%d")
         s.u8_v  = ImGui.SliderScalar("slider u8 reverse",    1 --[[ImGuiDataType.U8]],   s.u8_v,  u8_max,    u8_min,   "%u")
         s.s32_v = ImGui.SliderScalar("slider s32 reverse",   4 --[[ImGuiDataType.S32]],  s.s32_v, s32_fifty, s32_zero, "%d")
         s.u32_v = ImGui.SliderScalar("slider u32 reverse",   5 --[[ImGuiDataType.U32]],  s.u32_v, u32_fifty, u32_zero, "%u")
-        -- [Port] "slider s64 reverse" / "slider u64 reverse": 64-bit types not supported
+        s.s64_v = ImGui.SliderScalar("slider s64 reverse",   6 --[[ImGuiDataType.S64]],  s.s64_v, s64_fifty, s64_zero, "%lld")
+        s.u64_v = ImGui.SliderScalar("slider u64 reverse",   7 --[[ImGuiDataType.U64]],  s.u64_v, u64_fifty, u64_zero, "%llu ms")
 
         IMGUI_DEMO_MARKER("Widgets/Data Types/Inputs")
         ImGui.SeparatorText("Inputs")
@@ -24435,10 +24449,10 @@ function DemoWindowWidgetsDataTypes()
         s.s32_v = ImGui.InputScalar("input s32 hex", 4 --[[ImGuiDataType.S32]],    s.s32_v, inputs_step and s32_one or nil, nil, "%04X", flags)
         s.u32_v = ImGui.InputScalar("input u32",     5 --[[ImGuiDataType.U32]],    s.u32_v, inputs_step and u32_one or nil, nil, "%u", flags)
         s.u32_v = ImGui.InputScalar("input u32 hex", 5 --[[ImGuiDataType.U32]],    s.u32_v, inputs_step and u32_one or nil, nil, "%08X", flags)
-        -- [Port] ImGui.InputScalar("input s64",     ImGuiDataType.S64, ...) -- 64-bit types not supported
-        -- [Port] ImGui.InputScalar("input u64",     ImGuiDataType.U64, ...) -- 64-bit types not supported
-        s.f32_v = ImGui.InputScalar("input float",   6 --[[ImGuiDataType.Float]],  s.f32_v, inputs_step and f32_one or nil, nil, nil, flags)
-        s.f64_v = ImGui.InputScalar("input double",  7 --[[ImGuiDataType.Double]], s.f64_v, inputs_step and f64_one or nil, nil, nil, flags)
+        s.s64_v = ImGui.InputScalar("input s64",     6 --[[ImGuiDataType.S64]],    s.s64_v, inputs_step and s64_one or nil, nil, nil, flags)
+        s.u64_v = ImGui.InputScalar("input u64",     7 --[[ImGuiDataType.U64]],    s.u64_v, inputs_step and u64_one or nil, nil, nil, flags)
+        s.f32_v = ImGui.InputScalar("input float",   8 --[[ImGuiDataType.Float]],  s.f32_v, inputs_step and f32_one or nil, nil, nil, flags)
+        s.f64_v = ImGui.InputScalar("input double",  9 --[[ImGuiDataType.Double]], s.f64_v, inputs_step and f64_one or nil, nil, nil, flags)
 
         ImGui.TreePop()
     end
@@ -30992,10 +31006,10 @@ function DemoWindowInputs()
             end
             ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
             ImGui.Text("Mouse down:")
-            for i = 0, 2 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- IM_COUNTOF(io.MouseDown) == 3, 0-based
+            for i = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- IM_COUNTOF(io.MouseDown), 0-based
             ImGui.Text("Mouse wheel: %.1f", io.MouseWheel)
             ImGui.Text("Mouse clicked count:")
-            for i = 0, 2 do if io.MouseClickedCount[i] > 0 then ImGui.SameLine(); ImGui.Text("b%d: %d", i, io.MouseClickedCount[i]) end end
+            for i = 0, 5 --[[ImGuiMouseButton.COUNT]] - 1 do if io.MouseClickedCount[i] > 0 then ImGui.SameLine(); ImGui.Text("b%d: %d", i, io.MouseClickedCount[i]) end end
 
             -- We iterate both legacy native range and named ImGuiKey ranges. This is a little unusual/odd but this allows
             -- displaying the data for old/new backends.
@@ -32681,7 +32695,7 @@ function ExampleAppPropertyEditorMT:Draw(root_node)
                     ImGui.TextUnformatted(field_desc.Name)
                     ImGui.TableNextColumn()
                     local field_ptr = field_desc.Offset -- [Port] Offset is the field name inside ExampleTreeNode
-                    if field_desc.DataType == 8 --[[ImGuiDataType.Bool]] then
+                    if field_desc.DataType == 10 --[[ImGuiDataType.Bool]] then
                         assert(field_desc.DataCount == 1)
                         _, node[field_ptr] = ImGui.Checkbox("##Editor", node[field_ptr])
                     elseif field_desc.DataType == 4 --[[ImGuiDataType.S32]] then
@@ -32692,11 +32706,11 @@ function ExampleAppPropertyEditorMT:Draw(root_node)
                         else
                             ImGui.DragScalarN("##Editor", field_desc.DataType, node[field_ptr], field_desc.DataCount, 1.0, v_min, v_max)
                         end
-                    elseif field_desc.DataType == 6 --[[ImGuiDataType.Float]] then
+                    elseif field_desc.DataType == 8 --[[ImGuiDataType.Float]] then
                         local v_min, v_max = 0.0, 1.0
                         ImGui.SetNextItemWidth(-1.1754943508223e-38 --[[FLT_MIN]])
                         ImGui.SliderScalarN("##Editor", field_desc.DataType, node[field_ptr], field_desc.DataCount, v_min, v_max)
-                    elseif field_desc.DataType == 9 --[[ImGuiDataType.String]] then
+                    elseif field_desc.DataType == 11 --[[ImGuiDataType.String]] then
                         local buf = self.StringBufs[node] -- [Port] edit the Lua string through a 28-byte buffer
                         if buf == nil then buf = ImGui.NewTextBuffer(node[field_ptr], 28); self.StringBufs[node] = buf end
                         if ImGui.InputText("##Editor", buf, 28) then node[field_ptr] = ImGui.TextBufferToString(buf) end
@@ -38799,6 +38813,16 @@ function ImGui.AddDrawListToDrawDataEx(draw_data, out_list, draw_list)
         assert(draw_list._VtxCurrentIdx == draw_list.VtxBuffer.Size + 1)
     end
 
+    -- Resolve callback data pointers
+    local cb_buf = draw_list._CallbacksDataBuf
+    if cb_buf.Size > 0 then
+        for _, cmd in draw_list.CmdBuffer:iter() do
+            if cmd.UserCallback ~= nil and cmd.UserCallbackDataOffset ~= -1 and cmd.UserCallbackDataSize > 0 then
+                cmd.UserCallbackData = cb_buf.Data[cmd.UserCallbackDataOffset + 1]
+            end
+        end
+    end
+
     -- Add to output list + records state in ImDrawData
     out_list:push_back(draw_list)
     draw_data.TotalVtxCount = draw_data.TotalVtxCount + draw_list.VtxBuffer.Size
@@ -38905,7 +38929,6 @@ end
 
 -- Initialize before use in a new frame. We always have a command ready in the buffer.
 -- In the majority of cases, you would want to call PushClipRect() and PushTexture() after this.
--- TODO:
 function MT.ImDrawList:_ResetForNewFrame()
     self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
     if self._Splitter._Count > 1 then
@@ -38927,6 +38950,7 @@ function MT.ImDrawList:_ResetForNewFrame()
     self._IdxWritePtr = 1
     self._ClipRectStack:resize(0)
     self._TextureStack:resize(0)
+    self._CallbacksDataBuf:resize(0)
     self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:resize(0)
 
@@ -38947,7 +38971,7 @@ function MT.ImDrawList:_ClearFreeMemory()
 
     self._ClipRectStack:clear()
     self._TextureStack:clear()
-    -- self._CallbacksDataBuf:clear()
+    self._CallbacksDataBuf:clear()
     self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:clear()
     self._Splitter:ClearFreeMemory()
@@ -39020,15 +39044,27 @@ function MT.ImDrawList:AddCallback(callback, userdata, userdata_size)
         curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     end
     curr_cmd.UserCallback = callback
-    -- TODO: _CallbacksDataBuf?
     if userdata_size == 0 then
         -- Store user data directly in command (no indirection)
         curr_cmd.UserCallbackData = userdata
-
+        curr_cmd.UserCallbackDataSize = 0
+        curr_cmd.UserCallbackDataOffset = -1
     else
+        -- Copy and store user data in a buffer
+        -- [Lua] No raw bytes: the "copy" is a shallow copy of a table userdata (other values are immutable and stored as is),
+        -- so later changes to the caller's table don't affect this command. userdata_size is only recorded.
         assert(userdata ~= nil)
-        assert(userdata_size < bit32.lshift(1, 31))
-
+        assert(userdata_size < 2147483648) -- (1u << 31)
+        curr_cmd.UserCallbackData = nil -- Will be resolved during Render()
+        curr_cmd.UserCallbackDataSize = userdata_size
+        curr_cmd.UserCallbackDataOffset = self._CallbacksDataBuf.Size -- 0-based
+        local copy = userdata
+        if type(userdata) == "table" then
+            copy = {}
+            for k, v in pairs(userdata) do copy[k] = v end
+            setmetatable(copy, getmetatable(userdata))
+        end
+        self._CallbacksDataBuf:push_back(copy) -- memcpy()
     end
 
     self:AddDrawCmd() -- Force a new command after us (see comment below)
@@ -43035,6 +43071,14 @@ function ImU32(val) return bitAnd(val, 0xFFFFFFFF) end
 --- @return ImS32
 function ImS32(val) return bitAnd(val, 0xFFFFFFFF) end
 
+-- [Luau] 64-bit integers are stored in doubles (exact only within +-2^53): the cast just truncates toward zero like a C double->int64 cast.
+--- @param val number
+--- @return ImS64
+function ImS64(val) if val >= 0 then return math.floor(val) end return -math.floor(-val) end
+--- @param val number
+--- @return ImU64
+function ImU64(val) if val >= 0 then return math.floor(val) end return -math.floor(-val) end
+
 --- @alias float          number
 --- @class double : number
 
@@ -43115,15 +43159,17 @@ ImGuiDataType =
     U16    = 3, -- unsigned short
     S32    = 4, -- int
     U32    = 5, -- unsigned int
-    Float  = 6, -- float
-    Double = 7, -- double
-    Bool   = 8, -- bool (provided for user convenience, not supported by scalar widgets)
-    String = 9, -- string (provided for user convenience, not supported by scalar widgets)
-    COUNT  = 10
+    S64    = 6, -- long long / __int64 -- [Luau] stored in a double: exact only within +-2^53
+    U64    = 7, -- unsigned long long / unsigned __int64 -- [Luau] stored in a double: exact only within 0..2^53
+    Float  = 8, -- float
+    Double = 9, -- double
+    Bool   = 10, -- bool (provided for user convenience, not supported by scalar widgets)
+    String = 11, -- string (provided for user convenience, not supported by scalar widgets)
+    COUNT  = 12
 }
 -- Extend ImGuiDataType_
-ImGuiDataType.Pointer = 11 -- [internal]
-ImGuiDataType.ID      = 12 -- [internal]
+ImGuiDataType.Pointer = ImGuiDataType.COUNT -- [internal]
+ImGuiDataType.ID      = ImGuiDataType.COUNT + 1 -- [internal]
 
 ImTextureID_Invalid = -1
 
@@ -43633,7 +43679,7 @@ function ImDrawList(data)
         _Splitter      = ImDrawListSplitter(), -- [Internal] for channels api (note: prefer using your own persistent instance of ImDrawListSplitter!)
         _ClipRectStack = ImVector(), -- [Internal]
         _TextureStack  = ImVector(), -- [Internal]
-        _CallbacksDataBuf = nil, -- [Internal]
+        _CallbacksDataBuf = ImVector(), -- [Internal] [Lua] copies of AddCallback() userdata (userdata_size > 0)
         _DrawFlagsStack = ImVector(), -- [Internal] ImSmallStack_<ImDrawFlags,3>: capacity checked by PushDrawFlag()
         _FringeScale = 1.0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content -- [Luau] 1.0 instead of memset 0 so a list used before _SetPixelDensity() still works
         _InvFringeScale = 1.0, -- [internal] 1.0 / _FringeScale // FIXME: Consider renaming to _PixelDensity.
@@ -44218,7 +44264,7 @@ function ImGuiIO()
 
         MouseDelta = ImVec2(), -- Mouse delta. Note that this is zero if either current or previous position are invalid (-FLT_MAX,-FLT_MAX), so a disappearing/reappearing mouse won't have a huge delta.
 
-        MouseDown = {[0] = false, [1] = false, [2] = false}, -- Mouse buttons: 0=left, 1=right, 2=middle + extras (ImGuiMouseButton.COUNT == 5). Dear ImGui mostly uses left and right buttons. Other buttons allow us to track if the mouse is being used by your application + available to user as a convenience via IsMouse** API.
+        MouseDown = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse buttons: 0=left, 1=right, 2=middle + extras (ImGuiMouseButton.COUNT == 5). Dear ImGui mostly uses left and right buttons. Other buttons allow us to track if the mouse is being used by your application + available to user as a convenience via IsMouse** API.
 
         MouseWheel = 0, -- Mouse wheel Vertical: 1 unit scrolls about 5 lines text. >0 scrolls Up, <0 scrolls Down. Hold Shift to turn vertical scroll into horizontal scroll.
         MouseWheelH = 0, -- Mouse wheel Horizontal. >0 scrolls Left, <0 scrolls Right. Most users don't have a mouse with a horizontal wheel, may not be filled by all backends.
@@ -44320,23 +44366,23 @@ function ImGuiIO()
         -- (you can visualize and interact with all options in 'Demo->Configuration')
         MouseDrawCursor = false, -- = false          -- Request ImGui to draw a mouse cursor for you (if you are on a platform without a mouse cursor). Cannot be easily renamed to 'io.ConfigXXX' because this is frequently used by backend implementations.
 
-        MouseClicked          = {[0] = false, [1] = false, [2] = false}, -- Mouse button went from !Down to Down (same as MouseClickedCount[x] != 0)
-        MouseReleased         = {[0] = false, [1] = false, [2] = false}, -- Mouse button went from Down to !Down
-        MouseClickedCount     = {[0] =  0, [1] =  0, [2] =  0}, -- == 0 (not clicked), == 1 (same as MouseClicked[]), == 2 (double-clicked), == 3 (triple-clicked) etc. when going from !Down to Down
-        MouseClickedLastCount = {[0] =  0, [1] =  0, [2] =  0}, -- Count successive number of clicks. Stays valid after mouse release. Reset after another click is done.
-        MouseDownDuration     = {[0] = -1, [1] = -1, [2] = -1}, -- Duration the mouse button has been down (0.0f == just clicked)
-        MouseDownDurationPrev = {[0] = -1, [1] = -1, [2] = -1}, -- Previous time the mouse button has been down
+        MouseClicked          = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse button went from !Down to Down (same as MouseClickedCount[x] != 0)
+        MouseReleased         = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Mouse button went from Down to !Down
+        MouseClickedCount     = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- == 0 (not clicked), == 1 (same as MouseClicked[]), == 2 (double-clicked), == 3 (triple-clicked) etc. when going from !Down to Down
+        MouseClickedLastCount = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Count successive number of clicks. Stays valid after mouse release. Reset after another click is done.
+        MouseDownDuration     = {[0] = -1, [1] = -1, [2] = -1, [3] = -1, [4] = -1}, -- Duration the mouse button has been down (0.0f == just clicked)
+        MouseDownDurationPrev = {[0] = -1, [1] = -1, [2] = -1, [3] = -1, [4] = -1}, -- Previous time the mouse button has been down
 
-        MouseDragMaxDistanceAbs = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2()}, -- Maximum distance, absolute, on each axis, of how much mouse has traveled from the clicking point
-        MouseDragMaxDistanceSqr = {[0] = 0, [1] = 0, [2] = 0}, -- Squared maximum distance of how much mouse has traveled from the clicking point (used for moving thresholds)
+        MouseDragMaxDistanceAbs = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2(), [3] = ImVec2(), [4] = ImVec2()}, -- Maximum distance, absolute, on each axis, of how much mouse has traveled from the clicking point
+        MouseDragMaxDistanceSqr = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Squared maximum distance of how much mouse has traveled from the clicking point (used for moving thresholds)
 
-        MouseDownOwned    = {[0] = nil, [1] = nil, [2] = nil}, -- Track if button was clicked inside a dear imgui window or over void blocked by a popup. We don't request mouse capture from the application if click started outside ImGui bounds.
-        MouseDownOwnedUnlessPopupClose = {[0] = nil, [1] = nil, [2] = nil}, -- Track if button was clicked inside a dear imgui window.
-        MouseClickedTime  = {[0] = 0, [1] = 0, [2] = 0}, -- Time of last click (used to figure out double-click)
-        MouseReleasedTime = {[0] = 0, [1] = 0, [2] = 0}, -- Time of last released (rarely used! but useful to handle delayed single-click when trying to disambiguate them from double-click).
-        MouseClickedPos   = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2()}, -- Position at time of clicking
+        MouseDownOwned    = {[0] = nil, [1] = nil, [2] = nil, [3] = nil, [4] = nil}, -- Track if button was clicked inside a dear imgui window or over void blocked by a popup. We don't request mouse capture from the application if click started outside ImGui bounds.
+        MouseDownOwnedUnlessPopupClose = {[0] = nil, [1] = nil, [2] = nil, [3] = nil, [4] = nil}, -- Track if button was clicked inside a dear imgui window.
+        MouseClickedTime  = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Time of last click (used to figure out double-click)
+        MouseReleasedTime = {[0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0}, -- Time of last released (rarely used! but useful to handle delayed single-click when trying to disambiguate them from double-click).
+        MouseClickedPos   = {[0] = ImVec2(), [1] = ImVec2(), [2] = ImVec2(), [3] = ImVec2(), [4] = ImVec2()}, -- Position at time of clicking
 
-        MouseDoubleClicked = {[0] = false, [1] = false, [2] = false}, -- Has mouse button been double-clicked? (same as MouseClickedCount[x] == 2)
+        MouseDoubleClicked = {[0] = false, [1] = false, [2] = false, [3] = false, [4] = false}, -- Has mouse button been double-clicked? (same as MouseClickedCount[x] == 2)
 
         -- Inputs Behaviors
         -- (other variables, ones which are expected to be tweaked within UI code, are exposed in ImGuiStyle)
@@ -45737,6 +45783,17 @@ ImGuiTableBgTarget = { None = 0, RowBg0 = 1, RowBg1 = 2, CellBg = 3 }
 --- @enum ImGuiSortDirection
 ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
 
+-- Resizing callback data to apply custom constraint. As enabled by SetNextWindowSizeConstraints(). Callback is called during the next Begin().
+-- NB: For basic min/max size constraint on each axis you don't need to use the callback! The SetNextWindowSizeConstraints() parameters are enough.
+--- @class ImGuiSizeCallbackData
+--- @field UserData    any     Read-only.   What user passed to SetNextWindowSizeConstraints(). Generally store an integer or float in here.
+--- @field Pos         ImVec2  Read-only.   Window position, for reference.
+--- @field CurrentSize ImVec2  Read-only.   Current window size.
+--- @field DesiredSize ImVec2  Read-write.  Desired size, based on user's mouse position. Write to this field to restrain resizing.
+--- @return ImGuiSizeCallbackData
+function ImGuiSizeCallbackData()
+    return { UserData = nil, Pos = ImVec2(), CurrentSize = ImVec2(), DesiredSize = ImVec2() }
+end
 
 
 -- Data payload for Drag and Drop operations: AcceptDragDropPayload(), GetDragDropPayload()
@@ -55598,6 +55655,11 @@ local IM_S32_MIN = INT_MIN -- (-2147483647 - 1), (0x80000000);
 local IM_S32_MAX = INT_MAX -- (2147483647), (0x7FFFFFFF)
 local IM_U32_MIN = 0
 local IM_U32_MAX = UINT_MAX -- (0xFFFFFFFF)
+-- [Luau] 64-bit limits as doubles: IM_S64_MAX/IM_U64_MAX round up to 2^63/2^64 (values are exact only within +-2^53)
+local IM_S64_MIN = -9223372036854775808 -- (-9223372036854775807ll - 1ll)
+local IM_S64_MAX = 9223372036854775807 -- (9223372036854775807ll)
+local IM_U64_MIN = 0
+local IM_U64_MAX = 18446744073709551615 -- (0xFFFFFFFFFFFFFFFFull)
 
 -------------------------------------------------------------------------------
 -- [SECTION] Widgets: Text, etc.
@@ -56330,8 +56392,9 @@ function ImGui.ButtonEx(label, size_arg, flags)
     ImGui.RenderNavCursor(bb, id)
     ImGui.RenderFrame(bb.Min, bb.Max, col, true, style.FrameRounding)
 
-    -- if (g.LogEnabled)
-    --     LogSetNextTextDecoration("[", "]");
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("[", "]")
+    end
     local text_min, text_max = ButtonEx_text_min, ButtonEx_text_max -- [Luau] scratch: RenderTextClipped() only reads them
     text_min.x = bb.Min.x + frame_padding.x; text_min.y = bb.Min.y + frame_padding.y
     text_max.x = bb.Max.x - frame_padding.x; text_max.y = bb.Max.y - frame_padding.y
@@ -56913,7 +56976,7 @@ function ImGui.Checkbox(label, v)
     end
 
     if g.LogEnabled then
-        -- ImGui.LogRenderedText(label_pos, mixed_value and "[~]" or (v and "[x]" or "[ ]"))
+        ImGui.LogRenderedText(ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y), mixed_value and "[~]" or (v and "[x]" or "[ ]")) -- label_pos
     end
 
     if is_visible and label_size.x > 0.0 then
@@ -57010,7 +57073,7 @@ function ImGui.RadioButtonEx(label, active)
     end
     local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y)
     if g.LogEnabled then
-        -- ImGui.LogRenderedText(label_pos, active and "(x)" or "( )")
+        ImGui.LogRenderedText(label_pos, active and "(x)" or "( )")
     end
     if label_size.x > 0.0 then
         ImGui.RenderText(label_pos, label, 1, label_end, false)
@@ -57332,7 +57395,7 @@ function ImGui.SeparatorEx(flags, thickness)
             -- Draw
             window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(28 --[[ImGuiCol.Separator]]))
             if g.LogEnabled then
-                ImGui.LogRenderedText(bb.Min, "--------------------------------")
+                ImGui.LogRenderedText(bb.Min, "--------------------------------\n")
             end
         end
 
@@ -57891,6 +57954,8 @@ local GDataTypeInfo = {
     ImGuiDataTypeInfo(2, "U16",    "%u",   "%u"),
     ImGuiDataTypeInfo(4, "S32",    "%d",   "%d"), -- ImGuiDataType.S32
     ImGuiDataTypeInfo(4, "U32",    "%u",   "%u"),
+    ImGuiDataTypeInfo(8, "S64",    "%lld", "%lld"), -- ImGuiDataType.S64
+    ImGuiDataTypeInfo(8, "U64",    "%llu", "%llu"),
     ImGuiDataTypeInfo(4, "float",  "%.3f", "%f"), -- ImGuiDataType.Float
     ImGuiDataTypeInfo(8, "double", "%f",   "%lf"), -- ImGuiDataType.Double
     ImGuiDataTypeInfo(1, "bool",   "%d",   "%d"), -- ImGuiDataType.Bool
@@ -57899,8 +57964,55 @@ local GDataTypeInfo = {
 
 --- @param data_type ImGuiDataType
 function ImGui.DataTypeGetInfo(data_type)
-    assert(data_type >= 0 and data_type < 10 --[[ImGuiDataType.COUNT]])
+    assert(data_type >= 0 and data_type < 12 --[[ImGuiDataType.COUNT]])
     return GDataTypeInfo[data_type + 1]
+end
+
+-- [Luau] string.format() has no length modifiers (%lld, %I64d...) and formats negative numbers as 64-bit for %u/%x/%X/%o:
+-- strip modifiers and re-apply C's integer promotion/two's complement for signed types.
+local DataTypeFormatStringCached do
+local fmt_info_memo = {} -- format -> { stripped format, is unsigned conversion }
+local function GetFormatInfo(format)
+    local info = fmt_info_memo[format]
+    if info == nil then
+        local stripped = string.gsub(string.gsub(format, "(%%[-+ #0']*%d*%.?%d*)[hlLqjzt]+", "%1"), "(%%[-+ #0']*%d*%.?%d*)I64", "%1")
+        local conv = string.match(stripped, "%%[-+ #0']*%d*%.?%d*([diouxXc])")
+        info = { stripped, conv == "u" or conv == "x" or conv == "X" or conv == "o" }
+        fmt_info_memo[format] = info
+    end
+    return info
+end
+
+--- Lua-string version of DataTypeFormatString() (memoized), used for display.
+--- @param data_type ImGuiDataType
+--- @param data      number
+--- @param format    string
+--- @return string
+function DataTypeFormatStringCached(data_type, data, format)
+    if data_type == 8 --[[ImGuiDataType.Float]] or data_type == 9 --[[ImGuiDataType.Double]] then
+        return FormatCached(format, data)
+    end
+    local info = GetFormatInfo(format)
+    if     data_type == 0 --[[ImGuiDataType.S8]]  then data = (ImS8)(data)
+    elseif data_type == 1 --[[ImGuiDataType.U8]]  then data = (ImU8)(data)
+    elseif data_type == 2 --[[ImGuiDataType.S16]] then data = (ImS16)(data)
+    elseif data_type == 3 --[[ImGuiDataType.U16]] then data = (ImU16)(data)
+    elseif data_type == 4 --[[ImGuiDataType.S32]] then -- (signed values are already stored signed)
+    elseif data_type == 5 --[[ImGuiDataType.U32]] then data = (ImU32)(data)
+    elseif data_type == 6 --[[ImGuiDataType.S64]] or data_type == 7 --[[ImGuiDataType.U64]] then
+        -- (string.format() already prints negative numbers as 64-bit two's complement for %u/%x/%X/%o)
+        if info[2] then
+            if data >= 18446744073709551616 then data = -1 end -- (ImU64)-1 rounds to 2^64 in a double: print ULLONG_MAX
+        elseif data >= 9223372036854775808 then
+            data = 9223372036854774784 -- largest double below 2^63 (LLONG_MAX isn't representable)
+        end
+        return FormatCached(info[1], data)
+    else
+        assert(false)
+    end
+    if data < 0 and info[2] then data = data + 4294967296 end -- Signedness doesn't matter when pushing integer arguments
+    return FormatCached(info[1], data)
+end
 end
 
 --- @param buf       char[]
@@ -57908,28 +58020,12 @@ end
 --- @param data_type ImGuiDataType
 --- @param data      number
 --- @param format    string
+--- @return int
 function ImGui.DataTypeFormatString(buf, buf_size, data_type, data, format)
-    local str
-    if     data_type == 4 --[[ImGuiDataType.S32]] then
-        str = ImFormatString(format, (ImS32)(data))
-    elseif data_type == 5 --[[ImGuiDataType.U32]] then
-        str = ImFormatString(format, (ImU32)(data))
-    elseif data_type == 6 --[[ImGuiDataType.Float]] then
-        str = ImFormatString(format, data)
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then
-        str = ImFormatString(format, data)
-    elseif data_type == 0 --[[ImGuiDataType.S8]] then
-        str = ImFormatString(format, (ImS8)(data))
-    elseif data_type == 1 --[[ImGuiDataType.U8]] then
-        str = ImFormatString(format, (ImU8)(data))
-    elseif data_type == 2 --[[ImGuiDataType.S16]] then
-        str = ImFormatString(format, (ImS16)(data))
-    elseif data_type == 3 --[[ImGuiDataType.U16]] then
-        str = ImFormatString(format, (ImU16)(data))
-    else
-        assert(false)
-    end
-    ImStd.ImStrncpy(buf, 1, { string.byte(str, 1, #str) }, 1, ImMin(#str + 1, buf_size)) -- TODO: update this when new ImFormatString is implemented
+    local str = DataTypeFormatStringCached(data_type, data, format)
+    local len = ImMin(#str, buf_size - 1) -- ImFormatString(): truncate and return the written length
+    ImStd.ImStrncpy(buf, 1, { string.byte(str, 1, len) }, 1, len + 1)
+    return len
 end
 
 --- @param data_type ImGuiDataType
@@ -57975,13 +58071,25 @@ function ImGui.DataTypeApplyOp(data_type, op, arg1, arg2)
         elseif op == 45 then
             return ImSubClampOverflow(arg1, arg2, IM_U32_MIN, IM_U32_MAX)
         end
-    elseif data_type == 6 --[[ImGuiDataType.Float]] then
+    elseif data_type == 6 --[[ImGuiDataType.S64]] then
+        if op == 43 then
+            return ImAddClampOverflow(arg1, arg2, IM_S64_MIN, IM_S64_MAX)
+        elseif op == 45 then
+            return ImSubClampOverflow(arg1, arg2, IM_S64_MIN, IM_S64_MAX)
+        end
+    elseif data_type == 7 --[[ImGuiDataType.U64]] then
+        if op == 43 then
+            return ImAddClampOverflow(arg1, arg2, IM_U64_MIN, IM_U64_MAX)
+        elseif op == 45 then
+            return ImSubClampOverflow(arg1, arg2, IM_U64_MIN, IM_U64_MAX)
+        end
+    elseif data_type == 8 --[[ImGuiDataType.Float]] then
         if op == 43 then
             return arg1 + arg2
         elseif op == 45 then
             return arg1 - arg2
         end
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then
+    elseif data_type == 9 --[[ImGuiDataType.Double]] then
         if op == 43 then
             return arg1 + arg2
         elseif op == 45 then
@@ -58021,7 +58129,7 @@ function ImGui.DataTypeApplyFromText(buf, data_type, data, format, data_when_emp
     -- Sanitize format
     -- - For float/double we have to ignore format with precision (e.g. "%.2f") because sscanf doesn't take them in, so force them into %f and %lf
     local format_sanitized, format_sanitized_size = {}, 32
-    if (data_type == 6 --[[ImGuiDataType.Float]] or data_type == 7 --[[ImGuiDataType.Double]]) then
+    if (data_type == 8 --[[ImGuiDataType.Float]] or data_type == 9 --[[ImGuiDataType.Double]]) then
         format = type_info.ScanFmt
     else
         format = ImParseFormatSanitizeForScanning(format, format_sanitized, format_sanitized_size)
@@ -58078,8 +58186,10 @@ function ImGui.DataTypeCompare(data_type, arg1, arg2)
     elseif data_type == 3 --[[ImGuiDataType.U16]] then return DataTypeCompareT((ImU16)(arg1), (ImU16)(arg2))
     elseif data_type == 4 --[[ImGuiDataType.S32]] then return DataTypeCompareT((ImS32)(arg1), (ImS32)(arg2))
     elseif data_type == 5 --[[ImGuiDataType.U32]] then return DataTypeCompareT((ImU32)(arg1), (ImU32)(arg2))
-    elseif data_type == 6 --[[ImGuiDataType.Float]]  then return DataTypeCompareT(arg1, arg2)
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then return DataTypeCompareT(arg1, arg2)
+    elseif data_type == 6 --[[ImGuiDataType.S64]] then return DataTypeCompareT((ImS64)(arg1), (ImS64)(arg2))
+    elseif data_type == 7 --[[ImGuiDataType.U64]] then return DataTypeCompareT((ImU64)(arg1), (ImU64)(arg2))
+    elseif data_type == 8 --[[ImGuiDataType.Float]]  then return DataTypeCompareT(arg1, arg2)
+    elseif data_type == 9 --[[ImGuiDataType.Double]] then return DataTypeCompareT(arg1, arg2)
     end
     assert(false)
     return 0
@@ -58108,8 +58218,10 @@ function ImGui.DataTypeClamp(data_type, data, min, max)
     elseif data_type == 3 --[[ImGuiDataType.U16]] then return DataTypeClampT((ImU16)(data), min and (ImU16)(min), max and (ImU16)(max))
     elseif data_type == 4 --[[ImGuiDataType.S32]] then return DataTypeClampT((ImS32)(data), min and (ImS32)(min), max and (ImS32)(max))
     elseif data_type == 5 --[[ImGuiDataType.U32]] then return DataTypeClampT((ImU32)(data), min and (ImU32)(min), max and (ImU32)(max))
-    elseif data_type == 6 --[[ImGuiDataType.Float]]  then return DataTypeClampT(data, min, max)
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then return DataTypeClampT(data, min, max)
+    elseif data_type == 6 --[[ImGuiDataType.S64]] then return DataTypeClampT((ImS64)(data), min and (ImS64)(min), max and (ImS64)(max))
+    elseif data_type == 7 --[[ImGuiDataType.U64]] then return DataTypeClampT((ImU64)(data), min and (ImU64)(min), max and (ImU64)(max))
+    elseif data_type == 8 --[[ImGuiDataType.Float]]  then return DataTypeClampT(data, min, max)
+    elseif data_type == 9 --[[ImGuiDataType.Double]] then return DataTypeClampT(data, min, max)
     end
     assert(false)
     return data, false
@@ -58148,7 +58260,7 @@ local ImParseFormatFindStart
 --- @param v         number
 function ImGui.RoundScalarWithFormatT(format, data_type, v)
     -- IM_UNUSED(data_type)
-    assert(data_type == 6 --[[ImGuiDataType.Float]] or data_type == 7 --[[ImGuiDataType.Double]])
+    assert(data_type == 8 --[[ImGuiDataType.Float]] or data_type == 9 --[[ImGuiDataType.Double]])
     local fmt_start = ImParseFormatFindStart(format)
     if string.byte(format, fmt_start) ~= 37 or string.byte(format, fmt_start + 1) == 37 then
         return v -- Don't apply if the value is not visible in the format string
@@ -58491,7 +58603,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
 
     local data_default = (bit32.band(g.NextItemData.HasFlags, 8 --[[ImGuiNextItemDataFlags.HasRefVal]]) ~= 0) and g.NextItemData.RefVal or g.DataTypeZeroValue
 
-    local buf, buf_size = {}, 64 -- TODO: IM_COUNTOF()
+    local buf, buf_size = {}, 64 -- char buf[64]; IM_COUNTOF(buf)
     if bit32.band(flags, 16384 --[[ImGuiInputTextFlags.DisplayEmptyRefVal]]) ~= 0 and ImGui.DataTypeCompare(data_type, data, data_default) == 0 then
         buf[1] = 0
     else
@@ -58640,15 +58752,15 @@ end
 function ImGui.InputFloat3(label, v, format, flags)
     if format == nil then format = "%.3f" end
 
-    return ImGui.InputScalarN(label, 6 --[[ImGuiDataType.Float]], v, 3, nil, nil, format, flags)
+    return ImGui.InputScalarN(label, 8 --[[ImGuiDataType.Float]], v, 3, nil, nil, format, flags)
 end
 
 function ImGui.InputFloat2(label, v, format, flags)
-    return ImGui.InputScalarN(label, 6 --[[ImGuiDataType.Float]], v, 2, nil, nil, format or "%.3f", flags)
+    return ImGui.InputScalarN(label, 8 --[[ImGuiDataType.Float]], v, 2, nil, nil, format or "%.3f", flags)
 end
 
 function ImGui.InputFloat4(label, v, format, flags)
-    return ImGui.InputScalarN(label, 6 --[[ImGuiDataType.Float]], v, 4, nil, nil, format or "%.3f", flags)
+    return ImGui.InputScalarN(label, 8 --[[ImGuiDataType.Float]], v, 4, nil, nil, format or "%.3f", flags)
 end
 
 function ImGui.InputInt2(label, v, flags)
@@ -58689,7 +58801,7 @@ function ImGui.InputFloat(label, v, step, step_fast, format, flags)
     if step_fast == nil then step_fast = .0     end
     if format    == nil then format    = "%.3f" end
 
-    return ImGui.InputScalar(label, 6 --[[ImGuiDataType.Float]], v, (step > 0.0 and step or nil), (step_fast > 0.0 and step_fast or nil), format, flags)
+    return ImGui.InputScalar(label, 8 --[[ImGuiDataType.Float]], v, (step > 0.0 and step or nil), (step_fast > 0.0 and step_fast or nil), format, flags)
 end
 
 --- @param label      string
@@ -58703,7 +58815,7 @@ function ImGui.InputDouble(label, v, step, step_fast, format, flags)
     if step_fast == nil then step_fast = .0     end
     if format    == nil then format    = "%.6f" end
 
-    return ImGui.InputScalar(label, 7 --[[ImGuiDataType.Double]], v, (step > 0.0 and step or nil), (step_fast > 0.0 and step_fast or nil), format, flags)
+    return ImGui.InputScalar(label, 9 --[[ImGuiDataType.Double]], v, (step > 0.0 and step or nil), (step_fast > 0.0 and step_fast or nil), format, flags)
 end
 
 -------------------------------------------------------------------------------
@@ -58744,7 +58856,7 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
     local is_bounded = (v_min < v_max) or ((v_min == v_max) and (v_min ~= 0.0 or (bit32.band(flags, 1024 --[[ImGuiSliderFlags.ClampZeroRange]]) ~= 0)))
     local is_wrapped = is_bounded and (bit32.band(flags, 256 --[[ImGuiSliderFlags.WrapAround]]) ~= 0)
     local is_logarithmic = bit32.band(flags, 32 --[[ImGuiSliderFlags.Logarithmic]]) ~= 0
-    local is_floating_point = (data_type == 6 --[[ImGuiDataType.Float]]) or (data_type == 7 --[[ImGuiDataType.Double]])
+    local is_floating_point = (data_type == 8 --[[ImGuiDataType.Float]]) or (data_type == 9 --[[ImGuiDataType.Double]])
 
     -- Default tweak speed
     if v_speed == 0.0 and is_bounded and (v_max - v_min < math.huge) then
@@ -58945,9 +59057,13 @@ function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
         return ImGui.DragBehaviorT(ImS32, ImS32, data_type, v, v_speed, min and min or IM_S32_MIN, max and max or IM_S32_MAX, format, flags)
     elseif data_type == 5 --[[ImGuiDataType.U32]] then
         return ImGui.DragBehaviorT(ImU32, ImS32, data_type, v, v_speed, min and min or IM_U32_MIN, max and max or IM_U32_MAX, format, flags)
-    elseif data_type == 6 --[[ImGuiDataType.Float]] then
+    elseif data_type == 6 --[[ImGuiDataType.S64]] then
+        return ImGui.DragBehaviorT(ImS64, ImS64, data_type, v, v_speed, min and min or IM_S64_MIN, max and max or IM_S64_MAX, format, flags)
+    elseif data_type == 7 --[[ImGuiDataType.U64]] then
+        return ImGui.DragBehaviorT(ImU64, ImS64, data_type, v, v_speed, min and min or IM_U64_MIN, max and max or IM_U64_MAX, format, flags)
+    elseif data_type == 8 --[[ImGuiDataType.Float]] then
         return ImGui.DragBehaviorT(float, float, data_type, v, v_speed, min and min or -3.4028234663853e+38 --[[FLT_MAX]], max and max or 3.4028234663853e+38 --[[FLT_MAX]], format, flags)
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then
+    elseif data_type == 9 --[[ImGuiDataType.Double]] then
         return ImGui.DragBehaviorT(double, double, data_type, v, v_speed, min and min or -1.7976931348623e+308 --[[DBL_MAX]], max and max or 1.7976931348623e+308 --[[DBL_MAX]], format, flags)
     end
 
@@ -59097,10 +59213,19 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
         ImGui.MarkItemEdited(id)
     end
 
-    -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
-
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, 4096 --[[ImGuiItemFlags.MixedValue]]) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("{", "}")
+    end
+    if is_mixed then
+        ImGui.PushStyleColor(0 --[[ImGuiCol.Text]], g.Style.Colors[1 --[[ImGuiCol.TextDisabled]]]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, nil, nil, DRAG_TEXT_ALIGN)
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -59123,7 +59248,7 @@ function ImGui.DragFloat(label, v, v_speed, v_min, v_max, format, flags)
     if format  == nil then format  = "%.3f" end
     if flags   == nil then flags   = 0      end
 
-    return ImGui.DragScalar(label, 6 --[[ImGuiDataType.Float]], v, v_speed, v_min, v_max, format, flags)
+    return ImGui.DragScalar(label, 8 --[[ImGuiDataType.Float]], v, v_speed, v_min, v_max, format, flags)
 end
 
 -- NB: v_speed is float to allow adjusting the drag speed with more precision
@@ -59188,7 +59313,7 @@ end
 
 local function DragFloatN(n)
     return function(label, v, v_speed, v_min, v_max, format, flags)
-        return ImGui.DragScalarN(label, 6 --[[ImGuiDataType.Float]], v, n, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", flags or 0)
+        return ImGui.DragScalarN(label, 8 --[[ImGuiDataType.Float]], v, n, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", flags or 0)
     end
 end
 local function DragIntN(n)
@@ -59214,8 +59339,8 @@ local function DragRange2(data_type, label, v_current_min, v_current_max, v_spee
     end
 
     local g = GImGui
-    local lo = (data_type == 6 --[[ImGuiDataType.Float]]) and -3.4028234663853e+38 --[[FLT_MAX]] or (-2147483648) --[[INT_MIN]]
-    local hi = (data_type == 6 --[[ImGuiDataType.Float]]) and 3.4028234663853e+38 --[[FLT_MAX]] or 2147483647 --[[INT_MAX]]
+    local lo = (data_type == 8 --[[ImGuiDataType.Float]]) and -3.4028234663853e+38 --[[FLT_MAX]] or (-2147483648) --[[INT_MIN]]
+    local hi = (data_type == 8 --[[ImGuiDataType.Float]]) and 3.4028234663853e+38 --[[FLT_MAX]] or 2147483647 --[[INT_MAX]]
     ImGui.PushID(label)
     ImGui.BeginGroup()
     ImGui.PushMultiItemsWidths(2, ImGui.CalcItemWidth())
@@ -59244,7 +59369,7 @@ local function DragRange2(data_type, label, v_current_min, v_current_max, v_spee
 end
 
 function ImGui.DragFloatRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
-    return DragRange2(6 --[[ImGuiDataType.Float]], label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", format_max, flags or 0)
+    return DragRange2(8 --[[ImGuiDataType.Float]], label, v_current_min, v_current_max, v_speed or 1.0, v_min or 0.0, v_max or 0.0, format or "%.3f", format_max, flags or 0)
 end
 
 function ImGui.DragIntRange2(label, v_current_min, v_current_max, v_speed, v_min, v_max, format, format_max, flags)
@@ -59415,7 +59540,7 @@ function ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, t, v_min, v_max
         end
     else
         -- Linear slider
-        local is_floating_point = (data_type == 6 --[[ImGuiDataType.Float]]) or (data_type == 7 --[[ImGuiDataType.Double]])
+        local is_floating_point = (data_type == 8 --[[ImGuiDataType.Float]]) or (data_type == 9 --[[ImGuiDataType.Double]])
         if is_floating_point then
             result = ImLerp(v_min, v_max, t)
         elseif t < 1.0 then -- t is already < 1.0 here
@@ -59453,7 +59578,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
     local axis = (bit32.band(flags, 1048576 --[[ImGuiSliderFlags.Vertical]]) ~= 0) and 2 --[[ImGuiAxis.Y]] or 1 --[[ImGuiAxis.X]]
     local axis_k = (axis == 1 --[[ImGuiAxis.X]]) and "x" or "y" -- [Luau] named key: ImVec2[axis] goes through IM_VEC2.__index
     local is_logarithmic = bit32.band(flags, 32 --[[ImGuiSliderFlags.Logarithmic]]) ~= 0
-    local is_floating_point = (data_type == 6 --[[ImGuiDataType.Float]]) or (data_type == 7 --[[ImGuiDataType.Double]])
+    local is_floating_point = (data_type == 8 --[[ImGuiDataType.Float]]) or (data_type == 9 --[[ImGuiDataType.Double]])
     local v_range_f = (v_min < v_max) and (v_max - v_min) or (v_min - v_max) -- We don't need high precision for what we do with it.
 
     -- Calculate bounds
@@ -59671,10 +59796,16 @@ function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out
     elseif data_type == 5 --[[ImGuiDataType.U32]] then
         assert(max <= math.floor(IM_U32_MAX / 2))
         return ImGui.SliderBehaviorT(ImU32, ImS32, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
-    elseif data_type == 6 --[[ImGuiDataType.Float]] then
+    elseif data_type == 6 --[[ImGuiDataType.S64]] then
+        assert(min >= IM_S64_MIN / 2 and max <= IM_S64_MAX / 2)
+        return ImGui.SliderBehaviorT(ImS64, ImS64, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
+    elseif data_type == 7 --[[ImGuiDataType.U64]] then
+        assert(max <= IM_U64_MAX / 2)
+        return ImGui.SliderBehaviorT(ImU64, ImS64, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
+    elseif data_type == 8 --[[ImGuiDataType.Float]] then
         assert(min >= -3.4028234663853e+38 --[[FLT_MAX]] / 2.0 and max <= 3.4028234663853e+38 --[[FLT_MAX]] / 2.0)
         return ImGui.SliderBehaviorT(float, float, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
-    elseif data_type == 7 --[[ImGuiDataType.Double]] then
+    elseif data_type == 9 --[[ImGuiDataType.Double]] then
         assert(min >= -1.7976931348623e+308 --[[DBL_MAX]] / 2.0 and max <= 1.7976931348623e+308 --[[DBL_MAX]] / 2.0)
         return ImGui.SliderBehaviorT(double, double, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
     end
@@ -59783,13 +59914,19 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         window.DrawList:AddRectFilled(grab_bb.Min, grab_bb.Max, ImGui.GetColorU32((g.ActiveId == id) and 21 --[[ImGuiCol.SliderGrabActive]] or 20 --[[ImGuiCol.SliderGrab]]), style.GrabRounding)
     end
 
-    -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
-
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
-    -- if g.LogEnabled then
-    --     ImGui.LogSetNextTextDecoration("{", "}")
-    -- end
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, 4096 --[[ImGuiItemFlags.MixedValue]]) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("{", "}")
+    end
+    if is_mixed then
+        ImGui.PushStyleColor(0 --[[ImGuiCol.Text]], g.Style.Colors[1 --[[ImGuiCol.TextDisabled]]]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, nil, nil, DRAG_TEXT_ALIGN)
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -59855,7 +59992,7 @@ end
 --- @param format? string
 --- @param flags?  ImGuiSliderFlags
 function ImGui.SliderFloat2(label, v, v_min, v_max, format, flags)
-    return ImGui.SliderScalarN(label, 6 --[[ImGuiDataType.Float]], v, 2, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, 8 --[[ImGuiDataType.Float]], v, 2, v_min, v_max, format, flags)
 end
 
 --- @param label   string
@@ -59865,7 +60002,7 @@ end
 --- @param format? string
 --- @param flags?  ImGuiSliderFlags
 function ImGui.SliderFloat3(label, v, v_min, v_max, format, flags)
-    return ImGui.SliderScalarN(label, 6 --[[ImGuiDataType.Float]], v, 3, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, 8 --[[ImGuiDataType.Float]], v, 3, v_min, v_max, format, flags)
 end
 
 --- @param label   string
@@ -59875,7 +60012,7 @@ end
 --- @param format? string
 --- @param flags?  ImGuiSliderFlags
 function ImGui.SliderFloat4(label, v, v_min, v_max, format, flags)
-    return ImGui.SliderScalarN(label, 6 --[[ImGuiDataType.Float]], v, 4, v_min, v_max, format, flags)
+    return ImGui.SliderScalarN(label, 8 --[[ImGuiDataType.Float]], v, 4, v_min, v_max, format, flags)
 end
 
 --- @param label   string
@@ -59888,7 +60025,7 @@ function ImGui.SliderFloat(label, v, v_min, v_max, format, flags)
     if format == nil then format = "%.3f" end
     if flags  == nil then flags  = 0      end
 
-    return ImGui.SliderScalar(label, 6 --[[ImGuiDataType.Float]], v, v_min, v_max, format, flags)
+    return ImGui.SliderScalar(label, 8 --[[ImGuiDataType.Float]], v, v_min, v_max, format, flags)
 end
 
 --- @param label          string
@@ -60005,9 +60142,15 @@ function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, fla
 
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
     -- For the vertical slider we allow centered text to overlap the frame padding
-    -- local value_buf, value_buf_size = {}, 64
-    -- TODO: ImGui.DataTypeFormatString()
-    ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, ImFormatString(format, data), nil, nil, ImVec2(0.5, 0.0))
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, 4096 --[[ImGuiItemFlags.MixedValue]]) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if is_mixed then
+        ImGui.PushStyleColor(0 --[[ImGuiCol.Text]], g.Style.Colors[1 --[[ImGuiCol.TextDisabled]]]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, value_buf, nil, nil, ImVec2(0.5, 0.0))
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
@@ -60026,7 +60169,7 @@ end
 function ImGui.VSliderFloat(label, size, v, v_min, v_max, format, flags)
     if format == nil then format = "%.3f" end
 
-    return ImGui.VSliderScalar(label, size, 6 --[[ImGuiDataType.Float]], v, v_min, v_max, format, flags)
+    return ImGui.VSliderScalar(label, size, 8 --[[ImGuiDataType.Float]], v, v_min, v_max, format, flags)
 end
 
 --- @param label   string
@@ -61894,6 +62037,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.TextSrc = nil
     end
 
+    -- Log as text
+    if g.LogEnabled and (not is_password or is_displaying_hint) then
+        ImGui.LogSetNextTextDecoration("{", "}")
+        ImGui.LogRenderedText(draw_pos, ImGui._ByteArrayToString(buf_display, 1, buf_display_end))
+    end
+
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
@@ -63512,9 +63661,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             if bit32.band(flags, 268435456 --[[ImGuiTreeNodeFlags.ClipLabelForTrailingButton]]) ~= 0 then
                 frame_bb.Max.x = frame_bb.Max.x - (g.FontSize + style.FramePadding.x)
             end
-            -- if g.LogEnabled then
-            --     ImGui.LogSetNextTextDecoration("###", "###")
-            -- end
+            if g.LogEnabled then
+                ImGui.LogSetNextTextDecoration("###", "###")
+            end
         else
             -- Unframed typed for tree nodes
             if hovered or selected then
@@ -63530,9 +63679,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             elseif not is_leaf then
                 ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, 536870912 --[[ImGuiTreeNodeFlags.UpsideDownArrow]]) ~= 0) and 2 --[[ImGuiDir.Up]] or 3 --[[ImGuiDir.Down]]) or 1 --[[ImGuiDir.Right]], 0.70)
             end
-            -- if g.LogEnabled then
-            --     ImGui.LogSetNextTextDecoration(">", nil)
-            -- end
+            if g.LogEnabled then
+                ImGui.LogSetNextTextDecoration(">", nil)
+            end
         end
 
         if draw_tree_lines then
@@ -65991,7 +66140,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         ImGui.PushStyleVarX(14 --[[ImGuiStyleVar.ItemSpacing]], style.ItemSpacing.x * 2.0)
         local text_pos = ImVec2(window.DC.CursorPos.x + offsets.OffsetLabel, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", menu_is_open, selectable_flags, label_size)
-        -- TODO: ImGui.LogSetNextTextDecoration("[", "]")
+        ImGui.LogSetNextTextDecoration("[", "]")
         ImGui.RenderText(text_pos, label, 1, label_end, false)
         ImGui.PopStyleVar()
         window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5)) -- -1 spacing to compensate the spacing added when Selectable() did a SameLine(). It would also work to call SameLine() ourselves after the PopStyleVar().
@@ -66007,7 +66156,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         local extra_w = ImMax(0.0, ImGui.GetContentRegionAvail().x - min_w)
         local text_pos = ImVec2(window.DC.CursorPos.x, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", menu_is_open, bit32.bor(selectable_flags, 16777216 --[[ImGuiSelectableFlags.SpanAvailWidth]]), ImVec2(min_w, label_size.y))
-        -- ImGui.LogSetNextTextDecoration("", ">")
+        ImGui.LogSetNextTextDecoration("", ">")
         ImGui.RenderText(ImVec2(text_pos.x + offsets.OffsetLabel, text_pos.y), label, 1, label_end, false)
         if icon_w > 0.0 then
             --- @cast icon string
@@ -66257,7 +66406,7 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
             end
             if shortcut_w > 0.0 then
                 ImGui.PushStyleColor(0 --[[ImGuiCol.Text]], style.Colors[1 --[[ImGuiCol.TextDisabled]]])
-                -- ImGui.LogSetNextTextDecoration("(", ")")
+                ImGui.LogSetNextTextDecoration("(", ")")
                 --- @cast shortcut string
                 ImGui.RenderText(text_pos + ImVec2(offsets.OffsetShortcut + stretch_w, 0.0), shortcut, nil, nil, false)
                 ImGui.PopStyleColor()
@@ -72683,7 +72832,8 @@ __FILES['imstd_minstdio.lua'] = function()
 
 -- Supports:
 -- - %x, %X, %nx, %nX (where n is a number)
--- - %d, %nd (where n is a number)
+-- - %d, %nd, %u, %nu (where n is a number)
+-- - length modifiers h, hh, l, ll, I64 on integers: ll/I64 = 64-bit range (doubles: exact only within +-2^53)
 -- - %f, %lf (very limited)
 --
 -- Returns items_matched instead of EOF on error
@@ -72697,6 +72847,9 @@ local CHAR_0, CHAR_9 = _byte'0', _byte'9'
 local CHAR_a, CHAR_A = _byte'a', _byte'A'
 local CHAR_d = _byte'd'
 local CHAR_l = _byte'l'
+local CHAR_h = _byte'h'
+local CHAR_u = _byte'u'
+local CHAR_I = _byte'I'
 local CHAR_f, CHAR_F = _byte'f', _byte'F'
 local CHAR_x, CHAR_X = _byte'x', _byte'X'
 
@@ -72717,10 +72870,15 @@ local function hex_digit_to_int(c)
 end
 
 -- we force this behavior by default
-local function clamp_if_overflow(spec, val)
+local function clamp_if_overflow(spec, val, is_64)
     if spec == CHAR_d or spec == CHAR_x or spec == CHAR_X then
-        if val > 2147483647 --[[INT_MAX]] then return 2147483647 --[[INT_MAX]] end
-        if val < (-2147483648) --[[INT_MIN]] then return (-2147483648) --[[INT_MIN]] end
+        local max = is_64 and 9223372036854775807 or 2147483647 --[[INT_MAX]]
+        local min = is_64 and -9223372036854775808 or (-2147483648) --[[INT_MIN]]
+        if val > max then return max end
+        if val < min then return min end
+    elseif spec == CHAR_u then
+        local max = is_64 and 18446744073709551615 or 4294967295 --[[UINT_MAX]]
+        if val > max then return max end
     end
 
     return val
@@ -72784,22 +72942,27 @@ local function sscanf(buffer, buffer_begin, format, result)
             width = math.huge
         end
 
+        -- length modifiers
+        local n_l = 0
+        while _byte(format, f, f) == CHAR_l or _byte(format, f, f) == CHAR_h do
+            if _byte(format, f, f) == CHAR_l then n_l = n_l + 1 end
+            f = f + 1
+        end
+        if _byte(format, f, f) == CHAR_I and string.sub(format, f, f + 2) == "I64" then
+            n_l = 2
+            f = f + 3
+        end
+        local is_64 = n_l >= 2
+
         local spec = _byte(format, f, f)
         local base
         local is_float = false
         if     spec == CHAR_x or spec == CHAR_X then
             base = 16
-        elseif spec == CHAR_d then
+        elseif spec == CHAR_d or spec == CHAR_u then
             base = 10
         elseif spec == CHAR_f or spec == CHAR_F then
-            is_float = true
-        elseif spec == CHAR_l then
-            f = f + 1
-            if _byte(format, f, f) == CHAR_f then
-                is_float = true -- TODO: distinguish from float?
-            else
-                return items_matched
-            end
+            is_float = true -- TODO: distinguish %lf from %f?
         else
             return items_matched
         end
@@ -72877,10 +73040,13 @@ local function sscanf(buffer, buffer_begin, format, result)
                 val = val * base + sign * hex_digit_to_int(c)
 
                 local old_val = val
-                val = clamp_if_overflow(spec, val)
+                val = clamp_if_overflow(spec, val, is_64)
                 if old_val ~= val then
                     break
                 end
+            end
+            if spec == CHAR_u and val < 0 then
+                val = val + (is_64 and 18446744073709551616 or 4294967296) -- unsigned wrap-around like strtoul()
             end
         end
 
@@ -72911,6 +73077,7 @@ return {
     CalcNextScrollFromScrollTargetAndClamp = CalcNextScrollFromScrollTargetAndClamp,
     CustomConstraints = CustomConstraints,
     DBL_MAX = DBL_MAX,
+    DataTypeFormatStringCached = DataTypeFormatStringCached,
     DebugNodeTableGetSizingPolicyDesc = DebugNodeTableGetSizingPolicyDesc,
     DemoWindowColumns = DemoWindowColumns,
     DemoWindowInputs = DemoWindowInputs,
@@ -73315,6 +73482,7 @@ return {
     ImGuiSettingsCleanupArgs = ImGuiSettingsCleanupArgs,
     ImGuiSettingsHandler = ImGuiSettingsHandler,
     ImGuiShrinkWidthItem = ImGuiShrinkWidthItem,
+    ImGuiSizeCallbackData = ImGuiSizeCallbackData,
     ImGuiSliderFlags = ImGuiSliderFlags,
     ImGuiSortDirection = ImGuiSortDirection,
     ImGuiStackLevelInfo = ImGuiStackLevelInfo,
@@ -73400,6 +73568,7 @@ return {
     ImRsqrtPrecise = ImRsqrtPrecise,
     ImS16 = ImS16,
     ImS32 = ImS32,
+    ImS64 = ImS64,
     ImS8 = ImS8,
     ImSaturate = ImSaturate,
     ImSign = ImSign,
@@ -73431,6 +73600,7 @@ return {
     ImTrunc64 = ImTrunc64,
     ImU16 = ImU16,
     ImU32 = ImU32,
+    ImU64 = ImU64,
     ImU8 = ImU8,
     ImUpperPowerOfTwo = ImUpperPowerOfTwo,
     ImVec1_Copy = ImVec1_Copy,

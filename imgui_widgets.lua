@@ -54,6 +54,11 @@ local IM_S32_MIN = INT_MIN -- (-2147483647 - 1), (0x80000000);
 local IM_S32_MAX = INT_MAX -- (2147483647), (0x7FFFFFFF)
 local IM_U32_MIN = 0
 local IM_U32_MAX = UINT_MAX -- (0xFFFFFFFF)
+-- [Luau] 64-bit limits as doubles: IM_S64_MAX/IM_U64_MAX round up to 2^63/2^64 (values are exact only within +-2^53)
+local IM_S64_MIN = -9223372036854775808 -- (-9223372036854775807ll - 1ll)
+local IM_S64_MAX = 9223372036854775807 -- (9223372036854775807ll)
+local IM_U64_MIN = 0
+local IM_U64_MAX = 18446744073709551615 -- (0xFFFFFFFFFFFFFFFFull)
 
 -------------------------------------------------------------------------------
 -- [SECTION] Widgets: Text, etc.
@@ -786,8 +791,9 @@ function ImGui.ButtonEx(label, size_arg, flags)
     ImGui.RenderNavCursor(bb, id)
     ImGui.RenderFrame(bb.Min, bb.Max, col, true, style.FrameRounding)
 
-    -- if (g.LogEnabled)
-    --     LogSetNextTextDecoration("[", "]");
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("[", "]")
+    end
     local text_min, text_max = ButtonEx_text_min, ButtonEx_text_max -- [Luau] scratch: RenderTextClipped() only reads them
     text_min.x = bb.Min.x + frame_padding.x; text_min.y = bb.Min.y + frame_padding.y
     text_max.x = bb.Max.x - frame_padding.x; text_max.y = bb.Max.y - frame_padding.y
@@ -1369,7 +1375,7 @@ function ImGui.Checkbox(label, v)
     end
 
     if g.LogEnabled then
-        -- ImGui.LogRenderedText(label_pos, mixed_value and "[~]" or (v and "[x]" or "[ ]"))
+        ImGui.LogRenderedText(ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y), mixed_value and "[~]" or (v and "[x]" or "[ ]")) -- label_pos
     end
 
     if is_visible and label_size.x > 0.0 then
@@ -1466,7 +1472,7 @@ function ImGui.RadioButtonEx(label, active)
     end
     local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y)
     if g.LogEnabled then
-        -- ImGui.LogRenderedText(label_pos, active and "(x)" or "( )")
+        ImGui.LogRenderedText(label_pos, active and "(x)" or "( )")
     end
     if label_size.x > 0.0 then
         ImGui.RenderText(label_pos, label, 1, label_end, false)
@@ -1788,7 +1794,7 @@ function ImGui.SeparatorEx(flags, thickness)
             -- Draw
             window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.Separator))
             if g.LogEnabled then
-                ImGui.LogRenderedText(bb.Min, "--------------------------------")
+                ImGui.LogRenderedText(bb.Min, "--------------------------------\n")
             end
         end
 
@@ -2347,6 +2353,8 @@ local GDataTypeInfo = {
     ImGuiDataTypeInfo(2, "U16",    "%u",   "%u"),
     ImGuiDataTypeInfo(4, "S32",    "%d",   "%d"), -- ImGuiDataType.S32
     ImGuiDataTypeInfo(4, "U32",    "%u",   "%u"),
+    ImGuiDataTypeInfo(8, "S64",    "%lld", "%lld"), -- ImGuiDataType.S64
+    ImGuiDataTypeInfo(8, "U64",    "%llu", "%llu"),
     ImGuiDataTypeInfo(4, "float",  "%.3f", "%f"), -- ImGuiDataType.Float
     ImGuiDataTypeInfo(8, "double", "%f",   "%lf"), -- ImGuiDataType.Double
     ImGuiDataTypeInfo(1, "bool",   "%d",   "%d"), -- ImGuiDataType.Bool
@@ -2359,33 +2367,64 @@ function ImGui.DataTypeGetInfo(data_type)
     return GDataTypeInfo[data_type + 1]
 end
 
+-- [Luau] string.format() has no length modifiers (%lld, %I64d...) and formats negative numbers as 64-bit for %u/%x/%X/%o:
+-- strip modifiers and re-apply C's integer promotion/two's complement for signed types.
+local DataTypeFormatStringCached do
+local fmt_info_memo = {} -- format -> { stripped format, is unsigned conversion }
+local function GetFormatInfo(format)
+    local info = fmt_info_memo[format]
+    if info == nil then
+        local stripped = string.gsub(string.gsub(format, "(%%[-+ #0']*%d*%.?%d*)[hlLqjzt]+", "%1"), "(%%[-+ #0']*%d*%.?%d*)I64", "%1")
+        local conv = string.match(stripped, "%%[-+ #0']*%d*%.?%d*([diouxXc])")
+        info = { stripped, conv == "u" or conv == "x" or conv == "X" or conv == "o" }
+        fmt_info_memo[format] = info
+    end
+    return info
+end
+
+--- Lua-string version of DataTypeFormatString() (memoized), used for display.
+--- @param data_type ImGuiDataType
+--- @param data      number
+--- @param format    string
+--- @return string
+function DataTypeFormatStringCached(data_type, data, format)
+    if data_type == ImGuiDataType.Float or data_type == ImGuiDataType.Double then
+        return FormatCached(format, data)
+    end
+    local info = GetFormatInfo(format)
+    if     data_type == ImGuiDataType.S8  then data = (ImS8)(data)
+    elseif data_type == ImGuiDataType.U8  then data = (ImU8)(data)
+    elseif data_type == ImGuiDataType.S16 then data = (ImS16)(data)
+    elseif data_type == ImGuiDataType.U16 then data = (ImU16)(data)
+    elseif data_type == ImGuiDataType.S32 then -- (signed values are already stored signed)
+    elseif data_type == ImGuiDataType.U32 then data = (ImU32)(data)
+    elseif data_type == ImGuiDataType.S64 or data_type == ImGuiDataType.U64 then
+        -- (string.format() already prints negative numbers as 64-bit two's complement for %u/%x/%X/%o)
+        if info[2] then
+            if data >= 18446744073709551616 then data = -1 end -- (ImU64)-1 rounds to 2^64 in a double: print ULLONG_MAX
+        elseif data >= 9223372036854775808 then
+            data = 9223372036854774784 -- largest double below 2^63 (LLONG_MAX isn't representable)
+        end
+        return FormatCached(info[1], data)
+    else
+        IM_ASSERT(false)
+    end
+    if data < 0 and info[2] then data = data + 4294967296 end -- Signedness doesn't matter when pushing integer arguments
+    return FormatCached(info[1], data)
+end
+end
+
 --- @param buf       char[]
 --- @param buf_size  int
 --- @param data_type ImGuiDataType
 --- @param data      number
 --- @param format    string
+--- @return int
 function ImGui.DataTypeFormatString(buf, buf_size, data_type, data, format)
-    local str
-    if     data_type == ImGuiDataType.S32 then
-        str = ImFormatString(format, (ImS32)(data))
-    elseif data_type == ImGuiDataType.U32 then
-        str = ImFormatString(format, (ImU32)(data))
-    elseif data_type == ImGuiDataType.Float then
-        str = ImFormatString(format, data)
-    elseif data_type == ImGuiDataType.Double then
-        str = ImFormatString(format, data)
-    elseif data_type == ImGuiDataType.S8 then
-        str = ImFormatString(format, (ImS8)(data))
-    elseif data_type == ImGuiDataType.U8 then
-        str = ImFormatString(format, (ImU8)(data))
-    elseif data_type == ImGuiDataType.S16 then
-        str = ImFormatString(format, (ImS16)(data))
-    elseif data_type == ImGuiDataType.U16 then
-        str = ImFormatString(format, (ImU16)(data))
-    else
-        IM_ASSERT(false)
-    end
-    ImStd.ImStrncpy(buf, 1, { string.byte(str, 1, #str) }, 1, ImMin(#str + 1, buf_size)) -- TODO: update this when new ImFormatString is implemented
+    local str = DataTypeFormatStringCached(data_type, data, format)
+    local len = ImMin(#str, buf_size - 1) -- ImFormatString(): truncate and return the written length
+    ImStd.ImStrncpy(buf, 1, { string.byte(str, 1, len) }, 1, len + 1)
+    return len
 end
 
 --- @param data_type ImGuiDataType
@@ -2430,6 +2469,18 @@ function ImGui.DataTypeApplyOp(data_type, op, arg1, arg2)
             return ImAddClampOverflow(arg1, arg2, IM_U32_MIN, IM_U32_MAX)
         elseif op == 45 then
             return ImSubClampOverflow(arg1, arg2, IM_U32_MIN, IM_U32_MAX)
+        end
+    elseif data_type == ImGuiDataType.S64 then
+        if op == 43 then
+            return ImAddClampOverflow(arg1, arg2, IM_S64_MIN, IM_S64_MAX)
+        elseif op == 45 then
+            return ImSubClampOverflow(arg1, arg2, IM_S64_MIN, IM_S64_MAX)
+        end
+    elseif data_type == ImGuiDataType.U64 then
+        if op == 43 then
+            return ImAddClampOverflow(arg1, arg2, IM_U64_MIN, IM_U64_MAX)
+        elseif op == 45 then
+            return ImSubClampOverflow(arg1, arg2, IM_U64_MIN, IM_U64_MAX)
         end
     elseif data_type == ImGuiDataType.Float then
         if op == 43 then
@@ -2534,6 +2585,8 @@ function ImGui.DataTypeCompare(data_type, arg1, arg2)
     elseif data_type == ImGuiDataType.U16 then return DataTypeCompareT((ImU16)(arg1), (ImU16)(arg2))
     elseif data_type == ImGuiDataType.S32 then return DataTypeCompareT((ImS32)(arg1), (ImS32)(arg2))
     elseif data_type == ImGuiDataType.U32 then return DataTypeCompareT((ImU32)(arg1), (ImU32)(arg2))
+    elseif data_type == ImGuiDataType.S64 then return DataTypeCompareT((ImS64)(arg1), (ImS64)(arg2))
+    elseif data_type == ImGuiDataType.U64 then return DataTypeCompareT((ImU64)(arg1), (ImU64)(arg2))
     elseif data_type == ImGuiDataType.Float  then return DataTypeCompareT(arg1, arg2)
     elseif data_type == ImGuiDataType.Double then return DataTypeCompareT(arg1, arg2)
     end
@@ -2564,6 +2617,8 @@ function ImGui.DataTypeClamp(data_type, data, min, max)
     elseif data_type == ImGuiDataType.U16 then return DataTypeClampT((ImU16)(data), min and (ImU16)(min), max and (ImU16)(max))
     elseif data_type == ImGuiDataType.S32 then return DataTypeClampT((ImS32)(data), min and (ImS32)(min), max and (ImS32)(max))
     elseif data_type == ImGuiDataType.U32 then return DataTypeClampT((ImU32)(data), min and (ImU32)(min), max and (ImU32)(max))
+    elseif data_type == ImGuiDataType.S64 then return DataTypeClampT((ImS64)(data), min and (ImS64)(min), max and (ImS64)(max))
+    elseif data_type == ImGuiDataType.U64 then return DataTypeClampT((ImU64)(data), min and (ImU64)(min), max and (ImU64)(max))
     elseif data_type == ImGuiDataType.Float  then return DataTypeClampT(data, min, max)
     elseif data_type == ImGuiDataType.Double then return DataTypeClampT(data, min, max)
     end
@@ -2947,7 +3002,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
 
     local data_default = (bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasRefVal) ~= 0) and g.NextItemData.RefVal or g.DataTypeZeroValue
 
-    local buf, buf_size = {}, 64 -- TODO: IM_COUNTOF()
+    local buf, buf_size = {}, 64 -- char buf[64]; IM_COUNTOF(buf)
     if bit32.band(flags, ImGuiInputTextFlags.DisplayEmptyRefVal) ~= 0 and ImGui.DataTypeCompare(data_type, data, data_default) == 0 then
         buf[1] = 0
     else
@@ -3401,6 +3456,10 @@ function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
         return ImGui.DragBehaviorT(ImS32, ImS32, data_type, v, v_speed, min and min or IM_S32_MIN, max and max or IM_S32_MAX, format, flags)
     elseif data_type == ImGuiDataType.U32 then
         return ImGui.DragBehaviorT(ImU32, ImS32, data_type, v, v_speed, min and min or IM_U32_MIN, max and max or IM_U32_MAX, format, flags)
+    elseif data_type == ImGuiDataType.S64 then
+        return ImGui.DragBehaviorT(ImS64, ImS64, data_type, v, v_speed, min and min or IM_S64_MIN, max and max or IM_S64_MAX, format, flags)
+    elseif data_type == ImGuiDataType.U64 then
+        return ImGui.DragBehaviorT(ImU64, ImS64, data_type, v, v_speed, min and min or IM_U64_MIN, max and max or IM_U64_MAX, format, flags)
     elseif data_type == ImGuiDataType.Float then
         return ImGui.DragBehaviorT(float, float, data_type, v, v_speed, min and min or -FLT_MAX, max and max or FLT_MAX, format, flags)
     elseif data_type == ImGuiDataType.Double then
@@ -3553,10 +3612,19 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
         ImGui.MarkItemEdited(id)
     end
 
-    -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
-
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("{", "}")
+    end
+    if is_mixed then
+        ImGui.PushStyleColor(ImGuiCol.Text, g.Style.Colors[ImGuiCol.TextDisabled]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, nil, nil, DRAG_TEXT_ALIGN)
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -4127,6 +4195,12 @@ function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out
     elseif data_type == ImGuiDataType.U32 then
         IM_ASSERT(max <= math.floor(IM_U32_MAX / 2))
         return ImGui.SliderBehaviorT(ImU32, ImS32, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
+    elseif data_type == ImGuiDataType.S64 then
+        IM_ASSERT(min >= IM_S64_MIN / 2 and max <= IM_S64_MAX / 2)
+        return ImGui.SliderBehaviorT(ImS64, ImS64, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
+    elseif data_type == ImGuiDataType.U64 then
+        IM_ASSERT(max <= IM_U64_MAX / 2)
+        return ImGui.SliderBehaviorT(ImU64, ImS64, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
     elseif data_type == ImGuiDataType.Float then
         IM_ASSERT(min >= -FLT_MAX / 2.0 and max <= FLT_MAX / 2.0)
         return ImGui.SliderBehaviorT(float, float, bb, id, data_type, v, min, max, format, flags, out_grab_bb)
@@ -4239,13 +4313,19 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         window.DrawList:AddRectFilled(grab_bb.Min, grab_bb.Max, ImGui.GetColorU32((g.ActiveId == id) and ImGuiCol.SliderGrabActive or ImGuiCol.SliderGrab), style.GrabRounding)
     end
 
-    -- TODO: ImGui.DataTypeFormatString() should be used here instead of ImFormatString()
-
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
-    -- if g.LogEnabled then
-    --     ImGui.LogSetNextTextDecoration("{", "}")
-    -- end
-    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, FormatCached(format, data), nil, nil, DRAG_TEXT_ALIGN)
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if g.LogEnabled then
+        ImGui.LogSetNextTextDecoration("{", "}")
+    end
+    if is_mixed then
+        ImGui.PushStyleColor(ImGuiCol.Text, g.Style.Colors[ImGuiCol.TextDisabled]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, nil, nil, DRAG_TEXT_ALIGN)
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
 
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
@@ -4461,9 +4541,15 @@ function ImGui.VSliderScalar(label, size, data_type, data, min, max, format, fla
 
     -- Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
     -- For the vertical slider we allow centered text to overlap the frame padding
-    -- local value_buf, value_buf_size = {}, 64
-    -- TODO: ImGui.DataTypeFormatString()
-    ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, ImFormatString(format, data), nil, nil, ImVec2(0.5, 0.0))
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0
+    local value_buf = DataTypeFormatStringCached(data_type, data, (is_mixed and g.MixedValueLabel ~= nil) and g.MixedValueLabel or format)
+    if is_mixed then
+        ImGui.PushStyleColor(ImGuiCol.Text, g.Style.Colors[ImGuiCol.TextDisabled]) -- ImGuiCol_TextMixedValue
+    end
+    ImGui.RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, value_buf, nil, nil, ImVec2(0.5, 0.0))
+    if is_mixed then
+        ImGui.PopStyleColor()
+    end
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
@@ -6350,6 +6436,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         state.TextSrc = nil
     end
 
+    -- Log as text
+    if g.LogEnabled and (not is_password or is_displaying_hint) then
+        ImGui.LogSetNextTextDecoration("{", "}")
+        ImGui.LogRenderedText(draw_pos, ImGui._ByteArrayToString(buf_display, 1, buf_display_end))
+    end
+
     if label_size.x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
@@ -7968,9 +8060,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             if bit32.band(flags, ImGuiTreeNodeFlags.ClipLabelForTrailingButton) ~= 0 then
                 frame_bb.Max.x = frame_bb.Max.x - (g.FontSize + style.FramePadding.x)
             end
-            -- if g.LogEnabled then
-            --     ImGui.LogSetNextTextDecoration("###", "###")
-            -- end
+            if g.LogEnabled then
+                ImGui.LogSetNextTextDecoration("###", "###")
+            end
         else
             -- Unframed typed for tree nodes
             if hovered or selected then
@@ -7986,9 +8078,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             elseif not is_leaf then
                 ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 0.70)
             end
-            -- if g.LogEnabled then
-            --     ImGui.LogSetNextTextDecoration(">", nil)
-            -- end
+            if g.LogEnabled then
+                ImGui.LogSetNextTextDecoration(">", nil)
+            end
         end
 
         if draw_tree_lines then
@@ -10447,7 +10539,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         ImGui.PushStyleVarX(ImGuiStyleVar.ItemSpacing, style.ItemSpacing.x * 2.0)
         local text_pos = ImVec2(window.DC.CursorPos.x + offsets.OffsetLabel, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", menu_is_open, selectable_flags, label_size)
-        -- TODO: ImGui.LogSetNextTextDecoration("[", "]")
+        ImGui.LogSetNextTextDecoration("[", "]")
         ImGui.RenderText(text_pos, label, 1, label_end, false)
         ImGui.PopStyleVar()
         window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * (-1.0 + 0.5)) -- -1 spacing to compensate the spacing added when Selectable() did a SameLine(). It would also work to call SameLine() ourselves after the PopStyleVar().
@@ -10463,7 +10555,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
         local extra_w = ImMax(0.0, ImGui.GetContentRegionAvail().x - min_w)
         local text_pos = ImVec2(window.DC.CursorPos.x, pos.y + window.DC.CurrLineTextBaseOffset)
         pressed = ImGui.Selectable("", menu_is_open, bit32.bor(selectable_flags, ImGuiSelectableFlags.SpanAvailWidth), ImVec2(min_w, label_size.y))
-        -- ImGui.LogSetNextTextDecoration("", ">")
+        ImGui.LogSetNextTextDecoration("", ">")
         ImGui.RenderText(ImVec2(text_pos.x + offsets.OffsetLabel, text_pos.y), label, 1, label_end, false)
         if icon_w > 0.0 then
             --- @cast icon string
@@ -10713,7 +10805,7 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
             end
             if shortcut_w > 0.0 then
                 ImGui.PushStyleColor(ImGuiCol.Text, style.Colors[ImGuiCol.TextDisabled])
-                -- ImGui.LogSetNextTextDecoration("(", ")")
+                ImGui.LogSetNextTextDecoration("(", ")")
                 --- @cast shortcut string
                 ImGui.RenderText(text_pos + ImVec2(offsets.OffsetShortcut + stretch_w, 0.0), shortcut, nil, nil, false)
                 ImGui.PopStyleColor()

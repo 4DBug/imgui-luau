@@ -6,26 +6,16 @@ Re-check with: python3 tools/test/missing.py [imgui|widgets|tables|draw]  and  p
 which exist as ImGui.DragFloat2 = DragFloatN(2) etc. Those are NOT gaps.)
 
 
-FEATURES NOT PORTED
--------------------
-- Multi-select / box-select: BeginMultiSelect, EndMultiSelect, MultiSelectItemHeader/Footer, MultiSelectAddSetAll,
-  MultiSelectAddSetRange, SetNextItemSelectionUserData, BeginBoxSelect/EndBoxSelect, DebugNodeMultiSelectState.
-  (Selectable/TreeNode call sites are stubbed with TODOs; the demo "Selection State & Multi-Select" section is not ported.)
-- Typing-select (type to jump in lists): GetTypingSelectRequest, TypingSelectFind*, DebugNodeTypingSelectState.
-- Examples > Assets Browser (needs multi-select + box-select).
-- Metrics > Tools > Item Picker (UpdateDebugToolItemPicker).
-- DebugFlashStyleColor / UpdateDebugToolFlashStyleColor (Style Editor "?" flash button).
-- DebugNodeInputTextState (Metrics > Internal state > InputText).
-- BringWindowToDisplayBehind: stub, does nothing.
-- ColorEdit4 / ColorPicker4: drag & drop target (dropping a color onto a color widget).
-- ImFontAtlas:AddFontFromMemoryCompressedTTF: stub (binary_to_compressed_c fonts can't be loaded).
-- ImGuiSizeCallbackData: SetNextWindowSizeConstraints custom callbacks only partially supported
-  (Examples > Constrained Resize).
-- LogSetNextTextDecoration (Selectable "[ ]" decoration in log/clipboard output).
-- stb_truetype: cmap high-byte mapping (some CJK fonts assert).
-- Context hooks removal (RemoveContextHook), SetContextName.
-- RegisterUserTexture / UnregisterUserTexture.
-- ErrorCheckNewFrameSanityChecks / ErrorCheckEndFrameSanityChecks (fewer usage-error asserts than upstream).
+FEATURES NOT PORTED / PARTIAL
+-----------------------------
+- ImFont::AddRemapCodepointToGlyphIndex / FontSrcGetGlyphIndexFromCodepoint (needs the 1.93 font loader split).
+- Default compressed font data (GetDefaultCompressedFontDataTTF / ProggyClean/ProggyForever embedded data):
+  AddFontFromMemoryCompressedTTF works, but the default font comes from fonts/ instead.
+- DebugLogSkippedErrors / DebugDrawIdConflicts* (Metrics error-recovery and ID-conflict debug tools).
+- ImGuiDataType.S64/U64: supported, but values are Luau doubles: exact only within +-2^53 (LLONG_MAX/ULLONG_MAX
+  round up to 2^63/2^64; U64 max prints as 18446744073709551615 via a special case).
+- ImDrawList::AddCallback(userdata_size > 0): "copy" = shallow copy of a table userdata (no raw bytes in Lua).
+- stb_truetype: cmap format 2 (high-byte mapping) asserts -- same as upstream stb_truetype ("@TODO").
 - GetAllocatorFunctions (n/a in Luau).
 
 WON'T DO (platform)
@@ -41,11 +31,9 @@ NOT VERIFIED LINE BY LINE AGAINST UPSTREAM
 KNOWN ISSUES
 ------------
 - Tables > "Columns flags": disabling every column asserts in TableUpdateLayout (upstream asserts too).
-- Style Editor > Colors uses a ListClipper (port-only change, upstream submits every row).
-
-PERFORMANCE IDEAS (not done)
-----------------------------
-- Cheaper visible ColorEdit4 rows; cheaper Begin() for child windows.
+- ImTriangulator ([Luau] deviation, imgui_draw.lua ImTriangulator_IsReflex): only strictly counter-clockwise corners are
+  reflex (upstream: also collinear/duplicate points), so polygons with duplicate points triangulate differently (no
+  overlapping-triangle fallback).
 
 PLANNED EXTENSIONS
 ------------------

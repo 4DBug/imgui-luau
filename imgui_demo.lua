@@ -1520,7 +1520,8 @@ S.DemoWindowWidgetsDataTypes = {
     u16_v = 65535,
     s32_v = -1,
     u32_v = 4294967295, -- (ImU32)-1
-    -- [Port] s64_v / u64_v: 64-bit integer types are not supported (Lua numbers are doubles)
+    s64_v = -1,
+    u64_v = 18446744073709551615, -- (ImU64)-1 [Port] Lua numbers are doubles: 64-bit values are exact only within +-2^53
     f32_v = 0.123,
     f64_v = 90000.01234567890123456789,
     drag_clamp = false,
@@ -1551,14 +1552,15 @@ function DemoWindowWidgetsDataTypes()
 
         -- Setup limits (as helper variables so we can take their address, as explained above)
         -- Note: SliderScalar() functions have a maximum usable range of half the natural type maximum, hence the /2.
-        -- [Port] LLONG_MIN/LLONG_MAX/ULLONG_MAX fallback block dropped: no 64-bit integer types
+        local LLONG_MIN, LLONG_MAX, ULLONG_MAX = -9223372036854775808, 9223372036854775807, 18446744073709551615 -- [Port] doubles (LLONG_MAX/ULLONG_MAX round up)
         local s8_zero,  s8_one,  s8_fifty,  s8_min,  s8_max  = 0, 1, 50, -128, 127
         local u8_zero,  u8_one,  u8_fifty,  u8_min,  u8_max  = 0, 1, 50, 0, 255
         local s16_zero, s16_one, s16_fifty, s16_min, s16_max = 0, 1, 50, -32768, 32767
         local u16_zero, u16_one, u16_fifty, u16_min, u16_max = 0, 1, 50, 0, 65535
         local s32_zero, s32_one, s32_fifty, s32_min, s32_max, s32_hi_a, s32_hi_b = 0, 1, 50, -1073741824, 1073741823, 1073741823 - 100, 1073741823 -- INT_MIN/2, INT_MAX/2
         local u32_zero, u32_one, u32_fifty, u32_min, u32_max, u32_hi_a, u32_hi_b = 0, 1, 50, 0, 2147483647, 2147483647 - 100, 2147483647 -- UINT_MAX/2
-        -- [Port] s64_* / u64_* limits: ImGuiDataType.S64/U64 are not supported
+        local s64_zero, s64_one, s64_fifty, s64_min, s64_max, s64_hi_a, s64_hi_b = 0, 1, 50, LLONG_MIN / 2, LLONG_MAX / 2, LLONG_MAX / 2 - 100, LLONG_MAX / 2
+        local u64_zero, u64_one, u64_fifty, u64_min, u64_max, u64_hi_a, u64_hi_b = 0, 1, 50, 0, ULLONG_MAX / 2, ULLONG_MAX / 2 - 100, ULLONG_MAX / 2
         local f32_zero, f32_one, f32_lo_a, f32_hi_a = 0.0, 1.0, -10000000000.0, 10000000000.0
         local f64_zero, f64_one, f64_lo_a, f64_hi_a = 0.0, 1.0, -1000000000000000.0, 1000000000000000.0
 
@@ -1580,8 +1582,8 @@ function DemoWindowWidgetsDataTypes()
         s.s32_v = ImGui.DragScalar("drag s32",       ImGuiDataType.S32,    s.s32_v, drag_speed, drag_clamp and s32_zero or nil, drag_clamp and s32_fifty or nil)
         s.s32_v = ImGui.DragScalar("drag s32 hex",   ImGuiDataType.S32,    s.s32_v, drag_speed, drag_clamp and s32_zero or nil, drag_clamp and s32_fifty or nil, "0x%08X")
         s.u32_v = ImGui.DragScalar("drag u32",       ImGuiDataType.U32,    s.u32_v, drag_speed, drag_clamp and u32_zero or nil, drag_clamp and u32_fifty or nil, "%u ms")
-        -- [Port] ImGui.DragScalar("drag s64",       ImGuiDataType.S64,    s64_v, ...) -- 64-bit types not supported
-        -- [Port] ImGui.DragScalar("drag u64",       ImGuiDataType.U64,    u64_v, ...) -- 64-bit types not supported
+        s.s64_v = ImGui.DragScalar("drag s64",       ImGuiDataType.S64,    s.s64_v, drag_speed, drag_clamp and s64_zero or nil, drag_clamp and s64_fifty or nil)
+        s.u64_v = ImGui.DragScalar("drag u64",       ImGuiDataType.U64,    s.u64_v, drag_speed, drag_clamp and u64_zero or nil, drag_clamp and u64_fifty or nil)
         s.f32_v = ImGui.DragScalar("drag float",     ImGuiDataType.Float,  s.f32_v, 0.005,  f32_zero, f32_one, "%f")
         s.f32_v = ImGui.DragScalar("drag float log", ImGuiDataType.Float,  s.f32_v, 0.005,  f32_zero, f32_one, "%f", ImGuiSliderFlags.Logarithmic)
         s.f64_v = ImGui.DragScalar("drag double",    ImGuiDataType.Double, s.f64_v, 0.0005, f64_zero, nil,     "%.10f grams")
@@ -1600,8 +1602,12 @@ function DemoWindowWidgetsDataTypes()
         s.u32_v = ImGui.SliderScalar("slider u32 low",       ImGuiDataType.U32,    s.u32_v, u32_zero, u32_fifty,"%u")
         s.u32_v = ImGui.SliderScalar("slider u32 high",      ImGuiDataType.U32,    s.u32_v, u32_hi_a, u32_hi_b, "%u")
         s.u32_v = ImGui.SliderScalar("slider u32 full",      ImGuiDataType.U32,    s.u32_v, u32_min,  u32_max,  "%u")
-        -- [Port] "slider s64 low" / "slider s64 high" / "slider s64 full" (ImGuiDataType.S64): 64-bit types not supported
-        -- [Port] "slider u64 low" / "slider u64 high" / "slider u64 full" (ImGuiDataType.U64): 64-bit types not supported
+        s.s64_v = ImGui.SliderScalar("slider s64 low",       ImGuiDataType.S64,    s.s64_v, s64_zero, s64_fifty,"%lld") -- "%" PRId64
+        s.s64_v = ImGui.SliderScalar("slider s64 high",      ImGuiDataType.S64,    s.s64_v, s64_hi_a, s64_hi_b, "%lld")
+        s.s64_v = ImGui.SliderScalar("slider s64 full",      ImGuiDataType.S64,    s.s64_v, s64_min,  s64_max,  "%lld")
+        s.u64_v = ImGui.SliderScalar("slider u64 low",       ImGuiDataType.U64,    s.u64_v, u64_zero, u64_fifty,"%llu ms") -- "%" PRIu64 " ms"
+        s.u64_v = ImGui.SliderScalar("slider u64 high",      ImGuiDataType.U64,    s.u64_v, u64_hi_a, u64_hi_b, "%llu ms")
+        s.u64_v = ImGui.SliderScalar("slider u64 full",      ImGuiDataType.U64,    s.u64_v, u64_min,  u64_max,  "%llu ms")
         s.f32_v = ImGui.SliderScalar("slider float low",     ImGuiDataType.Float,  s.f32_v, f32_zero, f32_one)
         s.f32_v = ImGui.SliderScalar("slider float low log", ImGuiDataType.Float,  s.f32_v, f32_zero, f32_one,  "%.10f", ImGuiSliderFlags.Logarithmic)
         s.f32_v = ImGui.SliderScalar("slider float high",    ImGuiDataType.Float,  s.f32_v, f32_lo_a, f32_hi_a, "%e")
@@ -1614,7 +1620,8 @@ function DemoWindowWidgetsDataTypes()
         s.u8_v  = ImGui.SliderScalar("slider u8 reverse",    ImGuiDataType.U8,   s.u8_v,  u8_max,    u8_min,   "%u")
         s.s32_v = ImGui.SliderScalar("slider s32 reverse",   ImGuiDataType.S32,  s.s32_v, s32_fifty, s32_zero, "%d")
         s.u32_v = ImGui.SliderScalar("slider u32 reverse",   ImGuiDataType.U32,  s.u32_v, u32_fifty, u32_zero, "%u")
-        -- [Port] "slider s64 reverse" / "slider u64 reverse": 64-bit types not supported
+        s.s64_v = ImGui.SliderScalar("slider s64 reverse",   ImGuiDataType.S64,  s.s64_v, s64_fifty, s64_zero, "%lld")
+        s.u64_v = ImGui.SliderScalar("slider u64 reverse",   ImGuiDataType.U64,  s.u64_v, u64_fifty, u64_zero, "%llu ms")
 
         IMGUI_DEMO_MARKER("Widgets/Data Types/Inputs")
         ImGui.SeparatorText("Inputs")
@@ -1631,8 +1638,8 @@ function DemoWindowWidgetsDataTypes()
         s.s32_v = ImGui.InputScalar("input s32 hex", ImGuiDataType.S32,    s.s32_v, inputs_step and s32_one or nil, nil, "%04X", flags)
         s.u32_v = ImGui.InputScalar("input u32",     ImGuiDataType.U32,    s.u32_v, inputs_step and u32_one or nil, nil, "%u", flags)
         s.u32_v = ImGui.InputScalar("input u32 hex", ImGuiDataType.U32,    s.u32_v, inputs_step and u32_one or nil, nil, "%08X", flags)
-        -- [Port] ImGui.InputScalar("input s64",     ImGuiDataType.S64, ...) -- 64-bit types not supported
-        -- [Port] ImGui.InputScalar("input u64",     ImGuiDataType.U64, ...) -- 64-bit types not supported
+        s.s64_v = ImGui.InputScalar("input s64",     ImGuiDataType.S64,    s.s64_v, inputs_step and s64_one or nil, nil, nil, flags)
+        s.u64_v = ImGui.InputScalar("input u64",     ImGuiDataType.U64,    s.u64_v, inputs_step and u64_one or nil, nil, nil, flags)
         s.f32_v = ImGui.InputScalar("input float",   ImGuiDataType.Float,  s.f32_v, inputs_step and f32_one or nil, nil, nil, flags)
         s.f64_v = ImGui.InputScalar("input double",  ImGuiDataType.Double, s.f64_v, inputs_step and f64_one or nil, nil, nil, flags)
 
@@ -8188,10 +8195,10 @@ function DemoWindowInputs()
             end
             ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
             ImGui.Text("Mouse down:")
-            for i = 0, 2 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- IM_COUNTOF(io.MouseDown) == 3, 0-based
+            for i = 0, ImGuiMouseButton.COUNT - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- IM_COUNTOF(io.MouseDown), 0-based
             ImGui.Text("Mouse wheel: %.1f", io.MouseWheel)
             ImGui.Text("Mouse clicked count:")
-            for i = 0, 2 do if io.MouseClickedCount[i] > 0 then ImGui.SameLine(); ImGui.Text("b%d: %d", i, io.MouseClickedCount[i]) end end
+            for i = 0, ImGuiMouseButton.COUNT - 1 do if io.MouseClickedCount[i] > 0 then ImGui.SameLine(); ImGui.Text("b%d: %d", i, io.MouseClickedCount[i]) end end
 
             -- We iterate both legacy native range and named ImGuiKey ranges. This is a little unusual/odd but this allows
             -- displaying the data for old/new backends.
