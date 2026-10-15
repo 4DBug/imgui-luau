@@ -34,7 +34,6 @@ local function WV(b, i, x, y, u, v, col)
     local o = (i - 1) * 36
     writef64(b, o, x); writef64(b, o + 8, y); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
 end
-local function WVP(b, i, p, uv, col) WV(b, i, p.x, p.y, uv.x, uv.y, col) end
 
 local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF -- ((ImU16)-1)
 local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE -- ((ImU16)-2)
@@ -1951,8 +1950,9 @@ end
 
 --- @param atlas ImFontAtlas
 function ImFontAtlasBuildUpdateTexData(atlas)
-    ImFontAtlasBuildUpdateTexDataLines(atlas)
     ImFontAtlasBuildUpdateTexDataBasic(atlas)
+    ImFontAtlasBuildUpdateTexDataLines(atlas)
+    -- [Port] TODO baked round corners: ImFontAtlasBuildUpdateTexDataCorners(atlas)
 end
 
 -- Create a new texture, discard previous one
@@ -2090,59 +2090,121 @@ function ImFontAtlasBuildUpdateTexDataLines(atlas)
     if add_and_draw then
         -- Register texture region for thick lines
         -- The +2 here is to give space for the end caps, whilst height +1 is to accommodate the fact we have a zero-width row
-        local pack_size = ImVec2(IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 2, IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1) -- ImVec2i
+        local pack_size = ImVec2(IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 2, IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1 + IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT) -- ImVec2i
         builder.PackIdLinesTexData = atlas:AddCustomRect(pack_size.x, pack_size.y, r)
         IM_ASSERT(builder.PackIdLinesTexData ~= ImFontAtlasRectId_Invalid)
     end
 
-    for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX do -- +1 because of the zero-width row
-        -- Each line consists of at least two empty pixels at the ends, with a line of solid pixels in the middle
-        local y = n
-        local line_width = n
+    do
+        -- FIXME: Lines 0 to IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH(4) are currently never used and could be ditched, saving DETAILED_WIDTH*WIDTH_MAX
+        for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX do -- +1 because of the zero-width row
+            -- Each line consists of at least two empty pixels at the ends, with a line of solid pixels in the middle
+            local y = n
+            local line_width = n
+            local pad_left = math.floor((r.w - line_width) / 2)
+            local pad_right = r.w - (pad_left + line_width)
+            IM_ASSERT(pad_left + line_width + pad_right == r.w and y < r.h) -- Make sure we're inside the texture bounds before we start writing pixels
 
-        --- @type int # If not floored, will cause black and purple horizontal stripes appearing on the right of the arrow(triangle) in the upper-left most area of the atlas
-        local pad_left = math.floor((r.w - line_width) / 2)
-        --- @type int
-        local pad_right = r.w - (pad_left + line_width)
-
-        IM_ASSERT(pad_left + line_width + pad_right == r.w and y < r.h) -- Make sure we're inside the texture bounds before we start writing pixels
-
-        -- Write each slice
-        if (add_and_draw and tex.Format == ImTextureFormat.Alpha8) then
-            local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
-
-            for i = 0, pad_left - 1 do
-                write_ptr[write_ptr_base + i] = 0x00
+            -- Write each slice
+            if add_and_draw and tex.Format == ImTextureFormat.Alpha8 then
+                local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
+                for i = 0, pad_left - 1 do
+                    write_ptr[write_ptr_base + i] = 0x00
+                end
+                for i = 0, line_width - 1 do
+                    write_ptr[write_ptr_base + pad_left + i] = 0xFF
+                end
+                for i = 0, pad_right - 1 do
+                    write_ptr[write_ptr_base + pad_left + line_width + i] = 0x00
+                end
+            elseif add_and_draw and tex.Format == ImTextureFormat.RGBA32 then
+                local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
+                for i = 0, pad_left - 1 do
+                    write_u32(write_ptr, write_ptr_base + i * 4, IM_COL32(255, 255, 255, 0))
+                end
+                for i = 0, line_width - 1 do
+                    write_u32(write_ptr, write_ptr_base + (pad_left + i) * 4, IM_COL32_WHITE)
+                end
+                for i = 0, pad_right - 1 do
+                    write_u32(write_ptr, write_ptr_base + (pad_left + line_width + i) * 4, IM_COL32(255, 255, 255, 0))
+                end
             end
 
-            for i = 0, line_width - 1 do
-                write_ptr[write_ptr_base + pad_left + i] = 0xFF
-            end
+            -- Refresh UV coordinates
+            local uv0_x, uv0_y = (r.x + pad_left - 0.5) * atlas.TexUvScale.x, (r.y + y) * atlas.TexUvScale.y
+            local uv1_x, uv1_y = (r.x + pad_left + line_width + 0.5) * atlas.TexUvScale.x, (r.y + y + 1) * atlas.TexUvScale.y
+            local half_v = (uv0_y + uv1_y) * 0.5 -- Calculate a constant V in the middle of the row to avoid sampling artifacts
+            -- Store inverse of the line-width (thickness) to the w component so that we can avoid division when selecting texture.
+            local inv_line_width = (line_width > 0) and (1.0 / line_width) or 0.0
+            builder.TexUvLines[n] = ImVec4(uv0_x, uv1_x, half_v, inv_line_width)
+        end
+    end
 
-            for i = 0, pad_right - 1 do
-                write_ptr[write_ptr_base + pad_left + line_width + i] = 0x00
-            end
-        elseif (add_and_draw and tex.Format == ImTextureFormat.RGBA32) then
-            local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
+    do
+        -- Calculate super sampled line textures for smaller line widths to make transition between sizes smoother.
 
-            for i = 0, pad_left - 1 do
-                write_u32(write_ptr, write_ptr_base + i * 4, IM_COL32(255, 255, 255, 0))
-            end
-
-            for i = 0, line_width - 1 do
-                write_u32(write_ptr, write_ptr_base + (pad_left + i) * 4, IM_COL32_WHITE)
-            end
-
-            for i = 0, pad_right - 1 do
-                write_u32(write_ptr, write_ptr_base + (pad_left + line_width + i) * 4, IM_COL32(255, 255, 255, 0))
-            end
+        -- Calculate ramp used for all the textures.
+        local ramp = {} -- ImU8[IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT], 0-based
+        for n = 0, IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1 do
+            ramp[n] = math.floor((n / IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT) * 255.0)
         end
 
-        -- Refresh UV coordinates
-        local uv0 = ImVec2(r.x + pad_left - 1, r.y + y) * atlas.TexUvScale
-        local uv1 = ImVec2(r.x + pad_left + line_width + 1, r.y + y + 1) * atlas.TexUvScale
-        local half_v = (uv0.y + uv1.y) * 0.5 -- Calculate a constant V in the middle of the row to avoid sampling artifacts
-        atlas.TexUvLines[n] = ImVec4(uv0.x, half_v, uv1.x, half_v)
+        for n = 0, IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT - 1 do
+            local y = IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1 + n
+            -- For integer thickness lines the one pixel line texture looks like this:
+            -- [  0  |  1  |  0  ]
+            --    :...........:
+            -- Since the texture samples are at the center of the texel, we only use range above.
+            -- The result after bilinear filtering is a triangle across the used uv range.
+            --
+            -- To super 2x sample that signal, we end up with following texture:
+            -- [  0  |  .5 |  1  |  .5 |  0  ]
+            --    :.......................:
+            -- One might think that there should be 2 opaque pixels in the middle section, but no since we're super sampling the triangle signal.
+            local line_width = 1 + n
+            IM_ASSERT(IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT + line_width + IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT <= r.w and y < r.h) -- Make sure we're inside the texture bounds before we start writing pixels
+
+            -- Write each slice
+            if add_and_draw and tex.Format == ImTextureFormat.Alpha8 then
+                local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
+                local idx = 0
+                for i = 0, IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1 do
+                    write_ptr[write_ptr_base + idx] = ramp[i]; idx = idx + 1
+                end
+                for _ = 0, line_width - 1 do
+                    write_ptr[write_ptr_base + idx] = 0xFF; idx = idx + 1
+                end
+                for i = IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1, 0, -1 do
+                    write_ptr[write_ptr_base + idx] = ramp[i]; idx = idx + 1
+                end
+                while idx < r.w do
+                    write_ptr[write_ptr_base + idx] = 0x0; idx = idx + 1
+                end
+            elseif add_and_draw and tex.Format == ImTextureFormat.RGBA32 then
+                local write_ptr, write_ptr_base = tex:GetPixelsAt(r.x, r.y + y)
+                local idx = 0
+                for i = 0, IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1 do
+                    write_u32(write_ptr, write_ptr_base + idx * 4, IM_COL32(255, 255, 255, ramp[i])); idx = idx + 1
+                end
+                for _ = 0, line_width - 1 do
+                    write_u32(write_ptr, write_ptr_base + idx * 4, IM_COL32(255, 255, 255, 255)); idx = idx + 1
+                end
+                for i = IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1, 0, -1 do
+                    write_u32(write_ptr, write_ptr_base + idx * 4, IM_COL32(255, 255, 255, ramp[i])); idx = idx + 1
+                end
+                while idx < r.w do
+                    write_u32(write_ptr, write_ptr_base + idx * 4, IM_COL32(255, 255, 255, 0)); idx = idx + 1
+                end
+            end
+
+            -- Refresh UV coordinates
+            local uv0_x, uv0_y = (r.x + 0.5) * atlas.TexUvScale.x, (r.y + y) * atlas.TexUvScale.y
+            local uv1_x, uv1_y = (r.x - 0.5 + IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT * 2 + line_width) * atlas.TexUvScale.x, (r.y + y + 1) * atlas.TexUvScale.y
+            local half_v = (uv0_y + uv1_y) * 0.5 -- Calculate a constant V in the middle of the row to avoid sampling artifacts
+            -- Store inverse of the line-width (thickness) to the w component so that we can avoid division when selecting texture.
+            local inv_line_width = 1.0 / (1.0 + n / IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT)
+            builder.TexUvLines[IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1 + n] = ImVec4(uv0_x, uv1_x, half_v, inv_line_width)
+        end
     end
 end
 
@@ -2220,7 +2282,7 @@ function ImFontAtlasUpdateDrawListsSharedData(atlas)
     for _, shared_data in atlas.DrawListSharedDatas:iter() do
         if (shared_data.FontAtlas == atlas) then
             shared_data.TexUvWhitePixel = atlas.TexUvWhitePixel
-            shared_data.TexUvLines = atlas.TexUvLines
+            shared_data.TexUvLines = atlas.Builder.TexUvLines
         end
     end
 end
@@ -3574,6 +3636,37 @@ local function IM_FIXNORMAL2F(VX, VY)
     return VX, VY
 end
 
+-- - The miter limit describes how much the miter cross section can be scaled before we turn it into a bevel instead.
+--   The minimum value of miter limit is 1.0, which translates to 180 (all corners are bevels), the higher the number,
+--   the closer to zero the angle is (never bevel a corner). The miter limit angle can be calculated as:
+--      miter_limit_angle = 2 * acos(1 / miter_limit)
+-- - We can use the miter limit angle to figure maximum number of beveled corners in a convex polygon,
+--   to prevent having allocate much extra memory (for a reasonable miter limit).
+--      (n - 2) * 360 > k * miter_limit_angle + (n - k) * 360
+--   Where, n = number of corners in a polygon, k = beveled corners. Solved for k, simplifies to:
+--      k < 360 / (180 - miter_limit_angle)
+--   To find value strictly less than:
+--      max_bevels = k = floor(360/(180-miter_limit_angle))
+local IM_POLYLINE_MITER_ANGLE_LIMIT      = -0.9999619 -- Safeguard for miter corner calculation to avoid div by zero. cos(179.5)
+local IM_POLYLINE_MITER_LIMIT            = 4.0        -- (~29 deg corner)
+local IM_POLYLINE_CONVEX_POLY_MAX_BEVELS = 2          -- For miter value 4.0
+
+--- @param col       ImU32
+--- @param alpha_mul float
+local function ImAlphaMultiply(col, alpha_mul)
+    IM_ASSERT_PARANOID(alpha_mul >= 0.0 and alpha_mul < 1.0) -- We don't clamp!
+    local a = bit32.rshift(bit32.band(col, IM_COL32_A_MASK), IM_COL32_A_SHIFT)
+    a = math.floor(a * alpha_mul) -- We don't need to clamp 0..255 because alpha is in 0..1 range.
+    return bit32.bor(bit32.band(col, bit32.bnot(IM_COL32_A_MASK)), bit32.lshift(a, IM_COL32_A_SHIFT))
+end
+
+-- #define _GetStrokePos(_FLAGS, _DEFAULT_STROKE_POS)
+local function _GetStrokePos(flags, default_stroke_pos)
+    local stroke_pos = bit32.band(flags, ImDrawFlags.StrokeMask_)
+    if stroke_pos ~= 0 then return stroke_pos end
+    return default_stroke_pos
+end
+
 -------------------------------------------------------------------------------
 -- [SECTION] ImDrawData
 -------------------------------------------------------------------------------
@@ -3624,6 +3717,25 @@ local IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX = 512
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(_RAD, _MAXERROR) return ImClamp(IM_ROUNDUP_TO_EVEN(ImCeil(IM_PI / ImAcos(1 - ImMin(_MAXERROR, _RAD) / _RAD))), IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MIN, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX) end
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC_R(_N, _MAXERROR) return (_MAXERROR / (1 - ImCos(IM_PI / ImMax(_N, IM_PI)))) end
 local function IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC_ERROR(_N, _RAD)  return ((1 - ImCos(IM_PI / ImMax(_N, IM_PI))) / _RAD) end
+
+-- Calculates arc step and step count for 90 degree arc. The calculated arc step will complete a 90 degree arc when stepped arc_step_count times.
+-- [Luau] returns arc_step, arc_step_count (C++ out-references)
+local function CalcCornerArcStepAndCount(segment_count)
+    local quarter = IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4
+    local arc_step = ImClamp(math.floor(IM_DRAWLIST_ARCFAST_SAMPLE_MAX / segment_count), 1, quarter)
+    local arc_step_count = math.floor(quarter / arc_step)
+    if (arc_step * arc_step_count) ~= quarter then -- Make sure that the arc step can iterate 90 degree arc.
+        arc_step = math.floor(quarter / arc_step_count)
+    end
+    return arc_step, arc_step_count
+end
+
+local function ApproxApothem(num_segments)
+    -- Calculates approximation (within 0.001%) distance from the center of the circumscribed circle to the edge of the polygon, cos(pi / n)
+    IM_ASSERT_PARANOID(num_segments >= 3)
+    local u = 1.0 / num_segments
+    return ((4.058712 * u * u) - 4.934802) * u * u + 1.0
+end
 
 -------------------------------------------------------------------------------
 -- [SECTION] ImDrawList
@@ -4093,101 +4205,6 @@ function MT.ImDrawList:ChannelsMerge() self._Splitter:Merge(self) end
 --- @param n int # 0-based
 function MT.ImDrawList:ChannelsSetCurrent(n) self._Splitter:SetCurrentChannel(self, n) end
 
--- - We intentionally avoid using ImVec2 and its math operators here to reduce cost to a minimum for debug/non-inlined builds.
--- - Filled shapes must always use clockwise winding order. The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
---- @param points       ImVec2[]
---- @param points_count int
---- @param col          ImU32
-@native
-function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
-    if points_count < 3 or bit32.band(col, IM_COL32_A_MASK) == 0 then
-        return
-    end
-
-    local uv = self._Data.TexUvWhitePixel
-
-    if bit32.band(self.Flags, ImDrawFlags.AAFill) ~= 0 then
-        local AA_SIZE = self._FringeScale
-        local col_trans = bit32.band(col, bit32.bnot(IM_COL32_A_MASK))
-        local idx_count = (points_count - 2) * 3 + points_count * 6
-        local vtx_count = points_count * 2
-        self:PrimReserve(idx_count, vtx_count)
-
-        local vtx_inner_idx = self._VtxCurrentIdx
-        local vtx_outer_idx = self._VtxCurrentIdx + 1
-        local idx_data = self.IdxBuffer.Data
-        local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
-        for i = 2, points_count - 1 do
-            idx_data[idx_write_ptr + 0] = vtx_inner_idx; idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_inner_idx + (i * 2)
-            idx_write_ptr = idx_write_ptr + 3
-        end
-
-        -- Compute normals
-        local temp_buffer = self._Data.TempBuffer
-        if points_count > temp_buffer.Capacity then temp_buffer:reserve_discard(points_count) end -- [Luau] skip the method lookup when no growth is needed
-        local temp_normals = self._Data.TempBuffer.Data
-
-        local i0 = points_count
-        for i1 = 1, points_count do
-            local p0 = points[i0]
-            local p1 = points[i1]
-            local dx = p1.x - p0.x
-            local dy = p1.y - p0.y
-            dx, dy = IM_NORMALIZE2F_OVER_ZERO(dx, dy)
-            temp_normals[i0].x = dy
-            temp_normals[i0].y = -dx
-
-            i0 = i1
-        end
-
-        local vtx_data = self.VtxBuffer.Buf
-        local vtx_write_ptr = self._VtxWritePtr
-        local uv_x, uv_y = uv.x, uv.y
-        i0 = points_count
-        for i1 = 1, points_count do
-            local n0 = temp_normals[i0]
-            local n1 = temp_normals[i1]
-            local dm_x = (n0.x + n1.x) * 0.5
-            local dm_y = (n0.y + n1.y) * 0.5
-            dm_x, dm_y = IM_FIXNORMAL2F(dm_x, dm_y)
-            dm_x = dm_x * AA_SIZE * 0.5
-            dm_y = dm_y * AA_SIZE * 0.5
-
-            local p1 = points[i1]
-            WV(vtx_data, vtx_write_ptr + 0, p1.x - dm_x, p1.y - dm_y, uv_x, uv_y, col)
-            WV(vtx_data, vtx_write_ptr + 1, p1.x + dm_x, p1.y + dm_y, uv_x, uv_y, col_trans)
-            vtx_write_ptr = vtx_write_ptr + 2
-
-            idx_data[idx_write_ptr + 0] = vtx_inner_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_outer_idx + ((i0 - 1) * 2)
-            idx_data[idx_write_ptr + 3] = vtx_outer_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 4] = vtx_outer_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 5] = vtx_inner_idx + ((i1 - 1) * 2)
-            idx_write_ptr = idx_write_ptr + 6
-
-            i0 = i1
-        end
-        self._VtxWritePtr = vtx_write_ptr
-        self._IdxWritePtr = idx_write_ptr
-        self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
-    else
-        local idx_count = (points_count - 2) * 3
-        local vtx_count = points_count
-        self:PrimReserve(idx_count, vtx_count)
-
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
-        for i = 1, vtx_count do
-            local vtx_write_ptr = self._VtxWritePtr
-            WVP(vtx_data, vtx_write_ptr + 0, points[i], uv, col)
-            self._VtxWritePtr = vtx_write_ptr + 1
-        end
-        for i = 3, points_count do
-            local idx_write_ptr = self._IdxWritePtr
-            idx_data[idx_write_ptr + 0] = self._VtxCurrentIdx; idx_data[idx_write_ptr + 1] = self._VtxCurrentIdx + i - 2; idx_data[idx_write_ptr + 2] = self._VtxCurrentIdx + i - 1
-            self._IdxWritePtr = idx_write_ptr + 3
-        end
-
-        self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
-    end
-end
-
 function MT.ImDrawList:PushTexture(tex_ref)
     self._TextureStack:push_back(tex_ref)
     self._CmdHeader.TexRef = tex_ref
@@ -4358,249 +4375,641 @@ function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     self._IdxWritePtr   = idx_write_ptr + 6
 end
 
---- @param points       ImVec2[]
---- @param points_count int
---- @param col          ImU32
---- @param thickness    float
---- @param flags        ImDrawFlags
---- @param max_inner_offset float # [Luau] unused by the pre-1.93 stroker
+--- @param thickness float
+--- @return float
+-- [Luau] local function (also MT.ImDrawList._CalculateCenterBiasedOffset)
+local function _CalculateCenterBiasedOffset(self, thickness)
+    -- Old jumpy one.
+    -- return IM_TRUNC(thickness * 0.5f / _FringeScale) * _FringeScale;
+
+    -- Calculate outside offset for stroke position ImDrawFlags_StrokeCenterBiased
+    -- so that one side the of the line is always at pixel boundary.
+    -- On integer thickness both sides of the line are on pixel boundary.
+    local screen_thickness = thickness * self._InvFringeScale
+    local s_thickness = math.floor(screen_thickness) -- (int) of a positive value
+    return (math.floor(s_thickness / 2) + (s_thickness % 2) * (screen_thickness - s_thickness)) * self._FringeScale
+end
+MT.ImDrawList._CalculateCenterBiasedOffset = _CalculateCenterBiasedOffset
+
+-- Check if R is considered to be worthy rounding. Can be only used within ImDrawList due to use of _FringeScale.
+-- #define IM_HAS_ROUNDING(RAD) ((RAD) >= (0.25f * _FringeScale)) -- [Luau] written inline at each use
+
+-- Select texture and adjust fringe size for specified line thickness.
+-- [Luau] returns uv0.x, uv0.y, uv1.x, uv1.y, fringe instead of writing to out parameters
+--- @param screen_thickness float
+--- @param flags            ImDrawFlags
+local function _SelectLineTexture(self, screen_thickness, flags)
+    -- We assume that the screen_thickness has been clamped to 1.0 by the caller.
+    IM_ASSERT_PARANOID(screen_thickness >= 1.0)
+
+    if bit32.band(flags, ImDrawFlags.AALines) ~= 0 then
+        -- Handle the thickness between 1.0 - IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH].
+        -- We use super sampled textures in this range to make texture changes less noticeable.
+        -- There are IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT textures, where 0 maps to 1.0 and IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT-1 maps to IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH (4.0).
+        local texture_idx
+        if screen_thickness <= IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH then
+            texture_idx = math.floor((screen_thickness - 1.0) * IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT + 0.5) + (IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1)
+        elseif screen_thickness < IM_DRAWLIST_TEX_LINES_WIDTH_MAX - 1.5 then
+            texture_idx = math.floor(screen_thickness + 0.5)
+        else
+            texture_idx = IM_DRAWLIST_TEX_LINES_WIDTH_MAX - 1 -- Catches large values of screen_thickness (and +inf/NaN) that a ImMin() wouldn't.
+        end
+
+        -- Scale the fringe so that the texture matches the line thickness.
+        local tex_uvs = self._Data.TexUvLines[texture_idx] -- 0-based table
+        return tex_uvs.x, tex_uvs.z, tex_uvs.y, tex_uvs.z, self._FringeScale * screen_thickness * tex_uvs.w -- tex_uvs.w = 1 / thickness
+    else
+        -- For no anti-alias we use fully opaque texture, and no fringe expansion.
+        local uv = self._Data.TexUvWhitePixel
+        return uv.x, uv.y, uv.x, uv.y, 0.0
+    end
+end
+MT.ImDrawList._SelectLineTexture = _SelectLineTexture
+
+-- [Luau] scratch arrays (normals x/y and squared segment lengths) used instead of _Data->TempBuffer: no ImVec2 per point
+local poly_normals_x, poly_normals_y, poly_sqr_lengths = {}, {}, {}
+
+--- @param points           ImVec2[] # 1-based
+--- @param points_count     int
+--- @param col              ImU32
+--- @param thickness        float
+--- @param flags            ImDrawFlags
+--- @param max_inner_offset float
+-- [Luau] IM_APPEND_VTX()/IM_APPEND_TRI() are expanded inline: vertex/index write pointers and _VtxCurrentIdx kept in locals, stored back at the end
 @native
 function MT.ImDrawList:_AddPolyline(points, points_count, col, thickness, flags, max_inner_offset)
-
     if points_count < 2 or bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
 
-    local closed = bit32.band(flags, ImDrawFlags.Closed) ~= 0
-    local opaque_uv = self._Data.TexUvWhitePixel
-    local count = closed and points_count or points_count - 1 -- Number of line segments
-    local thick_line = thickness > self._FringeScale
+    local screen_thickness = thickness * self._InvFringeScale
+    if screen_thickness < 1.0 then
+        if screen_thickness < 1.0 / 255.0 then
+            return
+        end
+        col = ImAlphaMultiply(col, screen_thickness)
+        screen_thickness = 1.0
+        thickness = self._FringeScale
+    end
+
     -- If this assert triggers on legacy code:
     -- - 1.92.8 (2025/05): swapped two last parameters order: flags, thickness --> thickness, flags. This should normally be caught by compile-time type-checking.
     -- - 1.92.8 (2025/05): changed value of ImDrawList_Closed which was previously guaranteed to be == 1. Hardcoded use of 1 or true should be replaced.
     -- Read more details near AddRect() + see "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
+    flags = bit32.bor(flags, self.Flags)
     IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?")
 
-    if bit32.band(self.Flags, ImDrawFlags.AALines) ~= 0 then
-        -- Anti-aliased stroke
-        local AA_SIZE = self._FringeScale
-        local col_trans = bit32.band(col, bit32.bnot(IM_COL32_A_MASK))
+    -- Allocate data for temp buffers
+    local normals_x, normals_y, sqr_lengths = poly_normals_x, poly_normals_y, poly_sqr_lengths
 
-        -- Thicknesses <1.0 should behave like thickness 1.0
-        thickness = ImMax(thickness, 1.0)
-        local integer_thickness = ImFloor(thickness)
-        local fractional_thickness = thickness - integer_thickness
-
-        -- Do we want to draw this line using a texture?
-        -- [Luau] pre-1.93 stroker kept until the 1.93 one is ported. ImDrawListFlags_AntiAliasedLinesUseTex no longer exists (== AALines)
-        -- and was never set by this port's SetupDrawListSharedData() before, so the texture path stays disabled (unchanged output).
-        local use_texture = false
-
-        IM_ASSERT_PARANOID((not use_texture) or bit32.band(self._Data.Font.OwnerAtlas.Flags, ImFontAtlasFlags.NoBakedLines) == 0)
-
-        local idx_count = use_texture and (count * 6) or (thick_line and count * 18 or count * 12)
-        local vtx_count = use_texture and (points_count * 2) or (thick_line and points_count * 4 or points_count * 3)
-        PrimReserve(self, idx_count, vtx_count)
-
-        -- Temporary buffer
-        local temp_buffer_size = points_count * ((use_texture or not thick_line) and 3 or 5)
-        local temp_buffer = self._Data.TempBuffer
-        if temp_buffer_size > temp_buffer.Capacity then temp_buffer:reserve_discard(temp_buffer_size) end -- [Luau] skip the method lookup when no growth is needed
-        local temp_normals = self._Data.TempBuffer.Data
-        local temp_points = self._Data.TempBuffer.Data; local temp_points_start = points_count + 1
-
-        -- Calculate normals for each line segment
-        for i1 = 1, count do
-            local i2 = (i1 == points_count) and 1 or i1 + 1
-            local p1 = points[i1]
-            local p2 = points[i2]
-            local dx = p2.x - p1.x
-            local dy = p2.y - p1.y
-            dx, dy = IM_NORMALIZE2F_OVER_ZERO(dx, dy)
-            temp_normals[i1].x = dy
-            temp_normals[i1].y = -dx
-        end
-        if not closed then
-            ImVec2_Copy(temp_normals[points_count], temp_normals[points_count - 1])
-        end
-
-        -- If we are drawing a one-pixel-wide line without a texture, or a textured line of any width
-        if use_texture or not thick_line then
-            -- [PATH 1] Texture-based lines (thick or non-thick)
-            -- [PATH 2] Non texture-based lines (non-thick)
-            local half_draw_size = use_texture and (thickness * 0.5 + 1) or AA_SIZE
-
-            -- If line is not closed, the first and last points need to be generated differently
-            if not closed then
-                ImVec2_CopyV(temp_points[temp_points_start + 0], ImVec2_AddVA(points[1], ImVec2_MulVX(temp_normals[1], half_draw_size)))
-                ImVec2_CopyV(temp_points[temp_points_start + 1], ImVec2_SubVA(points[1], ImVec2_MulVX(temp_normals[1], half_draw_size)))
-                ImVec2_CopyV(temp_points[temp_points_start + (points_count - 1) * 2 + 0], ImVec2_AddVA(points[points_count], ImVec2_MulVX(temp_normals[points_count], half_draw_size)))
-                ImVec2_CopyV(temp_points[temp_points_start + (points_count - 1) * 2 + 1], ImVec2_SubVA(points[points_count], ImVec2_MulVX(temp_normals[points_count], half_draw_size)))
-            end
-
-            -- Generate indices and vertices
-            local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
-            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
-            for i1 = 1, count do
-                local i2 = (i1 == points_count) and 1 or i1 + 1
-                local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
-
-                -- Average normals
-                local dm_x = (temp_normals[i1].x + temp_normals[i2].x) * 0.5
-                local dm_y = (temp_normals[i1].y + temp_normals[i2].y) * 0.5
-                dm_x, dm_y = IM_FIXNORMAL2F(dm_x, dm_y)
-                dm_x = dm_x * half_draw_size
-                dm_y = dm_y * half_draw_size
-
-                -- Add temporary vertices for the outer edges
-                local out_off = (i2 - 1) * 2
-                temp_points[temp_points_start + out_off + 0].x = points[i2].x + dm_x
-                temp_points[temp_points_start + out_off + 0].y = points[i2].y + dm_y
-                temp_points[temp_points_start + out_off + 1].x = points[i2].x - dm_x
-                temp_points[temp_points_start + out_off + 1].y = points[i2].y - dm_y
-
-                if use_texture then
-                    -- Add indices for two triangles
-                    idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 1
-                    idx_data[idx_write_ptr + 3] = idx2 + 1; idx_data[idx_write_ptr + 4] = idx1 + 1; idx_data[idx_write_ptr + 5] = idx2 + 0
-                    idx_write_ptr = idx_write_ptr + 6
-                else
-                    -- Add indices for four triangles
-                    idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 2
-                    idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 0
-                    idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
-                    idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
-                    idx_write_ptr = idx_write_ptr + 12
-                end
-
-                idx1 = idx2
-            end
-            self._IdxWritePtr = idx_write_ptr
-
-            -- Add vertices
-            local vtx_write_ptr = self._VtxWritePtr
-            if use_texture then
-                -- Texture-based: need to implement TexUvLines lookup
-                local tex_uvs = self._Data.TexUvLines[integer_thickness]
-                local tex_uv0 = ImVec2(tex_uvs.x, tex_uvs.y)
-                local tex_uv1 = ImVec2(tex_uvs.z, tex_uvs.w)
-                for i = 0, points_count - 1 do
-                    WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 2 + 0], tex_uv0, col)
-                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 1], tex_uv1, col)
-                    vtx_write_ptr = vtx_write_ptr + 2
-                end
-            else
-                -- If we're not using a texture, we need the center vertex as well
-                for i = 0, points_count - 1 do
-                    WVP(vtx_data, vtx_write_ptr + 0, points[i + 1], opaque_uv, col)
-                    WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 0], opaque_uv, col_trans)
-                    WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 2 + 1], opaque_uv, col_trans)
-                    vtx_write_ptr = vtx_write_ptr + 3
-                end
-            end
-            self._VtxWritePtr = vtx_write_ptr
-        else
-            -- [PATH 3] Non texture-based lines (thick)
-            local half_inner_thickness = (thickness - AA_SIZE) * 0.5
-
-            -- If line is not closed, handle first and last points
-            if not closed then
-                local points_last = points_count - 1
-                ImVec2_CopyV(temp_points[temp_points_start + 0], ImVec2_AddVA(points[1], ImVec2_MulVX(temp_normals[1], (half_inner_thickness + AA_SIZE))))
-                ImVec2_CopyV(temp_points[temp_points_start + 1], ImVec2_AddVA(points[1], ImVec2_MulVX(temp_normals[1], half_inner_thickness)))
-                ImVec2_CopyV(temp_points[temp_points_start + 2], ImVec2_SubVA(points[1], ImVec2_MulVX(temp_normals[1], half_inner_thickness)))
-                ImVec2_CopyV(temp_points[temp_points_start + 3], ImVec2_SubVA(points[1], ImVec2_MulVX(temp_normals[1], (half_inner_thickness + AA_SIZE))))
-                ImVec2_CopyV(temp_points[temp_points_start + points_last * 4 + 0], ImVec2_AddVA(points[points_count], ImVec2_MulVX(temp_normals[points_last + 1], (half_inner_thickness + AA_SIZE))))
-                ImVec2_CopyV(temp_points[temp_points_start + points_last * 4 + 1], ImVec2_AddVA(points[points_count], ImVec2_MulVX(temp_normals[points_last + 1], half_inner_thickness)))
-                ImVec2_CopyV(temp_points[temp_points_start + points_last * 4 + 2], ImVec2_SubVA(points[points_count], ImVec2_MulVX(temp_normals[points_last + 1], half_inner_thickness)))
-                ImVec2_CopyV(temp_points[temp_points_start + points_last * 4 + 3], ImVec2_SubVA(points[points_count], ImVec2_MulVX(temp_normals[points_last + 1], (half_inner_thickness + AA_SIZE))))
-            end
-
-            -- Generate indices and vertices
-            local idx1 = self._VtxCurrentIdx
-            local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
-            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
-            for i1 = 1, count do
-                local i2 = (i1 == points_count) and 1 or i1 + 1
-                local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
-
-                -- Average normals
-                local dm_x = (temp_normals[i1].x + temp_normals[i2].x) * 0.5
-                local dm_y = (temp_normals[i1].y + temp_normals[i2].y) * 0.5
-                dm_x, dm_y = IM_FIXNORMAL2F(dm_x, dm_y)
-                local dm_out_x = dm_x * (half_inner_thickness + AA_SIZE)
-                local dm_out_y = dm_y * (half_inner_thickness + AA_SIZE)
-                local dm_in_x = dm_x * half_inner_thickness
-                local dm_in_y = dm_y * half_inner_thickness
-
-                -- Add temporary vertices
-                local out_off = (i2 - 1) * 4
-                temp_points[temp_points_start + out_off + 0].x = points[i2].x + dm_out_x
-                temp_points[temp_points_start + out_off + 0].y = points[i2].y + dm_out_y
-                temp_points[temp_points_start + out_off + 1].x = points[i2].x + dm_in_x
-                temp_points[temp_points_start + out_off + 1].y = points[i2].y + dm_in_y
-                temp_points[temp_points_start + out_off + 2].x = points[i2].x - dm_in_x
-                temp_points[temp_points_start + out_off + 2].y = points[i2].y - dm_in_y
-                temp_points[temp_points_start + out_off + 3].x = points[i2].x - dm_out_x
-                temp_points[temp_points_start + out_off + 3].y = points[i2].y - dm_out_y
-
-                -- Add indices
-                idx_data[idx_write_ptr + 0] = idx2 + 1; idx_data[idx_write_ptr + 1] = idx1 + 1; idx_data[idx_write_ptr + 2] = idx1 + 2
-                idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 1
-                idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
-                idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
-                idx_data[idx_write_ptr + 12] = idx2 + 2; idx_data[idx_write_ptr + 13] = idx1 + 2; idx_data[idx_write_ptr + 14] = idx1 + 3
-                idx_data[idx_write_ptr + 15] = idx1 + 3; idx_data[idx_write_ptr + 16] = idx2 + 3; idx_data[idx_write_ptr + 17] = idx2 + 2
-                idx_write_ptr = idx_write_ptr + 18
-
-                idx1 = idx2
-            end
-            self._IdxWritePtr = idx_write_ptr
-
-            -- Add vertices
-            local vtx_write_ptr = self._VtxWritePtr
-            for i = 0, points_count - 1 do
-                WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 4 + 0], opaque_uv, col_trans)
-                WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 4 + 1], opaque_uv, col)
-                WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 4 + 2], opaque_uv, col)
-                WVP(vtx_data, vtx_write_ptr + 3, temp_points[temp_points_start + i * 4 + 3], opaque_uv, col_trans)
-                vtx_write_ptr = vtx_write_ptr + 4
-            end
-            self._VtxWritePtr = vtx_write_ptr
-        end
-        self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
+    -- Calculate normals for each line segment
+    for i = 1, points_count - 1 do
+        local p0 = points[i]
+        local p1 = points[i + 1]
+        local dx = p1.x - p0.x
+        local dy = p1.y - p0.y
+        local d2 = dx * dx + dy * dy
+        local inv_len = 0.0
+        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+        normals_x[i] = -dy * inv_len
+        normals_y[i] = dx * inv_len
+        sqr_lengths[i] = d2
+    end
+    if bit32.band(flags, ImDrawFlags.Closed) ~= 0 then
+        local p0 = points[points_count]
+        local p1 = points[1]
+        local dx = p1.x - p0.x
+        local dy = p1.y - p0.y
+        local d2 = dx * dx + dy * dy
+        local inv_len = 0.0
+        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+        normals_x[points_count] = -dy * inv_len
+        normals_y[points_count] = dx * inv_len
+        sqr_lengths[points_count] = d2
     else
-        -- [PATH 4] Non texture-based, Non anti-aliased lines
-        local idx_count = count * 6
-        local vtx_count = count * 4
-        PrimReserve(self, idx_count, vtx_count)
+        normals_x[points_count] = normals_x[points_count - 1]
+        normals_y[points_count] = normals_y[points_count - 1]
+        sqr_lengths[points_count] = 0.0
+    end
 
-        local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
-        for i1 = 1, count do
-            local i2 = (i1 == points_count) and 1 or i1 + 1
-            local p1 = points[i1]
-            local p2 = points[i2]
+    local u0, v0, u1, v1, fringe = _SelectLineTexture(self, screen_thickness, flags)
 
-            local dx = p2.x - p1.x
-            local dy = p2.y - p1.y
-            dx, dy = IM_NORMALIZE2F_OVER_ZERO(dx, dy)
-            dx = dx * (thickness * 0.5)
-            dy = dy * (thickness * 0.5)
+    local col_trans = bit32.band(col, bit32.bnot(IM_COL32_A_MASK))
 
-            local vtx_write_ptr = self._VtxWritePtr
-            WV(vtx_data, vtx_write_ptr + 0, p1.x + dy, p1.y - dx, opaque_uv.x, opaque_uv.y, col)
-            WV(vtx_data, vtx_write_ptr + 1, p2.x + dy, p2.y - dx, opaque_uv.x, opaque_uv.y, col)
-            WV(vtx_data, vtx_write_ptr + 2, p2.x - dy, p2.y + dx, opaque_uv.x, opaque_uv.y, col)
-            WV(vtx_data, vtx_write_ptr + 3, p1.x - dy, p1.y + dx, opaque_uv.x, opaque_uv.y, col)
-            self._VtxWritePtr = vtx_write_ptr + 4
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeCenter)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        flags = bit32.band(bit32.bor(flags, ImDrawFlags.JoinMiter), bit32.bnot(ImDrawFlags.AALineEnds))
+    end
 
-            local idx_write_ptr = self._IdxWritePtr
-            idx_data[idx_write_ptr + 0] = self._VtxCurrentIdx + 0; idx_data[idx_write_ptr + 1] = self._VtxCurrentIdx + 1; idx_data[idx_write_ptr + 2] = self._VtxCurrentIdx + 2
-            idx_data[idx_write_ptr + 3] = self._VtxCurrentIdx + 0; idx_data[idx_write_ptr + 4] = self._VtxCurrentIdx + 2; idx_data[idx_write_ptr + 5] = self._VtxCurrentIdx + 3
-            self._IdxWritePtr = idx_write_ptr + 6
-            self._VtxCurrentIdx = self._VtxCurrentIdx + 4
+    local closed = bit32.band(flags, ImDrawFlags.Closed) ~= 0
+    local miters_only = bit32.band(flags, ImDrawFlags.JoinMiter) ~= 0
+    local miter_distance_limit_sqr = IM_POLYLINE_MITER_LIMIT * IM_POLYLINE_MITER_LIMIT
+
+    local thickness0 = (thickness + fringe) * 0.5 -- Center (or legacy)
+    if stroke_pos == ImDrawFlags.StrokeOutside then
+        thickness0 = thickness + fringe * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        thickness0 = _CalculateCenterBiasedOffset(self, thickness) + fringe * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeInside then
+        thickness0 = fringe * 0.5
+    end
+    local thickness1 = (thickness + fringe) - thickness0
+
+    local idx_count = 0
+    local vtx_count = 0
+    local max_verts_per_point = miters_only and 2 or 4
+    local max_tris_per_point = miters_only and 2 or 5
+    if closed then
+        vtx_count = --[[body]] points_count * max_verts_per_point + --[[closing]] 2
+        idx_count = (--[[body]] points_count * max_tris_per_point + --[[closing]] 2) * 3
+    else
+        vtx_count = --[[body]] (points_count - 2) * max_verts_per_point + --[[caps]] (4 * 2)
+        idx_count = (--[[body]] (points_count - 2) * max_tris_per_point + --[[last seg]] 2 + --[[caps]] (2 * 2)) * 3
+    end
+    PrimReserve(self, idx_count, vtx_count)
+
+    local ratio = thickness0 / (thickness0 + thickness1) -- The points that use uv2 are placed directly on the path (offset = 0), calculate the texture position from stroke offsets.
+    local u2, v2 = u0 + (u1 - u0) * ratio, v0
+
+    -- Clamp inner offset and adjust texture coordinates to match the change.
+    -- This is used by some of the convex shape rendering to avoid rendering artifacts when thickness is about to fill the whole shape.
+    if thickness1 > max_inner_offset then
+        thickness1 = max_inner_offset
+        local s = (thickness0 + thickness1) / (thickness + fringe)
+        local du = u1 - u0
+        u1 = u0 + du * s
+    end
+
+    local half_aa = self._FringeScale * 0.5 -- Used for end caps, does not use "fringe" since end cap AA is not using the texture.
+    local use_aa_ends = bit32.band(flags, bit32.bor(ImDrawFlags.AALines, ImDrawFlags.AALineEnds)) == bit32.bor(ImDrawFlags.AALines, ImDrawFlags.AALineEnds)
+
+    local vb = self.VtxBuffer.Buf
+    local ib = self.IdxBuffer.Data
+    local vw = self._VtxWritePtr     -- 1-based write position in VtxBuffer
+    local iw = self._IdxWritePtr     -- 1-based write position in IdxBuffer
+    local vtx_idx = self._VtxCurrentIdx
+    local first_vtx_offset = vw
+    local first_vtx_idx = vtx_idx    -- [Luau] VtxBuffer position of index 'n' is first_vtx_offset + (n - first_vtx_idx)
+    local base_idx = vtx_idx
+
+    local p1x, p1y
+    local n1x, n1y
+    local len_sqr1
+
+    local point_idx = 1 -- [Luau] 1-based, iterate point_idx..point_last inclusive
+    local point_last = points_count
+    if not closed then
+        -- Start cap
+        point_idx = point_idx + 1
+        point_last = point_last - 1
+        local p = points[1]
+        p1x, p1y = p.x, p.y
+        n1x, n1y = normals_x[1], normals_y[1]
+        len_sqr1 = sqr_lengths[1]
+
+        local dir_x = n1y
+        local dir_y = -n1x
+        if bit32.band(flags, ImDrawFlags.CapSquare) ~= 0 then
+            p1x = p1x - dir_x * thickness * 0.5
+            p1y = p1y - dir_y * thickness * 0.5
         end
+
+        if not use_aa_ends then
+            base_idx = vtx_idx
+            WV(vb, vw + 0, p1x - n1x * thickness0, p1y - n1y * thickness0, u0, v0, col)
+            WV(vb, vw + 1, p1x + n1x * thickness1, p1y + n1y * thickness1, u1, v1, col)
+            vw = vw + 2; vtx_idx = vtx_idx + 2
+        else
+            local pa_x = p1x - dir_x * half_aa
+            local pa_y = p1y - dir_y * half_aa
+            local pb_x = p1x + dir_x * half_aa
+            local pb_y = p1y + dir_y * half_aa
+
+            base_idx = vtx_idx
+            WV(vb, vw + 0, pa_x - n1x * thickness0, pa_y - n1y * thickness0, u0, v0, col_trans)
+            WV(vb, vw + 1, pa_x + n1x * thickness1, pa_y + n1y * thickness1, u1, v1, col_trans)
+
+            local next_base_idx = vtx_idx + 2
+            WV(vb, vw + 2, pb_x - n1x * thickness0, pb_y - n1y * thickness0, u0, v0, col)
+            WV(vb, vw + 3, pb_x + n1x * thickness1, pb_y + n1y * thickness1, u1, v1, col)
+            vw = vw + 4; vtx_idx = vtx_idx + 4
+
+            -- AA cap
+            ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+            ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+            iw = iw + 6
+            base_idx = next_base_idx
+        end
+    else
+        -- Wrap around segment
+        local p = points[points_count]
+        p1x, p1y = p.x, p.y
+        n1x, n1y = normals_x[points_count], normals_y[points_count]
+        len_sqr1 = sqr_lengths[points_count]
+
+        -- This will be filled later, allocate space.
+        base_idx = vtx_idx
+        WV(vb, vw + 0, 0, 0, u0, v0, col)
+        WV(vb, vw + 1, 0, 0, u1, v1, col)
+        vw = vw + 2; vtx_idx = vtx_idx + 2
+    end
+
+    if miters_only then
+        for pi = point_idx, point_last do
+            local n0x, n0y = n1x, n1y
+            local p = points[pi]
+            p1x, p1y = p.x, p.y
+            n1x, n1y = normals_x[pi], normals_y[pi]
+
+            -- theta is the angle between two segments
+            local cos_theta = n0x * n1x + n0y * n1y
+
+            -- miter offset formula is derived here: https://www.angusj.com/clipper2/Docs/Trigonometry.htm
+            local cos_theta_clamped = (IM_POLYLINE_MITER_ANGLE_LIMIT >= cos_theta) and IM_POLYLINE_MITER_ANGLE_LIMIT or cos_theta -- Avoid div by 0.
+            local miter_scale_factor = 1.0 / (1.0 + cos_theta_clamped)
+            if miter_scale_factor > 1000.0 then miter_scale_factor = 1000.0 end
+            local miter_offset_x = (n0x + n1x) * miter_scale_factor
+            local miter_offset_y = (n0y + n1y) * miter_scale_factor
+
+            -- Miter
+            local next_base_idx = vtx_idx
+            WV(vb, vw + 0, p1x - miter_offset_x * thickness0, p1y - miter_offset_y * thickness0, u0, v0, col) -- 2
+            WV(vb, vw + 1, p1x + miter_offset_x * thickness1, p1y + miter_offset_y * thickness1, u1, v1, col) -- 3
+            vw = vw + 2; vtx_idx = vtx_idx + 2
+
+            -- Connect prev to next
+            ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+            ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+            iw = iw + 6
+
+            base_idx = next_base_idx
+        end
+    else
+        for pi = point_idx, point_last do
+            local n0x, n0y = n1x, n1y
+            local len_sqr0 = len_sqr1
+            local p = points[pi]
+            p1x, p1y = p.x, p.y
+            n1x, n1y = normals_x[pi], normals_y[pi]
+            len_sqr1 = sqr_lengths[pi]
+
+            -- theta is the angle between two segments
+            local cos_theta = n0x * n1x + n0y * n1y
+            local sin_theta = n0y * n1x - n0x * n1y
+
+            -- miter offset formula is derived here: https://www.angusj.com/clipper2/Docs/Trigonometry.htm
+            local cos_theta_clamped = (IM_POLYLINE_MITER_ANGLE_LIMIT >= cos_theta) and IM_POLYLINE_MITER_ANGLE_LIMIT or cos_theta -- Avoid div by 0.
+            local miter_scale_factor = 1.0 / (1.0 + cos_theta_clamped)
+            if miter_scale_factor > 1000.0 then miter_scale_factor = 1000.0 end
+            local miter_offset_x = (n0x + n1x) * miter_scale_factor
+            local miter_offset_y = (n0y + n1y) * miter_scale_factor
+
+            local miter_distance_sqr = miter_offset_x * miter_offset_x + miter_offset_y * miter_offset_y
+
+            if miter_distance_sqr > miter_distance_limit_sqr then
+                -- Clipped bevel
+
+                -- Limit the inner miter offset to avoid overshooting.
+                local ref_thickness = (sin_theta < 0.0) and thickness1 or thickness0
+                local ref_thickness_sqr = ref_thickness * ref_thickness
+                local limit_sqr = ImMax(ImMax(len_sqr0, len_sqr1), ref_thickness_sqr)
+                local ref_miter_dist_sqr = miter_distance_sqr * ref_thickness_sqr
+                if ref_miter_dist_sqr > limit_sqr then
+                    local scale = ImSqrt(limit_sqr / ref_miter_dist_sqr)
+                    miter_offset_x = miter_offset_x * scale
+                    miter_offset_y = miter_offset_y * scale
+                end
+
+                local bn_x, bn_y = IM_NORMALIZE2F_OVER_ZERO(n0x + n1x, n0y + n1y)
+
+                local side_offset = ((n0x * bn_x + n0y * bn_y) - 1.0) / (n0y * bn_x - n0x * bn_y)
+                local sd_x = bn_y * side_offset
+                local sd_y = -bn_x * side_offset
+
+                -- Bevel
+                local next_base_idx = vtx_idx + 2
+                if sin_theta < 0.0 then
+                    WV(vb, vw + 0, p1x - (bn_x + sd_x) * thickness0, p1y - (bn_y + sd_y) * thickness0, u0, v0, col) -- 2
+                    WV(vb, vw + 1, p1x, p1y, u2, v2, col) -- 3
+                    WV(vb, vw + 2, p1x - (bn_x - sd_x) * thickness0, p1y - (bn_y - sd_y) * thickness0, u0, v0, col) -- 4
+                    WV(vb, vw + 3, p1x + miter_offset_x * thickness1, p1y + miter_offset_y * thickness1, u1, v1, col) -- 5
+
+                    -- Connect prev to next
+                    ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 5
+                    ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 5; ib[iw + 5] = base_idx + 1
+                    -- Bevel
+                    ib[iw + 6] = base_idx + 3; ib[iw + 7] = base_idx + 5; ib[iw + 8] = base_idx + 2
+                    ib[iw + 9] = base_idx + 3; ib[iw + 10] = base_idx + 2; ib[iw + 11] = base_idx + 4
+                    ib[iw + 12] = base_idx + 3; ib[iw + 13] = base_idx + 4; ib[iw + 14] = base_idx + 5
+                else
+                    WV(vb, vw + 0, p1x + (bn_x + sd_x) * thickness1, p1y + (bn_y + sd_y) * thickness1, u1, v1, col) -- 2
+                    WV(vb, vw + 1, p1x, p1y, u2, v2, col) -- 3
+                    WV(vb, vw + 2, p1x - miter_offset_x * thickness0, p1y - miter_offset_y * thickness0, u0, v0, col) -- 4
+                    WV(vb, vw + 3, p1x + (bn_x - sd_x) * thickness1, p1y + (bn_y - sd_y) * thickness1, u1, v1, col) -- 5
+
+                    -- Connect prev to next
+                    ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 4; ib[iw + 2] = base_idx + 2
+                    ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 2; ib[iw + 5] = base_idx + 1
+                    -- Bevel
+                    ib[iw + 6] = base_idx + 3; ib[iw + 7] = base_idx + 2; ib[iw + 8] = base_idx + 4
+                    ib[iw + 9] = base_idx + 3; ib[iw + 10] = base_idx + 4; ib[iw + 11] = base_idx + 5
+                    ib[iw + 12] = base_idx + 3; ib[iw + 13] = base_idx + 5; ib[iw + 14] = base_idx + 2
+                end
+                vw = vw + 4; vtx_idx = vtx_idx + 4
+                iw = iw + 15
+                base_idx = next_base_idx
+            else
+                -- Miter
+                local next_base_idx = vtx_idx
+                WV(vb, vw + 0, p1x - miter_offset_x * thickness0, p1y - miter_offset_y * thickness0, u0, v0, col) -- 2
+                WV(vb, vw + 1, p1x + miter_offset_x * thickness1, p1y + miter_offset_y * thickness1, u1, v1, col) -- 3
+                vw = vw + 2; vtx_idx = vtx_idx + 2
+
+                -- Connect prev to next
+                ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+                ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+                iw = iw + 6
+                base_idx = next_base_idx
+            end
+        end
+    end
+
+    -- End cap
+    if not closed then
+        local p = points[points_count]
+        p1x, p1y = p.x, p.y
+        n1x, n1y = normals_x[points_count], normals_y[points_count]
+
+        -- End cap
+        local dir_x = n1y
+        local dir_y = -n1x
+        if bit32.band(flags, ImDrawFlags.CapSquare) ~= 0 then
+            p1x = p1x + dir_x * thickness * 0.5
+            p1y = p1y + dir_y * thickness * 0.5
+        end
+
+        if not use_aa_ends then
+            WV(vb, vw + 0, p1x - n1x * thickness0, p1y - n1y * thickness0, u0, v0, col)
+            WV(vb, vw + 1, p1x + n1x * thickness1, p1y + n1y * thickness1, u1, v1, col)
+            vw = vw + 2; vtx_idx = vtx_idx + 2
+
+            -- Connect
+            ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+            ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+            iw = iw + 6
+        else
+            local pa_x = p1x - dir_x * half_aa
+            local pa_y = p1y - dir_y * half_aa
+            local pb_x = p1x + dir_x * half_aa
+            local pb_y = p1y + dir_y * half_aa
+
+            local next_base_idx = vtx_idx
+            WV(vb, vw + 0, pa_x - n1x * thickness0, pa_y - n1y * thickness0, u0, v0, col)
+            WV(vb, vw + 1, pa_x + n1x * thickness1, pa_y + n1y * thickness1, u1, v1, col)
+
+            WV(vb, vw + 2, pb_x - n1x * thickness0, pb_y - n1y * thickness0, u0, v0, col_trans)
+            WV(vb, vw + 3, pb_x + n1x * thickness1, pb_y + n1y * thickness1, u1, v1, col_trans)
+            vw = vw + 4; vtx_idx = vtx_idx + 4
+
+            -- Connect
+            ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+            ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+            base_idx = next_base_idx
+
+            -- AA cap
+            ib[iw + 6] = base_idx + 0; ib[iw + 7] = base_idx + 2; ib[iw + 8] = base_idx + 3
+            ib[iw + 9] = base_idx + 0; ib[iw + 10] = base_idx + 3; ib[iw + 11] = base_idx + 1
+            iw = iw + 12
+        end
+    else
+        -- Connect the path.
+        -- [Luau] VtxBuffer.Data[first_vtx_offset + 0..1] = VtxBuffer.Data[_CmdHeader.VtxOffset + base_idx + 0..1] (2 vertices of 36 bytes)
+        buffer.copy(vb, (first_vtx_offset - 1) * 36, vb, (first_vtx_offset + (base_idx - first_vtx_idx) - 1) * 36, 2 * 36)
+    end
+
+    self._VtxWritePtr = vw
+    self._IdxWritePtr = iw
+    self._VtxCurrentIdx = vtx_idx
+
+    -- Restore unused memory
+    local remaining_idx_count = self.IdxBuffer.Size - (iw - 1)
+    local remaining_vtx_count = self.VtxBuffer.Size - (vw - 1)
+    IM_ASSERT_PARANOID(remaining_idx_count >= 0 and remaining_vtx_count >= 0)
+    if remaining_idx_count > 0 or remaining_vtx_count > 0 then -- [Luau] skip the call when nothing is left
+        self:PrimUnreserve(remaining_idx_count, remaining_vtx_count)
+    end
+end
+
+-- - We intentionally avoid using ImVec2 and its math operators here to reduce cost to a minimum for debug/non-inlined builds.
+-- - Filled shapes must always use clockwise winding order. The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
+--- @param points       ImVec2[] # 1-based
+--- @param points_count int
+--- @param col          ImU32
+--- @param flags?       ImDrawFlags
+@native
+function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col, flags)
+    if points_count < 3 or bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+    if flags == nil then flags = 0 end
+
+    local uv = self._Data.TexUvWhitePixel
+    local uv_x, uv_y = uv.x, uv.y
+    flags = bit32.bor(flags, self.Flags)
+    if bit32.band(flags, ImDrawFlags.AAFill) ~= 0 then
+        local half_aa = self._FringeScale * 0.5
+        local col_trans = bit32.band(col, bit32.bnot(IM_COL32_A_MASK))
+        local miters_only = bit32.band(flags, ImDrawFlags.JoinMiter) ~= 0
+        local miter_distance_limit_sqr = IM_POLYLINE_MITER_LIMIT * IM_POLYLINE_MITER_LIMIT
+
+        local idx_count = ((points_count - 2) + points_count * 2 + IM_POLYLINE_CONVEX_POLY_MAX_BEVELS) * 3
+        local vtx_count = points_count * 2 + IM_POLYLINE_CONVEX_POLY_MAX_BEVELS
+        PrimReserve(self, idx_count, vtx_count)
+        local vb = self.VtxBuffer.Buf
+        local ib = self.IdxBuffer.Data
+        local start_vtx_ptr = self._VtxWritePtr
+        local start_idx_ptr = self._IdxWritePtr
+        local iw = start_idx_ptr
+
+        -- Compute normals and segment lengths
+        local temp_normals_x, temp_normals_y, temp_sqr_lengths = poly_normals_x, poly_normals_y, poly_sqr_lengths
+        local i0 = points_count
+        for i1 = 1, points_count do
+            local p0 = points[i0]
+            local p1 = points[i1]
+            local dx = p1.x - p0.x
+            local dy = p1.y - p0.y
+            local d2 = dx * dx + dy * dy
+            if d2 > 0.0 then
+                local inv_len = 1.0 / math.sqrt(d2) -- ImRsqrtPrecise()
+                dx = dx * inv_len
+                dy = dy * inv_len
+            end
+            temp_normals_x[i0] = dy
+            temp_normals_y[i0] = -dx
+            temp_sqr_lengths[i0] = d2
+            i0 = i1
+        end
+
+        local vtx_inner_idx = self._VtxCurrentIdx
+        local inner_vtx_ptr = start_vtx_ptr
+        local vw = start_vtx_ptr + points_count
+        local vtx_idx = vtx_inner_idx + points_count
+
+        local prev_outer_idx = 0 -- This should be the index of the last vertex, but we don't know it yet. Will need to patch once we're done.
+        if miters_only then
+            i0 = points_count
+            for i1 = 1, points_count do
+                local p1 = points[i1]
+                local p1x, p1y = p1.x, p1.y
+                local n0x, n0y = temp_normals_x[i0], temp_normals_y[i0]
+                local n1x, n1y = temp_normals_x[i1], temp_normals_y[i1]
+
+                -- theta is the angle between two segments
+                local cos_theta = n0x * n1x + n0y * n1y
+                -- miter offset formula is derived here: https://www.angusj.com/clipper2/Docs/Trigonometry.htm
+                local cos_theta_clamped = (IM_POLYLINE_MITER_ANGLE_LIMIT >= cos_theta) and IM_POLYLINE_MITER_ANGLE_LIMIT or cos_theta -- Avoid div by 0.
+                local miter_scale_factor = 1.0 / (1.0 + cos_theta_clamped)
+                if miter_scale_factor > 1000.0 then miter_scale_factor = 1000.0 end
+                local miter_offset_x = (n0x + n1x) * miter_scale_factor * half_aa
+                local miter_offset_y = (n0y + n1y) * miter_scale_factor * half_aa
+
+                -- Inner
+                WV(vb, inner_vtx_ptr, p1x - miter_offset_x, p1y - miter_offset_y, uv_x, uv_y, col)
+                inner_vtx_ptr = inner_vtx_ptr + 1
+
+                local prev_inner_idx = vtx_inner_idx + (i0 - 1)
+                local inner_idx = vtx_inner_idx + (i1 - 1)
+                local outer_idx = vtx_idx
+
+                -- Outer
+                WV(vb, vw, p1x + miter_offset_x, p1y + miter_offset_y, uv_x, uv_y, col_trans)
+                vw = vw + 1; vtx_idx = vtx_idx + 1
+                -- Connect with previous
+                ib[iw + 0] = prev_outer_idx; ib[iw + 1] = outer_idx; ib[iw + 2] = inner_idx
+                ib[iw + 3] = prev_outer_idx; ib[iw + 4] = inner_idx; ib[iw + 5] = prev_inner_idx
+                iw = iw + 6
+
+                prev_outer_idx = outer_idx
+                i0 = i1
+            end
+        else
+            local bevel_count = 0
+            i0 = points_count
+            for i1 = 1, points_count do
+                local p1 = points[i1]
+                local p1x, p1y = p1.x, p1.y
+                local n0x, n0y = temp_normals_x[i0], temp_normals_y[i0]
+                local n1x, n1y = temp_normals_x[i1], temp_normals_y[i1]
+
+                -- theta is the angle between two segments
+                local cos_theta = n0x * n1x + n0y * n1y
+                -- miter offset formula is derived here: https://www.angusj.com/clipper2/Docs/Trigonometry.htm
+                local cos_theta_clamped = (IM_POLYLINE_MITER_ANGLE_LIMIT >= cos_theta) and IM_POLYLINE_MITER_ANGLE_LIMIT or cos_theta -- Avoid div by 0.
+                local miter_scale_factor = 1.0 / (1.0 + cos_theta_clamped)
+                if miter_scale_factor > 1000.0 then miter_scale_factor = 1000.0 end
+                local miter_offset_x = (n0x + n1x) * miter_scale_factor
+                local miter_offset_y = (n0y + n1y) * miter_scale_factor
+
+                local miter_distance_sqr = miter_offset_x * miter_offset_x + miter_offset_y * miter_offset_y
+                local bevel = miter_distance_sqr > miter_distance_limit_sqr
+                if bevel then
+                    -- Limit inner bevel so that it is does not shoot out outside the polygon.
+                    -- (using ImMax is intentional: using min limited too much in Mikko's tests when you have short edge next to long one.
+                    -- The idea of that check is to keep that worst case overshoot no bigger than the polygon)
+                    local ref_thickness_sqr = half_aa * half_aa
+                    local limit_sqr = ImMax(temp_sqr_lengths[i0], temp_sqr_lengths[i1])
+                    local ref_miter_dist_sqr = miter_distance_sqr * ref_thickness_sqr
+                    if ref_miter_dist_sqr > limit_sqr then
+                        local scale = ImSqrt(limit_sqr / ref_miter_dist_sqr)
+                        miter_offset_x = miter_offset_x * scale
+                        miter_offset_y = miter_offset_y * scale
+                    end
+                end
+
+                miter_offset_x = miter_offset_x * half_aa
+                miter_offset_y = miter_offset_y * half_aa
+
+                -- Inner
+                WV(vb, inner_vtx_ptr, p1x - miter_offset_x, p1y - miter_offset_y, uv_x, uv_y, col)
+                inner_vtx_ptr = inner_vtx_ptr + 1
+
+                local prev_inner_idx = vtx_inner_idx + (i0 - 1)
+                local inner_idx = vtx_inner_idx + (i1 - 1)
+                local outer_idx = vtx_idx
+
+                -- Outer
+                if bevel and bevel_count < IM_POLYLINE_CONVEX_POLY_MAX_BEVELS then
+                    -- Because the polygon is convex, we know the maximum number of bevel corners we can hit (which is very small number).
+                    -- We keep track of them just in case the calculations disagree.
+                    bevel_count = bevel_count + 1
+
+                    WV(vb, vw + 0, p1x + n0x * half_aa, p1y + n0y * half_aa, uv_x, uv_y, col_trans)
+                    WV(vb, vw + 1, p1x + n1x * half_aa, p1y + n1y * half_aa, uv_x, uv_y, col_trans)
+                    vw = vw + 2; vtx_idx = vtx_idx + 2
+                    -- Connect with previous
+                    ib[iw + 0] = prev_outer_idx; ib[iw + 1] = outer_idx; ib[iw + 2] = inner_idx
+                    ib[iw + 3] = prev_outer_idx; ib[iw + 4] = inner_idx; ib[iw + 5] = prev_inner_idx
+                    -- Fill bevel
+                    ib[iw + 6] = outer_idx; ib[iw + 7] = outer_idx + 1; ib[iw + 8] = inner_idx
+                    iw = iw + 9
+                    outer_idx = outer_idx + 1
+                else
+                    WV(vb, vw, p1x + miter_offset_x, p1y + miter_offset_y, uv_x, uv_y, col_trans)
+                    vw = vw + 1; vtx_idx = vtx_idx + 1
+                    -- Connect with previous
+                    ib[iw + 0] = prev_outer_idx; ib[iw + 1] = outer_idx; ib[iw + 2] = inner_idx
+                    ib[iw + 3] = prev_outer_idx; ib[iw + 4] = inner_idx; ib[iw + 5] = prev_inner_idx
+                    iw = iw + 6
+                end
+
+                prev_outer_idx = outer_idx
+                i0 = i1
+            end
+        end
+
+        -- Patch first segment to wrap around
+        ib[start_idx_ptr + 0] = prev_outer_idx
+        ib[start_idx_ptr + 3] = prev_outer_idx
+
+        -- Add indices for fill
+        for i = 2, points_count - 1 do
+            ib[iw + 0] = vtx_inner_idx; ib[iw + 1] = vtx_inner_idx + i - 1; ib[iw + 2] = vtx_inner_idx + i
+            iw = iw + 3
+        end
+
+        self._VtxWritePtr = vw
+        self._IdxWritePtr = iw
+        self._VtxCurrentIdx = vtx_idx
+
+        local idx_used = iw - start_idx_ptr
+        local vtx_used = vw - start_vtx_ptr
+        IM_ASSERT(idx_used <= idx_count and vtx_used <= vtx_count)
+        if idx_used < idx_count or vtx_used < vtx_count then
+            self:PrimUnreserve(idx_count - idx_used, vtx_count - vtx_used)
+        end
+    else
+        -- Non Anti-aliased Fill
+        local idx_count = (points_count - 2) * 3
+        local vtx_count = points_count
+        PrimReserve(self, idx_count, vtx_count)
+        local vb = self.VtxBuffer.Buf
+        local ib = self.IdxBuffer.Data
+        local vw = self._VtxWritePtr
+        local iw = self._IdxWritePtr
+        local base_idx = self._VtxCurrentIdx
+        for i = 1, vtx_count do
+            local p = points[i]
+            WV(vb, vw, p.x, p.y, uv_x, uv_y, col)
+            vw = vw + 1
+        end
+        for i = 2, points_count - 1 do
+            ib[iw + 0] = base_idx; ib[iw + 1] = base_idx + i - 1; ib[iw + 2] = base_idx + i
+            iw = iw + 3
+        end
+        self._VtxWritePtr = vw
+        self._IdxWritePtr = iw
+        self._VtxCurrentIdx = base_idx + vtx_count
     end
 end
 
@@ -4621,15 +5030,16 @@ local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
 
-    if rounding >= 0.5 then
-        IM_ASSERT(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!")
+    local has_rounding = rounding >= 0.25 * self._FringeScale -- IM_HAS_ROUNDING(rounding)
+    if has_rounding then
         if bit32.band(flags, ImDrawFlags.RoundMask_) == 0 then
             flags = bit32.bor(flags, ImDrawFlags.RoundAll)
         end
+
         rounding = ImMin(rounding, ImAbs(bx - ax) * (((bit32.band(flags, ImDrawFlags.RoundTop) == ImDrawFlags.RoundTop) or (bit32.band(flags, ImDrawFlags.RoundBottom) == ImDrawFlags.RoundBottom)) and 0.5 or 1.0) - 1.0)
         rounding = ImMin(rounding, ImAbs(by - ay) * (((bit32.band(flags, ImDrawFlags.RoundLeft) == ImDrawFlags.RoundLeft) or (bit32.band(flags, ImDrawFlags.RoundRight) == ImDrawFlags.RoundRight)) and 0.5 or 1.0) - 1.0)
     end
-    if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone) then
+    if not has_rounding or (bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone) then
         PathLineToXY(self, ax, ay)
         PathLineToXY(self, bx, ay)
         PathLineToXY(self, bx, by)
@@ -4639,7 +5049,7 @@ local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
         local rounding_tr = (bit32.band(flags, ImDrawFlags.RoundTopRight) ~= 0) and rounding or 0.0
         local rounding_br = (bit32.band(flags, ImDrawFlags.RoundBottomRight) ~= 0) and rounding or 0.0
         local rounding_bl = (bit32.band(flags, ImDrawFlags.RoundBottomLeft) ~= 0) and rounding or 0.0
-        -- [Luau] inline PathArcToFast() (radius < 0.5 handled by _PathArcToFastExXY())
+        -- [Luau] inline PathArcToFast() (small radius handled by _PathArcToFastExXY())
         _PathArcToFastExXY(self, ax + rounding_tl, ay + rounding_tl, rounding_tl, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
         _PathArcToFastExXY(self, bx - rounding_tr, ay + rounding_tr, rounding_tr, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
         _PathArcToFastExXY(self, bx - rounding_br, by - rounding_br, rounding_br, 0 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
@@ -4651,19 +5061,654 @@ function MT.ImDrawList:PathRect(a, b, rounding, flags)
     PathRectXY(self, a.x, a.y, b.x, b.y, rounding, flags)
 end
 
+-- [Luau] scalar _AddLine (p1 = p1x,p1y; p2 = p2x,p2y); _AddLine() below wraps it
+@native
+local function _AddLineXY(self, p1x, p1y, p2x, p2y, col, thickness, flags)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    local screen_thickness = thickness * self._InvFringeScale
+    if screen_thickness < 1.0 then
+        if screen_thickness < 1.0 / 255.0 then
+            return
+        end
+        col = ImAlphaMultiply(col, screen_thickness)
+        screen_thickness = 1.0
+        thickness = self._FringeScale
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local u0, v0, u1, v1, fringe = _SelectLineTexture(self, screen_thickness, flags)
+
+    local dir_x = p2x - p1x
+    local dir_y = p2y - p1y
+    local d2 = dir_x * dir_x + dir_y * dir_y
+    local inv_len = 0.0
+    if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+    dir_x = dir_x * inv_len
+    dir_y = dir_y * inv_len
+    local norm_x = -dir_y
+    local norm_y = dir_x
+
+    local col_trans = bit32.band(col, bit32.bnot(IM_COL32_A_MASK))
+
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeCenter)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        flags = bit32.band(bit32.bor(flags, ImDrawFlags.JoinMiter), bit32.bnot(ImDrawFlags.AALineEnds))
+    end
+
+    local thickness0 = (thickness + fringe) * 0.5 -- Center (or legacy)
+    if stroke_pos == ImDrawFlags.StrokeOutside then
+        thickness0 = thickness + fringe * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        thickness0 = _CalculateCenterBiasedOffset(self, thickness) + fringe * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeInside then
+        thickness0 = fringe * 0.5
+    end
+    local thickness1 = (thickness + fringe) - thickness0
+
+    -- [Luau] uv2 (ratio) is unused by _AddLine(): not computed
+
+    local half_aa = self._FringeScale * 0.5 -- Used for end caps, does not use "fringe" since end cap AA is not using the texture.
+    local use_aa_ends = bit32.band(flags, bit32.bor(ImDrawFlags.AALines, ImDrawFlags.AALineEnds)) == bit32.bor(ImDrawFlags.AALines, ImDrawFlags.AALineEnds)
+
+    if not use_aa_ends then
+        PrimReserve(self, 2 * 3, 4)
+    else
+        PrimReserve(self, 6 * 3, 8)
+    end
+
+    local vb = self.VtxBuffer.Buf
+    local ib = self.IdxBuffer.Data
+    local vw = self._VtxWritePtr
+    local iw = self._IdxWritePtr
+    local base_idx = self._VtxCurrentIdx
+
+    if bit32.band(flags, ImDrawFlags.CapSquare) ~= 0 then
+        local half_thickness = thickness * 0.5
+        p1x = p1x - dir_x * half_thickness
+        p1y = p1y - dir_y * half_thickness
+        p2x = p2x + dir_x * half_thickness
+        p2y = p2y + dir_y * half_thickness
+    end
+
+    -- Start cap
+    if not use_aa_ends then
+        WV(vb, vw + 0, p1x - norm_x * thickness0, p1y - norm_y * thickness0, u0, v0, col)
+        WV(vb, vw + 1, p1x + norm_x * thickness1, p1y + norm_y * thickness1, u1, v1, col)
+        WV(vb, vw + 2, p2x - norm_x * thickness0, p2y - norm_y * thickness0, u0, v0, col)
+        WV(vb, vw + 3, p2x + norm_x * thickness1, p2y + norm_y * thickness1, u1, v1, col)
+
+        -- Connect
+        ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+        ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+        self._VtxWritePtr = vw + 4
+        self._IdxWritePtr = iw + 6
+        self._VtxCurrentIdx = base_idx + 4
+    else
+        -- Start
+        local pa_x = p1x - dir_x * half_aa
+        local pa_y = p1y - dir_y * half_aa
+        local pb_x = p1x + dir_x * half_aa
+        local pb_y = p1y + dir_y * half_aa
+
+        WV(vb, vw + 0, pa_x - norm_x * thickness0, pa_y - norm_y * thickness0, u0, v0, col_trans)
+        WV(vb, vw + 1, pa_x + norm_x * thickness1, pa_y + norm_y * thickness1, u1, v1, col_trans)
+
+        WV(vb, vw + 2, pb_x - norm_x * thickness0, pb_y - norm_y * thickness0, u0, v0, col)
+        WV(vb, vw + 3, pb_x + norm_x * thickness1, pb_y + norm_y * thickness1, u1, v1, col)
+
+        -- AA cap
+        ib[iw + 0] = base_idx + 0; ib[iw + 1] = base_idx + 2; ib[iw + 2] = base_idx + 3
+        ib[iw + 3] = base_idx + 0; ib[iw + 4] = base_idx + 3; ib[iw + 5] = base_idx + 1
+        base_idx = base_idx + 2
+
+        -- End
+        pa_x = p2x - dir_x * half_aa
+        pa_y = p2y - dir_y * half_aa
+        pb_x = p2x + dir_x * half_aa
+        pb_y = p2y + dir_y * half_aa
+
+        WV(vb, vw + 4, pa_x - norm_x * thickness0, pa_y - norm_y * thickness0, u0, v0, col)
+        WV(vb, vw + 5, pa_x + norm_x * thickness1, pa_y + norm_y * thickness1, u1, v1, col)
+        WV(vb, vw + 6, pb_x - norm_x * thickness0, pb_y - norm_y * thickness0, u0, v0, col_trans)
+        WV(vb, vw + 7, pb_x + norm_x * thickness1, pb_y + norm_y * thickness1, u1, v1, col_trans)
+
+        -- Connect
+        ib[iw + 6] = base_idx + 0; ib[iw + 7] = base_idx + 2; ib[iw + 8] = base_idx + 3
+        ib[iw + 9] = base_idx + 0; ib[iw + 10] = base_idx + 3; ib[iw + 11] = base_idx + 1
+        base_idx = base_idx + 2
+
+        -- AA cap
+        ib[iw + 12] = base_idx + 0; ib[iw + 13] = base_idx + 2; ib[iw + 14] = base_idx + 3
+        ib[iw + 15] = base_idx + 0; ib[iw + 16] = base_idx + 3; ib[iw + 17] = base_idx + 1
+        self._VtxWritePtr = vw + 8
+        self._IdxWritePtr = iw + 18
+        self._VtxCurrentIdx = base_idx + 4
+    end
+end
+
+function MT.ImDrawList:_AddLine(p1, p2, col, thickness, flags)
+    _AddLineXY(self, p1.x, p1.y, p2.x, p2.y, col, thickness, flags)
+end
+
+--- @param p1         ImVec2
+--- @param p2         ImVec2
+--- @param col        ImU32
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+function MT.ImDrawList:AddLine(p1, p2, col, thickness, flags)
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeCenter)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        _AddLineXY(self, p1.x + 0.5, p1.y + 0.5, p2.x + 0.5, p2.y + 0.5, col, thickness, flags)
+        return
+    end
+
+    _AddLineXY(self, p1.x, p1.y, p2.x, p2.y, col, thickness, flags)
+end
+
+-- AddLineH(10, 20, 5, col, 1.0f) == AddLine( {10,5.5}, {20,5.5}, col, 1.0f)
+--                                == AddLine( {10,5}, {20,5}, col, 1.0f, ImDrawFlags_StrokeLegacy); // or before 1.93.0
+-- Thickness extend inside/bottom by default. Faster than equivalent AddLine() call.
+--- @param min_x      float
+--- @param max_x      float
+--- @param y          float
+--- @param col        ImU32
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+@native
+function MT.ImDrawList:AddLineH(min_x, max_x, y, col, thickness, flags)
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        _AddLineXY(self, min_x + 0.5, y + 0.5, max_x + 0.5, y + 0.5, col, thickness, flags)
+        return
+    end
+
+    local top_y = y -- Inside
+    if stroke_pos == ImDrawFlags.StrokeCenter then
+        top_y = top_y - thickness * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        top_y = top_y - _CalculateCenterBiasedOffset(self, thickness)
+    elseif stroke_pos == ImDrawFlags.StrokeOutside then
+        top_y = top_y - thickness
+    end
+
+    local is_truncated = min_x % 1 == 0 and max_x % 1 == 0 and top_y % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4()
+    if self._FringeScaleIsInteger and is_truncated and bit32.band(flags, ImDrawFlags.CapSquare) == 0 then
+        if thickness < self._FringeScale then
+            if thickness < (1.0 / 255.0) * self._FringeScale then
+                return
+            end
+            col = ImAlphaMultiply(col, thickness * self._InvFringeScale)
+            thickness = self._FringeScale
+        end
+
+        -- For pixel aligned case, use simple rectangle.
+        PrimReserve(self, 6, 4)
+        PrimRectXY(self, min_x, top_y, max_x, top_y + thickness, col)
+    else
+        -- Replace stroke pos with the already calculated one, as AddPolyline() default is different.
+        flags = bit32.bor(bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_)), stroke_pos)
+
+        -- For generic case use line, since it needs less triangles than AA rectangle.
+        _AddLineXY(self, min_x, y, max_x, y, col, thickness, flags)
+    end
+end
+
+-- AddLineV(5, 10, 20, col, 1.0f) == AddLine( {5.5,10}, {5.5,20}, col, 1.0f)
+--                                == AddLine( {5,10}, {5,20}, col, 1.0f, ImDrawFlags_StrokeLegacy); // or before 1.93.0
+-- Thickness extend inside/right by default. Faster than equivalent AddLine() call.
+--- @param x          float
+--- @param min_y      float
+--- @param max_y      float
+--- @param col        ImU32
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+@native
+function MT.ImDrawList:AddLineV(x, min_y, max_y, col, thickness, flags)
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        _AddLineXY(self, x + 0.5, min_y + 0.5, x + 0.5, max_y + 0.5, col, thickness, flags)
+        return
+    end
+
+    local left_x = x -- Inside
+    if stroke_pos == ImDrawFlags.StrokeCenter then
+        left_x = left_x - thickness * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        left_x = left_x - _CalculateCenterBiasedOffset(self, thickness)
+    elseif stroke_pos == ImDrawFlags.StrokeOutside then
+        left_x = left_x - thickness
+    end
+
+    local is_truncated = left_x % 1 == 0 and min_y % 1 == 0 and max_y % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4()
+    if self._FringeScaleIsInteger and is_truncated and bit32.band(flags, ImDrawFlags.CapSquare) == 0 then
+        if thickness < self._FringeScale then
+            if thickness < (1.0 / 255.0) * self._FringeScale then
+                return
+            end
+            col = ImAlphaMultiply(col, thickness * self._InvFringeScale)
+            thickness = self._FringeScale
+        end
+
+        -- For pixel aligned case, use simple rectangle.
+        PrimReserve(self, 6, 4)
+        PrimRectXY(self, left_x, min_y, left_x + thickness, max_y, col)
+    else
+        -- Replace stroke pos with the already calculated one, as AddPolyline() default is different.
+        flags = bit32.bor(bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_)), stroke_pos)
+
+        -- For generic case use line, since it needs less triangles than AA rectangle.
+        -- Drawing for bottom to top, so that the inside stroke pos expands to right.
+        _AddLineXY(self, x, max_y, x, min_y, col, thickness, flags)
+    end
+end
+
+-- [Port] TODO baked round corners: _AddRectBaked() (UseTexForRoundCorners) not ported yet, AddRect() falls back to the geometry path.
+
+local corner_offset_x = { 1, -1, -1,  1 } -- static const ImVec2 corner_offset[4] = { {1,1}, {-1,1}, {-1,-1}, {1,-1} };
+local corner_offset_y = { 1,  1, -1, -1 }
+local corner_flags = { ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight, ImDrawFlags.RoundBottomRight, ImDrawFlags.RoundBottomLeft }
+local corner_pos_x, corner_pos_y = { 0, 0, 0, 0 }, { 0, 0, 0, 0 } -- [Luau] scratch
+
+-- Draws rounded rectangle where thickness > rounding. If rendered using the regular polyline, the stroke will fold and leave artifacts on the corners if rendered with transparency.
+-- The stroke is positioned inside the rectangle.
+--- @param p_min     ImVec2
+--- @param p_max     ImVec2
+--- @param col       ImU32
+--- @param rounding  float
+--- @param thickness float
+--- @param flags     ImDrawFlags
+function MT.ImDrawList:_AddRectTinyRounding(p_min, p_max, col, rounding, thickness, flags)
+    local screen_thickness = thickness * self._InvFringeScale
+    if screen_thickness < 1.0 then
+        if screen_thickness < 1.0 / 255.0 then
+            return
+        end
+        col = ImAlphaMultiply(col, screen_thickness)
+        screen_thickness = 1.0
+        thickness = self._FringeScale
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local outer_u, outer_v, inner_u, inner_v, fringe = _SelectLineTexture(self, screen_thickness, flags)
+
+    local auto_seg_count = self:_CalcCircleAutoSegmentCount(rounding)
+    local arc_step, arc_step_count = CalcCornerArcStepAndCount(auto_seg_count)
+    local arc_point_count = arc_step_count + 1
+
+    local vtx_count = (2 + arc_point_count) * 4 + 3
+    local idx_count = (4 + arc_point_count - 1) * 4 * 3
+
+    PrimReserve(self, idx_count, vtx_count)
+    local vb = self.VtxBuffer.Buf
+    local ib = self.IdxBuffer.Data
+    local start_vtx_ptr = self._VtxWritePtr
+    local start_idx_ptr = self._IdxWritePtr
+    local vw, iw = start_vtx_ptr, start_idx_ptr
+    local vtx_idx = self._VtxCurrentIdx
+    local first_vtx_idx = vtx_idx -- [Luau] VtxBuffer position of index 'n' is start_vtx_ptr + (n - first_vtx_idx)
+
+    local half_fringe = fringe * 0.5
+    corner_pos_x[1] = p_min.x - half_fringe; corner_pos_y[1] = p_min.y - half_fringe
+    corner_pos_x[2] = p_max.x + half_fringe; corner_pos_y[2] = p_min.y - half_fringe
+    corner_pos_x[3] = p_max.x + half_fringe; corner_pos_y[3] = p_max.y + half_fringe
+    corner_pos_x[4] = p_min.x - half_fringe; corner_pos_y[4] = p_max.y + half_fringe
+    thickness = thickness + fringe
+    rounding = rounding + half_fringe
+
+    local stem_offset = ImMin(rounding, thickness) -- The function might get called with rounding slightly bigger than thickness, which is ok, but we should keep the stem inside the shape.
+    local ratio = stem_offset / thickness
+    local stem_u, stem_v = outer_u + (inner_u - outer_u) * ratio, outer_v
+
+    -- Previous vertices, copied from the last vertices.
+    local base_idx = vtx_idx
+    WV(vb, vw + 0, 0, 0, inner_u, inner_v, col)
+    WV(vb, vw + 1, 0, 0, stem_u, stem_v, col)
+    WV(vb, vw + 2, 0, 0, outer_u, outer_v, col)
+    vw = vw + 3; vtx_idx = vtx_idx + 3
+
+    local arc_fast_vtx = self._Data.ArcFastVtx -- 1-based
+    for corner = 1, 4 do
+        local outer_x = corner_pos_x[corner]
+        local outer_y = corner_pos_y[corner]
+        local cox, coy = corner_offset_x[corner], corner_offset_y[corner]
+        local stem_x = outer_x + cox * stem_offset
+        local stem_y = outer_y + coy * stem_offset
+        local inner_x = outer_x + cox * thickness
+        local inner_y = outer_y + coy * thickness
+        local is_rounded = bit32.band(flags, corner_flags[corner]) ~= 0
+
+        local arc_idx = vtx_idx
+        if is_rounded then
+            local center_x = outer_x + cox * rounding
+            local center_y = outer_y + coy * rounding
+            local a = (IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4) * (corner - 1)
+            for _ = 0, arc_point_count - 1 do
+                local s = arc_fast_vtx[a + 1]
+                WV(vb, vw, center_x - s.x * rounding, center_y - s.y * rounding, outer_u, outer_v, col)
+                vw = vw + 1; vtx_idx = vtx_idx + 1
+                a = (a + arc_step) % IM_DRAWLIST_ARCFAST_TABLE_SIZE
+            end
+        else
+            WV(vb, vw, outer_x, outer_y, outer_u, outer_v, col)
+            vw = vw + 1; vtx_idx = vtx_idx + 1
+        end
+
+        local stem_idx = vtx_idx
+        WV(vb, vw, stem_x, stem_y, stem_u, stem_v, col)
+        local inner_idx = vtx_idx + 1
+        WV(vb, vw + 1, inner_x, inner_y, inner_u, inner_v, col)
+        vw = vw + 2; vtx_idx = vtx_idx + 2
+
+        -- Arc
+        if is_rounded then
+            for i = 0, arc_point_count - 2 do
+                ib[iw + 0] = stem_idx; ib[iw + 1] = arc_idx + i; ib[iw + 2] = arc_idx + i + 1
+                iw = iw + 3
+            end
+        end
+
+        -- Connect with previous
+        ib[iw + 0] = base_idx + 0; ib[iw + 1] = arc_idx; ib[iw + 2] = stem_idx
+        ib[iw + 3] = base_idx + 0; ib[iw + 4] = stem_idx; ib[iw + 5] = base_idx + 1
+        ib[iw + 6] = base_idx + 1; ib[iw + 7] = stem_idx; ib[iw + 8] = inner_idx
+        ib[iw + 9] = base_idx + 1; ib[iw + 10] = inner_idx; ib[iw + 11] = base_idx + 2
+        iw = iw + 12
+
+        base_idx = stem_idx - 1
+    end
+
+    -- Close
+    -- [Luau] start_vtx_ptr[0..2] = VtxBuffer.Data[_CmdHeader.VtxOffset + base_idx + 0..2] (3 vertices of 36 bytes)
+    buffer.copy(vb, (start_vtx_ptr - 1) * 36, vb, (start_vtx_ptr + (base_idx - first_vtx_idx) - 1) * 36, 3 * 36)
+
+    self._VtxWritePtr = vw
+    self._IdxWritePtr = iw
+    self._VtxCurrentIdx = vtx_idx
+
+    local idx_used = iw - start_idx_ptr
+    local vtx_used = vw - start_vtx_ptr
+    IM_ASSERT_PARANOID(idx_used <= idx_count and vtx_used <= vtx_count)
+    if idx_used < idx_count or vtx_used < vtx_count then
+        self:PrimUnreserve(idx_count - idx_used, vtx_count - vtx_used)
+    end
+end
+
+local prim_points = { ImVec2(), ImVec2(), ImVec2(), ImVec2() } -- [Luau] scratch for C++ 'const ImVec2 points[N]' locals (callees only read them)
+
+-- p_min = upper-left, p_max = lower-right
+--- @param p_min      ImVec2
+--- @param p_max      ImVec2
+--- @param col        ImU32
+--- @param rounding?  float
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+@native
+function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
+    if rounding  == nil then rounding  = 0.0 end
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    -- If this assert triggers on legacy code:
+    -- - 1.92.8 (2025/05): swapped two last parameters order: flags, thickness --> thickness, flags. This should normally be caught by compile-time type-checking.
+    -- - 1.92.8 (2025/05): changed value of ImDrawList_Closed which was previously guaranteed to be == 1. Hardcoded use of 1 or true should be replaced.
+    -- - 1.82.0 (2021/03): changed ImDrawCornerFlags to ImDrawFlags_RoundXXX values.
+    --   If you used hard-coded 1 to 15 or ~0 in flags to configure corner rounding use the new flags!
+    --   - Hard coded support for ~0 == ImDrawFlags_RoundAll.
+    --   - Hard coded support for values 0x01 to 0x0F (matching 15 out of 16 old flags combinations) --> see FixRectCornerFlags() in <1.90 code.
+    --   - Hard coded 0x00 with 'float rounding > 0.0f' --> replace with ImDrawFlags_RoundNone or use 'float rounding = 0.0f'.
+    --   See "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
+    IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?") -- Or misuse of legacy hard-coded ImDrawCornerFlags values
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        if bit32.band(flags, ImDrawFlags.AALines) ~= 0 then
+            PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.50, p_max.y - 0.50, rounding, flags) -- [Luau] scalar math, no temporary ImVec2
+        else
+            PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.49, p_max.y - 0.49, rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
+        end
+        self:PathStroke(col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, ImDrawFlags.StrokeCenter, bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_))))
+        return
+    end
+
+    local fringe_scale = self._FringeScale
+    local has_rounding = rounding >= 0.25 * fringe_scale -- IM_HAS_ROUNDING(rounding)
+
+    -- Calculate the outer boundary of the rectangle based on the stroke position.
+    local offset = 0.0 -- Inside
+    if stroke_pos == ImDrawFlags.StrokeCenter then
+        offset = thickness * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        offset = _CalculateCenterBiasedOffset(self, thickness)
+    elseif stroke_pos == ImDrawFlags.StrokeOutside then
+        offset = thickness
+    end
+    local outer_min_x = p_min.x - offset
+    local outer_min_y = p_min.y - offset
+    local outer_max_x = p_max.x + offset
+    local outer_max_y = p_max.y + offset
+    local outer_rounding = rounding + (has_rounding and offset or 0.0)
+
+    local width = outer_max_x - outer_min_x
+    local height = outer_max_y - outer_min_y
+    local half_min_dim = ImMin(width, height) * 0.5
+    if half_min_dim <= thickness then
+        -- Rectangle has collapsed into filled rectangle.
+        self:AddRectFilled(ImVec2(outer_min_x, outer_min_y), ImVec2(outer_max_x, outer_max_y), col, outer_rounding, flags)
+        return
+    end
+
+    if bit32.band(flags, ImDrawFlags.RoundMask_) == 0 then
+        flags = bit32.bor(flags, ImDrawFlags.RoundAll)
+    end
+    if has_rounding then
+        -- Constrain rounding to rect dimensions
+        outer_rounding = ImMin(outer_rounding, ImAbs(width) * (((bit32.band(flags, ImDrawFlags.RoundTop) == ImDrawFlags.RoundTop) or (bit32.band(flags, ImDrawFlags.RoundBottom) == ImDrawFlags.RoundBottom)) and 0.5 or 1.0) - 1.0)
+        outer_rounding = ImMin(outer_rounding, ImAbs(height) * (((bit32.band(flags, ImDrawFlags.RoundLeft) == ImDrawFlags.RoundLeft) or (bit32.band(flags, ImDrawFlags.RoundRight) == ImDrawFlags.RoundRight)) and 0.5 or 1.0) - 1.0)
+    end
+
+    local is_truncated = outer_min_x % 1 == 0 and outer_min_y % 1 == 0 and outer_max_x % 1 == 0 and outer_max_y % 1 == 0 and outer_rounding % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4() x2
+    if self._FringeScaleIsInteger and is_truncated then
+        local s_rounding = ImTrunc64(outer_rounding * self._InvFringeScale)
+        local s_thickness = ImTrunc64(thickness * self._InvFringeScale)
+        if s_thickness <= 0 then
+            return
+        end
+
+        if s_rounding <= 0 or bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone then
+            -- Pixel aligned non-rounded rect.
+            local opaque_uv = self._Data.TexUvWhitePixel
+            local u, v = opaque_uv.x, opaque_uv.y
+            local t = s_thickness * fringe_scale
+
+            PrimReserve(self, 8 * 3, 8)
+            local vb = self.VtxBuffer.Buf
+            local ib = self.IdxBuffer.Data
+            local vw = self._VtxWritePtr
+            local iw = self._IdxWritePtr
+            local idx = self._VtxCurrentIdx
+            WV(vb, vw + 0, outer_min_x, outer_min_y, u, v, col)
+            WV(vb, vw + 1, outer_min_x + t, outer_min_y + t, u, v, col)
+            WV(vb, vw + 2, outer_max_x, outer_min_y, u, v, col)
+            WV(vb, vw + 3, outer_max_x - t, outer_min_y + t, u, v, col)
+            WV(vb, vw + 4, outer_max_x, outer_max_y, u, v, col)
+            WV(vb, vw + 5, outer_max_x - t, outer_max_y - t, u, v, col)
+            WV(vb, vw + 6, outer_min_x, outer_max_y, u, v, col)
+            WV(vb, vw + 7, outer_min_x + t, outer_max_y - t, u, v, col)
+
+            ib[iw + 0] = idx + 0; ib[iw + 1] = idx + 3; ib[iw + 2] = idx + 1
+            ib[iw + 3] = idx + 0; ib[iw + 4] = idx + 2; ib[iw + 5] = idx + 3
+
+            ib[iw + 6] = idx + 2; ib[iw + 7] = idx + 5; ib[iw + 8] = idx + 3
+            ib[iw + 9] = idx + 2; ib[iw + 10] = idx + 4; ib[iw + 11] = idx + 5
+
+            ib[iw + 12] = idx + 4; ib[iw + 13] = idx + 7; ib[iw + 14] = idx + 5
+            ib[iw + 15] = idx + 4; ib[iw + 16] = idx + 6; ib[iw + 17] = idx + 7
+
+            ib[iw + 18] = idx + 6; ib[iw + 19] = idx + 1; ib[iw + 20] = idx + 7
+            ib[iw + 21] = idx + 6; ib[iw + 22] = idx + 0; ib[iw + 23] = idx + 1
+
+            self._VtxWritePtr = vw + 8
+            self._IdxWritePtr = iw + 24
+            self._VtxCurrentIdx = idx + 8
+            return
+        end
+        -- Textured corners are baked with AA, do not use them if no-AA is requested.
+        -- [Port] TODO baked round corners: allow_tex_corners -> _AddRectBaked(), falls back to the geometry path below.
+    end
+
+    if not has_rounding or bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone then
+        local points = prim_points
+        points[1].x = outer_min_x; points[1].y = outer_min_y
+        points[2].x = outer_max_x; points[2].y = outer_min_y
+        points[3].x = outer_max_x; points[3].y = outer_max_y
+        points[4].x = outer_min_x; points[4].y = outer_max_y
+        self:_AddPolyline(points, 4, col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, ImDrawFlags.StrokeInside), half_min_dim)
+        self._Path.Size = 0
+    else
+        -- Switch to specialized rendering a bit early to avoid overdraw visible in transparent shapes.
+        if thickness + (0.75 * fringe_scale) > outer_rounding then
+            -- Special case rendering to avoid rendering artifacts at the corners.
+            -- If rendered using the regular polyline, the stroke will fold and leave artifacts on the corners if rendered with transparency.
+            self:_AddRectTinyRounding(ImVec2(outer_min_x, outer_min_y), ImVec2(outer_max_x, outer_max_y), col, outer_rounding, thickness, flags)
+            return
+        end
+        local rounding_tl = (bit32.band(flags, ImDrawFlags.RoundTopLeft) ~= 0) and outer_rounding or 0.0
+        local rounding_tr = (bit32.band(flags, ImDrawFlags.RoundTopRight) ~= 0) and outer_rounding or 0.0
+        local rounding_br = (bit32.band(flags, ImDrawFlags.RoundBottomRight) ~= 0) and outer_rounding or 0.0
+        local rounding_bl = (bit32.band(flags, ImDrawFlags.RoundBottomLeft) ~= 0) and outer_rounding or 0.0
+        -- [Luau] inline PathArcToFast()
+        _PathArcToFastExXY(self, outer_min_x + rounding_tl, outer_min_y + rounding_tl, rounding_tl, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, outer_max_x - rounding_tr, outer_min_y + rounding_tr, rounding_tr, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, outer_max_x - rounding_br, outer_max_y - rounding_br, rounding_br, 0 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, outer_min_x + rounding_bl, outer_max_y - rounding_bl, rounding_bl, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+
+        self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, ImDrawFlags.StrokeInside, bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_))), half_min_dim)
+        self._Path.Size = 0
+    end
+end
+
+-- [Port] TODO baked round corners: _AddRectFilledBaked() (UseTexForRoundCorners) not ported yet, AddRectFilled() falls back to the geometry path.
+
+--- @param p_min     ImVec2
+--- @param p_max     ImVec2
+--- @param col       ImU32
+--- @param rounding? float
+--- @param flags?    ImDrawFlags
 @native
 function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
 
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
 
-    if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone) then
+    local ax, ay, bx, by = p_min.x, p_min.y, p_max.x, p_max.y
+    local width = bx - ax
+    local height = by - ay
+    local min_dim = ImMin(width, height)
+    flags = bit32.bor(flags, self.Flags)
+
+    if bit32.band(flags, ImDrawFlags.StrokeMask_) == ImDrawFlags.StrokeLegacy and rounding < 0.5 then
         PrimReserve(self, 6, 4) -- [Luau] local calls
-        PrimRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, col)
+        PrimRectXY(self, ax, ay, bx, by, col)
+        return
+    end
+
+    -- The rect is smaller than pixel in one dimension.
+    local fringe_scale = self._FringeScale
+    if min_dim < fringe_scale then
+        if min_dim < (1.0 / 255.0) * fringe_scale then
+            return
+        end
+        if width < fringe_scale then
+            col = ImAlphaMultiply(col, width * self._InvFringeScale)
+            width = fringe_scale
+        end
+        if height < fringe_scale then
+            col = ImAlphaMultiply(col, height * self._InvFringeScale)
+            height = fringe_scale
+        end
+        local points = prim_points
+        points[1].x = ax;         points[1].y = ay
+        points[2].x = ax + width; points[2].y = ay
+        points[3].x = ax + width; points[3].y = ay + height
+        points[4].x = ax;         points[4].y = ay + height
+        self:AddConvexPolyFilled(points, 4, col, ImDrawFlags.JoinMiter)
+        return
+    end
+
+    -- When rounding non-integer and under threshold, has_rounding may be false but still affect is_truncated. Likely not worth catering for.
+    local has_rounding = bit32.band(flags, ImDrawFlags.RoundMask_) ~= ImDrawFlags.RoundNone and rounding >= 0.25 * fringe_scale -- IM_HAS_ROUNDING(rounding)
+    local is_truncated = ax % 1 == 0 and ay % 1 == 0 and bx % 1 == 0 and by % 1 == 0 and rounding % 1 == 0 -- IM_IS_TRUNCATED4() && IM_IS_TRUNCATED()
+
+    if self._FringeScaleIsInteger and is_truncated then
+        -- Fast path for the non-AA non-rounded rect.
+        if not has_rounding then
+            PrimReserve(self, 6, 4)
+            PrimRectXY(self, ax, ay, bx, by, col)
+            return
+        end
+
+        if bit32.band(flags, ImDrawFlags.RoundMask_) == 0 then
+            flags = bit32.bor(flags, ImDrawFlags.RoundAll)
+        end
+
+        rounding = ImMin(rounding, ImAbs(width) * (((bit32.band(flags, ImDrawFlags.RoundTop) == ImDrawFlags.RoundTop) or (bit32.band(flags, ImDrawFlags.RoundBottom) == ImDrawFlags.RoundBottom)) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(height) * (((bit32.band(flags, ImDrawFlags.RoundLeft) == ImDrawFlags.RoundLeft) or (bit32.band(flags, ImDrawFlags.RoundRight) == ImDrawFlags.RoundRight)) and 0.5 or 1.0) - 1.0)
+
+        local s_rounding = ImTrunc64(rounding * self._InvFringeScale)
+        if s_rounding <= 0 then
+            PrimReserve(self, 6, 4)
+            PrimRectXY(self, ax, ay, bx, by, col)
+            return
+        end
+        -- Textured corners are baked with AA, do not use them if no-AA is requested.
+        -- [Port] TODO baked round corners: allow_tex_corners -> _AddRectFilledBaked(), falls back to the geometry path below.
+    end
+
+    if not has_rounding then
+        local points = prim_points
+        points[1].x = ax; points[1].y = ay
+        points[2].x = bx; points[2].y = ay
+        points[3].x = bx; points[3].y = by
+        points[4].x = ax; points[4].y = by
+        self:AddConvexPolyFilled(points, 4, col, ImDrawFlags.JoinMiter)
     else
-        PathRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, rounding, flags)
-        self:PathFillConvex(col)
+        PathRectXY(self, ax, ay, bx, by, rounding, flags)
+        self:PathFillConvex(col, ImDrawFlags.JoinMiter)
     end
 end
 
@@ -4696,187 +5741,351 @@ function MT.ImDrawList:AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_u
     self._VtxCurrentIdx = idx + 4
 end
 
--- p_min = upper-left, p_max = lower-right
---- @param p_min      ImVec2
---- @param p_max      ImVec2
---- @param col        ImU32
---- @param rounding   float
 --- @param thickness? float
 --- @param flags?     ImDrawFlags
-@native
-function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
+function MT.ImDrawList:AddQuad(p1, p2, p3, p4, col, thickness, flags)
     if thickness == nil then thickness = 1.0 end
     if flags     == nil then flags     = 0   end
 
-    -- If this assert triggers on legacy code:
-    -- - 1.92.8 (2025/05): swapped two last parameters order: flags, thickness --> thickness, flags. This should normally be caught by compile-time type-checking.
-    -- - 1.92.8 (2025/05): changed value of ImDrawList_Closed which was previously guaranteed to be == 1. Hardcoded use of 1 or true should be replaced.
-    -- - 1.82.0 (2021/03): changed ImDrawCornerFlags to ImDrawFlags_RoundXXX values.
-    --   If you used hard-coded 1 to 15 or ~0 in flags to configure corner rounding use the new flags!
-    --   - Hard coded support for ~0 == ImDrawFlags_RoundAll.
-    --   - Hard coded support for values 0x01 to 0x0F (matching 15 out of 16 old flags combinations) --> see FixRectCornerFlags() in <1.90 code.
-    --   - Hard coded 0x00 with 'float rounding > 0.0f' --> replace with ImDrawFlags_RoundNone or use 'float rounding = 0.0f'.
-    --   See "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
-    IM_ASSERT_USER_ERROR_RET(bit32.band(flags, ImDrawFlags.InvalidMask_) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?") -- Or misuse of legacy hard-coded ImDrawCornerFlags values
-
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then
-        return
-    end
-    -- [Luau] square corners + whole-pixel thickness: 4 filled rects instead of a stroked path (same pixels, far cheaper here)
-    if (rounding == nil or rounding < 0.5 or bit32.band(flags, ImDrawFlags.RoundMask_) == ImDrawFlags.RoundNone)
-        and thickness >= 1.0 and thickness % 1 == 0 and p_max.x - p_min.x > 2 * thickness and p_max.y - p_min.y > 2 * thickness then
-        local x0, y0, x1, y1, t = p_min.x, p_min.y, p_max.x, p_max.y, thickness
-        PrimReserve(self, 24, 16)
-        PrimRectXY(self, x0, y0, x1, y0 + t, col)
-        PrimRectXY(self, x0, y1 - t, x1, y1, col)
-        PrimRectXY(self, x0, y0 + t, x0 + t, y1 - t, col)
-        PrimRectXY(self, x1 - t, y0 + t, x1, y1 - t, col)
-        return
-    end
-    if bit32.band(self.Flags, ImDrawFlags.AALines) ~= 0 then
-        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.50, p_max.y - 0.50, rounding, flags) -- [Luau] scalar math, no temporary ImVec2
-    else
-        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.49, p_max.y - 0.49, rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
-    end
-
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
-end
-
-function MT.ImDrawList:AddLine(p1, p2, col, thickness)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-
-    PathLineToXY(self, p1.x + 0.5, p1.y + 0.5) -- [Luau] scalar math, no temporary ImVec2
-    PathLineToXY(self, p2.x + 0.5, p2.y + 0.5)
-    self:PathStroke(col, thickness)
-end
-
---- @param min_x      float
---- @param max_x      float
---- @param y          float
---- @param col        ImU32
---- @param thickness? float
-function MT.ImDrawList:AddLineH(min_x, max_x, y, col, thickness)
-    if thickness == nil then thickness = 1.0 end
-
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then
-        return
-    end
-    PathLineToXY(self, min_x + 0.5, y + 0.5)
-    PathLineToXY(self, max_x + 0.5, y + 0.5)
-    self:PathStroke(col, thickness)
-end
-
---- @param x          float
---- @param min_y      float
---- @param max_y      float
---- @param col        ImU32
---- @param thickness? float
-function MT.ImDrawList:AddLineV(x, min_y, max_y, col, thickness)
-    if thickness == nil then thickness = 1.0 end
-
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then
-        return
-    end
-    PathLineToXY(self, x + 0.5, min_y + 0.5)
-    PathLineToXY(self, x + 0.5, max_y + 0.5)
-    self:PathStroke(col, thickness)
-end
-
-function MT.ImDrawList:AddTriangle(p1, p2, p3, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
 
-    self:PathLineTo(p1)
-    self:PathLineTo(p2)
-    self:PathLineTo(p3)
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
-end
+    --flags |= Flags; // Not needed.
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    flags = bit32.bor(bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_)), stroke_pos) -- As AddPolyline() default is different
 
-function MT.ImDrawList:AddQuad(p1, p2, p3, p4, col, thickness)
-    if thickness == nil then thickness = 1.0 end
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-
-    self:PathLineTo(p1)
-    self:PathLineTo(p2)
-    self:PathLineTo(p3)
-    self:PathLineTo(p4)
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+    local points = prim_points
+    ImVec2_Copy(points[1], p1); ImVec2_Copy(points[2], p2); ImVec2_Copy(points[3], p3); ImVec2_Copy(points[4], p4)
+    self:_AddPolyline(points, 4, col, thickness, bit32.bor(flags, ImDrawFlags.Closed), FLT_MAX)
 end
 
 function MT.ImDrawList:AddQuadFilled(p1, p2, p3, p4, col)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
 
-    self:PathLineTo(p1)
-    self:PathLineTo(p2)
-    self:PathLineTo(p3)
-    self:PathLineTo(p4)
-    self:PathFillConvex(col)
+    local points = prim_points
+    ImVec2_Copy(points[1], p1); ImVec2_Copy(points[2], p2); ImVec2_Copy(points[3], p3); ImVec2_Copy(points[4], p4)
+    self:AddConvexPolyFilled(points, 4, col)
+end
+
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+function MT.ImDrawList:AddTriangle(p1, p2, p3, col, thickness, flags)
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    --flags |= Flags; // Not needed.
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    flags = bit32.bor(bit32.band(flags, bit32.bnot(ImDrawFlags.StrokeMask_)), stroke_pos) -- As AddPolyline() default is different
+
+    local points = prim_points
+    ImVec2_Copy(points[1], p1); ImVec2_Copy(points[2], p2); ImVec2_Copy(points[3], p3)
+    self:_AddPolyline(points, 3, col, thickness, bit32.bor(flags, ImDrawFlags.Closed), FLT_MAX)
 end
 
 function MT.ImDrawList:AddTriangleFilled(p1, p2, p3, col)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-
-    self:PathLineTo(p1)
-    self:PathLineTo(p2)
-    self:PathLineTo(p3)
-    self:PathFillConvex(col)
-end
-
---- @param center       ImVec2
---- @param radius       float
---- @param col          ImU32
---- @param num_segments int
---- @param thickness    float
-function MT.ImDrawList:AddCircle(center, radius, col, num_segments, thickness)
-    if num_segments == nil then num_segments = 0   end
-    if thickness    == nil then thickness    = 1.0 end
-
-    if bit32.band(col, IM_COL32_A_MASK) == 0 or radius < 0.5 then
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
 
-    if num_segments <= 0 then
+    local points = prim_points
+    ImVec2_Copy(points[1], p1); ImVec2_Copy(points[2], p2); ImVec2_Copy(points[3], p3)
+    self:AddConvexPolyFilled(points, 3, col)
+end
+
+--- @param center        ImVec2
+--- @param radius        float
+--- @param col           ImU32
+--- @param num_segments? int
+--- @param thickness?    float
+--- @param flags?        ImDrawFlags
+function MT.ImDrawList:AddCircle(center, radius, col, num_segments, thickness, flags)
+    if num_segments == nil then num_segments = 0   end
+    if thickness    == nil then thickness    = 1.0 end
+    if flags        == nil then flags        = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        radius = radius - 0.5
+        stroke_pos = ImDrawFlags.StrokeCenter
+    end
+    radius = ImMax(0.01, radius)
+
+    local outer_radius = radius
+    if stroke_pos == ImDrawFlags.StrokeCenter then
+        outer_radius = radius + thickness * 0.5
+    elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+        outer_radius = radius + _CalculateCenterBiasedOffset(self, thickness)
+    elseif stroke_pos == ImDrawFlags.StrokeInside then
+        outer_radius = radius
+    elseif stroke_pos == ImDrawFlags.StrokeOutside then
+        outer_radius = radius + thickness
+    end
+
+    if outer_radius <= thickness then
+        -- The circle has collapsed into a filled circle.
+        self:AddCircleFilled(center, outer_radius, col, num_segments)
+        return
+    end
+
+    if num_segments <= 0 and outer_radius <= self._Data.ArcFastRadiusCutoff then
         -- Use arc with automatic segment count
-        _PathArcToFastExXY(self, center.x, center.y, radius - 0.5, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
+        local a_step = math.floor(IM_DRAWLIST_ARCFAST_SAMPLE_MAX / self:_CalcCircleAutoSegmentCount(outer_radius)) -- Use outer_radius for segment count to be consistent with rounded rect.
+        _PathArcToFastExXY(self, center.x, center.y, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, a_step)
         self._Path.Size = self._Path.Size - 1
     else
-        -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
+        -- Explicit segment count or above fast arc cutoff (still clamp to avoid drawing insanely tessellated shapes)
+        if num_segments <= 0 then
+            num_segments = self:_CalcCircleAutoSegmentCount(outer_radius)
+        end
         num_segments = ImClamp(num_segments, 3, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX)
 
         -- Because we are filling a closed shape we remove 1 from the count of segments/points
-        local a_max = (IM_PI * 2.0) * (num_segments - 1) / num_segments
-        self:PathArcTo(center, radius - 0.5, 0.0, a_max, num_segments - 1)
+        local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+        self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
     end
 
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
+    if self._Path.Size >= 3 then
+        -- Calculate distance to the edge of the polygon describing the circle.
+        -- This will be used by _AddPolyline() to clamp the inner stroke expansion, to avoid creating rendering artifacts.
+        local unit_apothem = ApproxApothem(self._Path.Size)
+        local edge_dist = radius * unit_apothem
+        self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, stroke_pos), edge_dist)
+    end
+    self._Path.Size = 0
 end
 
---- @param center       ImVec2
---- @param radius       float
---- @param col          ImU32
---- @param num_segments int
+--- @param center        ImVec2
+--- @param radius        float
+--- @param col           ImU32
+--- @param num_segments? int
 function MT.ImDrawList:AddCircleFilled(center, radius, col, num_segments)
     if num_segments == nil then num_segments = 0 end
 
-    if bit32.band(col, IM_COL32_A_MASK) == 0 or radius < 0.5 then
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
 
-    if num_segments <= 0 then
+    local diameter = radius * 2.0
+    if diameter < self._FringeScale then
+        if diameter < (1.0 / 255.0) * self._FringeScale then
+            return
+        end
+        col = ImAlphaMultiply(col, diameter * self._InvFringeScale)
+        radius = self._FringeScale * 0.5
+    end
+
+    if num_segments <= 0 and radius <= self._Data.ArcFastRadiusCutoff then
         -- Use arc with automatic segment count
         _PathArcToFastExXY(self, center.x, center.y, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
         self._Path.Size = self._Path.Size - 1
     else
-        -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
+        -- Explicit segment count or above cutoff (still clamp to avoid drawing insanely tessellated shapes)
+        if num_segments <= 0 then
+            num_segments = self:_CalcCircleAutoSegmentCount(radius)
+        end
         num_segments = ImClamp(num_segments, 3, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX)
 
         -- Because we are filling a closed shape we remove 1 from the count of segments/points
-        local a_max = (IM_PI * 2.0) * (num_segments - 1) / num_segments
+        local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
         self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
     end
 
+    self:PathFillConvex(col, ImDrawFlags.JoinMiter)
+end
+
+-- Guaranteed to honor 'num_segments'
+--- @param thickness? float
+--- @param flags?     ImDrawFlags
+function MT.ImDrawList:AddNgon(center, radius, col, num_segments, thickness, flags)
+    if thickness == nil then thickness = 1.0 end
+    if flags     == nil then flags     = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then
+        return
+    end
+
+    flags = bit32.bor(flags, self.Flags)
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        radius = radius - 0.5
+        stroke_pos = ImDrawFlags.StrokeCenter
+    end
+    radius = ImMax(0.01, radius)
+
+    -- Calculate distance to the edge of the polygon describing the circle.
+    -- This will be used by _AddPolyline() to clamp the inner stroke expansion, to avoid creating rendering artifacts.
+    local unit_apothem = ApproxApothem(num_segments)
+    local edge_dist = radius * unit_apothem
+
+    -- Check overestimate first before testing details.
+    if radius < thickness * 2.0 then
+        local outer_radius = radius
+        if stroke_pos == ImDrawFlags.StrokeCenter then
+            outer_radius = radius + thickness * 0.5
+        elseif stroke_pos == ImDrawFlags.StrokeCenterBiased then
+            outer_radius = radius + _CalculateCenterBiasedOffset(self, thickness)
+        elseif stroke_pos == ImDrawFlags.StrokeInside then
+            outer_radius = radius
+        elseif stroke_pos == ImDrawFlags.StrokeOutside then
+            outer_radius = radius + thickness
+        end
+        if outer_radius * unit_apothem <= thickness then
+            -- The polygon has collapsed into a filled polygon.
+            self:AddNgonFilled(center, outer_radius, col, num_segments)
+            return
+        end
+    end
+
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
+    self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, stroke_pos), edge_dist)
+    self._Path.Size = 0
+end
+
+-- Guaranteed to honor 'num_segments'
+function MT.ImDrawList:AddNgonFilled(center, radius, col, num_segments)
+    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then
+        return
+    end
+
+    local diameter = radius * 2.0
+    if diameter < self._FringeScale then
+        if diameter < (1.0 / 255.0) * self._FringeScale then
+            return
+        end
+        col = ImAlphaMultiply(col, diameter * self._InvFringeScale)
+        radius = self._FringeScale * 0.5
+    end
+
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
+    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
+    self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
+    self:PathFillConvex(col, ImDrawFlags.JoinMiter)
+end
+
+-- Ellipse
+--- @param rot?          float
+--- @param num_segments? int
+--- @param thickness?    float
+--- @param flags?        ImDrawFlags
+function MT.ImDrawList:AddEllipse(center, radius, col, rot, num_segments, thickness, flags)
+    if rot          == nil then rot          = 0.0 end
+    if num_segments == nil then num_segments = 0   end
+    if thickness    == nil then thickness    = 1.0 end
+    if flags        == nil then flags        = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
+    if stroke_pos == ImDrawFlags.StrokeLegacy then
+        stroke_pos = ImDrawFlags.StrokeCenter
+    end
+
+    local rad = ImVec2(radius.x, radius.y)
+    rad.x = ImMax(0.01, rad.x)
+    rad.y = ImMax(0.01, rad.y)
+
+    if num_segments <= 0 then
+        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(rad.x, rad.y)) -- A bit pessimistic, maybe there's a better computation to do here.
+    end
+
+    self._Path:reserve(self._Path.Size + (num_segments + 1))
+
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, rad, rot, 0.0, a_max, num_segments - 1)
+
+    -- Prevent the inside part of the stroke to be expanded too much to prevent some rendering artifacts.
+    local max_inner_offset = ImMin(rad.x, rad.y)
+    self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, bit32.bor(ImDrawFlags.Closed, ImDrawFlags.JoinMiter, stroke_pos), max_inner_offset)
+    self._Path.Size = 0
+end
+
+--- @param rot?          float
+--- @param num_segments? int
+function MT.ImDrawList:AddEllipseFilled(center, radius, col, rot, num_segments)
+    if rot          == nil then rot          = 0.0 end
+    if num_segments == nil then num_segments = 0   end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    local rad = ImVec2(radius.x, radius.y)
+    local diameter_x = rad.x * 2.0
+    local diameter_y = rad.y * 2.0
+    local min_dim = ImMin(diameter_x, diameter_y)
+
+    -- The ellipse is smaller than pixel in one dimension.
+    if min_dim < self._FringeScale then
+        if min_dim < (1.0 / 255.0) * self._FringeScale then
+            return
+        end
+        if diameter_x < self._FringeScale then
+            col = ImAlphaMultiply(col, diameter_x * self._InvFringeScale)
+            rad.x = self._FringeScale * 0.5
+        end
+        if diameter_y < self._FringeScale then
+            col = ImAlphaMultiply(col, diameter_y * self._InvFringeScale)
+            rad.y = self._FringeScale * 0.5
+        end
+    end
+
+    if num_segments <= 0 then
+        num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) -- A bit pessimistic, maybe there's a better computation to do here.
+    end
+
+    -- Because we are filling a closed shape we remove 1 from the count of segments/points
+    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
+    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1) -- [Port] upstream passes 'radius' (not 'rad') here, kept as-is
     self:PathFillConvex(col)
+end
+
+-- Cubic Bezier takes 4 controls points
+--- @param num_segments? int
+--- @param flags?        ImDrawFlags
+function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments, flags)
+    if num_segments == nil then num_segments = 0 end
+    if flags        == nil then flags        = 0 end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    self:PathLineTo(p1)
+    self:PathBezierCubicCurveTo(p2, p3, p4, num_segments)
+    self:PathStroke(col, thickness, flags)
+end
+
+-- Quadratic Bezier takes 3 controls points
+--- @param num_segments? int
+--- @param flags?        ImDrawFlags
+function MT.ImDrawList:AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments, flags)
+    if num_segments == nil then num_segments = 0 end
+    if flags        == nil then flags        = 0 end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    self:PathLineTo(p1)
+    self:PathBezierQuadraticCurveTo(p2, p3, num_segments)
+    self:PathStroke(col, thickness, flags)
 end
 
 --- @param font                ImFont
@@ -4968,6 +6177,7 @@ function MT.ImDrawList:AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, co
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
+    if flags == nil then flags = 0 end
 
     IM_ASSERT(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!") -- If this assert triggers on legacy code: see comments in ImDrawList:PathRect().
     if bit32.band(flags, ImDrawFlags.RoundMask_) == 0 then
@@ -4986,7 +6196,7 @@ function MT.ImDrawList:AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, co
 
     local vert_start_idx = self.VtxBuffer.Size + 1
     self:PathRect(p_min, p_max, rounding, flags)
-    self:PathFillConvex(col)
+    self:PathFillConvex(col, ImDrawFlags.JoinMiter)
     local vert_end_idx = self.VtxBuffer.Size + 1
     ImGui.ShadeVertsLinearUV(self, vert_start_idx, vert_end_idx, p_min, p_max, uv_min, uv_max, true)
 
@@ -5056,18 +6266,20 @@ end
 -- [Luau] scalar center (cx, cy); assigned to the forward-declared local, _PathArcToFastEx() wraps it
 @native
 function _PathArcToFastExXY(self, cx, cy, radius, a_min_sample, a_max_sample, a_step)
-    if radius < 0.5 then
+    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
         PathLineToXY(self, cx, cy)
         return
     end
 
     -- Calculate arc auto segment step size
     if a_step <= 0 then
-        a_step = math.floor(IM_DRAWLIST_ARCFAST_SAMPLE_MAX / self:_CalcCircleAutoSegmentCount(radius))
+        -- Calculate step size using the common function. No need to clamp, the step is already in range.
+        local auto_seg_count = self:_CalcCircleAutoSegmentCount(radius)
+        a_step = CalcCornerArcStepAndCount(auto_seg_count)
+    else
+        -- Make sure we never do steps larger than one quarter of the circle
+        a_step = ImClamp(a_step, 1, math.floor(IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4))
     end
-
-    -- Make sure we never do steps larger than one quarter of the circle
-    a_step = ImClamp(a_step, 1, math.floor(IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4))
 
     local sample_range = ImAbs(a_max_sample - a_min_sample)
     local a_next_step = a_step
@@ -5160,7 +6372,7 @@ end
 -- 0: East, 3: South, 6: West, 9: North, 12: East
 @native
 function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
-    if radius < 0.5 then
+    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -5174,7 +6386,7 @@ end
 --- @param a_max        float
 --- @param num_segments int
 function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
-    if radius < 0.5 then
+    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -5202,7 +6414,7 @@ end
 function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
     if num_segments == nil then num_segments = 0 end
 
-    if radius < 0.5 then
+    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -5216,13 +6428,21 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
     if radius <= self._Data.ArcFastRadiusCutoff then
         local a_is_reverse = a_max < a_min
 
+        -- Calculate number of segments per circle.
+        -- First we calculate the step count as usual, then match to the precomputed directions.
+        -- This will give us the spacing between the samples (step), and how many segments to use in total for a full circle.
+        local auto_seg_count = self:_CalcCircleAutoSegmentCount(radius)
+        local arc_step, arc_step_count = CalcCornerArcStepAndCount(auto_seg_count)
+        local arc_seg_count = arc_step_count * 4 -- Seg count for full circle.
+
         -- We are going to use precomputed values for mid samples.
         -- Determine first and last sample in lookup table that belong to the arc.
-        local a_min_sample_f = IM_DRAWLIST_ARCFAST_SAMPLE_MAX * a_min / (IM_PI * 2.0)
-        local a_max_sample_f = IM_DRAWLIST_ARCFAST_SAMPLE_MAX * a_max / (IM_PI * 2.0)
+        -- In first step we use the coarser segment count, and after rounding, convert back to the precomputed array index.
+        local a_min_sample_f = arc_seg_count * a_min / (IM_PI * 2.0)
+        local a_max_sample_f = arc_seg_count * a_max / (IM_PI * 2.0)
 
-        local a_min_sample = a_is_reverse and ImFloor(a_min_sample_f) or ImCeil(a_min_sample_f)
-        local a_max_sample = a_is_reverse and ImCeil(a_max_sample_f) or ImFloor(a_max_sample_f)
+        local a_min_sample = (a_is_reverse and ImFloor(a_min_sample_f) or ImCeil(a_min_sample_f)) * arc_step
+        local a_max_sample = (a_is_reverse and ImCeil(a_max_sample_f) or ImFloor(a_max_sample_f)) * arc_step
         local a_mid_samples = a_is_reverse and ImMax(a_min_sample - a_max_sample, 0) or ImMax(a_max_sample - a_min_sample, 0)
 
         local a_min_segment_angle = a_min_sample * IM_PI * 2.0 / IM_DRAWLIST_ARCFAST_SAMPLE_MAX
@@ -5233,7 +6453,7 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
         self._Path:reserve(self._Path.Size + (a_mid_samples + 1 + (a_emit_start and 1 or 0) + (a_emit_end and 1 or 0)))
 
         if a_emit_start      then PathLineToXY(self, center.x + ImCos(a_min) * radius, center.y + ImSin(a_min) * radius) end -- [Luau] no temporary ImVec2
-        if a_mid_samples > 0 then _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, 0) end
+        if a_mid_samples > 0 then _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, arc_step) end
         if a_emit_end        then PathLineToXY(self, center.x + ImCos(a_max) * radius, center.y + ImSin(a_max) * radius) end
     else
         local arc_length = ImAbs(a_max - a_min)
@@ -5267,7 +6487,8 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     if y > clip_rect.w then
         return
     end
-    if bit32.band(draw_list.Flags, ImDrawFlags.TextNoPixelSnap) == 0 then
+    flags = bit32.bor(flags, draw_list.Flags)
+    if bit32.band(flags, ImDrawFlags.TextNoPixelSnap) == 0 then
         x = IM_TRUNC(x)
         y = IM_TRUNC(y)
     end
@@ -5784,9 +7005,8 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
 end
 
 -------------------------------------------------------------------------------
--- Extra primitives (Ngon, Ellipse, Bezier, concave fill)
+-- Extra path functions (elliptical arc, bezier curves) and concave fill
 -------------------------------------------------------------------------------
--- [port] These follow the 1.92 stroker this port uses (no ImDrawFlags_StrokeXXX placement flags).
 
 function MT.ImDrawList:PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments)
     if num_segments == nil or num_segments <= 0 then
@@ -5867,63 +7087,6 @@ function MT.ImDrawList:PathBezierQuadraticCurveTo(p2, p3, num_segments)
         local t_step = 1.0 / num_segments
         for i_step = 1, num_segments do self._Path:push_back(ImBezierQuadraticCalc(p1, p2, p3, t_step * i_step)) end
     end
-end
-
--- Guaranteed to honor 'num_segments'
-function MT.ImDrawList:AddNgon(center, radius, col, num_segments, thickness)
-    if thickness == nil then thickness = 1.0 end
-    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
-    -- Because we are filling a closed shape we remove 1 from the count of segments/points
-    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
-    self:PathArcTo(center, radius - 0.5, 0.0, a_max, num_segments - 1)
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
-end
-
--- Guaranteed to honor 'num_segments'
-function MT.ImDrawList:AddNgonFilled(center, radius, col, num_segments)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 or num_segments <= 2 then return end
-    -- Because we are filling a closed shape we remove 1 from the count of segments/points
-    local a_max = (IM_PI * 2.0) * (num_segments - 1.0) / num_segments
-    self:PathArcTo(center, radius, 0.0, a_max, num_segments - 1)
-    self:PathFillConvex(col)
-end
-
--- Ellipse
-function MT.ImDrawList:AddEllipse(center, radius, col, rot, num_segments, thickness)
-    if rot == nil then rot = 0.0 end
-    if thickness == nil then thickness = 1.0 end
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end -- A bit pessimistic, maybe there's a better computation to do here.
-    -- Because we are filling a closed shape we remove 1 from the count of segments/points
-    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
-    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
-    self:PathStroke(col, thickness, ImDrawFlags.Closed)
-end
-
-function MT.ImDrawList:AddEllipseFilled(center, radius, col, rot, num_segments)
-    if rot == nil then rot = 0.0 end
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    if num_segments == nil or num_segments <= 0 then num_segments = self:_CalcCircleAutoSegmentCount(ImMax(radius.x, radius.y)) end -- A bit pessimistic, maybe there's a better computation to do here.
-    -- Because we are filling a closed shape we remove 1 from the count of segments/points
-    local a_max = IM_PI * 2.0 * (num_segments - 1.0) / num_segments
-    self:PathEllipticalArcTo(center, radius, rot, 0.0, a_max, num_segments - 1)
-    self:PathFillConvex(col)
-end
-
--- Cubic Bezier takes 4 controls points
-function MT.ImDrawList:AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    self:PathLineTo(p1)
-    self:PathBezierCubicCurveTo(p2, p3, p4, num_segments or 0)
-    self:PathStroke(col, thickness or 1.0)
-end
-
--- Quadratic Bezier takes 3 controls points
-function MT.ImDrawList:AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments)
-    if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
-    self:PathLineTo(p1)
-    self:PathBezierQuadraticCurveTo(p2, p3, num_segments or 0)
-    self:PathStroke(col, thickness or 1.0)
 end
 
 -- ponytail: ear-clipping, no anti-aliased fringe (upstream's AA triangulator not ported). O(n^2) is fine for UI polygons.

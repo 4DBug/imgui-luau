@@ -32,6 +32,8 @@ CHECKS=(
 "libhash|LIBHASH|NO_DEMO=1 $R --main tools/test/scripts/t_libhash.luau --frames 120"
 "demo_open|DRAWHASH|$R --main tools/test/scripts/t_drawhash.luau --frames 150 --open"
 "demo_random|^|python3 tools/test/run.py --roblox --timeout 600 --frames 400 --open"
+"pixels|PIXELS SAME|a=\$($R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo PIXELS SAME"
+"shot|wrote|python3 tools/test/shot.py /tmp/imgui_shot.png --app"
 "love|DRAWHASH|python3 tools/bundle.py --target love >/dev/null && luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic && luajit tools/test/love/t_examples.lua"
 )
 

@@ -10413,6 +10413,9 @@ S.ShowExampleAppCustomRendering = {
     curve_segments_override_v = 8,
     colf_stroke = ImVec4(1.000, 0.384, 0.169, 1.000),
     colf_fill = ImVec4(0.416, 0.378, 0.420, 1.000),
+    prim_stroke_flags = ImDrawFlags.None,
+    prim_other_flags = ImDrawFlags.AALineEnds,
+    scope_flags = nil, -- First init copy current state (see below).
     -- Canvas
     points = ImVector(),
     scrolling = ImVec2(0.0, 0.0),
@@ -10496,25 +10499,35 @@ function ShowExampleAppCustomRendering(p_open)
             ImGui.ColorEdit4("Stroke Color", s.colf_stroke)
             ImGui.ColorEdit4("Fill Color", s.colf_fill)
 
-            -- [Port] ImDrawFlags_StrokeInside/StrokeCenter/StrokeCenterBiased/StrokeOutside/StrokeLegacy, AAFill/AALines/AALineEnds,
-            -- [Port] JoinMiter/CapSquare, AllowInPushScope_ and ImDrawList::PushDrawFlag()/PopDrawFlag() don't exist in this port
-            -- [Port] (1.92 stroker): prim_stroke_flags/prim_other_flags/scope_flags and their widgets are not ported, flags = None.
             ImGui.SeparatorText("Per primitive flags (AddXXX functions)")
-            ImGui.TextDisabled("(not supported by this port)") -- [Port]
+            _, s.prim_stroke_flags = ImGui.RadioButton("Default", s.prim_stroke_flags, ImDrawFlags.None); ImGui.SameLine()
+            _, s.prim_stroke_flags = ImGui.RadioButton("Inside", s.prim_stroke_flags, ImDrawFlags.StrokeInside); ImGui.SameLine()
+            _, s.prim_stroke_flags = ImGui.RadioButton("Center", s.prim_stroke_flags, ImDrawFlags.StrokeCenter); ImGui.SameLine()
+            _, s.prim_stroke_flags = ImGui.RadioButton("CenterBiased", s.prim_stroke_flags, ImDrawFlags.StrokeCenterBiased); ImGui.SameLine()
+            _, s.prim_stroke_flags = ImGui.RadioButton("Outside", s.prim_stroke_flags, ImDrawFlags.StrokeOutside); ImGui.SameLine()
+            _, s.prim_stroke_flags = ImGui.RadioButton("Legacy", s.prim_stroke_flags, ImDrawFlags.StrokeLegacy)
+            _, s.prim_other_flags = ImGui.CheckboxFlags("AAFill", s.prim_other_flags, ImDrawFlags.AAFill); ImGui.SameLine() -- Note: Only for functions taking flags.
+            _, s.prim_other_flags = ImGui.CheckboxFlags("AALines", s.prim_other_flags, ImDrawFlags.AALines); ImGui.SameLine() -- Note: Only for functions taking flags.
+            _, s.prim_other_flags = ImGui.CheckboxFlags("AALineEnds", s.prim_other_flags, ImDrawFlags.AALineEnds); ImGui.SameLine()
+            _, s.prim_other_flags = ImGui.CheckboxFlags("JoinMiter", s.prim_other_flags, ImDrawFlags.JoinMiter); ImGui.SameLine()
+            _, s.prim_other_flags = ImGui.CheckboxFlags("CapSquare", s.prim_other_flags, ImDrawFlags.CapSquare)
             --ImGui.CheckboxFlags("UseTexForRoundCorners", &prim_other_flags, ImDrawFlags_UseTexForRoundCorners);
 
+            if s.scope_flags == nil then s.scope_flags = bit32.band(draw_list.Flags, ImDrawFlags.AllowInPushScope_) end -- First init copy current state.
             ImGui.SeparatorText("Current ImDrawList flags (e.g. PushDrawFlag function)")
             ImGui.PushID("ScopeFlags")
-            ImGui.TextDisabled("(not supported by this port)") -- [Port]
+            _, s.scope_flags = ImGui.CheckboxFlags("AAFill", s.scope_flags, ImDrawFlags.AAFill); ImGui.SameLine()
+            _, s.scope_flags = ImGui.CheckboxFlags("AALines", s.scope_flags, ImDrawFlags.AALines); ImGui.SameLine()
+            _, s.scope_flags = ImGui.CheckboxFlags("AALineEnds", s.scope_flags, ImDrawFlags.AALineEnds); ImGui.SameLine()
+            _, s.scope_flags = ImGui.CheckboxFlags("StrokeLegacy", s.scope_flags, ImDrawFlags.StrokeLegacy)
             --ImGui.CheckboxFlags("UseTexForRoundCorners", &scope_flags, ImDrawFlags_UseTexForRoundCorners);
             ImGui.PopID()
             ImGui.Spacing()
 
-            -- [Port] draw_list->PushDrawFlag(ImDrawFlags_AllowInPushScope_, false); // Reset all existing (very unusual: done for this demo)
-            -- [Port] draw_list->PushDrawFlag(scope_flags, true);
-            local flags = ImDrawFlags.None -- [Port] prim_stroke_flags | prim_other_flags
+            draw_list:PushDrawFlag(ImDrawFlags.AllowInPushScope_, false) -- Reset all existing (very unusual: done for this demo)
+            draw_list:PushDrawFlag(s.scope_flags, true)
+            local flags = bit32.bor(s.prim_stroke_flags, s.prim_other_flags)
 
-            -- [Port] In this port AddNgon/AddCircle/AddEllipse/AddTriangle/AddLine*/AddBezier*/PathFillConvex take no flags argument (dropped below).
             local sz = s.sz
             local start_pos = ImGui.GetCursorScreenPos()
             local pi = 3.141592
@@ -10582,7 +10595,7 @@ function ShowExampleAppCustomRendering(p_open)
                     for n = 0, 4 - 1 do
                         draw_list:PathLineTo(ImVec2(x + half_sz + rotating_square[n + 1].x, y + half_sz + rotating_square[n + 1].y))
                     end
-                    draw_list:PathFillConvex(col) -- [Port] no flags argument
+                    draw_list:PathFillConvex(col, flags)
                     x = x + step
 
                     -- Path
@@ -10609,14 +10622,14 @@ function ShowExampleAppCustomRendering(p_open)
                     -- First row uses a thickness of 1.0f, second row uses the configurable thickness
                     local col = ImColor(s.colf_stroke):U32()
                     local th = (row == 0) and 1.0 or thickness
-                    draw_list:AddNgon(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments, th);                 x = x + step  -- N-gon
-                    draw_list:AddCircle(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments, th);               x = x + step  -- Circle
-                    draw_list:AddEllipse(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments, th); x = x + step  -- Ellipse
+                    draw_list:AddNgon(ImVec2(x + half_sz, y + half_sz), half_sz, col, s.ngon_segments, th, flags);                 x = x + step  -- N-gon
+                    draw_list:AddCircle(ImVec2(x + half_sz, y + half_sz), half_sz, col, circle_segments, th, flags);               x = x + step  -- Circle
+                    draw_list:AddEllipse(ImVec2(x + half_sz, y + half_sz), ImVec2(half_sz, sz * 0.3), col, -0.3, circle_segments, th, flags); x = x + step  -- Ellipse
                     draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, 0.0, th, flags);                           x = x + step  -- Square
                     draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th, flags);                      x = x + step  -- Square with all rounded corners
                     draw_list:AddRect(ImVec2(x, y), ImVec2(x + sz, y + sz), col, rounding, th, bit32.bor(flags, corners_tl_br)); x = x + step  -- Square with two rounded corners
-                    draw_list:AddTriangle(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col, th);     x = x + step  -- Triangle
-                    draw_list:AddTriangle(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col, th); x = x + step - math.floor(sz * 0.6) -- Thin triangle
+                    draw_list:AddTriangle(ImVec2(x + sz * 0.5, y), ImVec2(x + sz, y + sz), ImVec2(x, y + sz), col, th, flags); x = x + step  -- Triangle
+                    draw_list:AddTriangle(ImVec2(x + sz * 0.2, y), ImVec2(x + sz * 0.4, y + sz), ImVec2(x, y + sz), col, th, flags); x = x + step - math.floor(sz * 0.6) -- Thin triangle
 
                     -- Concave shape: U
                     for _, p in ipairs(concave_shape) do
@@ -10634,15 +10647,15 @@ function ShowExampleAppCustomRendering(p_open)
 
                     -- Horizontal/Vertical/Diagonal lines
                     local off = math.floor(sz * 0.4)
-                    draw_list:AddLineH(x, x + sz, y, col, th)
-                    draw_list:AddLine(ImVec2(x, y + off), ImVec2(x + sz, y + off), col, th)
+                    draw_list:AddLineH(x, x + sz, y, col, th, flags)
+                    draw_list:AddLine(ImVec2(x, y + off), ImVec2(x + sz, y + off), col, th, flags)
                     x = x + step
-                    draw_list:AddLineV(x, y, y + sz, col, th)
-                    draw_list:AddLine(ImVec2(x + off, y + sz), ImVec2(x + off, y), col, th)
+                    draw_list:AddLineV(x, y, y + sz, col, th, flags)
+                    draw_list:AddLine(ImVec2(x + off, y + sz), ImVec2(x + off, y), col, th, flags)
                     x = x + step - math.floor(half_sz)
                     if not (draw_fill and draw_strokes) then -- -V560
-                        draw_list:AddLine(ImVec2(x, y), ImVec2(x + half_sz, y + sz), col, th)
-                        draw_list:AddLine(ImVec2(x, y + sz), ImVec2(x + half_sz, y), col, th)
+                        draw_list:AddLine(ImVec2(x, y), ImVec2(x + half_sz, y + sz), col, th, flags)
+                        draw_list:AddLine(ImVec2(x, y + sz), ImVec2(x + half_sz, y), col, th, flags)
                     end
                     x = x + step - math.floor(half_sz)
 
@@ -10661,12 +10674,12 @@ function ShowExampleAppCustomRendering(p_open)
                     x = x + step
 
                     -- Quadratic Bezier Curve (3 control points)
-                    draw_list:AddBezierQuadratic(ImVec2(x + cp3[1].x, y + cp3[1].y), ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), col, th, curve_segments)
+                    draw_list:AddBezierQuadratic(ImVec2(x + cp3[1].x, y + cp3[1].y), ImVec2(x + cp3[2].x, y + cp3[2].y), ImVec2(x + cp3[3].x, y + cp3[3].y), col, th, curve_segments, flags)
                     x = x + step
 
                     -- Cubic Bezier Curve (4 control points)
                     if not (draw_fill and draw_strokes) then -- -V560
-                        draw_list:AddBezierCubic(ImVec2(x + cp4[1].x, y + cp4[1].y), ImVec2(x + cp4[2].x, y + cp4[2].y), ImVec2(x + cp4[3].x, y + cp4[3].y), ImVec2(x + cp4[4].x, y + cp4[4].y), col, th, curve_segments)
+                        draw_list:AddBezierCubic(ImVec2(x + cp4[1].x, y + cp4[1].y), ImVec2(x + cp4[2].x, y + cp4[2].y), ImVec2(x + cp4[3].x, y + cp4[3].y), ImVec2(x + cp4[4].x, y + cp4[4].y), col, th, curve_segments, flags)
                         x = x + step
                     end
                 end
@@ -10674,7 +10687,8 @@ function ShowExampleAppCustomRendering(p_open)
             end
 
             ImGui.Dummy(ImVec2(step * 15.5, step * 4.0))
-            -- [Port] draw_list->PopDrawFlag(); x2
+            draw_list:PopDrawFlag()
+            draw_list:PopDrawFlag()
 
             ImGui.Text("ImDrawList Vector Rendering Reference:")
             ImGui.TextLinkOpenURL("https://github.com/ocornut/imgui/wiki/Draw-List")
