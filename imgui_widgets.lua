@@ -5109,34 +5109,37 @@ end
 --- @param flags                  ImGuiInputTextFlags
 --- @param line_index             ImGuiTextIndex
 --- @param buf                    char[]
---- @param buf_end                int
+--- @param buf_end?               int # nil: inactive multi-line path, end found with strchr()
 --- @param wrap_width             float
 --- @param max_output_buffer_size int
+--- @param want_out_buf_end       boolean
 --- @return int  size
---- @return int? out_buf_end
-local function InputTextLineIndexBuild(flags, line_index, buf, buf_end, wrap_width, max_output_buffer_size)
+--- @return int? out_buf_end # [Port] 'const char** out_buf_end' output parameter becomes a 2nd return value (nil when not requested)
+local function InputTextLineIndexBuild(flags, line_index, buf, buf_end, wrap_width, max_output_buffer_size, want_out_buf_end)
     local g = GImGui
     local size = 0
-    local s = 1
+    local s
     local trailing_line_already_counted = false
+    -- [Port] 's' is a 1-based position in 'buf' (C++ s == buf + (s - 1)), Offsets store 0-based offsets like upstream.
     if bit32.band(flags, ImGuiInputTextFlags.WordWrap) ~= 0 then
+        s = 1
         while s < buf_end do
             if size <= max_output_buffer_size then
                 line_index.Offsets:push_back(s - 1)
             end
             size = size + 1
             s = ImFontCalcWordWrapPositionEx(g.Font, g.FontSize, buf, s, buf_end, wrap_width, ImDrawTextFlags.WrapKeepBlanks)
-
             if buf[s] == 10 then s = s + 1 end
         end
     elseif buf_end ~= nil then
+        s = 1
         while s < buf_end do
             if size <= max_output_buffer_size then
                 line_index.Offsets:push_back(s - 1)
             end
             size = size + 1
-            s = ImMemchr(buf, 10, s) --[[@as int]] -- FIXME:
-
+            s = ImMemchr(buf, 10, s)
+            if s ~= nil and s >= buf_end then s = nil end -- [Port] ImMemchr() stops at the zero-terminator, not at buf_end
             if s then s = s + 1 else s = buf_end end
         end
     else
@@ -5148,20 +5151,17 @@ local function InputTextLineIndexBuild(flags, line_index, buf, buf_end, wrap_wid
                 line_index.Offsets:push_back(s - 1)
             end
             size = size + 1
-
             s_eol = ImMemchr(buf, 10, s)
             if s_eol == nil then
-                s = s + ImStd.ImStrlen(buf) - s -- FIXME:
+                s = s + ImStd.ImStrlen(buf, s)
                 trailing_line_already_counted = true
                 break
             end
-
             s = s_eol + 1
         end
     end
-
-    local out_buf_end
-    if out_buf_end ~= nil then
+    local out_buf_end = nil
+    if want_out_buf_end then
         out_buf_end = s
         buf_end = s
     end
@@ -5169,11 +5169,11 @@ local function InputTextLineIndexBuild(flags, line_index, buf, buf_end, wrap_wid
         line_index.Offsets:push_back(0)
         size = size + 1
     end
-    if s > 1 and buf[s - 1] == 10 and not trailing_line_already_counted then
+    if buf_end > 1 and buf[buf_end - 1] == 10 and not trailing_line_already_counted then
         local old_size = size
         size = size + 1
         if old_size <= max_output_buffer_size then
-            line_index.Offsets:push_back(s - 1)
+            line_index.Offsets:push_back(buf_end - 1)
         end
     end
     return size, out_buf_end
@@ -5212,24 +5212,24 @@ end
 --- @param cursor_n   int
 --- @return ImVec2
 local function InputTextLineIndexGetPosOffset(g, state, line_index, buf, buf_end, cursor_n)
+    -- [Port] 'cursor_n' is a 1-based position (Stb.cursor) == C++ cursor_ptr; Offsets hold 0-based offsets, compare with cursor_n - 1.
     local cursor_ptr = cursor_n
-
-    local it = ImLowerBound(line_index.Offsets, 1, line_index.Offsets.Size + 1, cursor_ptr)
-
-    if it > 1 then
-        if it > line_index.Offsets.Size or line_index.Offsets[it] ~= cursor_ptr or (state ~= nil and state.WrapWidth > 0.0 and state.LastMoveDirectionLR == ImGuiDir.Right and
-            buf[cursor_ptr - 1] ~= 10 and buf[cursor_ptr - 1] ~= 0) then
+    local cursor_off = cursor_n - 1
+    local offsets = line_index.Offsets
+    local it_begin = 1
+    local it_end = offsets.Size + 1
+    local it = ImLowerBound(offsets.Data, it_begin, it_end, cursor_off)
+    if it > it_begin then
+        if it == it_end or offsets.Data[it] ~= cursor_off or (state ~= nil and state.WrapWidth > 0.0 and state.LastMoveDirectionLR == ImGuiDir.Right and buf[cursor_ptr - 1] ~= 10 and buf[cursor_ptr - 1] ~= 0) then
             it = it - 1
         end
     end
 
-    local line_no = it
-    local line_start = (line_no == 1) and 1 or line_index.Offsets[line_no] + 1
-
+    local line_no = (it == it_begin) and 0 or (it - 1) -- 0-based (index_from_ptr)
+    local line_start = line_index:get_line_begin(1, line_no)
     local offset = ImVec2()
     offset.x = InputTextCalcTextSize(g, buf, line_start, cursor_ptr, buf_end, nil, ImDrawTextFlags.WrapKeepBlanks).x
-    offset.y = line_no * g.FontSize
-
+    offset.y = (line_no + 1) * g.FontSize
     return offset
 end
 
@@ -5960,7 +5960,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         -- Write back result string if modified.
         -- FIXME-OPT: Could mark dirty state from the stb_textedit callbacks
         if not is_readonly then
-            if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0 then
+            if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputText) ~= 0 then
                 -- Apply when modified
                 if (ImStd.strcmp(state.TextSrc, buf) ~= 0) then
                     apply_new_text = state.TextSrc
@@ -6079,7 +6079,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     end
 
     -- Calculate visibility
-    local line_visible_n0, line_visible_n1 = 1, 2
+    local line_visible_n0, line_visible_n1 = 0, 1 -- 0-based like upstream
     if is_multiline then
         line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
     end
@@ -6092,15 +6092,15 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         -- If scrolling is expected to change build full index.
         -- FIXME-OPT: Could append to index when new value of line_visible_n1 becomes bigger, see second call to CalcClipRectVisibleItemsY() below.
         local will_scroll_y = state and ((state.CursorFollow and render_cursor) or (state.CursorCenterY and (render_cursor or render_selection)))
-        --- @cast buf_display_end int
         local out_buf_end
-        line_count, out_buf_end = InputTextLineIndexBuild(flags, line_index, buf_display, buf_display_end, wrap_width, will_scroll_y and INT_MAX or (line_visible_n1 + 1))
-        if buf_display_end then
+        line_count, out_buf_end = InputTextLineIndexBuild(flags, line_index, buf_display, buf_display_end, wrap_width, will_scroll_y and INT_MAX or (line_visible_n1 + 1), buf_display_end == nil)
+        if buf_display_end == nil then
             buf_display_end = out_buf_end
         end
     end
+    --- @cast buf_display_end int
     line_index.EndOffset = buf_display_end - 1
-    line_visible_n1 = ImMin(line_visible_n1, line_count + 1)
+    line_visible_n1 = ImMin(line_visible_n1, line_count)
 
     -- Store text height (we don't need width)
     local text_size_y = line_count * g.FontSize
@@ -6201,7 +6201,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
                 local rect = ImRect()
                 rect.Min.x = draw_pos.x - draw_scroll.x + ImGui.CalcTextSizeEx(buf_display, p, line_selected_begin).x
-                rect.Min.y = draw_pos.y - draw_scroll.y + (line_n - 1) * g.FontSize
+                rect.Min.y = draw_pos.y - draw_scroll.y + line_n * g.FontSize
                 rect.Max.x = rect.Min.x + rect_width
                 rect.Max.y = rect.Min.y + bg_offy_dn + g.FontSize
                 rect.Min.y = rect.Min.y + bg_offy_up
@@ -6222,7 +6222,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     -- Render text
     if (is_multiline or (buf_display_end - 1) < buf_display_max_length) and bit32.band(text_col, IM_COL32_A_MASK) ~= 0 and line_visible_n0 < line_visible_n1 then
         g.Font:RenderText(draw_window.DrawList, g.FontSize,
-        draw_pos - draw_scroll + ImVec2(0.0, (line_visible_n0 - 1) * g.FontSize),
+        draw_pos - draw_scroll + ImVec2(0.0, line_visible_n0 * g.FontSize),
         text_col, clip_rect:AsVec4(),
         buf_display,
         line_index:get_line_begin(1, line_visible_n0),
@@ -6640,7 +6640,28 @@ function ImGui.ColorEdit4(label, col, flags)
     ImGui.EndGroup()
 
     -- Drag and Drop Target
-    -- TODO:
+    -- NB: The flag test is merely an optional micro-optimization, BeginDragDropTarget() does the same test.
+    if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect) ~= 0 and bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.ReadOnly) == 0 and bit32.band(flags, ImGuiColorEditFlags.NoDragDrop) == 0 and ImGui.BeginDragDropTarget() then
+        local accepted_drag_drop = false
+        local payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F)
+        if payload then
+            local d = payload.Data
+            col[1], col[2], col[3] = d[1], d[2], d[3] -- Preserve alpha if any
+            value_changed = true; accepted_drag_drop = true
+        end
+        payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F)
+        if payload then
+            local d = payload.Data
+            for i = 1, components do col[i] = d[i] end
+            value_changed = true; accepted_drag_drop = true
+        end
+
+        -- Drag-drop payloads are always RGB
+        if accepted_drag_drop and bit32.band(flags, ImGuiColorEditFlags.InputHSV) ~= 0 then
+            col[1], col[2], col[3] = ImGui.ColorConvertRGBtoHSV(col[1], col[2], col[3])
+        end
+        ImGui.EndDragDropTarget()
+    end
 
     -- When picker is being actively used, use its active id so IsItemActive() will function on ColorEdit4().
     if picker_active_window and g.ActiveId ~= 0 and g.ActiveIdWindow == picker_active_window then
@@ -7209,17 +7230,20 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
 
     -- Drag and Drop Source
     -- NB: The ActiveId test is merely an optional micro-optimization, BeginDragDropSource() does the same test.
-    -- if g.ActiveId == id and bit32.band(flags, ImGuiColorEditFlags.NoDragDrop) == 0 and ImGui.BeginDragDropSource() then
-    --     if bit32.band(flags, ImGuiColorEditFlags.NoAlpha) ~= 0 then
-    --         ImGui.SetDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F, col_rgb, ImGuiCond.Once)
-    --     else
-    --         ImGui.SetDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F, col_rgb, ImGuiCond.Once)
-    --     end
-    --     ImGui.ColorButton(desc_id, col, flags)
-    --     ImGui.SameLine()
-    --     ImGui.TextEx("Color")
-    --     ImGui.EndDragDropSource()
-    -- end
+    -- [Port] payload.Data is a 1-based float array copy { r, g, b [, a] } (C++ memcpy of float[3]/float[4])
+    if g.ActiveId == id and bit32.band(flags, ImGuiColorEditFlags.NoDragDrop) == 0 and ImGui.BeginDragDropSource() then
+        if bit32.band(flags, ImGuiColorEditFlags.NoAlpha) ~= 0 then
+            ImGui.SetDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F, { col_rgb.x, col_rgb.y, col_rgb.z }, 3, ImGuiCond.Once)
+        else
+            ImGui.SetDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F, { col_rgb.x, col_rgb.y, col_rgb.z, col_rgb.w }, 4, ImGuiCond.Once)
+        end
+        ImGui.PushItemFlag(ImGuiItemFlags.MixedValue, false)
+        ImGui.ColorButton(desc_id, col, flags)
+        ImGui.PopItemFlag()
+        ImGui.SameLine()
+        ImGui.TextEx("Color")
+        ImGui.EndDragDropSource()
+    end
 
     -- Tooltip
     if bit32.band(flags, ImGuiColorEditFlags.NoTooltip) == 0 and hovered and ImGui.IsItemHovered(ImGuiHoveredFlags.ForTooltip) then
