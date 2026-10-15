@@ -4998,6 +4998,11 @@ function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_
     self:_OnChangedClipRect()
 end
 
+function MT.ImDrawList:PushClipRectFullScreen()
+    local cr = self._Data.ClipRectFullscreen
+    self:PushClipRect(ImVec2(cr.x, cr.y), ImVec2(cr.z, cr.w))
+end
+
 function MT.ImDrawList:PopClipRect()
     local stack = self._ClipRectStack
     IM_ASSERT(stack.Size > 0)

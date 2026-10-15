@@ -886,6 +886,7 @@ export type ImGuiAPI = {
     WindowSettingsAddSettingsHandler: (...any) -> ...any,
     WindowSyncOwnedViewport: (...any) -> ...any,
     _ByteArrayToString: (...any) -> ...any,
+    _CalcItemSizeXY: (...any) -> ...any,
     _GetTypeFunc: (...any) -> ...any,
     _SetCurrentContext_Internal: (...any) -> ...any,
     _SetCurrentContext_Tables: (...any) -> ...any,

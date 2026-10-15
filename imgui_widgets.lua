@@ -74,6 +74,7 @@ local IM_U32_MAX = UINT_MAX -- (0xFFFFFFFF)
 --- @param text_end? int
 --- @param flags?    ImGuiTextFlags
 local TextEx_bb = ImRect() -- [Luau] scratch, never escapes TextEx()
+local LAYOUT_ZERO_SIZE = ImVec2(0, 0) -- [Luau] shared read-only: ItemSize()/CalcItemSize() only read it
 
 @native
 function ImGui.TextEx(text, text_end, flags)
@@ -274,7 +275,7 @@ function ImGui.TextAligned(align_x, size_x, fmt, ...)
     local text = ImFormatString(fmt, ...)
     local text_end = #text + 1
     local text_size = ImGui.CalcTextSize(text, text_end)
-    size_x = ImGui.CalcItemSize(ImVec2(size_x, 0.0), 0.0, text_size.y).x
+    size_x = ImGui._CalcItemSizeXY(size_x, 0.0, 0.0, text_size.y)
 
     local pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset)
     local pos_max = ImVec2(pos.x + size_x, window.ClipRect.Max.y)
@@ -742,7 +743,7 @@ local ButtonEx_text_min, ButtonEx_text_max = ImVec2(), ImVec2()
 
 @native
 function ImGui.ButtonEx(label, size_arg, flags)
-    if size_arg == nil then size_arg = ImVec2(0, 0) end
+    if size_arg == nil then size_arg = LAYOUT_ZERO_SIZE end -- [Luau] shared read-only: CalcItemSize() only reads it
     if flags    == nil then flags    = 0            end
 
     local window = ImGui.GetCurrentWindow()
@@ -833,7 +834,7 @@ function ImGui.InvisibleButton(str_id, size_arg, flags)
     end
 
     -- Ensure zero-size fits to contents
-    local size = ImGui.CalcItemSize(ImVec2(size_arg.x ~= 0.0 and size_arg.x or -FLT_MIN, size_arg.y ~= 0.0 and size_arg.y or -FLT_MIN), 0.0, 0.0)
+    local size = ImVec2(ImGui._CalcItemSizeXY(size_arg.x ~= 0.0 and size_arg.x or -FLT_MIN, size_arg.y ~= 0.0 and size_arg.y or -FLT_MIN, 0.0, 0.0))
 
     local id = window:GetID(str_id)
     local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + size)
@@ -1696,7 +1697,6 @@ end
 -- - Separator()
 -------------------------------------------------------------------------------
 
-local LAYOUT_ZERO_SIZE = ImVec2(0, 0) -- [Luau] shared read-only: ItemSize() only reads it
 local LayoutHelpers_size = ImVec2()   -- [Luau] scratch for ItemSize() arguments
 
 function ImGui.Spacing()
