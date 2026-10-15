@@ -194,7 +194,8 @@ ImFontAtlasFlags =
     None               = 0,
     NoPowerOfTwoHeight = bitLShift(1, 0), -- Don't round the height to next power of two
     NoMouseCursors     = bitLShift(1, 1), -- Don't build software mouse cursors into the atlas (save a little texture memory)
-    NoBakedLines       = bitLShift(1, 2) -- Don't build anti-aliased line textures into the atlas (save a little texture memory). SINCE 1.93.0 THIS PREVENTS ANTI-ALIASED LINES FROM WORKING AND WILL DISABLE THEM.
+    NoBakedLines       = bitLShift(1, 2), -- Don't build anti-aliased line textures into the atlas (save a little texture memory). SINCE 1.93.0 THIS PREVENTS ANTI-ALIASED LINES FROM WORKING AND WILL DISABLE THEM.
+    NoBakedRoundCorners= bitLShift(1, 3), -- Don't build round corners into the atlas.
 }
 
 -- A cardinal direction
@@ -605,7 +606,7 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field CmdBuffer         ImVector<ImDrawCmd>
 --- @field IdxBuffer         ImVector<ImDrawIdx>
 --- @field VtxBuffer         ImVector<ImDrawVert>
---- @field Flags             ImDrawListFlags
+--- @field Flags             ImDrawFlags          # Current flags for drawing primitives. Alter with PushDrawFlag()/PopDrawFlag()
 --- @field _VtxCurrentIdx    unsigned_int         # 1-based, generally == (VtxBuffer.Size + 1)
 --- @field _Data             ImDrawListSharedData # Pointes to shared draw data
 --- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing vertex in VtxBuffer (see ImDrawVtxBuffer)
@@ -616,7 +617,10 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field _ClipRectStack    ImVector<ImVec4>
 --- @field _TextureStack     ImVector<ImTextureRef>
 --- @field _CallbacksDataBuf any
+--- @field _DrawFlagsStack   ImVector<ImDrawFlags>
 --- @field _FringeScale      float
+--- @field _InvFringeScale   float
+--- @field _FringeScaleIsInteger bool
 --- @field _OwnerName        string
 MT.ImDrawList = {}
 MT.ImDrawList.__index = MT.ImDrawList
@@ -670,8 +674,10 @@ function ImDrawList(data)
         _ClipRectStack = ImVector(), -- [Internal]
         _TextureStack  = ImVector(), -- [Internal]
         _CallbacksDataBuf = nil, -- [Internal]
-
-        _FringeScale = 0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content
+        _DrawFlagsStack = ImVector(), -- [Internal] ImSmallStack_<ImDrawFlags,3>: capacity checked by PushDrawFlag()
+        _FringeScale = 1.0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content -- [Luau] 1.0 instead of memset 0 so a list used before _SetPixelDensity() still works
+        _InvFringeScale = 1.0, -- [internal] 1.0 / _FringeScale // FIXME: Consider renaming to _PixelDensity.
+        _FringeScaleIsInteger = true, -- [Internal] true if 1/_FringeScale is a whole number, used to select fast path for rendering
         _OwnerName = nil -- Pointer to owner window's name for debugging
     }, MT.ImDrawList)
 
@@ -1281,8 +1287,10 @@ function ImGuiIO()
         ConfigDebugBeginReturnValueLoop = false, -- = false          -- Some calls to Begin()/BeginChild() will return false. Will cycle through window depths then repeat. Suggested use: add "io.ConfigDebugBeginReturnValue = io.KeyShift" in your main loop then occasionally press SHIFT. Windows should be flickering while running.
         -- Option to deactivate io.AddFocusEvent(false) handling.
         ConfigDebugIgnoreFocusLoss = false, -- = false          -- Ignore io.AddFocusEvent(false), consequently not calling io.ClearInputKeys()/io.ClearInputMouse() in input processing.
-        -- Option to default all ImDrawList to ImDrawListFlags_StrokeLegacy mode.
-        ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering. [Port] the 1.93 stroke rendering is not ported yet: no effect.
+        -- Option to compare < 1.93.0 rendering details vs 1.93.0 rendering details. (#9504)
+        -- - Equivalent to calling PushDrawFlag(ImDrawList_StrokeLegacy,true) on every draw list instances.
+        -- - Suggested use, e.g. io.ConfigDebugDrawListDefaultsToStrokeLegacy = io.KeyShift; // Map to SHIFT modifier
+        ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering.
 
         IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
         IniSavingRate = 5.0, -- = 5.0f           -- Minimum time between saving positions/sizes to .ini file, in seconds.
@@ -1717,35 +1725,90 @@ ImGuiNextItemDataFlags = {
 --- @enum ImDrawFlags
 ImDrawFlags = {
     None                    = 0,
-    -- - Rounding default to ImDrawFlags.RoundCornersAll when 'rounding > 0'.
-    -- - So you only need to use the ImDrawFlags.RoundCornersXXX flags if you want a special configuration (e.g. a rectangle with one rounded corner).
+    --ImDrawFlags_Closed                = 1,        // -> FLAG MOVED BELOW. Prior to 1.92.8 (May 2026): ImDrawFlags_Closed was guaranteed to be == (1<<0) == 1, for legacy compatibility reason. Hardcoded use of 1 or true should be replaced with 'ImDrawFlags_Closed'.
+
+    -- About usage of flags:
+    -- - "Prim" column:  'OK' = flag can be used to configure an individual AddXXX() call.
+    -- - "Scope" column: 'OK' = initialized by ImGui based on Style options (e.g. whether anti-aliased is enabled) + may be modified using ImDrawList::PushDrawFlag().
+    --                          OK(0)/OK(1) indicates whether this flag is set in the default ImGui Style settings.
+
+    -- - Rounding default to ImDrawFlags_RoundAll when 'rounding > 0'.
+    -- - So you only need to use the ImDrawFlags_RoundXXX flags if you want a special configuration (e.g. a rectangle with one rounded corner).
     -- Rounding for AddRectXXX(), PathRect() ------ -- Prim/Scope?
-    RoundCornersTopLeft     = bitLShift(1, 4), -- OK   --    -- Round top-left corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersTopRight    = bitLShift(1, 5), -- OK   --    -- Round top-right corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersBottomLeft  = bitLShift(1, 6), -- OK   --    -- Round bottom-left corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersBottomRight = bitLShift(1, 7), -- OK   --    -- Round bottom-right corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersNone        = bitLShift(1, 8), -- OK   --    -- Disable rounding even when 'rounding > 0.0f'. This value is NOT zero, it is NOT an implicit flag!
+    RoundTopLeft            = bitLShift(1, 4), -- OK   --    -- Round top-left corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundTopRight           = bitLShift(1, 5), -- OK   --    -- Round top-right corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundBottomLeft         = bitLShift(1, 6), -- OK   --    -- Round bottom-left corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundBottomRight        = bitLShift(1, 7), -- OK   --    -- Round bottom-right corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundNone               = bitLShift(1, 8), -- OK   --    -- Disable rounding even when 'rounding > 0.0f'. This value is NOT zero, it is NOT an implicit flag!
+
     -- Stroke Options ----------------------------- -- Prim/Scope?
-    Closed                  = bitLShift(1, 9) -- OK   --     -- PathStroke(), AddPolyline(): specify that shape should be closed.
+    Closed                  = bitLShift(1, 9),  -- OK   --     -- PathStroke(), AddPolyline(): specify that shape should be closed.
+    JoinMiter               = bitLShift(1, 10), -- OK   --     -- PathStroke(), AddPolyline(): use miter joins/corners only. This assumes that the input polyline does not have corners sharper than 90 degrees. Slightly faster.
+    CapSquare               = bitLShift(1, 11), -- OK   --     -- PathStroke(), AddPolyline(): use square cap line ends.
+
+    -- About Stroke Ends:
+    -- - Rendering is optimized for fast pixel-perfect UI, so line ends are not anti-aliased by default. It's cheaper (we can emit less vertices).
+    -- - For more free-form drawings, light graphs and markers, or when using thick strokes: you can turn them on using the ImDrawFlags_AALineEnds flag.
+    -- - See 'Demo->Examples->Custom Rendering' to interactively toy with those flags.
+    -- - 'OK*' indicates using this at the AddXXX() call site is unlikely: it would only makes sense if (1) the option is disabled in style/scope and (2) you want to forcefully enable it for a single primitives. Possible but unlikely! Only supported for functions taking flags inputs.
+    -- Stroke/Fill Anti-aliasing ------------------ -- Prim/Scope?
+    AAFill                  = bitLShift(1, 12), -- OK*  OK(1)  -- Enable anti-aliasing for Filled shapes.
+    AALines                 = bitLShift(1, 13), -- OK*  OK(1)  -- Enable anti-aliasing for Strokes (lines, borders).
+    AALineEnds              = bitLShift(1, 14), -- OK   OK(0)  -- Enable anti-aliasing for Strokes Ends. Requires AALines to also be enabled. Useful on thick strokes or for precise continuity of multiple lines. A little more costly.
+    --ImDrawFlags_NoAA                  = 1 << 15,  // OK   --     // Disable anti-aliasing for a given primitive.
+    --ImDrawFlags_NoAALineEnds          = 1 << 16,  // OK   --     // Disable anti-aliasing ends for a given primitive.
+
+    -- About Stroke Position:
+    -- - Read https://github.com/ocornut/imgui/wiki/Draw-List (this guide includes a precise list of differences between 1.92.9 and 1.93.0)
+    -- - Read https://github.com/ocornut/imgui/wiki/Pixel-Perfect-Rendering
+    -- Stroke Position relative to shape outline -- -- Prim/Scope?
+    StrokeInside            = bitLShift(1, 17), -- OK   --     -- Draw stroke inside of the shape outline (default for closed shapes and AddLineH, AddLineV functions)
+    StrokeCenter            = bitLShift(2, 17), -- OK   --     -- Draw stroke at the center of the shape outline (default for paths, bezier, and AddLine functions)
+    StrokeCenterBiased      = bitLShift(3, 17), -- OK   --     -- Draw stroke at the center of the shape outline, so that half thickness rounded down will be outside, and the rest inside the shape outline. Useful for axis-aligned shapes: AddLineH, AddLineV, AddRect. Does not animate well!
+    StrokeOutside           = bitLShift(4, 17), -- OK   --     -- Draw stroke outside of the shape outline
+    StrokeLegacy            = bitLShift(7, 17), -- OK   OK(0)  -- Use legacy positioning + enable JoinMiter + disable AALineEnds. Must be all bits set.
+
+    -- Other Options ------------------------------ -- Prim/Scope?
+    TextNoPixelSnap         = bitLShift(1, 20), -- OK   OK(0)  -- Disable automatically snapping AddText() calls to pixel boundaries.
+    UseTexForRoundCorners   = bitLShift(1, 21), -- --   OK(1)  -- Enable using textures instead of strokes to draw rounded corners/circles where possible (faster). Used by default unless 'ImFontAtlasFlags_NoBakedRoundCorners' is enabled in the font atlas.
+    UseVtxOffset            = bitLShift(1, 22), -- --   OK(1)  -- Can emit 'VtxOffset > 0' to allow large meshes with 16-bit ImDrawIdx. Used by default when 'ImGuiBackendFlags_RendererHasVtxOffset' is enabled by the backend.
+    AllowTexForRoundCorners_= bitLShift(1, 23), -- --   OK(1)  -- [Internal]
 }
+ImDrawFlags.RoundAll                = bitOr(ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight, ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundBottomRight) -- (Default!!)
+ImDrawFlags.RoundTop                = bitOr(ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight)
+ImDrawFlags.RoundBottom             = bitOr(ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundBottomRight)
+ImDrawFlags.RoundLeft               = bitOr(ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundTopLeft)
+ImDrawFlags.RoundRight              = bitOr(ImDrawFlags.RoundBottomRight, ImDrawFlags.RoundTopRight)
 
-ImDrawFlags.RoundCornersTop      = bitOr(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersTopRight)
-ImDrawFlags.RoundCornersBottom   = bitOr(ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersBottomRight)
-ImDrawFlags.RoundCornersLeft     = bitOr(ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersTopLeft)
-ImDrawFlags.RoundCornersRight    = bitOr(ImDrawFlags.RoundCornersBottomRight, ImDrawFlags.RoundCornersTopRight)
-ImDrawFlags.RoundCornersAll      = bitOr(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersTopRight, ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersBottomRight) -- (Default!!)
-ImDrawFlags.RoundCornersDefault_ = ImDrawFlags.RoundCornersAll
-ImDrawFlags.RoundCornersMask_    = bitOr(ImDrawFlags.RoundCornersAll, ImDrawFlags.RoundCornersNone) -- [Internal]
-ImDrawFlags.InvalidMask_         = 0x8000000F -- [Internal] == 0x8000000F. Reserved to detect misuses.
+-- [Internal]
+ImDrawFlags.RoundMask_              = bitOr(ImDrawFlags.RoundAll, ImDrawFlags.RoundNone) -- [Internal]
+ImDrawFlags.AllowInPushScope_       = bitOr(ImDrawFlags.AAFill, ImDrawFlags.AALines, ImDrawFlags.AALineEnds, ImDrawFlags.StrokeLegacy, ImDrawFlags.TextNoPixelSnap, ImDrawFlags.UseTexForRoundCorners, ImDrawFlags.UseVtxOffset, ImDrawFlags.RoundMask_) -- [Internal] Values allowed in PushDrawFlag() scope.
+ImDrawFlags.AllowInFrameScope_      = bitOr(ImDrawFlags.AllowInPushScope_, ImDrawFlags.AllowTexForRoundCorners_)
+ImDrawFlags.StrokeMask_             = bitLShift(0x07, 17)    -- [Internal]
+ImDrawFlags.InvalidMask_            = 0x8000000F             -- [Internal] == ~0x7FFFFFF0 == 0x8000000F. Reserved to detect misuses.
 
+-- Obsolete names
+-- RENAMED in 1.93.0 (Oct 2026): ImDrawFlags_RoundCornersXXXX -> ImDrawFlags_RoundXXXX.
+ImDrawFlags.RoundCornersTopLeft     = ImDrawFlags.RoundTopLeft
+ImDrawFlags.RoundCornersTopRight    = ImDrawFlags.RoundTopRight
+ImDrawFlags.RoundCornersBottomLeft  = ImDrawFlags.RoundBottomLeft
+ImDrawFlags.RoundCornersBottomRight = ImDrawFlags.RoundBottomRight
+ImDrawFlags.RoundCornersNone        = ImDrawFlags.RoundNone
+ImDrawFlags.RoundCornersAll         = ImDrawFlags.RoundAll
+ImDrawFlags.RoundCornersTop         = ImDrawFlags.RoundTop
+ImDrawFlags.RoundCornersBottom      = ImDrawFlags.RoundBottom
+ImDrawFlags.RoundCornersLeft        = ImDrawFlags.RoundLeft
+ImDrawFlags.RoundCornersRight       = ImDrawFlags.RoundRight
+
+-- -- RENAMED in 1.93.0: Merged ImDrawListFlags into ImDrawFlags.
 --- @enum ImDrawListFlags
 ImDrawListFlags = {
-    None                   = 0,
-    AntiAliasedLines       = bitLShift(1, 0),
-    AntiAliasedLinesUseTex = bitLShift(1, 1),
-    AntiAliasedFill        = bitLShift(1, 2),
-    AllowVtxOffset         = bitLShift(1, 3),
-    TextNoPixelSnap        = bitLShift(1, 4)
+    None                   = ImDrawFlags.None,
+    AntiAliasedFill        = ImDrawFlags.AAFill,
+    AntiAliasedLines       = ImDrawFlags.AALines,
+    AntiAliasedLinesUseTex = ImDrawFlags.AALines, -- No effect, anti-aliased rendering always uses textures from 1.93+
+    AllowVtxOffset         = ImDrawFlags.UseVtxOffset,
+    TextNoPixelSnap        = ImDrawFlags.TextNoPixelSnap,
 }
 
 -- Font flags

@@ -2023,14 +2023,14 @@ function ImGui.BeginCombo(label, preview_value, flags)
     ImGui.RenderNavCursor(bb, id)
 
     if bit32.band(flags, ImGuiComboFlags.NoPreview) == 0 then
-        window.DrawList:AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (bit32.band(flags, ImGuiComboFlags.NoArrowButton) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersLeft)
+        window.DrawList:AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (bit32.band(flags, ImGuiComboFlags.NoArrowButton) ~= 0) and ImDrawFlags.RoundAll or ImDrawFlags.RoundLeft)
     end
 
     if bit32.band(flags, ImGuiComboFlags.NoArrowButton) == 0 then
         local bg_col = ImGui.GetColorU32((popup_open or hovered) and ImGuiCol.ButtonHovered or ImGuiCol.Button)
         local text_col = ImGui.GetColorU32(ImGuiCol.Text)
 
-        window.DrawList:AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersRight)
+        window.DrawList:AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and ImDrawFlags.RoundAll or ImDrawFlags.RoundRight)
 
         if value_x2 + arrow_size - style.FramePadding.x <= bb.Max.x then
             ImGui.RenderArrow(window.DrawList, ImVec2(value_x2 + style.FramePadding.y, bb.Min.y + style.FramePadding.y), text_col, ImGuiDir.Down, 1.0)
@@ -7205,11 +7205,11 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
     if bit32.band(flags, ImGuiColorEditFlags.AlphaPreviewHalf) ~= 0 and col_rgb.w < 1.0 then
         local mid_x = IM_ROUND((bb_inner.Min.x + bb_inner.Max.x) * 0.5)
         if bit32.band(flags, ImGuiColorEditFlags.AlphaNoBg) == 0 then
-            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), grid_step, ImVec2(-grid_step + off, off), rounding, ImDrawFlags.RoundCornersRight)
+            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), grid_step, ImVec2(-grid_step + off, off), rounding, ImDrawFlags.RoundRight)
         else
-            window.DrawList:AddRectFilled(ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), rounding, ImDrawFlags.RoundCornersRight)
+            window.DrawList:AddRectFilled(ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), rounding, ImDrawFlags.RoundRight)
         end
-        window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, ImDrawFlags.RoundCornersLeft)
+        window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, ImDrawFlags.RoundLeft)
     else
         -- Because GetColorU32() multiplies by the global style Alpha and we don't want to display a checkerboard if the source code had no alpha
         local col_source = (bit32.band(flags, ImGuiColorEditFlags.AlphaOpaque) ~= 0) and col_rgb_without_alpha or col_rgb
@@ -11899,7 +11899,7 @@ function ImGui.TabItemBackground(draw_list, bb, flags, col)
     local rounding = ImMax(0.0, ImMin(bit32.band(flags, ImGuiTabItemFlags.Button) ~= 0 and g.Style.FrameRounding or g.Style.TabRounding, width * 0.5 - 1.0))
     local y1 = bb.Min.y + 1.0 -- Leave a bit of room in title bars.
     local y2 = bb.Max.y - g.Style.TabBarBorderSize
-    draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, ImDrawFlags.RoundCornersTop)
+    draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, ImDrawFlags.RoundTop)
     if g.Style.TabBorderSize > 0.0 then
         draw_list:PathLineTo(ImVec2(bb.Min.x, y2))
         draw_list:PathArcToFast(ImVec2(bb.Min.x + rounding, y1 + rounding), rounding, 6, 9)

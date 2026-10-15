@@ -258,6 +258,12 @@ end
 
 function IM_ROUNDUP_TO_EVEN(n) return (ImCeil((n) / 2) * 2) end
 function ImRsqrt(x)            return (1 / ImSqrt(x))       end
+-- Converge to more precise solution using single step of Newton-Raphson method, repeating increases precision
+function ImRsqrtPrecise(x)     return (1 / ImSqrt(x))       end -- [Luau] non-SSE upstream variant
+
+function ImIsTruncated(x) return x % 1 == 0 end -- (float)(int)x == x
+-- Returns true if all parameters are whole numbers.
+function ImIsTruncated4(x, y, z, w) return x % 1 == 0 and y % 1 == 0 and z % 1 == 0 and w % 1 == 0 end
 
 function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
@@ -508,6 +514,13 @@ IMGUI_WINDOW_HARD_MIN_SIZE = 4.0
 -- ImDrawList: Lookup tables
 IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48 -- Number of samples in adaptive arc drawing lookup table.
 IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE -- Sample index _PathArcToFastEx() for 360 angle.
+
+IM_DRAWLIST_TEX_LINES_WIDTH_MAX       = 32 -- The maximum line width to bake anti-aliased textures for.
+IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH  = 4  -- Calculate detailed textures for width [1..IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH]
+IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT    = 4  -- How many samples per integer thickness level.
+IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX  = 16
+IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX = 4  -- 0: fill, 1-3: strokes thickness
+IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = ((IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH - 1) * IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT + 1)
 
 -- Macros used by Recoverable Error handling
 -- - Only dispatch error if _EXPR: evaluate as assert (similar to an assert macro).
@@ -1013,7 +1026,7 @@ end
 -- Stateful path API, add points then finish with PathFillConvex() or PathStroke()
 -- - Important: filled shapes must always use clockwise winding order! The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
 --   so e.g. 'PathArcTo(center, radius, PI * -0.5, PI)' is ok, whereas 'PathArcTo(center, radius, PI, PI * -0.5)' won't have correct anti-aliasing when followed by PathFillConvex().
-function MT.ImDrawList:PathClear() self._Path:clear() end
+function MT.ImDrawList:PathClear() self._Path.Size = 0 end
 
 --- @param pos ImVec2
 @native
@@ -1034,9 +1047,11 @@ function MT.ImDrawList:PathLineToMergeDuplicate(pos)
     end
 end
 
+--- @param col    ImU32
+--- @param flags? ImDrawFlags
 @native
-function MT.ImDrawList:PathFillConvex(col)
-    self:AddConvexPolyFilled(self._Path.Data, self._Path.Size, col)
+function MT.ImDrawList:PathFillConvex(col, flags)
+    self:AddConvexPolyFilled(self._Path.Data, self._Path.Size, col, flags)
     self._Path.Size = 0
 end
 
@@ -1047,8 +1062,21 @@ function MT.ImDrawList:PathStroke(col, thickness, flags)
     if not thickness then thickness = 1.0 end
     if not flags     then flags     = 0   end
 
-    self:AddPolyline(self._Path.Data, self._Path.Size, col, thickness, flags)
+    self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, flags, FLT_MAX)
     self._Path.Size = 0
+end
+
+-- General polygon
+-- - Only simple polygons are supported by filling functions (no self-intersections, no holes).
+-- - Concave polygon fill is more expensive than convex one: it has O(N^2) complexity. Provided as a convenience for the user but not used by the main library.
+--- @param points     ImVec2[] # 1-based
+--- @param num_points int
+--- @param col        ImU32
+--- @param thickness  float
+--- @param flags?     ImDrawFlags
+function MT.ImDrawList:AddPolyline(points, num_points, col, thickness, flags)
+    if not flags then flags = 0 end
+    self:_AddPolyline(points, num_points, col, thickness, flags, FLT_MAX)
 end
 
 --- @param col ImU32
@@ -1068,15 +1096,15 @@ end
 -- You may want to create your own instance of you try to ImDrawList completely without ImGui. In that case, watch out for future changes to this structure.
 --- @class ImDrawListSharedData
 --- @field TexUvWhitePixel       ImVec2 # UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
---- @field TexUvLines            ImVec4[] # UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+--- @field TexUvLines            ImVec4[] # 0-based. UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+--- @field TexUvCorners          ImVec4[] # 0-based. UV of rounded corner (== FontAtlas->Builder->TexUvCorners)
 --- @field FontAtlas             ImFontAtlas # Current font atlas
 --- @field Font                  ImFont # Current font (used for simplified AddText overload)
 --- @field FontSize              float # Current font size (used for simplified AddText overload)
 --- @field FontScale             float # Current font scale (== FontSize / Font->FontSize)
---- @field CurveTessellationTol  float
+--- @field CurveTessellationMaxError float # Tessellation tolerance when using PathBezierCurveTo()
 --- @field CircleTessellationMaxError float # Number of circle segments to use per pixel of radius for AddCircle() etc
---- @field InitialFringeScale    float
---- @field InitialFlags          ImDrawListFlags
+--- @field InitialDrawFlags      ImDrawFlags # Initial flags at the beginning of the frame (it is possible to alter flags on a per-drawlist basis afterwards)
 --- @field ClipRectFullscreen?   ImVec4 # Value for PushClipRectFullscreen()
 --- @field TempBuffer            ImVector<ImVec2> # Temporary write buffer
 --- @field DrawLists             ImVector<ImDrawList> # All draw lists associated to this ImDrawListSharedData
@@ -1093,17 +1121,16 @@ function ImDrawListSharedData()
     local this = setmetatable({
         TexUvWhitePixel = nil, -- UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
         TexUvLines      = nil, -- UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+        TexUvCorners    = nil, -- UV of rounded corner (== FontAtlas->Builder->TexUvCorners)
         FontAtlas       = nil, -- Current font atlas
 
         Font      = nil, -- Current font (used for simplified AddText overload)
         FontSize  = 0,   -- Current font size (used for simplified AddText overload)
         FontScale = 0,   -- Current font scale (== FontSize / Font->FontSize)
 
-        CurveTessellationTol  = 0,
+        CurveTessellationMaxError  = 0, -- Tessellation tolerance when using PathBezierCurveTo()
         CircleTessellationMaxError = 0, -- Number of circle segments to use per pixel of radius for AddCircle() etc
-        InitialFringeScale    = 1,
-
-        InitialFlags          = 0,
+        InitialDrawFlags      = 0, -- Initial flags at the beginning of the frame (it is possible to alter flags on a per-drawlist basis afterwards)
         ClipRectFullscreen    = nil, -- Value for PushClipRectFullscreen()
         TempBuffer            = ImVector(ImVec2), -- Temporary write buffer
         DrawLists             = ImVector(), -- All draw lists associated to this ImDrawListSharedData
@@ -1146,6 +1173,10 @@ end
 --- @field BakedDiscardedCount      int
 --- @field PackIdMouseCursors       ImFontAtlasRectId
 --- @field PackIdLinesTexData       ImFontAtlasRectId
+--- @field PackIdLineFractTexData   ImFontAtlasRectId
+--- @field PackIdCornersTexData     ImFontAtlasRectId
+--- @field TexUvLines               ImVec4[] # 0-based. UVs for baked anti-aliased lines (u0, u1, v, 1/thickness)
+--- @field TexUvCorners             ImVec4[] # 0-based. UVs for baked anti-aliased corners (0= fill, 1> stroke thickness)
 MT.ImFontAtlasBuilder = {}
 MT.ImFontAtlasBuilder.__index = MT.ImFontAtlasBuilder
 
@@ -1178,6 +1209,14 @@ function ImFontAtlasBuilder()
     -- Custom rectangle identifiers
     this.PackIdMouseCursors = -1 -- White pixel + mouse cursors. Also happen to be fallback in case of packing failure.
     this.PackIdLinesTexData = -1
+    this.PackIdLineFractTexData = -1
+    this.PackIdCornersTexData = -1
+
+    -- Cached UV coordinates
+    this.TexUvLines   = {} -- [IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1 + IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT] UVs for baked anti-aliased lines (u0, u1, v, 1/thickness) -- 0-based
+    this.TexUvCorners = {} -- [IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX * IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX] UVs for baked anti-aliased corners (0= fill, 1> stroke thickness) -- 0-based
+    for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX + IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT do this.TexUvLines[n] = ImVec4() end
+    for n = 0, IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX * IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX - 1 do this.TexUvCorners[n] = ImVec4() end
 
     return this
 end
@@ -1526,11 +1565,10 @@ function ImGuiStyle()
         DisplayWindowPadding = ImVec2(19, 19), -- Window position are clamped to be visible within the display area or monitors by at least this amount. Only applies to regular windows.
 
         -- Rendering & Tessellation
-        AntiAliasedLines = true, -- Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedLines in all draw-lists.
-        AntiAliasedLinesUseTex = true, -- Enable anti-aliased lines/borders using textures for legacy strokes. Require backend to render with bilinear filtering (NOT point/nearest filtering).
-        AntiAliasedFill = true, -- Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedFill in all draw-lists.
-
-        CurveTessellationTol       = 1.25, -- Tessellation tolerance when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
+        AntiAliasedLines            = true, -- Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawFlags_AALines in all draw-lists.
+        AntiAliasedLineEnds         = false, -- Enable anti-aliased lines/borders ends. Nicer for thick lines but more expensive. Used at the beginning of the frame to set ImDrawFlags_AALineEnds in all draw-lists.
+        AntiAliasedFill             = true, -- Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Used at the beginning of the frame to set ImDrawFlags_AAFill in all draw-lists.
+        CurveTessellationMaxError   = 1.12, -- Maximum error (in pixels) when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
         CircleTessellationMaxError = 0.30, -- Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
 
         -- Behaviors
@@ -1583,7 +1621,11 @@ function ImGuiStyle()
 
         -- [Internal]
         _MainScale = 1.0,
-        _NextFrameFontSizeBase = 0.0
+        _NextFrameFontSizeBase = 0.0,
+
+        -- Obsolete names (#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+        CurveTessellationTol        = 0.0, -- [OBSOLETE] Old CurveTessellationTol = CurveTessellationMaxError*CurveTessellationMaxError.
+        AntiAliasedLinesUseTex      = true, -- [OBSOLETE] Enable anti-aliased lines/borders using textures for legacy strokes. Require backend to render with bilinear filtering (NOT point/nearest filtering).
     }
 
     -- Default theme

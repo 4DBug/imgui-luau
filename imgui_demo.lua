@@ -8972,14 +8972,10 @@ function ImGui.ShowStyleEditor(ref)
             _, io.ConfigDebugDrawListDefaultsToStrokeLegacy = ImGui.Checkbox("Debug: DrawList Defaults to _StrokeLegacy", io.ConfigDebugDrawListDefaultsToStrokeLegacy)
 
             ImGui.PushItemWidth(ImGui.GetFontSize() * 8)
-            -- [Port] the library still stores the older style.CurveTessellationTol (== MaxError * MaxError) instead of style.CurveTessellationMaxError
-            local curve_tessellation_max_error
-            curve_tessellation_max_error, changed = ImGui.DragFloat("Curve Tessellation Max Error", math.sqrt(style.CurveTessellationTol), 0.02, 0.10, 10.0, "%.2f")
-            if curve_tessellation_max_error < 0.10 then
-                curve_tessellation_max_error = 0.10
-                changed = true
+            style.CurveTessellationMaxError = ImGui.DragFloat("Curve Tessellation Max Error", style.CurveTessellationMaxError, 0.02, 0.10, 10.0, "%.2f")
+            if style.CurveTessellationMaxError < 0.10 then
+                style.CurveTessellationMaxError = 0.10
             end
-            if changed then style.CurveTessellationTol = curve_tessellation_max_error * curve_tessellation_max_error end -- [Port] only write back on change (sqrt/square round-trip is not exact)
 
             -- When editing the "Circle Segment Max Error" value, draw a preview of its effect on auto-tessellated circles.
             style.CircleTessellationMaxError = ImGui.DragFloat("Circle Tessellation Max Error", style.CircleTessellationMaxError, 0.005, 0.10, 5.0, "%.2f", ImGuiSliderFlags.AlwaysClamp)
@@ -10523,7 +10519,7 @@ function ShowExampleAppCustomRendering(p_open)
             local start_pos = ImGui.GetCursorScreenPos()
             local pi = 3.141592
             local step = sz + 10.0
-            local corners_tl_br = bit32.bor(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersBottomRight) -- [Port] 1.92 names (upstream ImDrawFlags_RoundTopLeft/RoundBottomRight)
+            local corners_tl_br = bit32.bor(ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundBottomRight)
             local half_sz = sz * 0.5
             local circle_segments = s.circle_segments_override and s.circle_segments_override_v or 0
             local curve_segments = s.curve_segments_override and s.curve_segments_override_v or 0
