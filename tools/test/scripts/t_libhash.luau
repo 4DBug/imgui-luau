@@ -57,7 +57,7 @@ game:GetService("RunService").Stepped:Connect(function()
     for i, th in { 1.0, 2.5, 6.0 } do
         local yy = y + (i - 1) * 70
         dl:AddRect(ImVec2(x, yy), ImVec2(x + 50, yy + 50), col, 10.0, th)
-        dl:AddRectFilled(ImVec2(x + 60, yy), ImVec2(x + 110, yy + 50), col, 10.0, G.ImDrawFlags.RoundCornersTopLeft or 0)
+        dl:AddRectFilled(ImVec2(x + 60, yy), ImVec2(x + 110, yy + 50), col, 10.0, G.ImDrawFlags.RoundTopLeft or G.ImDrawFlags.RoundCornersTopLeft) -- RoundCornersTopLeft: pre-1.93 revs (hashes.sh)
         dl:AddCircle(ImVec2(x + 145, yy + 25), 25, col, 0, th)
         dl:AddNgon(ImVec2(x + 200, yy + 25), 25, col, 6, th)
         dl:AddTriangle(ImVec2(x + 230, yy + 50), ImVec2(x + 255, yy), ImVec2(x + 280, yy + 50), col, th)

@@ -138,7 +138,7 @@ if not utf8 then
 end
 
 
-local ImGui, ImVec2, ImVec4, ImRect, HelpMarker, ImVec2_Copy, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImGuiInputFlags, ImRect_Copy, ImVec2_CopyV, ImGuiDataType, ImStb, IM_TRUNC, ImGuiStyleVarInfo, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImFormatString, ImHashStr, ImS32, IM_ASSERT_USER_ERROR_RET, ImGuiColorEditFlags, ImDrawFlags, ImIsPowerOfTwo, ImVec4_Copy, ExampleAppConsoleMT, IM_ROUND, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, ImAbs, ImU16, ExampleNames, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImColor, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiLocKey, ImU32, ExampleTreeFuncs, ImCos, ImGuiListClipper, ImS16, ImGuiMultiSelectFlags, ImGuiTabBarFlags, ImSin, ImUpperPowerOfTwo, ImVec2_MulVX, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, DockSettingsRenameNodeReferences, ExampleDualListBoxMT, IM_ASSERT_PARANOID, ImCeil, ImGuiCol, ImGuiSelectionBasicStorage, ImLengthSqr, ImS8, ImU8, _PathArcToFastExXY, ExampleAppPropertyEditorMT, ImFabs, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ImLog, ExampleSelectionWithDeletionMT, CustomConstraints, ExampleAppLogMT, IMGUI_DEBUG_LOG_FONT, ImFontAtlasBuildInit, ImGuiComboFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, ImVec2_AddVA, ImVec2_SubVA, MyDocument, ShowExampleMenuFile, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleAsset_s_current_sort_specs, ExampleMemberInfo, ExampleTree_CreateNode, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroyOutput, ImFontAtlasFontSourceAddToFont, ImFontAtlasFontSourceInit, ImFontAtlasTextureAdd, ImGuiTableColumn, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, IM_FREE, ImDrawListSplitter, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumnFlags, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND, STB_TEXTEDIT_K_TEXTSTART, STB_TEXTEDIT_K_UNDO
+local ImGui, ImVec2, ImVec4, ImRect, HelpMarker, ImVec2_Copy, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImDrawFlags, ImGuiInputFlags, ImRect_Copy, ImVec2_CopyV, ImGuiDataType, ImStb, IM_TRUNC, ImGuiStyleVarInfo, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImFormatString, IM_ASSERT_USER_ERROR_RET, ImHashStr, ImS32, ImGuiColorEditFlags, ImIsPowerOfTwo, ImVec4_Copy, ExampleAppConsoleMT, IM_ROUND, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, ImAbs, ImU16, ExampleNames, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImColor, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiLocKey, ImU32, ExampleTreeFuncs, ImCos, ImGuiListClipper, ImS16, ImGuiMultiSelectFlags, ImGuiTabBarFlags, ImSin, ImUpperPowerOfTwo, ImVec2_MulVX, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, DockSettingsRenameNodeReferences, ExampleDualListBoxMT, IM_ASSERT_PARANOID, ImCeil, ImGuiCol, ImGuiSelectionBasicStorage, ImLengthSqr, ImS8, ImU8, _PathArcToFastExXY, ExampleAppPropertyEditorMT, ImFabs, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ImLog, ExampleSelectionWithDeletionMT, CustomConstraints, ExampleAppLogMT, IMGUI_DEBUG_LOG_FONT, ImFontAtlasBuildInit, ImGuiComboFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, ImVec2_AddVA, ImVec2_SubVA, MyDocument, ShowExampleMenuFile, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleAsset_s_current_sort_specs, ExampleMemberInfo, ExampleTree_CreateNode, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroyOutput, ImFontAtlasFontSourceAddToFont, ImFontAtlasFontSourceInit, ImFontAtlasTextureAdd, ImGuiTableColumn, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, IM_FREE, ImDrawListSplitter, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumnFlags, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND, STB_TEXTEDIT_K_TEXTSTART, STB_TEXTEDIT_K_UNDO
 local type, mathMin, mathMax, mathFloor, mathCeil, bitOr, bitLShift = type, math.min, math.max, math.floor, math.ceil, bit32.bor, bit32.lshift
 local function IM_COL32(R, G, B, A) return (bitOr(bitLShift(A, 24 --[[IM_COL32_A_SHIFT]]), bitLShift(B, 16 --[[IM_COL32_B_SHIFT]]), bitLShift(G, 8 --[[IM_COL32_G_SHIFT]]), bitLShift(R, 0 --[[IM_COL32_R_SHIFT]]))) end
 
@@ -10698,7 +10698,7 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
                 if window.DockIsActive then
                     bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
                 else
-                    bg_rounding_flags = (bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) ~= 0) and 240 --[[ImDrawFlags.RoundCornersAll]] or 192 --[[ImDrawFlags.RoundCornersBottom]]
+                    bg_rounding_flags = (bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) ~= 0) and 240 --[[ImDrawFlags.RoundAll]] or 192 --[[ImDrawFlags.RoundBottom]]
                 end
                 local bg_draw_list = window.DockIsActive and window.DockNode.HostWindow.DrawList or window.DrawList
                 if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(0) end
@@ -10713,14 +10713,14 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
         -- in order for their pos/size to be matching their undocking state.)
         if bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) == 0 and not window.DockIsActive then
             local title_bar_col = ImGui.GetColorU32(title_bar_is_highlight and 11 --[[ImGuiCol.TitleBgActive]] or 10 --[[ImGuiCol.TitleBg]])
-            window.DrawList:AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, window_rounding, 48 --[[ImDrawFlags.RoundCornersTop]])
+            window.DrawList:AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, window_rounding, 48 --[[ImDrawFlags.RoundTop]])
         end
 
         -- Menu bar
         if bit32.band(flags, 1024 --[[ImGuiWindowFlags.MenuBar]]) ~= 0 then
             local menu_bar_rect = window:MenuBarRect()
             menu_bar_rect:ClipWith(window:Rect()) -- Soft clipping, in particular child window don't have minimum size covering the menu bar so this is useful for them.
-            window.DrawList:AddRectFilled(menu_bar_rect.Min, menu_bar_rect.Max, ImGui.GetColorU32(13 --[[ImGuiCol.MenuBarBg]]), (bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) ~= 0) and window_rounding or 0.0, 48 --[[ImDrawFlags.RoundCornersTop]])
+            window.DrawList:AddRectFilled(menu_bar_rect.Min, menu_bar_rect.Max, ImGui.GetColorU32(13 --[[ImGuiCol.MenuBarBg]]), (bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) ~= 0) and window_rounding or 0.0, 48 --[[ImDrawFlags.RoundTop]])
             if style.FrameBorderSize > 0.0 and menu_bar_rect.Max.y < window.Pos.y + window.Size.y then
                 window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size * 0.5, menu_bar_rect.Max.x - window_border_size * 0.5, menu_bar_rect.Max.y, ImGui.GetColorU32(5 --[[ImGuiCol.Border]]), style.FrameBorderSize)
             end
@@ -12605,6 +12605,7 @@ function ImGui.Begin(name, open, flags)
 
         -- Setup draw list and outer clipping rectangle
         assert(window.DrawList.CmdBuffer.Size == 1 and window.DrawList.CmdBuffer.Data[1].ElemCount == 0)
+        window.DrawList:_SetPixelDensity(window.Viewport.FramebufferScale.x)
         window.DrawList:PushTexture(g.Font.OwnerAtlas.TexRef)
         ImGui.PushClipRect(host_rect.Min, host_rect.Max, false)
 
@@ -13699,22 +13700,30 @@ local function SetupDrawListSharedData()
         virtual_space:Add(viewport:GetMainRect())
     end
     g.DrawListSharedData.ClipRectFullscreen = virtual_space:ToVec4()
-    g.DrawListSharedData.CurveTessellationTol = g.Style.CurveTessellationTol
+    g.DrawListSharedData.CurveTessellationMaxError = g.Style.CurveTessellationMaxError
     g.DrawListSharedData:SetCircleTessellationMaxError(g.Style.CircleTessellationMaxError)
-    g.DrawListSharedData.InitialFlags = 0 --[[ImDrawListFlags.None]]
-    if g.Style.AntiAliasedLines then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, 1 --[[ImDrawListFlags.AntiAliasedLines]])
-    end
-    if g.Style.AntiAliasedLinesUseTex and not bit32.band(g.IO.Fonts.Flags, 4 --[[ImFontAtlasFlags.NoBakedLines]]) then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, 2 --[[ImDrawListFlags.AntiAliasedLinesUseTex]])
+    g.DrawListSharedData.InitialDrawFlags = 0 --[[ImDrawFlags.None]]
+    if bit32.band(g.IO.Fonts.Flags, 4 --[[ImFontAtlasFlags.NoBakedLines]]) ~= 0 then
+        g.Style.AntiAliasedLines = false; g.Style.AntiAliasedLineEnds = false
     end
     if g.Style.AntiAliasedFill then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, 4 --[[ImDrawListFlags.AntiAliasedFill]])
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 4096 --[[ImDrawFlags.AAFill]])
     end
-    if bit32.band(g.IO.BackendFlags, 8 --[[ImGuiBackendFlags.RendererHasVtxOffset]]) then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, 8 --[[ImDrawListFlags.AllowVtxOffset]])
+    if g.Style.AntiAliasedLines then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 8192 --[[ImDrawFlags.AALines]])
     end
-    g.DrawListSharedData.InitialFringeScale = 1.0
+    if g.Style.AntiAliasedLineEnds then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 16384 --[[ImDrawFlags.AALineEnds]])
+    end
+    if g.IO.ConfigDebugDrawListDefaultsToStrokeLegacy then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 917504 --[[ImDrawFlags.StrokeLegacy]])
+    end
+    if bit32.band(g.IO.Fonts.Flags, 8 --[[ImFontAtlasFlags.NoBakedRoundCorners]]) == 0 then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 2097152 --[[ImDrawFlags.UseTexForRoundCorners]], 8388608 --[[ImDrawFlags.AllowTexForRoundCorners_]])
+    end
+    if bit32.band(g.IO.BackendFlags, 8 --[[ImGuiBackendFlags.RendererHasVtxOffset]]) ~= 0 then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, 4194304 --[[ImDrawFlags.UseVtxOffset]])
+    end
 end
 
 --- @param viewport ImGuiViewportP
@@ -13823,6 +13832,7 @@ local function GetViewportBgFgDrawList(viewport, drawlist_no, drawlist_name)
     -- Our ImDrawList system requires that there is always a command
     if viewport.BgFgDrawListsLastTimeActive[drawlist_no] ~= g.Time then
         draw_list:_ResetForNewFrame()
+        draw_list:_SetPixelDensity(viewport.FramebufferScale.x)
         draw_list:PushTexture(g.IO.Fonts.TexRef)
         draw_list:PushClipRect(viewport.Pos, viewport.Pos + viewport.Size, false)
         viewport.BgFgDrawListsLastTimeActive[drawlist_no] = g.Time
@@ -13943,6 +13953,13 @@ function ImGui.NewFrame()
     local g = GImGui
 
     g.ConfigFlagsLastFrame = g.ConfigFlagsCurrFrame
+    -- [Luau] ErrorCheckNewFrameSanityChecks() is not ported; only the parts below are inlined.
+    assert(g.Style.CurveTessellationMaxError > 0.0, "Invalid style setting!")
+    -- Remap legacy CurveTessellationTol into CurveTessellationMaxError (OBSOLETED in 1.93.0, August 2026)
+    if g.Style.CurveTessellationTol ~= 0.0 then
+        g.Style.CurveTessellationMaxError = ImSqrt(g.Style.CurveTessellationTol)
+    end
+    g.Style.CurveTessellationTol = 0.0
     g.ConfigFlagsCurrFrame = g.IO.ConfigFlags
 
     -- Load settings on first frame, save settings when modified (after a delay)
@@ -18455,6 +18472,13 @@ function ImGui.AddUpdateViewport(window, id, pos, size, flags)
     viewport.LastFrameActive = g.FrameCount
     viewport:UpdateWorkRect()
     assert(window == nil or viewport.ID == window.ID)
+
+    -- Initialize FramebufferScale for main viewport and new viewports, before UpdatePlatformWindows() -> Platform_GetWindowFramebufferScale() has a chance to run.
+    -- FIXME: New viewport on monitors with a different scale will run for a frame with wrong scale? (#9502)
+    -- A workaround could be to cache last known FramebufferScale per monitor, so the heuristic can pull it from monitor.
+    if viewport.FramebufferScale.x <= 0.0 or viewport.FramebufferScale.y <= 0.0 or viewport.ID == IMGUI_VIEWPORT_DEFAULT_ID then
+        ImVec2_Copy(viewport.FramebufferScale, g.IO.DisplayFramebufferScale)
+    end
 
     if window ~= nil then
         window.ViewportOwned = true
@@ -30545,14 +30569,10 @@ function ImGui.ShowStyleEditor(ref)
             _, io.ConfigDebugDrawListDefaultsToStrokeLegacy = ImGui.Checkbox("Debug: DrawList Defaults to _StrokeLegacy", io.ConfigDebugDrawListDefaultsToStrokeLegacy)
 
             ImGui.PushItemWidth(ImGui.GetFontSize() * 8)
-            -- [Port] the library still stores the older style.CurveTessellationTol (== MaxError * MaxError) instead of style.CurveTessellationMaxError
-            local curve_tessellation_max_error
-            curve_tessellation_max_error, changed = ImGui.DragFloat("Curve Tessellation Max Error", math.sqrt(style.CurveTessellationTol), 0.02, 0.10, 10.0, "%.2f")
-            if curve_tessellation_max_error < 0.10 then
-                curve_tessellation_max_error = 0.10
-                changed = true
+            style.CurveTessellationMaxError = ImGui.DragFloat("Curve Tessellation Max Error", style.CurveTessellationMaxError, 0.02, 0.10, 10.0, "%.2f")
+            if style.CurveTessellationMaxError < 0.10 then
+                style.CurveTessellationMaxError = 0.10
             end
-            if changed then style.CurveTessellationTol = curve_tessellation_max_error * curve_tessellation_max_error end -- [Port] only write back on change (sqrt/square round-trip is not exact)
 
             -- When editing the "Circle Segment Max Error" value, draw a preview of its effect on auto-tessellated circles.
             style.CircleTessellationMaxError = ImGui.DragFloat("Circle Tessellation Max Error", style.CircleTessellationMaxError, 0.005, 0.10, 5.0, "%.2f", 1536 --[[ImGuiSliderFlags.AlwaysClamp]])
@@ -32096,7 +32116,7 @@ function ShowExampleAppCustomRendering(p_open)
             local start_pos = ImGui.GetCursorScreenPos()
             local pi = 3.141592
             local step = sz + 10.0
-            local corners_tl_br = bit32.bor(16 --[[ImDrawFlags.RoundCornersTopLeft]], 128 --[[ImDrawFlags.RoundCornersBottomRight]]) -- [Port] 1.92 names (upstream ImDrawFlags_RoundTopLeft/RoundBottomRight)
+            local corners_tl_br = bit32.bor(16 --[[ImDrawFlags.RoundTopLeft]], 128 --[[ImDrawFlags.RoundBottomRight]])
             local half_sz = sz * 0.5
             local circle_segments = s.circle_segments_override and s.circle_segments_override_v or 0
             local curve_segments = s.curve_segments_override and s.curve_segments_override_v or 0
@@ -36654,7 +36674,7 @@ function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
 
     local x = pos.x
     local y = pos.y
-    if bit32.band(draw_list.Flags, 16 --[[ImDrawListFlags.TextNoPixelSnap]]) == 0 then
+    if bit32.band(draw_list.Flags, 1048576 --[[ImDrawFlags.TextNoPixelSnap]]) == 0 then
         x = IM_TRUNC(x)
         y = IM_TRUNC(y)
     end
@@ -37018,7 +37038,7 @@ function ImGui.AddDrawListToDrawDataEx(draw_data, out_list, draw_list)
     -- May trigger for you if you are using PrimXXX functions incorrectly.
     assert(draw_list.VtxBuffer.Size == 0 or draw_list._VtxWritePtr == draw_list.VtxBuffer.Size + 1)
     assert(draw_list.IdxBuffer.Size == 0 or draw_list._IdxWritePtr == draw_list.IdxBuffer.Size + 1)
-    if (bit32.band(draw_list.Flags, 8 --[[ImDrawListFlags.AllowVtxOffset]]) == 0) then
+    if (bit32.band(draw_list.Flags, 4194304 --[[ImDrawFlags.UseVtxOffset]]) == 0) then
         assert(draw_list._VtxCurrentIdx == draw_list.VtxBuffer.Size + 1)
     end
 
@@ -37085,7 +37105,8 @@ function MT.ImDrawList:_ResetForNewFrame()
     self.CmdBuffer:resize(0)
     self.IdxBuffer:resize(0)
     self.VtxBuffer:resize(0)
-    self.Flags = self._Data.InitialFlags
+    self.Flags = self._Data.InitialDrawFlags
+    assert(bit32.band(self.Flags, bit32.bnot(16675312 --[[ImDrawFlags.AllowInFrameScope_]])) == 0)
 
     self._CmdHeader = ImDrawCmdHeader() -- memset(&_CmdHeader, 0, sizeof(_CmdHeader))
 
@@ -37094,11 +37115,11 @@ function MT.ImDrawList:_ResetForNewFrame()
     self._IdxWritePtr = 1
     self._ClipRectStack:resize(0)
     self._TextureStack:resize(0)
+    self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:resize(0)
 
     self.CmdBuffer:push_back(ImDrawCmd())
-
-    self._FringeScale = self._Data.InitialFringeScale
+    -- Caller needs to bet _SetPixelDensity() as well.
 end
 
 function MT.ImDrawList:_ClearFreeMemory()
@@ -37106,7 +37127,7 @@ function MT.ImDrawList:_ClearFreeMemory()
     self.IdxBuffer:clear()
     self.VtxBuffer:clear()
 
-    self.Flags = 0 --[[ImDrawListFlags.None]]
+    self.Flags = 0 --[[ImDrawFlags.None]]
 
     self._VtxCurrentIdx = 1
     self._VtxWritePtr = 1
@@ -37115,6 +37136,7 @@ function MT.ImDrawList:_ClearFreeMemory()
     self._ClipRectStack:clear()
     self._TextureStack:clear()
     -- self._CallbacksDataBuf:clear()
+    self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:clear()
     self._Splitter:ClearFreeMemory()
 end
@@ -37519,7 +37541,7 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
 
     local uv = self._Data.TexUvWhitePixel
 
-    if bit32.band(self.Flags, 4 --[[ImDrawListFlags.AntiAliasedFill]]) ~= 0 then
+    if bit32.band(self.Flags, 4096 --[[ImDrawFlags.AAFill]]) ~= 0 then
         local AA_SIZE = self._FringeScale
         local col_trans = bit32.band(col, bit32.bnot(4278190080 --[[IM_COL32_A_MASK]]))
         local idx_count = (points_count - 2) * 3 + points_count * 6
@@ -37616,6 +37638,27 @@ function MT.ImDrawList:PopTexture()
     self:_OnChangedTexture()
 end
 
+-- IMPORTANT: currently limited to 3 deep
+--- @param flags   ImDrawFlags
+--- @param enabled bool
+function MT.ImDrawList:PushDrawFlag(flags, enabled)
+    assert(bit32.band(flags, bit32.bnot(8286704 --[[ImDrawFlags.AllowInPushScope_]])) == 0)
+    assert(bit32.band(flags, 917504 --[[ImDrawFlags.StrokeMask_]]) == 0 or bit32.band(flags, 917504 --[[ImDrawFlags.StrokeMask_]]) == 917504 --[[ImDrawFlags.StrokeLegacy]])
+    IM_ASSERT_USER_ERROR_RET(self._DrawFlagsStack.Size < 3, "PushDrawFlag() has a depth limit. Contact us.") -- _DrawFlagsStack.capacity() == 3
+    self._DrawFlagsStack:push_back(self.Flags)
+    if enabled then
+        self.Flags = bit32.bor(self.Flags, flags)
+    else
+        self.Flags = bit32.band(self.Flags, bit32.bnot(flags))
+    end
+end
+
+function MT.ImDrawList:PopDrawFlag()
+    IM_ASSERT_USER_ERROR_RET(self._DrawFlagsStack.Size > 0, "Calling PopDrawFlag() too many times!")
+    self.Flags = self._DrawFlagsStack:back()
+    self._DrawFlagsStack:pop_back()
+end
+
 -- This is used by ImGui.PushFont()/PopFont(). It works because we never use _TextureIdStack[] elsewhere than in PushTexture()/PopTexture().
 function MT.ImDrawList:_SetTexture(tex_ref)
     if (self._CmdHeader.TexRef == tex_ref) then
@@ -37624,6 +37667,14 @@ function MT.ImDrawList:_SetTexture(tex_ref)
     self._CmdHeader.TexRef = tex_ref
     self._TextureStack.Data[self._TextureStack.Size] = tex_ref
     self:_OnChangedTexture()
+end
+
+--- @param pixel_density float
+function MT.ImDrawList:_SetPixelDensity(pixel_density)
+    assert(pixel_density > 0.0)
+    self._FringeScale = 1.0 / pixel_density
+    self._InvFringeScale = pixel_density
+    self._FringeScaleIsInteger = ImIsTruncated(self._InvFringeScale)
 end
 
 -- Reserve space for a number of vertices and indices.
@@ -37635,7 +37686,7 @@ local function PrimReserve(self, idx_count, vtx_count)
     -- Large mesh support (when enabled)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
-    if (self._VtxCurrentIdx + vtx_count >= bit32.lshift(1, 16)) and (bit32.band(self.Flags, 8 --[[ImDrawListFlags.AllowVtxOffset]]) ~= 0) then
+    if (self._VtxCurrentIdx + vtx_count >= bit32.lshift(1, 16)) and (bit32.band(self.Flags, 4194304 --[[ImDrawFlags.UseVtxOffset]]) ~= 0) then
         -- FIXME: In theory we should be testing that vtx_count <64k here.
         -- In practice, RenderText() relies on reserving ahead for a worst case scenario so it is currently useful for us
         -- to not make that check until we rework the text functions to handle clipping and large horizontal lines better.
@@ -37746,10 +37797,10 @@ end
 --- @param points_count int
 --- @param col          ImU32
 --- @param thickness    float
---- @param flags?       ImDrawFlags
+--- @param flags        ImDrawFlags
+--- @param max_inner_offset float # [Luau] unused by the pre-1.93 stroker
 
-function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
-    if flags == nil then flags = 0 end
+function MT.ImDrawList:_AddPolyline(points, points_count, col, thickness, flags, max_inner_offset)
 
     if points_count < 2 or bit32.band(col, 4278190080 --[[IM_COL32_A_MASK]]) == 0 then
         return
@@ -37765,7 +37816,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
     -- Read more details near AddRect() + see "API BREAKING CHANGES" section for 1.82, 1.90 and 1.92.8.
     IM_ASSERT_USER_ERROR_RET(bit32.band(flags, 2147483663 --[[ImDrawFlags.InvalidMask_]]) == 0, "Incorrect parameter. Did you swap 'thickness' and 'flags'?")
 
-    if bit32.band(self.Flags, 1 --[[ImDrawListFlags.AntiAliasedLines]]) ~= 0 then
+    if bit32.band(self.Flags, 8192 --[[ImDrawFlags.AALines]]) ~= 0 then
         -- Anti-aliased stroke
         local AA_SIZE = self._FringeScale
         local col_trans = bit32.band(col, bit32.bnot(4278190080 --[[IM_COL32_A_MASK]]))
@@ -37776,7 +37827,9 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
         local fractional_thickness = thickness - integer_thickness
 
         -- Do we want to draw this line using a texture?
-        local use_texture = bit32.band(self.Flags, 2 --[[ImDrawListFlags.AntiAliasedLinesUseTex]]) ~= 0 and integer_thickness < IM_DRAWLIST_TEX_LINES_WIDTH_MAX and fractional_thickness <= 0.00001 and AA_SIZE == 1.0
+        -- [Luau] pre-1.93 stroker kept until the 1.93 one is ported. ImDrawListFlags_AntiAliasedLinesUseTex no longer exists (== AALines)
+        -- and was never set by this port's SetupDrawListSharedData() before, so the texture path stays disabled (unchanged output).
+        local use_texture = false
 
         IM_ASSERT_PARANOID((not use_texture) or bit32.band(self._Data.Font.OwnerAtlas.Flags, 4 --[[ImFontAtlasFlags.NoBakedLines]]) == 0)
 
@@ -38005,22 +38058,22 @@ local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
 
     if rounding >= 0.5 then
         assert(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!")
-        if bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 0 then
-            flags = bit32.bor(flags, 240 --[[ImDrawFlags.RoundCornersAll]])
+        if bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 0 then
+            flags = bit32.bor(flags, 240 --[[ImDrawFlags.RoundAll]])
         end
-        rounding = ImMin(rounding, ImAbs(bx - ax) * (((bit32.band(flags, 48 --[[ImDrawFlags.RoundCornersTop]]) == 48 --[[ImDrawFlags.RoundCornersTop]]) or (bit32.band(flags, 192 --[[ImDrawFlags.RoundCornersBottom]]) == 192 --[[ImDrawFlags.RoundCornersBottom]])) and 0.5 or 1.0) - 1.0)
-        rounding = ImMin(rounding, ImAbs(by - ay) * (((bit32.band(flags, 80 --[[ImDrawFlags.RoundCornersLeft]]) == 80 --[[ImDrawFlags.RoundCornersLeft]]) or (bit32.band(flags, 160 --[[ImDrawFlags.RoundCornersRight]]) == 160 --[[ImDrawFlags.RoundCornersRight]])) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(bx - ax) * (((bit32.band(flags, 48 --[[ImDrawFlags.RoundTop]]) == 48 --[[ImDrawFlags.RoundTop]]) or (bit32.band(flags, 192 --[[ImDrawFlags.RoundBottom]]) == 192 --[[ImDrawFlags.RoundBottom]])) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(by - ay) * (((bit32.band(flags, 80 --[[ImDrawFlags.RoundLeft]]) == 80 --[[ImDrawFlags.RoundLeft]]) or (bit32.band(flags, 160 --[[ImDrawFlags.RoundRight]]) == 160 --[[ImDrawFlags.RoundRight]])) and 0.5 or 1.0) - 1.0)
     end
-    if rounding < 0.5 or (bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 256 --[[ImDrawFlags.RoundCornersNone]]) then
+    if rounding < 0.5 or (bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 256 --[[ImDrawFlags.RoundNone]]) then
         PathLineToXY(self, ax, ay)
         PathLineToXY(self, bx, ay)
         PathLineToXY(self, bx, by)
         PathLineToXY(self, ax, by)
     else
-        local rounding_tl = (bit32.band(flags, 16 --[[ImDrawFlags.RoundCornersTopLeft]]) ~= 0) and rounding or 0.0
-        local rounding_tr = (bit32.band(flags, 32 --[[ImDrawFlags.RoundCornersTopRight]]) ~= 0) and rounding or 0.0
-        local rounding_br = (bit32.band(flags, 128 --[[ImDrawFlags.RoundCornersBottomRight]]) ~= 0) and rounding or 0.0
-        local rounding_bl = (bit32.band(flags, 64 --[[ImDrawFlags.RoundCornersBottomLeft]]) ~= 0) and rounding or 0.0
+        local rounding_tl = (bit32.band(flags, 16 --[[ImDrawFlags.RoundTopLeft]]) ~= 0) and rounding or 0.0
+        local rounding_tr = (bit32.band(flags, 32 --[[ImDrawFlags.RoundTopRight]]) ~= 0) and rounding or 0.0
+        local rounding_br = (bit32.band(flags, 128 --[[ImDrawFlags.RoundBottomRight]]) ~= 0) and rounding or 0.0
+        local rounding_bl = (bit32.band(flags, 64 --[[ImDrawFlags.RoundBottomLeft]]) ~= 0) and rounding or 0.0
         -- [Luau] inline PathArcToFast() (radius < 0.5 handled by _PathArcToFastExXY())
         _PathArcToFastExXY(self, ax + rounding_tl, ay + rounding_tl, rounding_tl, 6 * 48 --[[IM_DRAWLIST_ARCFAST_SAMPLE_MAX]] / 12, 9 * 48 --[[IM_DRAWLIST_ARCFAST_SAMPLE_MAX]] / 12, 0)
         _PathArcToFastExXY(self, bx - rounding_tr, ay + rounding_tr, rounding_tr, 9 * 48 --[[IM_DRAWLIST_ARCFAST_SAMPLE_MAX]] / 12, 12 * 48 --[[IM_DRAWLIST_ARCFAST_SAMPLE_MAX]] / 12, 0)
@@ -38040,7 +38093,7 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
 
     if bit32.band(col, 4278190080 --[[IM_COL32_A_MASK]]) == 0 then return end
 
-    if rounding < 0.5 or (bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 256 --[[ImDrawFlags.RoundCornersNone]]) then
+    if rounding < 0.5 or (bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 256 --[[ImDrawFlags.RoundNone]]) then
         PrimReserve(self, 6, 4) -- [Luau] local calls
         PrimRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, col)
     else
@@ -38105,7 +38158,7 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         return
     end
     -- [Luau] square corners + whole-pixel thickness: 4 filled rects instead of a stroked path (same pixels, far cheaper here)
-    if (rounding == nil or rounding < 0.5 or bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 256 --[[ImDrawFlags.RoundCornersNone]])
+    if (rounding == nil or rounding < 0.5 or bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 256 --[[ImDrawFlags.RoundNone]])
         and thickness >= 1.0 and thickness % 1 == 0 and p_max.x - p_min.x > 2 * thickness and p_max.y - p_min.y > 2 * thickness then
         local x0, y0, x1, y1, t = p_min.x, p_min.y, p_max.x, p_max.y, thickness
         PrimReserve(self, 24, 16)
@@ -38115,7 +38168,7 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         PrimRectXY(self, x1 - t, y0 + t, x1, y1 - t, col)
         return
     end
-    if bit32.band(self.Flags, 1 --[[ImDrawListFlags.AntiAliasedLines]]) ~= 0 then
+    if bit32.band(self.Flags, 8192 --[[ImDrawFlags.AALines]]) ~= 0 then
         PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.50, p_max.y - 0.50, rounding, flags) -- [Luau] scalar math, no temporary ImVec2
     else
         PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.49, p_max.y - 0.49, rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
@@ -38352,11 +38405,11 @@ function MT.ImDrawList:AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, co
     end
 
     assert(bit32.band(flags, 0x0F) == 0, "Misuse of legacy hardcoded ImDrawCornerFlags values!") -- If this assert triggers on legacy code: see comments in ImDrawList:PathRect().
-    if bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 0 then
-        flags = bit32.bor(flags, 240 --[[ImDrawFlags.RoundCornersAll]])
+    if bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 0 then
+        flags = bit32.bor(flags, 240 --[[ImDrawFlags.RoundAll]])
     end
 
-    if rounding < 0.5 or bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 256 --[[ImDrawFlags.RoundCornersNone]] then
+    if rounding < 0.5 or bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 256 --[[ImDrawFlags.RoundNone]] then
         self:AddImage(tex_ref, p_min, p_max, uv_min, uv_max, col)
         return
     end
@@ -38649,7 +38702,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
     if y > clip_rect.w then
         return
     end
-    if bit32.band(draw_list.Flags, 16 --[[ImDrawListFlags.TextNoPixelSnap]]) == 0 then
+    if bit32.band(draw_list.Flags, 1048576 --[[ImDrawFlags.TextNoPixelSnap]]) == 0 then
         x = IM_TRUNC(x)
         y = IM_TRUNC(y)
     end
@@ -39044,19 +39097,19 @@ function ImGui.CalcRoundingFlagsForRectInRect(r_in, r_outer, threshold)
     local round_t = r_in.Min.y <= r_outer.Min.y + threshold
     local round_b = r_in.Max.y >= r_outer.Max.y - threshold
 
-    local flags = 256 --[[ImDrawFlags.RoundCornersNone]]
+    local flags = 256 --[[ImDrawFlags.RoundNone]]
 
     if round_t and round_l then
-        flags = bit32.bor(flags, 16 --[[ImDrawFlags.RoundCornersTopLeft]])
+        flags = bit32.bor(flags, 16 --[[ImDrawFlags.RoundTopLeft]])
     end
     if round_t and round_r then
-        flags = bit32.bor(flags, 32 --[[ImDrawFlags.RoundCornersTopRight]])
+        flags = bit32.bor(flags, 32 --[[ImDrawFlags.RoundTopRight]])
     end
     if round_b and round_l then
-        flags = bit32.bor(flags, 64 --[[ImDrawFlags.RoundCornersBottomLeft]])
+        flags = bit32.bor(flags, 64 --[[ImDrawFlags.RoundBottomLeft]])
     end
     if round_b and round_r then
-        flags = bit32.bor(flags, 128 --[[ImDrawFlags.RoundCornersBottomRight]])
+        flags = bit32.bor(flags, 128 --[[ImDrawFlags.RoundBottomRight]])
     end
 
     return flags
@@ -39078,8 +39131,8 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
     if rounding == nil then rounding = 0.0 end
     if flags    == nil then flags    = 0   end
 
-    if bit32.band(flags, 496 --[[ImDrawFlags.RoundCornersMask_]]) == 0 then
-        flags = 240 --[[ImDrawFlags.RoundCornersDefault_]]
+    if bit32.band(flags, 496 --[[ImDrawFlags.RoundMask_]]) == 0 then
+        flags = 240 --[[ImDrawFlags.RoundAll]]
     end
 
     if bit32.rshift(bit32.band(col, 4278190080 --[[IM_COL32_A_MASK]]), 24 --[[IM_COL32_A_SHIFT]]) < 0xFF then
@@ -39112,19 +39165,19 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
                     break
                 end
 
-                cell_flags = 256 --[[ImDrawFlags.RoundCornersNone]] -- FIXME: Could use CalcRoundingFlagsForRectInRect()
+                cell_flags = 256 --[[ImDrawFlags.RoundNone]] -- FIXME: Could use CalcRoundingFlagsForRectInRect()
                 if y1 <= p_min.y then
-                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, 16 --[[ImDrawFlags.RoundCornersTopLeft]]) end
-                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, 32 --[[ImDrawFlags.RoundCornersTopRight]]) end
+                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, 16 --[[ImDrawFlags.RoundTopLeft]]) end
+                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, 32 --[[ImDrawFlags.RoundTopRight]]) end
                 end
                 if y2 >= p_max.y then
-                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, 64 --[[ImDrawFlags.RoundCornersBottomLeft]]) end
-                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, 128 --[[ImDrawFlags.RoundCornersBottomRight]]) end
+                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, 64 --[[ImDrawFlags.RoundBottomLeft]]) end
+                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, 128 --[[ImDrawFlags.RoundBottomRight]]) end
                 end
 
                 -- Combine flags
-                if flags == 256 --[[ImDrawFlags.RoundCornersNone]] or cell_flags == 256 --[[ImDrawFlags.RoundCornersNone]] then
-                    cell_flags = 256 --[[ImDrawFlags.RoundCornersNone]]
+                if flags == 256 --[[ImDrawFlags.RoundNone]] or cell_flags == 256 --[[ImDrawFlags.RoundNone]] then
+                    cell_flags = 256 --[[ImDrawFlags.RoundNone]]
                 else
                     cell_flags = bit32.band(cell_flags, flags)
                 end
@@ -39155,14 +39208,14 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
     local D = ImDrawFlags
     local bor = bit32.bor
     local function f(c, v) return c and 0 or v end
-    if fill_L then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Min.y), ImVec2(inner.Min.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopLeft), f(fill_D, D.RoundCornersBottomLeft))) end
-    if fill_R then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Min.y), ImVec2(outer.Max.x, inner.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_U, D.RoundCornersTopRight), f(fill_D, D.RoundCornersBottomRight))) end
-    if fill_U then draw_list:AddRectFilled(ImVec2(inner.Min.x, outer.Min.y), ImVec2(inner.Max.x, inner.Min.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersTopLeft), f(fill_R, D.RoundCornersTopRight))) end
-    if fill_D then draw_list:AddRectFilled(ImVec2(inner.Min.x, inner.Max.y), ImVec2(inner.Max.x, outer.Max.y), col, rounding, bor(D.RoundCornersNone, f(fill_L, D.RoundCornersBottomLeft), f(fill_R, D.RoundCornersBottomRight))) end
-    if fill_L and fill_U then draw_list:AddRectFilled(ImVec2(outer.Min.x, outer.Min.y), ImVec2(inner.Min.x, inner.Min.y), col, rounding, D.RoundCornersTopLeft) end
-    if fill_R and fill_U then draw_list:AddRectFilled(ImVec2(inner.Max.x, outer.Min.y), ImVec2(outer.Max.x, inner.Min.y), col, rounding, D.RoundCornersTopRight) end
-    if fill_L and fill_D then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Max.y), ImVec2(inner.Min.x, outer.Max.y), col, rounding, D.RoundCornersBottomLeft) end
-    if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundCornersBottomRight) end
+    if fill_L then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Min.y), ImVec2(inner.Min.x, inner.Max.y), col, rounding, bor(D.RoundNone, f(fill_U, D.RoundTopLeft), f(fill_D, D.RoundBottomLeft))) end
+    if fill_R then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Min.y), ImVec2(outer.Max.x, inner.Max.y), col, rounding, bor(D.RoundNone, f(fill_U, D.RoundTopRight), f(fill_D, D.RoundBottomRight))) end
+    if fill_U then draw_list:AddRectFilled(ImVec2(inner.Min.x, outer.Min.y), ImVec2(inner.Max.x, inner.Min.y), col, rounding, bor(D.RoundNone, f(fill_L, D.RoundTopLeft), f(fill_R, D.RoundTopRight))) end
+    if fill_D then draw_list:AddRectFilled(ImVec2(inner.Min.x, inner.Max.y), ImVec2(inner.Max.x, outer.Max.y), col, rounding, bor(D.RoundNone, f(fill_L, D.RoundBottomLeft), f(fill_R, D.RoundBottomRight))) end
+    if fill_L and fill_U then draw_list:AddRectFilled(ImVec2(outer.Min.x, outer.Min.y), ImVec2(inner.Min.x, inner.Min.y), col, rounding, D.RoundTopLeft) end
+    if fill_R and fill_U then draw_list:AddRectFilled(ImVec2(inner.Max.x, outer.Min.y), ImVec2(outer.Max.x, inner.Min.y), col, rounding, D.RoundTopRight) end
+    if fill_L and fill_D then draw_list:AddRectFilled(ImVec2(outer.Min.x, inner.Max.y), ImVec2(inner.Min.x, outer.Max.y), col, rounding, D.RoundBottomLeft) end
+    if fill_R and fill_D then draw_list:AddRectFilled(ImVec2(inner.Max.x, inner.Max.y), ImVec2(outer.Max.x, outer.Max.y), col, rounding, D.RoundBottomRight) end
 end
 
 -------------------------------------------------------------------------------
@@ -39230,7 +39283,9 @@ end
 function MT.ImDrawList:PathBezierCubicCurveTo(p2, p3, p4, num_segments)
     local p1 = self._Path:back()
     if num_segments == nil or num_segments == 0 then
-        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, self._Data.CurveTessellationTol, 0) -- Auto-tessellated
+        assert(self._Data.CurveTessellationMaxError > 0.0)
+        local max_error_sqr = (self._Data.CurveTessellationMaxError * self._FringeScale) * (self._Data.CurveTessellationMaxError * self._FringeScale)
+        PathBezierCubicCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, max_error_sqr, 0) -- Auto-tessellated
     else
         local t_step = 1.0 / num_segments
         for i_step = 1, num_segments do self._Path:push_back(ImBezierCubicCalc(p1, p2, p3, p4, t_step * i_step)) end
@@ -39240,7 +39295,9 @@ end
 function MT.ImDrawList:PathBezierQuadraticCurveTo(p2, p3, num_segments)
     local p1 = self._Path:back()
     if num_segments == nil or num_segments == 0 then
-        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, self._Data.CurveTessellationTol, 0) -- Auto-tessellated
+        assert(self._Data.CurveTessellationMaxError > 0.0)
+        local max_error_sqr = (self._Data.CurveTessellationMaxError * self._FringeScale) * (self._Data.CurveTessellationMaxError * self._FringeScale)
+        PathBezierQuadraticCurveToCasteljau(self._Path, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, max_error_sqr, 0) -- Auto-tessellated
     else
         local t_step = 1.0 / num_segments
         for i_step = 1, num_segments do self._Path:push_back(ImBezierQuadraticCalc(p1, p2, p3, t_step * i_step)) end
@@ -39552,7 +39609,8 @@ ImFontAtlasFlags =
     None               = 0,
     NoPowerOfTwoHeight = bitLShift(1, 0), -- Don't round the height to next power of two
     NoMouseCursors     = bitLShift(1, 1), -- Don't build software mouse cursors into the atlas (save a little texture memory)
-    NoBakedLines       = bitLShift(1, 2) -- Don't build anti-aliased line textures into the atlas (save a little texture memory). SINCE 1.93.0 THIS PREVENTS ANTI-ALIASED LINES FROM WORKING AND WILL DISABLE THEM.
+    NoBakedLines       = bitLShift(1, 2), -- Don't build anti-aliased line textures into the atlas (save a little texture memory). SINCE 1.93.0 THIS PREVENTS ANTI-ALIASED LINES FROM WORKING AND WILL DISABLE THEM.
+    NoBakedRoundCorners= bitLShift(1, 3), -- Don't build round corners into the atlas.
 }
 
 -- A cardinal direction
@@ -39963,7 +40021,7 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field CmdBuffer         ImVector<ImDrawCmd>
 --- @field IdxBuffer         ImVector<ImDrawIdx>
 --- @field VtxBuffer         ImVector<ImDrawVert>
---- @field Flags             ImDrawListFlags
+--- @field Flags             ImDrawFlags          # Current flags for drawing primitives. Alter with PushDrawFlag()/PopDrawFlag()
 --- @field _VtxCurrentIdx    unsigned_int         # 1-based, generally == (VtxBuffer.Size + 1)
 --- @field _Data             ImDrawListSharedData # Pointes to shared draw data
 --- @field _VtxWritePtr      unsigned_int         # 1-based, points to the current writing vertex in VtxBuffer (see ImDrawVtxBuffer)
@@ -39974,7 +40032,10 @@ function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _C
 --- @field _ClipRectStack    ImVector<ImVec4>
 --- @field _TextureStack     ImVector<ImTextureRef>
 --- @field _CallbacksDataBuf any
+--- @field _DrawFlagsStack   ImVector<ImDrawFlags>
 --- @field _FringeScale      float
+--- @field _InvFringeScale   float
+--- @field _FringeScaleIsInteger bool
 --- @field _OwnerName        string
 MT.ImDrawList = {}
 MT.ImDrawList.__index = MT.ImDrawList
@@ -40028,8 +40089,10 @@ function ImDrawList(data)
         _ClipRectStack = ImVector(), -- [Internal]
         _TextureStack  = ImVector(), -- [Internal]
         _CallbacksDataBuf = nil, -- [Internal]
-
-        _FringeScale = 0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content
+        _DrawFlagsStack = ImVector(), -- [Internal] ImSmallStack_<ImDrawFlags,3>: capacity checked by PushDrawFlag()
+        _FringeScale = 1.0, -- [Internal] anti-alias fringe is scaled by this value, this helps to keep things sharp while zooming at vertex buffer content -- [Luau] 1.0 instead of memset 0 so a list used before _SetPixelDensity() still works
+        _InvFringeScale = 1.0, -- [internal] 1.0 / _FringeScale // FIXME: Consider renaming to _PixelDensity.
+        _FringeScaleIsInteger = true, -- [Internal] true if 1/_FringeScale is a whole number, used to select fast path for rendering
         _OwnerName = nil -- Pointer to owner window's name for debugging
     }, MT.ImDrawList)
 
@@ -40639,8 +40702,10 @@ function ImGuiIO()
         ConfigDebugBeginReturnValueLoop = false, -- = false          -- Some calls to Begin()/BeginChild() will return false. Will cycle through window depths then repeat. Suggested use: add "io.ConfigDebugBeginReturnValue = io.KeyShift" in your main loop then occasionally press SHIFT. Windows should be flickering while running.
         -- Option to deactivate io.AddFocusEvent(false) handling.
         ConfigDebugIgnoreFocusLoss = false, -- = false          -- Ignore io.AddFocusEvent(false), consequently not calling io.ClearInputKeys()/io.ClearInputMouse() in input processing.
-        -- Option to default all ImDrawList to ImDrawListFlags_StrokeLegacy mode.
-        ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering. [Port] the 1.93 stroke rendering is not ported yet: no effect.
+        -- Option to compare < 1.93.0 rendering details vs 1.93.0 rendering details. (#9504)
+        -- - Equivalent to calling PushDrawFlag(ImDrawList_StrokeLegacy,true) on every draw list instances.
+        -- - Suggested use, e.g. io.ConfigDebugDrawListDefaultsToStrokeLegacy = io.KeyShift; // Map to SHIFT modifier
+        ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering.
 
         IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
         IniSavingRate = 5.0, -- = 5.0f           -- Minimum time between saving positions/sizes to .ini file, in seconds.
@@ -41075,35 +41140,90 @@ ImGuiNextItemDataFlags = {
 --- @enum ImDrawFlags
 ImDrawFlags = {
     None                    = 0,
-    -- - Rounding default to ImDrawFlags.RoundCornersAll when 'rounding > 0'.
-    -- - So you only need to use the ImDrawFlags.RoundCornersXXX flags if you want a special configuration (e.g. a rectangle with one rounded corner).
+    --ImDrawFlags_Closed                = 1,        // -> FLAG MOVED BELOW. Prior to 1.92.8 (May 2026): ImDrawFlags_Closed was guaranteed to be == (1<<0) == 1, for legacy compatibility reason. Hardcoded use of 1 or true should be replaced with 'ImDrawFlags_Closed'.
+
+    -- About usage of flags:
+    -- - "Prim" column:  'OK' = flag can be used to configure an individual AddXXX() call.
+    -- - "Scope" column: 'OK' = initialized by ImGui based on Style options (e.g. whether anti-aliased is enabled) + may be modified using ImDrawList::PushDrawFlag().
+    --                          OK(0)/OK(1) indicates whether this flag is set in the default ImGui Style settings.
+
+    -- - Rounding default to ImDrawFlags_RoundAll when 'rounding > 0'.
+    -- - So you only need to use the ImDrawFlags_RoundXXX flags if you want a special configuration (e.g. a rectangle with one rounded corner).
     -- Rounding for AddRectXXX(), PathRect() ------ -- Prim/Scope?
-    RoundCornersTopLeft     = bitLShift(1, 4), -- OK   --    -- Round top-left corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersTopRight    = bitLShift(1, 5), -- OK   --    -- Round top-right corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersBottomLeft  = bitLShift(1, 6), -- OK   --    -- Round bottom-left corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersBottomRight = bitLShift(1, 7), -- OK   --    -- Round bottom-right corner only (when 'rounding > 0.0f', we default to all corners).
-    RoundCornersNone        = bitLShift(1, 8), -- OK   --    -- Disable rounding even when 'rounding > 0.0f'. This value is NOT zero, it is NOT an implicit flag!
+    RoundTopLeft            = bitLShift(1, 4), -- OK   --    -- Round top-left corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundTopRight           = bitLShift(1, 5), -- OK   --    -- Round top-right corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundBottomLeft         = bitLShift(1, 6), -- OK   --    -- Round bottom-left corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundBottomRight        = bitLShift(1, 7), -- OK   --    -- Round bottom-right corner only (when 'rounding > 0.0f', we default to all corners).
+    RoundNone               = bitLShift(1, 8), -- OK   --    -- Disable rounding even when 'rounding > 0.0f'. This value is NOT zero, it is NOT an implicit flag!
+
     -- Stroke Options ----------------------------- -- Prim/Scope?
-    Closed                  = bitLShift(1, 9) -- OK   --     -- PathStroke(), AddPolyline(): specify that shape should be closed.
+    Closed                  = bitLShift(1, 9),  -- OK   --     -- PathStroke(), AddPolyline(): specify that shape should be closed.
+    JoinMiter               = bitLShift(1, 10), -- OK   --     -- PathStroke(), AddPolyline(): use miter joins/corners only. This assumes that the input polyline does not have corners sharper than 90 degrees. Slightly faster.
+    CapSquare               = bitLShift(1, 11), -- OK   --     -- PathStroke(), AddPolyline(): use square cap line ends.
+
+    -- About Stroke Ends:
+    -- - Rendering is optimized for fast pixel-perfect UI, so line ends are not anti-aliased by default. It's cheaper (we can emit less vertices).
+    -- - For more free-form drawings, light graphs and markers, or when using thick strokes: you can turn them on using the ImDrawFlags_AALineEnds flag.
+    -- - See 'Demo->Examples->Custom Rendering' to interactively toy with those flags.
+    -- - 'OK*' indicates using this at the AddXXX() call site is unlikely: it would only makes sense if (1) the option is disabled in style/scope and (2) you want to forcefully enable it for a single primitives. Possible but unlikely! Only supported for functions taking flags inputs.
+    -- Stroke/Fill Anti-aliasing ------------------ -- Prim/Scope?
+    AAFill                  = bitLShift(1, 12), -- OK*  OK(1)  -- Enable anti-aliasing for Filled shapes.
+    AALines                 = bitLShift(1, 13), -- OK*  OK(1)  -- Enable anti-aliasing for Strokes (lines, borders).
+    AALineEnds              = bitLShift(1, 14), -- OK   OK(0)  -- Enable anti-aliasing for Strokes Ends. Requires AALines to also be enabled. Useful on thick strokes or for precise continuity of multiple lines. A little more costly.
+    --ImDrawFlags_NoAA                  = 1 << 15,  // OK   --     // Disable anti-aliasing for a given primitive.
+    --ImDrawFlags_NoAALineEnds          = 1 << 16,  // OK   --     // Disable anti-aliasing ends for a given primitive.
+
+    -- About Stroke Position:
+    -- - Read https://github.com/ocornut/imgui/wiki/Draw-List (this guide includes a precise list of differences between 1.92.9 and 1.93.0)
+    -- - Read https://github.com/ocornut/imgui/wiki/Pixel-Perfect-Rendering
+    -- Stroke Position relative to shape outline -- -- Prim/Scope?
+    StrokeInside            = bitLShift(1, 17), -- OK   --     -- Draw stroke inside of the shape outline (default for closed shapes and AddLineH, AddLineV functions)
+    StrokeCenter            = bitLShift(2, 17), -- OK   --     -- Draw stroke at the center of the shape outline (default for paths, bezier, and AddLine functions)
+    StrokeCenterBiased      = bitLShift(3, 17), -- OK   --     -- Draw stroke at the center of the shape outline, so that half thickness rounded down will be outside, and the rest inside the shape outline. Useful for axis-aligned shapes: AddLineH, AddLineV, AddRect. Does not animate well!
+    StrokeOutside           = bitLShift(4, 17), -- OK   --     -- Draw stroke outside of the shape outline
+    StrokeLegacy            = bitLShift(7, 17), -- OK   OK(0)  -- Use legacy positioning + enable JoinMiter + disable AALineEnds. Must be all bits set.
+
+    -- Other Options ------------------------------ -- Prim/Scope?
+    TextNoPixelSnap         = bitLShift(1, 20), -- OK   OK(0)  -- Disable automatically snapping AddText() calls to pixel boundaries.
+    UseTexForRoundCorners   = bitLShift(1, 21), -- --   OK(1)  -- Enable using textures instead of strokes to draw rounded corners/circles where possible (faster). Used by default unless 'ImFontAtlasFlags_NoBakedRoundCorners' is enabled in the font atlas.
+    UseVtxOffset            = bitLShift(1, 22), -- --   OK(1)  -- Can emit 'VtxOffset > 0' to allow large meshes with 16-bit ImDrawIdx. Used by default when 'ImGuiBackendFlags_RendererHasVtxOffset' is enabled by the backend.
+    AllowTexForRoundCorners_= bitLShift(1, 23), -- --   OK(1)  -- [Internal]
 }
+ImDrawFlags.RoundAll                = bitOr(ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight, ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundBottomRight) -- (Default!!)
+ImDrawFlags.RoundTop                = bitOr(ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight)
+ImDrawFlags.RoundBottom             = bitOr(ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundBottomRight)
+ImDrawFlags.RoundLeft               = bitOr(ImDrawFlags.RoundBottomLeft, ImDrawFlags.RoundTopLeft)
+ImDrawFlags.RoundRight              = bitOr(ImDrawFlags.RoundBottomRight, ImDrawFlags.RoundTopRight)
 
-ImDrawFlags.RoundCornersTop      = bitOr(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersTopRight)
-ImDrawFlags.RoundCornersBottom   = bitOr(ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersBottomRight)
-ImDrawFlags.RoundCornersLeft     = bitOr(ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersTopLeft)
-ImDrawFlags.RoundCornersRight    = bitOr(ImDrawFlags.RoundCornersBottomRight, ImDrawFlags.RoundCornersTopRight)
-ImDrawFlags.RoundCornersAll      = bitOr(ImDrawFlags.RoundCornersTopLeft, ImDrawFlags.RoundCornersTopRight, ImDrawFlags.RoundCornersBottomLeft, ImDrawFlags.RoundCornersBottomRight) -- (Default!!)
-ImDrawFlags.RoundCornersDefault_ = ImDrawFlags.RoundCornersAll
-ImDrawFlags.RoundCornersMask_    = bitOr(ImDrawFlags.RoundCornersAll, ImDrawFlags.RoundCornersNone) -- [Internal]
-ImDrawFlags.InvalidMask_         = 0x8000000F -- [Internal] == 0x8000000F. Reserved to detect misuses.
+-- [Internal]
+ImDrawFlags.RoundMask_              = bitOr(ImDrawFlags.RoundAll, ImDrawFlags.RoundNone) -- [Internal]
+ImDrawFlags.AllowInPushScope_       = bitOr(ImDrawFlags.AAFill, ImDrawFlags.AALines, ImDrawFlags.AALineEnds, ImDrawFlags.StrokeLegacy, ImDrawFlags.TextNoPixelSnap, ImDrawFlags.UseTexForRoundCorners, ImDrawFlags.UseVtxOffset, ImDrawFlags.RoundMask_) -- [Internal] Values allowed in PushDrawFlag() scope.
+ImDrawFlags.AllowInFrameScope_      = bitOr(ImDrawFlags.AllowInPushScope_, ImDrawFlags.AllowTexForRoundCorners_)
+ImDrawFlags.StrokeMask_             = bitLShift(0x07, 17)    -- [Internal]
+ImDrawFlags.InvalidMask_            = 0x8000000F             -- [Internal] == ~0x7FFFFFF0 == 0x8000000F. Reserved to detect misuses.
 
+-- Obsolete names
+-- RENAMED in 1.93.0 (Oct 2026): ImDrawFlags_RoundCornersXXXX -> ImDrawFlags_RoundXXXX.
+ImDrawFlags.RoundCornersTopLeft     = ImDrawFlags.RoundTopLeft
+ImDrawFlags.RoundCornersTopRight    = ImDrawFlags.RoundTopRight
+ImDrawFlags.RoundCornersBottomLeft  = ImDrawFlags.RoundBottomLeft
+ImDrawFlags.RoundCornersBottomRight = ImDrawFlags.RoundBottomRight
+ImDrawFlags.RoundCornersNone        = ImDrawFlags.RoundNone
+ImDrawFlags.RoundCornersAll         = ImDrawFlags.RoundAll
+ImDrawFlags.RoundCornersTop         = ImDrawFlags.RoundTop
+ImDrawFlags.RoundCornersBottom      = ImDrawFlags.RoundBottom
+ImDrawFlags.RoundCornersLeft        = ImDrawFlags.RoundLeft
+ImDrawFlags.RoundCornersRight       = ImDrawFlags.RoundRight
+
+-- -- RENAMED in 1.93.0: Merged ImDrawListFlags into ImDrawFlags.
 --- @enum ImDrawListFlags
 ImDrawListFlags = {
-    None                   = 0,
-    AntiAliasedLines       = bitLShift(1, 0),
-    AntiAliasedLinesUseTex = bitLShift(1, 1),
-    AntiAliasedFill        = bitLShift(1, 2),
-    AllowVtxOffset         = bitLShift(1, 3),
-    TextNoPixelSnap        = bitLShift(1, 4)
+    None                   = ImDrawFlags.None,
+    AntiAliasedFill        = ImDrawFlags.AAFill,
+    AntiAliasedLines       = ImDrawFlags.AALines,
+    AntiAliasedLinesUseTex = ImDrawFlags.AALines, -- No effect, anti-aliased rendering always uses textures from 1.93+
+    AllowVtxOffset         = ImDrawFlags.UseVtxOffset,
+    TextNoPixelSnap        = ImDrawFlags.TextNoPixelSnap,
 }
 
 -- Font flags
@@ -42999,6 +43119,12 @@ end
 
 function IM_ROUNDUP_TO_EVEN(n) return (ImCeil((n) / 2) * 2) end
 function ImRsqrt(x)            return (1 / ImSqrt(x))       end
+-- Converge to more precise solution using single step of Newton-Raphson method, repeating increases precision
+function ImRsqrtPrecise(x)     return (1 / ImSqrt(x))       end -- [Luau] non-SSE upstream variant
+
+function ImIsTruncated(x) return x % 1 == 0 end -- (float)(int)x == x
+-- Returns true if all parameters are whole numbers.
+function ImIsTruncated4(x, y, z, w) return x % 1 == 0 and y % 1 == 0 and z % 1 == 0 and w % 1 == 0 end
 
 function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
@@ -43249,6 +43375,13 @@ IMGUI_WINDOW_HARD_MIN_SIZE = 4.0
 -- ImDrawList: Lookup tables
 IM_DRAWLIST_ARCFAST_TABLE_SIZE = 48 -- Number of samples in adaptive arc drawing lookup table.
 IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_TABLE_SIZE -- Sample index _PathArcToFastEx() for 360 angle.
+
+IM_DRAWLIST_TEX_LINES_WIDTH_MAX       = 32 -- The maximum line width to bake anti-aliased textures for.
+IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH  = 4  -- Calculate detailed textures for width [1..IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH]
+IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT    = 4  -- How many samples per integer thickness level.
+IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX  = 16
+IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX = 4  -- 0: fill, 1-3: strokes thickness
+IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = ((IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH - 1) * IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT + 1)
 
 -- Macros used by Recoverable Error handling
 -- - Only dispatch error if _EXPR: evaluate as assert (similar to an assert macro).
@@ -43754,7 +43887,7 @@ end
 -- Stateful path API, add points then finish with PathFillConvex() or PathStroke()
 -- - Important: filled shapes must always use clockwise winding order! The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
 --   so e.g. 'PathArcTo(center, radius, PI * -0.5, PI)' is ok, whereas 'PathArcTo(center, radius, PI, PI * -0.5)' won't have correct anti-aliasing when followed by PathFillConvex().
-function MT.ImDrawList:PathClear() self._Path:clear() end
+function MT.ImDrawList:PathClear() self._Path.Size = 0 end
 
 --- @param pos ImVec2
 
@@ -43775,9 +43908,11 @@ function MT.ImDrawList:PathLineToMergeDuplicate(pos)
     end
 end
 
+--- @param col    ImU32
+--- @param flags? ImDrawFlags
 
-function MT.ImDrawList:PathFillConvex(col)
-    self:AddConvexPolyFilled(self._Path.Data, self._Path.Size, col)
+function MT.ImDrawList:PathFillConvex(col, flags)
+    self:AddConvexPolyFilled(self._Path.Data, self._Path.Size, col, flags)
     self._Path.Size = 0
 end
 
@@ -43788,8 +43923,21 @@ function MT.ImDrawList:PathStroke(col, thickness, flags)
     if not thickness then thickness = 1.0 end
     if not flags     then flags     = 0   end
 
-    self:AddPolyline(self._Path.Data, self._Path.Size, col, thickness, flags)
+    self:_AddPolyline(self._Path.Data, self._Path.Size, col, thickness, flags, 3.4028234663853e+38 --[[FLT_MAX]])
     self._Path.Size = 0
+end
+
+-- General polygon
+-- - Only simple polygons are supported by filling functions (no self-intersections, no holes).
+-- - Concave polygon fill is more expensive than convex one: it has O(N^2) complexity. Provided as a convenience for the user but not used by the main library.
+--- @param points     ImVec2[] # 1-based
+--- @param num_points int
+--- @param col        ImU32
+--- @param thickness  float
+--- @param flags?     ImDrawFlags
+function MT.ImDrawList:AddPolyline(points, num_points, col, thickness, flags)
+    if not flags then flags = 0 end
+    self:_AddPolyline(points, num_points, col, thickness, flags, 3.4028234663853e+38 --[[FLT_MAX]])
 end
 
 --- @param col ImU32
@@ -43809,15 +43957,15 @@ end
 -- You may want to create your own instance of you try to ImDrawList completely without ImGui. In that case, watch out for future changes to this structure.
 --- @class ImDrawListSharedData
 --- @field TexUvWhitePixel       ImVec2 # UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
---- @field TexUvLines            ImVec4[] # UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+--- @field TexUvLines            ImVec4[] # 0-based. UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+--- @field TexUvCorners          ImVec4[] # 0-based. UV of rounded corner (== FontAtlas->Builder->TexUvCorners)
 --- @field FontAtlas             ImFontAtlas # Current font atlas
 --- @field Font                  ImFont # Current font (used for simplified AddText overload)
 --- @field FontSize              float # Current font size (used for simplified AddText overload)
 --- @field FontScale             float # Current font scale (== FontSize / Font->FontSize)
---- @field CurveTessellationTol  float
+--- @field CurveTessellationMaxError float # Tessellation tolerance when using PathBezierCurveTo()
 --- @field CircleTessellationMaxError float # Number of circle segments to use per pixel of radius for AddCircle() etc
---- @field InitialFringeScale    float
---- @field InitialFlags          ImDrawListFlags
+--- @field InitialDrawFlags      ImDrawFlags # Initial flags at the beginning of the frame (it is possible to alter flags on a per-drawlist basis afterwards)
 --- @field ClipRectFullscreen?   ImVec4 # Value for PushClipRectFullscreen()
 --- @field TempBuffer            ImVector<ImVec2> # Temporary write buffer
 --- @field DrawLists             ImVector<ImDrawList> # All draw lists associated to this ImDrawListSharedData
@@ -43834,17 +43982,16 @@ function ImDrawListSharedData()
     local this = setmetatable({
         TexUvWhitePixel = nil, -- UV of white pixel in the atlas (== FontAtlas->TexUvWhitePixel)
         TexUvLines      = nil, -- UV of anti-aliased lines in the atlas (== FontAtlas->Builder->TexUvLines)
+        TexUvCorners    = nil, -- UV of rounded corner (== FontAtlas->Builder->TexUvCorners)
         FontAtlas       = nil, -- Current font atlas
 
         Font      = nil, -- Current font (used for simplified AddText overload)
         FontSize  = 0,   -- Current font size (used for simplified AddText overload)
         FontScale = 0,   -- Current font scale (== FontSize / Font->FontSize)
 
-        CurveTessellationTol  = 0,
+        CurveTessellationMaxError  = 0, -- Tessellation tolerance when using PathBezierCurveTo()
         CircleTessellationMaxError = 0, -- Number of circle segments to use per pixel of radius for AddCircle() etc
-        InitialFringeScale    = 1,
-
-        InitialFlags          = 0,
+        InitialDrawFlags      = 0, -- Initial flags at the beginning of the frame (it is possible to alter flags on a per-drawlist basis afterwards)
         ClipRectFullscreen    = nil, -- Value for PushClipRectFullscreen()
         TempBuffer            = ImVector(ImVec2), -- Temporary write buffer
         DrawLists             = ImVector(), -- All draw lists associated to this ImDrawListSharedData
@@ -43887,6 +44034,10 @@ end
 --- @field BakedDiscardedCount      int
 --- @field PackIdMouseCursors       ImFontAtlasRectId
 --- @field PackIdLinesTexData       ImFontAtlasRectId
+--- @field PackIdLineFractTexData   ImFontAtlasRectId
+--- @field PackIdCornersTexData     ImFontAtlasRectId
+--- @field TexUvLines               ImVec4[] # 0-based. UVs for baked anti-aliased lines (u0, u1, v, 1/thickness)
+--- @field TexUvCorners             ImVec4[] # 0-based. UVs for baked anti-aliased corners (0= fill, 1> stroke thickness)
 MT.ImFontAtlasBuilder = {}
 MT.ImFontAtlasBuilder.__index = MT.ImFontAtlasBuilder
 
@@ -43919,6 +44070,14 @@ function ImFontAtlasBuilder()
     -- Custom rectangle identifiers
     this.PackIdMouseCursors = -1 -- White pixel + mouse cursors. Also happen to be fallback in case of packing failure.
     this.PackIdLinesTexData = -1
+    this.PackIdLineFractTexData = -1
+    this.PackIdCornersTexData = -1
+
+    -- Cached UV coordinates
+    this.TexUvLines   = {} -- [IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1 + IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT] UVs for baked anti-aliased lines (u0, u1, v, 1/thickness) -- 0-based
+    this.TexUvCorners = {} -- [IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX * IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX] UVs for baked anti-aliased corners (0= fill, 1> stroke thickness) -- 0-based
+    for n = 0, IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 13 --[[IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT]] do this.TexUvLines[n] = ImVec4() end
+    for n = 0, 16 --[[IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX]] * 4 --[[IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX]] - 1 do this.TexUvCorners[n] = ImVec4() end
 
     return this
 end
@@ -44267,11 +44426,10 @@ function ImGuiStyle()
         DisplayWindowPadding = ImVec2(19, 19), -- Window position are clamped to be visible within the display area or monitors by at least this amount. Only applies to regular windows.
 
         -- Rendering & Tessellation
-        AntiAliasedLines = true, -- Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedLines in all draw-lists.
-        AntiAliasedLinesUseTex = true, -- Enable anti-aliased lines/borders using textures for legacy strokes. Require backend to render with bilinear filtering (NOT point/nearest filtering).
-        AntiAliasedFill = true, -- Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Used at the beginning of the frame to set ImDrawListFlags.AntiAliasedFill in all draw-lists.
-
-        CurveTessellationTol       = 1.25, -- Tessellation tolerance when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
+        AntiAliasedLines            = true, -- Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawFlags_AALines in all draw-lists.
+        AntiAliasedLineEnds         = false, -- Enable anti-aliased lines/borders ends. Nicer for thick lines but more expensive. Used at the beginning of the frame to set ImDrawFlags_AALineEnds in all draw-lists.
+        AntiAliasedFill             = true, -- Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Used at the beginning of the frame to set ImDrawFlags_AAFill in all draw-lists.
+        CurveTessellationMaxError   = 1.12, -- Maximum error (in pixels) when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
         CircleTessellationMaxError = 0.30, -- Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
 
         -- Behaviors
@@ -44324,7 +44482,11 @@ function ImGuiStyle()
 
         -- [Internal]
         _MainScale = 1.0,
-        _NextFrameFontSizeBase = 0.0
+        _NextFrameFontSizeBase = 0.0,
+
+        -- Obsolete names (#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+        CurveTessellationTol        = 0.0, -- [OBSOLETE] Old CurveTessellationTol = CurveTessellationMaxError*CurveTessellationMaxError.
+        AntiAliasedLinesUseTex      = true, -- [OBSOLETE] Enable anti-aliased lines/borders using textures for legacy strokes. Require backend to render with bilinear filtering (NOT point/nearest filtering).
     }
 
     -- Default theme
@@ -53490,14 +53652,14 @@ function ImGui.BeginCombo(label, preview_value, flags)
     ImGui.RenderNavCursor(bb, id)
 
     if bit32.band(flags, 64 --[[ImGuiComboFlags.NoPreview]]) == 0 then
-        window.DrawList:AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (bit32.band(flags, 32 --[[ImGuiComboFlags.NoArrowButton]]) ~= 0) and 240 --[[ImDrawFlags.RoundCornersAll]] or 80 --[[ImDrawFlags.RoundCornersLeft]])
+        window.DrawList:AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (bit32.band(flags, 32 --[[ImGuiComboFlags.NoArrowButton]]) ~= 0) and 240 --[[ImDrawFlags.RoundAll]] or 80 --[[ImDrawFlags.RoundLeft]])
     end
 
     if bit32.band(flags, 32 --[[ImGuiComboFlags.NoArrowButton]]) == 0 then
         local bg_col = ImGui.GetColorU32((popup_open or hovered) and 23 --[[ImGuiCol.ButtonHovered]] or 22 --[[ImGuiCol.Button]])
         local text_col = ImGui.GetColorU32(0 --[[ImGuiCol.Text]])
 
-        window.DrawList:AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and 240 --[[ImDrawFlags.RoundCornersAll]] or 160 --[[ImDrawFlags.RoundCornersRight]])
+        window.DrawList:AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and 240 --[[ImDrawFlags.RoundAll]] or 160 --[[ImDrawFlags.RoundRight]])
 
         if value_x2 + arrow_size - style.FramePadding.x <= bb.Max.x then
             ImGui.RenderArrow(window.DrawList, ImVec2(value_x2 + style.FramePadding.y, bb.Min.y + style.FramePadding.y), text_col, 3 --[[ImGuiDir.Down]], 1.0)
@@ -58672,11 +58834,11 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
     if bit32.band(flags, 16384 --[[ImGuiColorEditFlags.AlphaPreviewHalf]]) ~= 0 and col_rgb.w < 1.0 then
         local mid_x = IM_ROUND((bb_inner.Min.x + bb_inner.Max.x) * 0.5)
         if bit32.band(flags, 8192 --[[ImGuiColorEditFlags.AlphaNoBg]]) == 0 then
-            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), grid_step, ImVec2(-grid_step + off, off), rounding, 160 --[[ImDrawFlags.RoundCornersRight]])
+            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), grid_step, ImVec2(-grid_step + off, off), rounding, 160 --[[ImDrawFlags.RoundRight]])
         else
-            window.DrawList:AddRectFilled(ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), rounding, 160 --[[ImDrawFlags.RoundCornersRight]])
+            window.DrawList:AddRectFilled(ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), rounding, 160 --[[ImDrawFlags.RoundRight]])
         end
-        window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, 80 --[[ImDrawFlags.RoundCornersLeft]])
+        window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, 80 --[[ImDrawFlags.RoundLeft]])
     else
         -- Because GetColorU32() multiplies by the global style Alpha and we don't want to display a checkerboard if the source code had no alpha
         local col_source = (bit32.band(flags, 4096 --[[ImGuiColorEditFlags.AlphaOpaque]]) ~= 0) and col_rgb_without_alpha or col_rgb
@@ -63366,7 +63528,7 @@ function ImGui.TabItemBackground(draw_list, bb, flags, col)
     local rounding = ImMax(0.0, ImMin(bit32.band(flags, 2097152 --[[ImGuiTabItemFlags.Button]]) ~= 0 and g.Style.FrameRounding or g.Style.TabRounding, width * 0.5 - 1.0))
     local y1 = bb.Min.y + 1.0 -- Leave a bit of room in title bars.
     local y2 = bb.Max.y - g.Style.TabBarBorderSize
-    draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, 48 --[[ImDrawFlags.RoundCornersTop]])
+    draw_list:AddRectFilled(ImVec2(bb.Min.x, y1), ImVec2(bb.Max.x, y2), col, rounding, 48 --[[ImDrawFlags.RoundTop]])
     if g.Style.TabBorderSize > 0.0 then
         draw_list:PathLineTo(ImVec2(bb.Min.x, y2))
         draw_list:PathArcToFast(ImVec2(bb.Min.x + rounding, y1 + rounding), rounding, 6, 9)
@@ -68808,6 +68970,12 @@ return {
     IM_DELETE = IM_DELETE,
     IM_DRAWLIST_ARCFAST_SAMPLE_MAX = IM_DRAWLIST_ARCFAST_SAMPLE_MAX,
     IM_DRAWLIST_ARCFAST_TABLE_SIZE = IM_DRAWLIST_ARCFAST_TABLE_SIZE,
+    IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX = IM_DRAWLIST_TEX_CORNERS_ROUNDING_MAX,
+    IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX = IM_DRAWLIST_TEX_CORNERS_THICKNESS_MAX,
+    IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH = IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH,
+    IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT,
+    IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT = IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT,
+    IM_DRAWLIST_TEX_LINES_WIDTH_MAX = IM_DRAWLIST_TEX_LINES_WIDTH_MAX,
     IM_F32_TO_INT8_SAT = IM_F32_TO_INT8_SAT,
     IM_F32_TO_INT8_UNBOUND = IM_F32_TO_INT8_UNBOUND,
     IM_FILE_CLOSE = IM_FILE_CLOSE,
@@ -69103,6 +69271,8 @@ return {
     ImHashStr = ImHashStr,
     ImHashStrRaw = ImHashStrRaw,
     ImIsPowerOfTwo = ImIsPowerOfTwo,
+    ImIsTruncated = ImIsTruncated,
+    ImIsTruncated4 = ImIsTruncated4,
     ImLengthSqr = ImLengthSqr,
     ImLerp = ImLerp,
     ImLinearRemapClamp = ImLinearRemapClamp,
@@ -69121,6 +69291,7 @@ return {
     ImRotate = ImRotate,
     ImRound64 = ImRound64,
     ImRsqrt = ImRsqrt,
+    ImRsqrtPrecise = ImRsqrtPrecise,
     ImS16 = ImS16,
     ImS32 = ImS32,
     ImS8 = ImS8,

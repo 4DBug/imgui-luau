@@ -10516,7 +10516,7 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
                 if window.DockIsActive then
                     bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
                 else
-                    bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundCornersAll or ImDrawFlags.RoundCornersBottom
+                    bg_rounding_flags = (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and ImDrawFlags.RoundAll or ImDrawFlags.RoundBottom
                 end
                 local bg_draw_list = window.DockIsActive and window.DockNode.HostWindow.DrawList or window.DrawList
                 if window.DockIsActive then bg_draw_list:ChannelsSetCurrent(0) end
@@ -10531,14 +10531,14 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
         -- in order for their pos/size to be matching their undocking state.)
         if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and not window.DockIsActive then
             local title_bar_col = ImGui.GetColorU32(title_bar_is_highlight and ImGuiCol.TitleBgActive or ImGuiCol.TitleBg)
-            window.DrawList:AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, window_rounding, ImDrawFlags.RoundCornersTop)
+            window.DrawList:AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, window_rounding, ImDrawFlags.RoundTop)
         end
 
         -- Menu bar
         if bit32.band(flags, ImGuiWindowFlags.MenuBar) ~= 0 then
             local menu_bar_rect = window:MenuBarRect()
             menu_bar_rect:ClipWith(window:Rect()) -- Soft clipping, in particular child window don't have minimum size covering the menu bar so this is useful for them.
-            window.DrawList:AddRectFilled(menu_bar_rect.Min, menu_bar_rect.Max, ImGui.GetColorU32(ImGuiCol.MenuBarBg), (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and window_rounding or 0.0, ImDrawFlags.RoundCornersTop)
+            window.DrawList:AddRectFilled(menu_bar_rect.Min, menu_bar_rect.Max, ImGui.GetColorU32(ImGuiCol.MenuBarBg), (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and window_rounding or 0.0, ImDrawFlags.RoundTop)
             if style.FrameBorderSize > 0.0 and menu_bar_rect.Max.y < window.Pos.y + window.Size.y then
                 window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size * 0.5, menu_bar_rect.Max.x - window_border_size * 0.5, menu_bar_rect.Max.y, ImGui.GetColorU32(ImGuiCol.Border), style.FrameBorderSize)
             end
@@ -12423,6 +12423,7 @@ function ImGui.Begin(name, open, flags)
 
         -- Setup draw list and outer clipping rectangle
         IM_ASSERT(window.DrawList.CmdBuffer.Size == 1 and window.DrawList.CmdBuffer.Data[1].ElemCount == 0)
+        window.DrawList:_SetPixelDensity(window.Viewport.FramebufferScale.x)
         window.DrawList:PushTexture(g.Font.OwnerAtlas.TexRef)
         ImGui.PushClipRect(host_rect.Min, host_rect.Max, false)
 
@@ -13517,22 +13518,30 @@ local function SetupDrawListSharedData()
         virtual_space:Add(viewport:GetMainRect())
     end
     g.DrawListSharedData.ClipRectFullscreen = virtual_space:ToVec4()
-    g.DrawListSharedData.CurveTessellationTol = g.Style.CurveTessellationTol
+    g.DrawListSharedData.CurveTessellationMaxError = g.Style.CurveTessellationMaxError
     g.DrawListSharedData:SetCircleTessellationMaxError(g.Style.CircleTessellationMaxError)
-    g.DrawListSharedData.InitialFlags = ImDrawListFlags.None
-    if g.Style.AntiAliasedLines then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, ImDrawListFlags.AntiAliasedLines)
-    end
-    if g.Style.AntiAliasedLinesUseTex and not bit32.band(g.IO.Fonts.Flags, ImFontAtlasFlags.NoBakedLines) then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, ImDrawListFlags.AntiAliasedLinesUseTex)
+    g.DrawListSharedData.InitialDrawFlags = ImDrawFlags.None
+    if bit32.band(g.IO.Fonts.Flags, ImFontAtlasFlags.NoBakedLines) ~= 0 then
+        g.Style.AntiAliasedLines = false; g.Style.AntiAliasedLineEnds = false
     end
     if g.Style.AntiAliasedFill then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, ImDrawListFlags.AntiAliasedFill)
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.AAFill)
     end
-    if bit32.band(g.IO.BackendFlags, ImGuiBackendFlags.RendererHasVtxOffset) then
-        g.DrawListSharedData.InitialFlags = bit32.bor(g.DrawListSharedData.InitialFlags, ImDrawListFlags.AllowVtxOffset)
+    if g.Style.AntiAliasedLines then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.AALines)
     end
-    g.DrawListSharedData.InitialFringeScale = 1.0
+    if g.Style.AntiAliasedLineEnds then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.AALineEnds)
+    end
+    if g.IO.ConfigDebugDrawListDefaultsToStrokeLegacy then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.StrokeLegacy)
+    end
+    if bit32.band(g.IO.Fonts.Flags, ImFontAtlasFlags.NoBakedRoundCorners) == 0 then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.UseTexForRoundCorners, ImDrawFlags.AllowTexForRoundCorners_)
+    end
+    if bit32.band(g.IO.BackendFlags, ImGuiBackendFlags.RendererHasVtxOffset) ~= 0 then
+        g.DrawListSharedData.InitialDrawFlags = bit32.bor(g.DrawListSharedData.InitialDrawFlags, ImDrawFlags.UseVtxOffset)
+    end
 end
 
 --- @param viewport ImGuiViewportP
@@ -13641,6 +13650,7 @@ local function GetViewportBgFgDrawList(viewport, drawlist_no, drawlist_name)
     -- Our ImDrawList system requires that there is always a command
     if viewport.BgFgDrawListsLastTimeActive[drawlist_no] ~= g.Time then
         draw_list:_ResetForNewFrame()
+        draw_list:_SetPixelDensity(viewport.FramebufferScale.x)
         draw_list:PushTexture(g.IO.Fonts.TexRef)
         draw_list:PushClipRect(viewport.Pos, viewport.Pos + viewport.Size, false)
         viewport.BgFgDrawListsLastTimeActive[drawlist_no] = g.Time
@@ -13761,6 +13771,13 @@ function ImGui.NewFrame()
     local g = GImGui
 
     g.ConfigFlagsLastFrame = g.ConfigFlagsCurrFrame
+    -- [Luau] ErrorCheckNewFrameSanityChecks() is not ported; only the parts below are inlined.
+    IM_ASSERT(g.Style.CurveTessellationMaxError > 0.0, "Invalid style setting!")
+    -- Remap legacy CurveTessellationTol into CurveTessellationMaxError (OBSOLETED in 1.93.0, August 2026)
+    if g.Style.CurveTessellationTol ~= 0.0 then
+        g.Style.CurveTessellationMaxError = ImSqrt(g.Style.CurveTessellationTol)
+    end
+    g.Style.CurveTessellationTol = 0.0
     g.ConfigFlagsCurrFrame = g.IO.ConfigFlags
 
     -- Load settings on first frame, save settings when modified (after a delay)
@@ -18273,6 +18290,13 @@ function ImGui.AddUpdateViewport(window, id, pos, size, flags)
     viewport.LastFrameActive = g.FrameCount
     viewport:UpdateWorkRect()
     IM_ASSERT(window == nil or viewport.ID == window.ID)
+
+    -- Initialize FramebufferScale for main viewport and new viewports, before UpdatePlatformWindows() -> Platform_GetWindowFramebufferScale() has a chance to run.
+    -- FIXME: New viewport on monitors with a different scale will run for a frame with wrong scale? (#9502)
+    -- A workaround could be to cache last known FramebufferScale per monitor, so the heuristic can pull it from monitor.
+    if viewport.FramebufferScale.x <= 0.0 or viewport.FramebufferScale.y <= 0.0 or viewport.ID == IMGUI_VIEWPORT_DEFAULT_ID then
+        ImVec2_Copy(viewport.FramebufferScale, g.IO.DisplayFramebufferScale)
+    end
 
     if window ~= nil then
         window.ViewportOwned = true
