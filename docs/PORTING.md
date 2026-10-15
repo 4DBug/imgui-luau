@@ -65,5 +65,5 @@ there, but keep this port's existing data structures and conventions. Read the s
 
 - **ImGuiAxis is 1-based in this port** (`None=0, X=1, Y=2`; upstream `None=-1, X=0, Y=1`). Use `v[axis]` to index an ImVec2 and `3 - axis` for the other axis. `ImGuiDir` keeps upstream values (`None=-1, Left=0, Right=1, Up=2, Down=3`).
 - Never write `cond and nil or x` in Lua: it always evaluates `x`. Use an `if`.
-- Port signature quirk: `AddRect(min, max, col, rounding, thickness, flags)` (thickness BEFORE flags; upstream has flags first). Check the port's signature before porting any draw call that takes both.\n
+- Draw calls taking both thickness and flags use upstream's 1.92.8+ order: thickness BEFORE flags, e.g. `AddRect(min, max, col, rounding, thickness, flags)`, `PathStroke(col, thickness, flags)`, `AddPolyline(points, count, col, thickness, flags)`.
 - C++ default arguments (e.g. `bool x = true`) must be reproduced with `if x == nil then x = true end`; a missing Lua argument is nil/falsy.
