@@ -10459,7 +10459,7 @@ local function RenderWindowOuterBorders(window)
 
     if g.Style.FrameBorderSize > 0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoTitleBar) == 0) and not window.DockIsActive then
         local y = window.Pos.y + window.TitleBarHeight - 1
-        window.DrawList:AddLineH(window.Pos.x + border_size * 0.5, window.Pos.x + window.Size.x - border_size * 0.5, y, border_col, g.Style.FrameBorderSize)
+        window.DrawList:AddLineH(window.Pos.x + border_size, window.Pos.x + window.Size.x - border_size, y, border_col, g.Style.FrameBorderSize, ImDrawFlags.StrokeCenterBiased)
     end
 end
 
@@ -10540,7 +10540,7 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             menu_bar_rect:ClipWith(window:Rect()) -- Soft clipping, in particular child window don't have minimum size covering the menu bar so this is useful for them.
             window.DrawList:AddRectFilled(menu_bar_rect.Min, menu_bar_rect.Max, ImGui.GetColorU32(ImGuiCol.MenuBarBg), (bit32.band(flags, ImGuiWindowFlags.NoTitleBar) ~= 0) and window_rounding or 0.0, ImDrawFlags.RoundTop)
             if style.FrameBorderSize > 0.0 and menu_bar_rect.Max.y < window.Pos.y + window.Size.y then
-                window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size * 0.5, menu_bar_rect.Max.x - window_border_size * 0.5, menu_bar_rect.Max.y, ImGui.GetColorU32(ImGuiCol.Border), style.FrameBorderSize)
+                window.DrawList:AddLineH(menu_bar_rect.Min.x + window_border_size, menu_bar_rect.Max.x - window_border_size, menu_bar_rect.Max.y, ImGui.GetColorU32(ImGuiCol.Border), style.FrameBorderSize, ImDrawFlags.StrokeCenterBiased)
             end
         end
 
@@ -19039,7 +19039,7 @@ function ImGui.RenderDimmedBackgrounds()
         window.DrawList:ChannelsMerge()
         if window.DrawList.CmdBuffer.Size == 0 then window.DrawList:AddDrawCmd() end
         window.DrawList:PushClipRect(viewport.Pos, viewport.Pos + viewport.Size)
-        window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.NavWindowingHighlight, g.NavWindowingHighlightAlpha), window.WindowRounding, 0, 3.0) -- FIXME-DPI
+        window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.NavWindowingHighlight, g.NavWindowingHighlightAlpha), window.WindowRounding, 3.0) -- FIXME-DPI
         window.DrawList:PopClipRect()
     end
 end
@@ -20685,8 +20685,7 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
         else
             local cr = pcmd.ClipRect
             local open = ImGui.TreeNode(cmd_n, "DrawCmd:%5d tris, Tex %s, ClipRect (%4.0f,%4.0f)-(%4.0f,%4.0f)", math.floor(pcmd.ElemCount / 3), tostring(pcmd.TexRef and (pcmd.TexRef._TexID or pcmd.TexRef._TexData)), cr.x, cr.y, cr.z, cr.w)
-            local function ShowMesh(show_mesh, show_aabb)
-                if not fg_draw_list then return end
+            local function ShowMeshImpl(show_mesh, show_aabb)
                 local clip_rect = ImRect(cr.x, cr.y, cr.z, cr.w)
                 local vtxs_rect = ImRect(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX)
                 local base = pcmd.IdxOffset
@@ -20704,6 +20703,12 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
                     fg_draw_list:AddRect(ImTrunc(clip_rect.Min), ImTrunc(clip_rect.Max), IM_COL32(255, 0, 255, 255)) -- In pink: clipping rectangle submitted to GPU
                     fg_draw_list:AddRect(ImTrunc(vtxs_rect.Min), ImTrunc(vtxs_rect.Max), IM_COL32(0, 255, 255, 255)) -- In cyan: bounding box of triangles
                 end
+            end
+            local function ShowMesh(show_mesh, show_aabb) -- DebugNodeDrawCmdShowMeshAndBoundingBox()
+                if not fg_draw_list then return end
+                fg_draw_list:PushDrawFlag(ImDrawFlags.AALines, false) -- Disable AA on triangle outlines is more readable for very large and thin triangles.
+                ShowMeshImpl(show_mesh, show_aabb)
+                fg_draw_list:PopDrawFlag()
             end
             if ImGui.IsItemHovered() and (cfg.ShowDrawCmdMesh or cfg.ShowDrawCmdBoundingBoxes) then ShowMesh(cfg.ShowDrawCmdMesh, cfg.ShowDrawCmdBoundingBoxes) end
             if open then
@@ -20733,8 +20738,8 @@ function ImGui.DebugNodeTabBar(tab_bar, label)
     if is_active and ImGui.IsItemHovered() then
         local dl = FG(tab_bar.Window)
         dl:AddRect(tab_bar.BarRect.Min, tab_bar.BarRect.Max, IM_COL32(255, 255, 0, 255))
-        dl:AddLine(ImVec2(tab_bar.ScrollingRectMinX, tab_bar.BarRect.Min.y), ImVec2(tab_bar.ScrollingRectMinX, tab_bar.BarRect.Max.y), IM_COL32(0, 255, 0, 255))
-        dl:AddLine(ImVec2(tab_bar.ScrollingRectMaxX, tab_bar.BarRect.Min.y), ImVec2(tab_bar.ScrollingRectMaxX, tab_bar.BarRect.Max.y), IM_COL32(0, 255, 0, 255))
+        dl:AddLineV(tab_bar.ScrollingRectMinX, tab_bar.BarRect.Min.y, tab_bar.BarRect.Max.y, IM_COL32(0, 255, 0, 255))
+        dl:AddLineV(tab_bar.ScrollingRectMaxX, tab_bar.BarRect.Min.y, tab_bar.BarRect.Max.y, IM_COL32(0, 255, 0, 255))
     end
     if open then
         for tab_n, tab in tab_bar.Tabs:iter() do

@@ -4,4 +4,4 @@ set -e
 cd "$(dirname "$0")/../../.."
 python3 tools/bundle.py --target love >/dev/null
 nix-shell -p luajit --run "luajit tools/test/love/t_drawhash.lua 150 Widgets,Basic && luajit tools/test/love/t_drawhash.lua 150 all && luajit tools/test/love/t_examples.lua"
-echo "expected (Luau, tools/test/scripts/t_drawhash.luau): 1746012297 / 1639427837"
+echo "expected (Luau, tools/test/scripts/t_drawhash.luau): 154977593 / 62816915"

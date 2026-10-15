@@ -934,38 +934,12 @@ function ImGui.CloseButton(id, pos)
         window.DrawList:AddRectFilled(bb.Min, bb.Max, bg_col)
     end
 
-    local cross_center = bb:GetCenter() - ImVec2(0.5, 0.5)
+    local cross_center = bb:GetCenter()
     local cross_extent = g.FontSize * 0.5 * 0.7071 - 1
     local cross_col = ImGui.GetColorU32(ImGuiCol.Text)
     local cross_thickness = 1.0 -- FIXME-DPI
     window.DrawList:AddLine(cross_center + ImVec2(cross_extent, cross_extent), cross_center + ImVec2(-cross_extent, -cross_extent), cross_col, cross_thickness)
     window.DrawList:AddLine(cross_center + ImVec2(cross_extent, -cross_extent), cross_center + ImVec2(-cross_extent, cross_extent), cross_col, cross_thickness)
-
-    return pressed
-end
-
---- @return bool
-function ImGui.CollapseButton(id, pos)
-    local g = GImGui
-
-    local window = g.CurrentWindow
-
-    local bb = ImRect(pos, pos + ImVec2(g.FontSize, g.FontSize))
-
-    local is_clipped = not ImGui.ItemAdd(bb, id)
-
-    local pressed, hovered = ImGui.ButtonBehavior(bb, id)
-
-    -- Render
-    if hovered then
-        window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.ButtonHovered))
-    end
-
-    if window.Collapsed then
-        ImGui.RenderArrow(window.DrawList, bb.Min, ImGui.GetColorU32(ImGuiCol.Text), ImGuiDir.Right, 1)
-    else
-        ImGui.RenderArrow(window.DrawList, bb.Min, ImGui.GetColorU32(ImGuiCol.Text), ImGuiDir.Down, 1)
-    end
 
     return pressed
 end
@@ -1874,7 +1848,7 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
 
     local sep1_x1 = pos.x
     local sep2_x2 = bb.Max.x
-    local seps_y = ImTrunc((bb.Min.y + bb.Max.y) * 0.5 + 0.999)
+    local seps_y = ImTrunc((bb.Min.y + bb.Max.y) * 0.5) + 1.0
 
     local label_avail_w = ImMax(0.0, sep2_x2 - sep1_x1 - padding.x * 2.0)
     local label_pos = ImVec2(pos.x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x), pos.y + text_baseline_y) -- FIXME-ALIGN
@@ -1889,11 +1863,11 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
         local sep2_x1 = label_pos.x + label_size.x + extra_w + style.ItemSpacing.x
 
         if sep1_x2 > sep1_x1 and separator_thickness > 0.0 then
-            window.DrawList:AddLineH(sep1_x1, sep1_x2, seps_y, separator_col, separator_thickness)
+            window.DrawList:AddLineH(sep1_x1, sep1_x2, seps_y, separator_col, separator_thickness, ImDrawFlags.StrokeCenterBiased)
         end
 
         if sep2_x2 > sep2_x1 and separator_thickness > 0.0 then
-            window.DrawList:AddLineH(sep2_x1, sep2_x2, seps_y, separator_col, separator_thickness)
+            window.DrawList:AddLineH(sep2_x1, sep2_x2, seps_y, separator_col, separator_thickness, ImDrawFlags.StrokeCenterBiased)
         end
 
         if g.LogEnabled then
@@ -1907,7 +1881,7 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
         end
 
         if separator_thickness > 0.0 then
-            window.DrawList:AddLineH(sep1_x1, sep2_x2, seps_y, separator_col, separator_thickness)
+            window.DrawList:AddLineH(sep1_x1, sep2_x2, seps_y, separator_col, separator_thickness, ImDrawFlags.StrokeCenterBiased)
         end
     end
 end
@@ -6236,10 +6210,10 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         local cursor_is_visible = (not g.IO.ConfigInputTextCursorBlink) or (state.CursorAnim <= 0.0) or (ImFmod(state.CursorAnim, 1.20) <= 0.80)
 
         local cursor_screen_pos = ImTrunc(draw_pos + cursor_offset - draw_scroll)
-        local cursor_screen_rect = ImRect(cursor_screen_pos.x, cursor_screen_pos.y - g.FontSize + 0.5, cursor_screen_pos.x + 1.0, cursor_screen_pos.y - 1.5)
+        local cursor_screen_rect = ImRect(cursor_screen_pos.x, cursor_screen_pos.y - g.FontSize + 1.0, cursor_screen_pos.x + 1.0, cursor_screen_pos.y - 1.0)
 
         if cursor_is_visible and cursor_screen_rect:Overlaps(clip_rect) then
-            draw_window.DrawList:AddLineV(cursor_screen_rect.Min.x, cursor_screen_rect.Min.y, cursor_screen_rect.Max.y, ImGui.GetColorU32(ImGuiCol.InputTextCursor), style.InputTextCursorSize)
+            draw_window.DrawList:AddLineV(cursor_screen_rect.Min.x, cursor_screen_rect.Min.y, cursor_screen_rect.Max.y, ImGui.GetColorU32(ImGuiCol.InputTextCursor), style.InputTextCursorSize, ImDrawFlags.StrokeInside)
         end
 
         -- Notify OS of text input position for advanced IME (-1 x offset so that Windows IME can cover our cursor. Bit of an extra nicety.)
@@ -7117,7 +7091,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
     if alpha_bar then
         local alpha = ImSaturate(col[4])
         local bar1_bb = ImRect(bar1_pos_x, picker_pos.y, bar1_pos_x + bars_width, picker_pos.y + sv_picker_size)
-        ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, bar1_bb.Min, bar1_bb.Max, 0, bar1_bb:GetWidth() / 2.0, ImVec2(0.0, 0.0))
+        ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, bar1_bb.Min, bar1_bb.Max, IM_COL32(0, 0, 0, 0), style.Alpha, bar1_bb:GetWidth() / 2.0, ImVec2(0.0, 0.0))
         draw_list:AddRectFilledMultiColor(bar1_bb.Min, bar1_bb.Max, user_col32_striped_of_alpha, user_col32_striped_of_alpha, bit32.band(user_col32_striped_of_alpha, bit32.bnot(IM_COL32_A_MASK)), bit32.band(user_col32_striped_of_alpha, bit32.bnot(IM_COL32_A_MASK)))
 
         local bar1_line_y = IM_ROUND(picker_pos.y + (1.0 - alpha) * sv_picker_size)
@@ -7195,36 +7169,45 @@ function ImGui.ColorButton(desc_id, col, flags, size_arg)
     local col_rgb_without_alpha = ImVec4(col_rgb.x, col_rgb.y, col_rgb.z, 1.0)
     local grid_step = ImMin(size.x, size.y) / 2.99
     local rounding = ImMin(g.Style.FrameRounding, grid_step * 0.5)
-    local bb_inner = ImRect()
-    ImRect_Copy(bb_inner, bb)
-    local off = 0.0
-    if bit32.band(flags, ImGuiColorEditFlags.NoBorder) == 0 then
-        off = -0.75
-        bb_inner:Expand(off)
+    local is_mixed = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0
+
+    local backup_alpha = g.Style.Alpha
+    if g.DisabledStackSize > 0 then
+        g.Style.Alpha = g.DisabledAlphaBackup -- Cancel out effect of BeginDisabled() for color swatches.
     end
-    if bit32.band(flags, ImGuiColorEditFlags.AlphaPreviewHalf) ~= 0 and col_rgb.w < 1.0 then
-        local mid_x = IM_ROUND((bb_inner.Min.x + bb_inner.Max.x) * 0.5)
-        if bit32.band(flags, ImGuiColorEditFlags.AlphaNoBg) == 0 then
-            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), grid_step, ImVec2(-grid_step + off, off), rounding, ImDrawFlags.RoundRight)
-        else
-            window.DrawList:AddRectFilled(ImVec2(bb_inner.Min.x + grid_step, bb_inner.Min.y), bb_inner.Max, ImGui.GetColorU32(col_rgb), rounding, ImDrawFlags.RoundRight)
+    if is_mixed then
+        window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), rounding)
+        ImGui.PushStyleColor(ImGuiCol.Text, g.Style.Colors[ImGuiCol.TextDisabled]) -- ImGuiCol_TextMixedValue
+        if g.MixedValueLabel ~= nil then
+            ImGui.RenderTextClipped(ImVec2(bb.Min.x, bb.Min.y + g.Style.FramePadding.y), bb.Max, g.MixedValueLabel, nil, nil, ImVec2(0.5, 0.0))
         end
-        window.DrawList:AddRectFilled(bb_inner.Min, ImVec2(mid_x, bb_inner.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, ImDrawFlags.RoundLeft)
+        ImGui.PopStyleColor()
+    elseif bit32.band(flags, ImGuiColorEditFlags.AlphaPreviewHalf) ~= 0 and col_rgb.w < 1.0 then
+        local mid_x = IM_ROUND((bb.Min.x + bb.Max.x) * 0.5)
+        if bit32.band(flags, ImGuiColorEditFlags.AlphaNoBg) == 0 then
+            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, ImVec2(bb.Min.x + grid_step, bb.Min.y), bb.Max, ImGui.ColorConvertFloat4ToU32(col_rgb), g.Style.Alpha, grid_step, ImVec2(-grid_step, 0.0), rounding, ImDrawFlags.RoundRight)
+        else
+            window.DrawList:AddRectFilled(ImVec2(bb.Min.x + grid_step, bb.Min.y), bb.Max, ImGui.GetColorU32(col_rgb), rounding, ImDrawFlags.RoundRight)
+        end
+        window.DrawList:AddRectFilled(bb.Min, ImVec2(mid_x, bb.Max.y), ImGui.GetColorU32(col_rgb_without_alpha), rounding, ImDrawFlags.RoundLeft)
     else
         -- Because GetColorU32() multiplies by the global style Alpha and we don't want to display a checkerboard if the source code had no alpha
         local col_source = (bit32.band(flags, ImGuiColorEditFlags.AlphaOpaque) ~= 0) and col_rgb_without_alpha or col_rgb
         if col_source.w < 1.0 and bit32.band(flags, ImGuiColorEditFlags.AlphaNoBg) == 0 then
-            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, bb_inner.Min, bb_inner.Max, ImGui.GetColorU32(col_source), grid_step, ImVec2(off, off), rounding)
+            ImGui.RenderColorRectWithAlphaCheckerboard(window.DrawList, bb.Min, bb.Max, ImGui.ColorConvertFloat4ToU32(col_source), g.Style.Alpha, grid_step, ImVec2(0.0, 0.0), rounding)
         else
-            window.DrawList:AddRectFilled(bb_inner.Min, bb_inner.Max, ImGui.GetColorU32(col_source), rounding)
+            window.DrawList:AddRectFilled(bb.Min, bb.Max, ImGui.GetColorU32(col_source), rounding)
         end
+    end
+    if g.DisabledStackSize > 0 then
+        g.Style.Alpha = backup_alpha
     end
     ImGui.RenderNavCursor(bb, id)
     if bit32.band(flags, ImGuiColorEditFlags.NoBorder) == 0 then
         if g.Style.FrameBorderSize > 0.0 then
             ImGui.RenderFrameBorder(bb.Min, bb.Max, rounding)
         else
-            window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), rounding) -- Color buttons are often in need of some sort of border
+            window.DrawList:AddRect(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), rounding, 1.0 * ImTrunc(g.Style._MainScale)) -- Color buttons are often in need of some sort of border -- FIXME-DPI
         end
     end
 
@@ -7907,23 +7890,27 @@ function ImGui.TreeNodeDrawLineToChildNode(target_pos)
 
     -- FIXME: Could this be simplified using new stroke flags?
     local parent_data = g.TreeNodeStack.Data[g.TreeNodeStack.Size]
-    local x1 = ImTrunc(parent_data.DrawLinesX1)
+    local half_size = g.Style.TreeLinesSize * 0.5
+    local x1 = ImTrunc(parent_data.DrawLinesX1 - half_size) + half_size -- Draw line centered at X1, but snap to pixels boundary.
     local x2 = ImTrunc(target_pos.x - g.Style.ItemInnerSpacing.x)
-    local y = ImTrunc(target_pos.y)
+    local y = ImTrunc(target_pos.y - half_size) + half_size
     local rounding = (g.Style.TreeLinesRounding > 0.0) and ImMin(x2 - x1, g.Style.TreeLinesRounding) or 0.0
     parent_data.DrawLinesToNodesY2 = ImMax(parent_data.DrawLinesToNodesY2, y - rounding)
     if x1 >= x2 then
         return
     end
-    if rounding > 0.0 then
-        x1 = x1 + 0.5 + rounding
+    if rounding > 0.0 and rounding > half_size then
+        x1 = x1 + rounding
         window.DrawList:PathArcToFast(ImVec2(x1, y - rounding), rounding, 6, 3)
         if x1 < x2 then
             window.DrawList:PathLineTo(ImVec2(x2, y))
         end
         window.DrawList:PathStroke(ImGui.GetColorU32(ImGuiCol.TreeLines), g.Style.TreeLinesSize)
     else
-        window.DrawList:AddLineH(x1, x2, y, ImGui.GetColorU32(ImGuiCol.TreeLines), g.Style.TreeLinesSize)
+        -- We use AddLine() instead of AddLineH() as we provide coordinates for line center,
+        -- in order to make the code use same coordinates for both rounded and non-rounded version. (FIXME-OPT)
+        x1 = x1 + half_size -- Avoid overdraw
+        window.DrawList:AddLine(ImVec2(x1, y), ImVec2(x2, y), ImGui.GetColorU32(ImGuiCol.TreeLines), g.Style.TreeLinesSize)
     end
 end
 
@@ -11905,7 +11892,7 @@ function ImGui.TabItemBackground(draw_list, bb, flags, col)
         draw_list:PathArcToFast(ImVec2(bb.Min.x + rounding, y1 + rounding), rounding, 6, 9)
         draw_list:PathArcToFast(ImVec2(bb.Max.x - rounding, y1 + rounding), rounding, 9, 12)
         draw_list:PathLineTo(ImVec2(bb.Max.x, y2))
-        draw_list:PathStroke(ImGui.GetColorU32(ImGuiCol.Border), g.Style.TabBorderSize)
+        draw_list:PathStroke(ImGui.GetColorU32(ImGuiCol.Border), g.Style.TabBorderSize, ImDrawFlags.StrokeCenterBiased) -- Use _StrokeInside?
     end
 end
 
