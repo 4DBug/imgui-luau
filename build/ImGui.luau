@@ -32574,6 +32574,7 @@ end
 --- @param wrap_width float
 --- @param flags      ImDrawTextFlags
 --- @return int
+@native
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
     -- For references, possible wrap point marked with ^
     --  "aaa bbb, ccc,ddd. eee   fff. ggg!"
@@ -32604,10 +32605,12 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     local span_width = 0.0
 
     local stop = false
+    local text_is_str = type(text) == "string" -- [Luau] ImStrByte() inlined (once per character)
     while s < text_end do
         repeat
         --- @type unsigned_int
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end
         local next_s
         if c < 0x80 then
             next_s = s + 1
@@ -32636,8 +32639,8 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
         -- Classify current character
         local curr_type
-        if c < 128 then
-            curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_0000_007f, c)
+        if c < 128 then -- [Luau] ImTextClassifierGet() inlined
+            curr_type = bit32.band(bit32.rshift(g_CharClassifierIsSeparator_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
         elseif (c >= 0x3000 and c < 0x3010) then
             curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_3000_300f, bit32.band(c, 15))
         else
@@ -32716,9 +32719,11 @@ local TEXT_SIZE_CACHE_MAX = 4096
 
 @native
 function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    local text_is_str = type(text) == "string"
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
     -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
     local cache_key = nil
+    local wrap_cache = nil
     if text_begin == 1 and out_offset == nil and wrap_width <= 0.0 and max_width >= FLT_MAX and type(text) == "string"
         and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
         local baked = font:GetFontBaked(size)
@@ -32731,6 +32736,23 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             return ImVec2(e[1] * (size / baked.Size), e[2] * size), #text + 1
         end
         cache_key = text
+    elseif text_begin == 1 and out_offset == nil and wrap_width > 0.0 and max_width >= FLT_MAX and text_is_str
+        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+        -- [Luau] same for wrapped text (TextWrapped() measures every line every frame): exact results per (size, wrap width, text)
+        local baked = font:GetFontBaked(size)
+        local cache = baked._TextSizeCache
+        if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
+            cache = {}; baked._TextSizeCache = cache; baked._TextSizeCacheN = 0
+        end
+        local by_size = cache[size]
+        if by_size == nil then by_size = {}; cache[size] = by_size end
+        local by_wrap = by_size[wrap_width]
+        if by_wrap == nil then by_wrap = {}; by_size[wrap_width] = by_wrap end
+        local e = by_wrap[text]
+        if e then
+            return ImVec2(e[1], e[2]), e[3]
+        end
+        wrap_cache = by_wrap
     end
     if not text_end then
         text_end = #text + 1 -- FIXME-OPT: Need to avoid this.
@@ -32778,7 +32800,8 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
         -- Decode and advance source
         local prev_s = s
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end -- [Luau] ImStrByte() inlined
         if c < 0x80 then
             s = s + 1
         else
@@ -32837,6 +32860,9 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     if cache_key then
         baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
+        baked._TextSizeCacheN = baked._TextSizeCacheN + 1
+    elseif wrap_cache then
+        wrap_cache[text] = { text_size.x, text_size.y, out_remaining }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 
@@ -38283,6 +38309,7 @@ end
 ---------------------------------------------------------
 
 -- Copies a region of ImTextureData pixels (1-based byte table) into our RGBA8 buffer
+@native
 local function CopyTexturePixels(tex, dst, x, y, w, h)
     local bpp, tex_w = tex.BytesPerPixel, tex.Width
     for row = 0, h - 1 do
@@ -38349,6 +38376,8 @@ end
 -- Blending is non-premultiplied "over" with a transparent (alpha 0) background, so the game stays visible behind ImGui.
 
 local buf, buf_w -- buffer/width of the tile being drawn
+local rect_cols = table.create(256, 0) -- scratch: texel column offsets for DrawRect
+local sub_bufs, n_sub_bufs = {}, 0 -- scratch: partial tile upload buffers by size
 local TILE_SIZE -- Vector2, set below
 
 -- Blends one pixel (r, g, b, a are 0..255). One u32 read/write, one division in the general case.
@@ -38478,18 +38507,30 @@ local function DrawRect(x0, y0, x1, y1, u0, v0, u1, v1, col, t, cx0, cy0, cx1, c
     local du, dv = (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0)
     local tw, th, tbuf = t.Width, t.Height, t.Buffer
     local r255, g255, b255, a255 = r / 255, g / 255, b / 255, a / 255
+    -- The texel column only depends on x: compute it once per column instead of once per pixel
+    local ncol = px1 - px0
+    local cols = rect_cols
+    for c = 1, ncol do
+        local tx = floor((u0 + (px0 + c - 1 + 0.5 - x0) * du) * tw)
+        if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+        cols[c] = tx * 4
+    end
     for y = py0, py1 - 1 do
         local ty = floor((v0 + (y + 0.5 - y0) * dv) * th)
         if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
-        local trow = ty * tw
+        local trow4 = ty * tw * 4
         local o = (y * buf_w + px0) * 4
-        for x = px0, px1 - 1 do
-            local tx = floor((u0 + (x + 0.5 - x0) * du) * tw)
-            if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
-            local to = (trow + tx) * 4
+        for c = 1, ncol do
+            local to = trow4 + cols[c]
             local ta = readu8(tbuf, to + 3)
             if ta > 0 then
-                BlendPixel(o, readu8(tbuf, to) * r255, readu8(tbuf, to + 1) * g255, readu8(tbuf, to + 2) * b255, ta * a255)
+                local sa = ta * a255
+                local sr, sg, sb = readu8(tbuf, to) * r255, readu8(tbuf, to + 1) * g255, readu8(tbuf, to + 2) * b255
+                if sa >= 255 then -- (BlendPixel's opaque case, inlined: most glyph texels)
+                    writeu32(buf, o, floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536 + 4278190080)
+                else
+                    BlendPixel(o, sr, sg, sb, sa)
+                end
             end
             o = o + 4
         end
@@ -38583,6 +38624,7 @@ local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile 
 local KEY_W = 64 -- tile key = ty * KEY_W + tx (layers up to 16384 px wide)
 local CLIP_PAD = 2048 -- content up to this far off screen is kept, so dragging a window past the edge doesn't redraw it
 local LAYER_KEEP_FRAMES = 120 -- unused layers are destroyed after this many rendered frames
+local MAX_DEFER_FRAMES = 8 -- a tile is redrawn at the latest this many frames after it changed, even over the redraw budget
 
 -- Primitive arrays (reused between frames, no per-frame allocation)
 local pr_a, pr_b, pr_c, pr_d, pr_t, pr_g = {}, {}, {}, {}, {}, {} -- vertices (pr_d == false -> triangle), texture, gradient kind
@@ -38592,6 +38634,7 @@ local pr_tex = {}                                      -- texture id
 local pr_vb = {}                                       -- vertex buffer (draw list VtxBuffer.Buf)
 local pr_k = {}                                        -- layer kind (1..3)
 local plist1, plist2, plist3 = {}, {}, {}              -- primitive indices per layer kind
+local cm_free, cm_kind, cm_x0, cm_y0, cm_x1, cm_y1 = {}, {}, {}, {}, {}, {} -- per draw command (collect -> Snapshot)
 
 @native
 local function HashVertex(h1, h2, vbuf, v, ox, oy)
@@ -38681,7 +38724,7 @@ local function GetLayer(bd, draw_list, kind)
     else
         frame = NewFrame(bd.Gui, false); root = frame
     end
-    layer = { Root = root, Frame = frame, Tiles = {}, TH1 = {}, TH2 = {}, TN = {}, TL = {}, TX = {}, TY = {}, Touched = {}, NTouched = 0,
+    layer = { Root = root, Frame = frame, Tiles = {}, TH1 = {}, TH2 = {}, TN = {}, TL = {}, TL1 = {}, TL2 = {}, TLF = {}, TX = {}, TY = {}, Touched = {}, NTouched = 0,
               Visible = false, X = false, Y = false, Z = -1, CX0 = false, CY0 = false, CX1 = false, CY1 = false }
     set[kind] = layer
     return layer
@@ -38708,7 +38751,8 @@ local function GetTile(bd, layer, key, tx, ty)
     label.Visible = false
     label.Active = bd.TilesActive
     label.Parent = layer.Frame
-    tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false, BX0 = TILE, BY0 = TILE, BX1 = 0, BY1 = 0 }
+    tile = { Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4), H1 = -1, H2 = -1, Visible = false, BX0 = TILE, BY0 = TILE, BX1 = 0, BY1 = 0,
+             ON = -1, OH1 = {}, OH2 = {}, OF = {}, OB0 = {}, OB1 = {}, OB2 = {}, OB3 = {} } -- last drawn primitive list (hashes, bounds in tile)
     layer.Tiles[key] = tile
     return tile
 end
@@ -38728,31 +38772,129 @@ local function DestroyTiles(bd)
     bd.Layers = {}
 end
 
--- Exact signature of everything in a draw list that affects its layers (nil = can't skip: user callbacks)
-local sig_buf = buffer.create(4096)
+-- Snapshot of everything in a draw list that affects its layers, compared exactly with the next frame's list:
+-- 1 = identical (only restack), 2 = everything moved by the same whole pixels (dx, dy) (only move the layers: a window
+-- being dragged), 0 = changed (full path). Compared in place (no strings built): early exit at the first difference.
+local writef64 = buffer.writef64
+local CMD_STRIDE = 70 -- clip (4 f64), ElemCount, IdxOffset, VtxOffset (u32), tex id (f64), kind (u8), free (u8), bounds of its primitives (4 x i32)
+
 @native
-local function DrawListSignature(draw_list, ox, oy)
+local function Snapshot(set, draw_list, ox, oy, sw, sh)
+    local nv = draw_list.VtxBuffer.Size * VTX_STRIDE
     local idx, ni = draw_list.IdxBuffer.Data, draw_list.IdxBuffer.Size
     local ncmd = draw_list.CmdBuffer.Size
-    local need = ni * 4 + ncmd * 64 + 64
-    if buffer.len(sig_buf) < need then sig_buf = buffer.create(need * 2) end
-    local b, o = sig_buf, 0
-    for i = 1, ni do writeu32(b, o, idx[i]); o += 4 end
+    local sv, si, sc = set.SV, set.SI, set.SC
+    if not sv or buffer.len(sv) < nv then sv = buffer.create(max(nv, 64) * 2); set.SV = sv end
+    if not si or buffer.len(si) < ni * 4 then si = buffer.create(max(ni, 16) * 8); set.SI = si end
+    if not sc or buffer.len(sc) < ncmd * CMD_STRIDE then sc = buffer.create(max(ncmd, 4) * CMD_STRIDE * 2); set.SC = sc end
+    buffer.copy(sv, 0, draw_list.VtxBuffer.Buf, 0, nv)
+    for i = 1, ni do writeu32(si, (i - 1) * 4, idx[i]) end
+    local o, ci = 0, 0
     for _, pcmd in draw_list.CmdBuffer:iter() do
-        if pcmd.UserCallback ~= nil then return nil end
+        if pcmd.UserCallback ~= nil then set.SnapOK = false; return end
         local c = pcmd.ClipRect
-        buffer.writef64(b, o, c.x); buffer.writef64(b, o + 8, c.y); buffer.writef64(b, o + 16, c.z); buffer.writef64(b, o + 24, c.w)
-        writeu32(b, o + 32, pcmd.ElemCount); writeu32(b, o + 36, pcmd.IdxOffset); writeu32(b, o + 40, pcmd.VtxOffset)
-        buffer.writef64(b, o + 44, pcmd:GetTexID())
-        o += 52
+        writef64(sc, o, c.x); writef64(sc, o + 8, c.y); writef64(sc, o + 16, c.z); writef64(sc, o + 24, c.w)
+        writeu32(sc, o + 32, pcmd.ElemCount); writeu32(sc, o + 36, pcmd.IdxOffset); writeu32(sc, o + 40, pcmd.VtxOffset)
+        writef64(sc, o + 44, pcmd:GetTexID())
+        ci += 1
+        buffer.writeu8(sc, o + 52, cm_kind[ci] or 0); buffer.writeu8(sc, o + 53, cm_free[ci] and 1 or 0)
+        if cm_free[ci] then
+            buffer.writei32(sc, o + 54, cm_x0[ci]); buffer.writei32(sc, o + 58, cm_y0[ci]); buffer.writei32(sc, o + 62, cm_x1[ci]); buffer.writei32(sc, o + 66, cm_y1[ci])
+        end
+        o += CMD_STRIDE
     end
-    buffer.writef64(b, o, ox); buffer.writef64(b, o + 8, oy)
-    buffer.writef64(b, o + 16, draw_list._ContentClipX0 or -1); buffer.writef64(b, o + 24, draw_list._ContentClipY0 or -1)
-    buffer.writef64(b, o + 32, draw_list._ContentClipX1 or -1); buffer.writef64(b, o + 40, draw_list._ContentClipY1 or -1)
-    buffer.writef64(b, o + 48, draw_list._ContentClipX0 and draw_list._ScrollOriginX or -1)
-    buffer.writef64(b, o + 56, draw_list._ContentClipX0 and draw_list._ScrollOriginY or -1)
-    o += 64
-    return readstring(draw_list.VtxBuffer.Buf, 0, draw_list.VtxBuffer.Size * VTX_STRIDE) .. readstring(b, 0, o)
+    set.SVN, set.SIN, set.SCN = nv, ni, ncmd
+    set.SOX, set.SOY, set.SSW, set.SSH = ox, oy, sw, sh
+    set.SCC = draw_list._ContentClipX0 ~= nil
+    set.SCX0, set.SCY0, set.SCX1, set.SCY1 = draw_list._ContentClipX0 or 0, draw_list._ContentClipY0 or 0, draw_list._ContentClipX1 or 0, draw_list._ContentClipY1 or 0
+    set.SSX, set.SSY = draw_list._ScrollOriginX or 0, draw_list._ScrollOriginY or 0
+    set.SnapOK = true
+end
+
+-- a + d == b exactly, with no rounding in a + d (so every later "x - origin" gives the same result as before the move)
+@native
+local function ShiftedExact(a, d, b)
+    local s = a + d
+    if s ~= b then return false end
+    local bb = s - a
+    return (a - (s - bb)) + (d - bb) == 0
+end
+
+@native
+local function CompareDrawList(set, draw_list, ox, oy, sw, sh)
+    if not set or not set.SnapOK then return 0 end
+    local nv = draw_list.VtxBuffer.Size * VTX_STRIDE
+    local ni, ncmd = draw_list.IdxBuffer.Size, draw_list.CmdBuffer.Size
+    if nv ~= set.SVN or ni ~= set.SIN or ncmd ~= set.SCN or ox ~= set.SOX or oy ~= set.SOY or sw ~= set.SSW or sh ~= set.SSH then return 0 end
+    if (draw_list._ContentClipX0 ~= nil) ~= set.SCC then return 0 end
+    local vb, sv = draw_list.VtxBuffer.Buf, set.SV
+    if nv == 0 then return 1 end
+    -- translation from the first vertex: whole pixels only, and only with DisplayPos at 0 (so it stays exact)
+    local dx, dy = readf64(vb, 0) - readf64(sv, 0), readf64(vb, 8) - readf64(sv, 8)
+    if dx ~= dx or dy ~= dy then return 0 end
+    if dx ~= 0 or dy ~= 0 then
+        if dx ~= floor(dx) or dy ~= floor(dy) or ox ~= 0 or oy ~= 0 or not set.SLimFree then return 0 end
+        -- everything must stay as far from the clip limits as before (nothing newly clamped)
+        if set.SEX0 + dx < -CLIP_PAD or set.SEY0 + dy < -CLIP_PAD or set.SEX1 + dx > sw + CLIP_PAD or set.SEY1 + dy > sh + CLIP_PAD then return 0 end
+    end
+    local idx, si = draw_list.IdxBuffer.Data, set.SI
+    for i = 1, ni do if idx[i] ~= readu32(si, (i - 1) * 4) then return 0 end end
+    local sc, o = set.SC, 0
+    local ccx0, ccy0, ccx1, ccy1 = draw_list._ContentClipX0, draw_list._ContentClipY0, draw_list._ContentClipX1, draw_list._ContentClipY1
+    local seen_content = false
+    for _, pcmd in draw_list.CmdBuffer:iter() do
+        if pcmd.UserCallback ~= nil then return 0 end
+        if pcmd.ElemCount ~= readu32(sc, o + 32) or pcmd.IdxOffset ~= readu32(sc, o + 36) or pcmd.VtxOffset ~= readu32(sc, o + 40) or pcmd:GetTexID() ~= readf64(sc, o + 44) then return 0 end
+        local c = pcmd.ClipRect
+        if dx == 0 and dy == 0 then
+            if c.x ~= readf64(sc, o) or c.y ~= readf64(sc, o + 8) or c.z ~= readf64(sc, o + 16) or c.w ~= readf64(sc, o + 24) then return 0 end
+        elseif not (ShiftedExact(readf64(sc, o), dx, c.x) and ShiftedExact(readf64(sc, o + 8), dy, c.y)
+            and ShiftedExact(readf64(sc, o + 16), dx, c.z) and ShiftedExact(readf64(sc, o + 24), dy, c.w)) then
+            -- An unchanged clip rect (e.g. the viewport) is fine if it clipped none of this command's primitives before
+            -- the move and still clips none after it
+            if c.x ~= readf64(sc, o) or c.y ~= readf64(sc, o + 8) or c.z ~= readf64(sc, o + 16) or c.w ~= readf64(sc, o + 24)
+                or buffer.readu8(sc, o + 53) == 0 then return 0 end
+            if buffer.readi32(sc, o + 54) + dx < floor(c.x) or buffer.readi32(sc, o + 58) + dy < floor(c.y)
+                or buffer.readi32(sc, o + 62) + dx > floor(c.z) or buffer.readi32(sc, o + 66) + dy > floor(c.w) then return 0 end
+        end
+        -- same layer kind as before (same rule as the collect pass)
+        if pcmd.ElemCount > 0 then
+            local kind = 1
+            if ccx0 and c.x >= ccx0 and c.y >= ccy0 and c.z <= ccx1 and c.w <= ccy1 then kind = 2; seen_content = true
+            elseif seen_content then kind = 3 end
+            if kind ~= buffer.readu8(sc, o + 52) then return 0 end
+        end
+        o += CMD_STRIDE
+    end
+    if dx == 0 and dy == 0 then
+        if set.SCC and (draw_list._ContentClipX0 ~= set.SCX0 or draw_list._ContentClipY0 ~= set.SCY0 or draw_list._ContentClipX1 ~= set.SCX1
+            or draw_list._ContentClipY1 ~= set.SCY1 or draw_list._ScrollOriginX ~= set.SSX or draw_list._ScrollOriginY ~= set.SSY) then return 0 end
+        for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
+            if readf64(vb, v) ~= readf64(sv, v) or readf64(vb, v + 8) ~= readf64(sv, v + 8) or readf64(vb, v + 16) ~= readf64(sv, v + 16)
+                or readf64(vb, v + 24) ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32) then return 0 end
+        end
+        return 1
+    end
+    if set.SCC and not (ShiftedExact(set.SCX0, dx, draw_list._ContentClipX0) and ShiftedExact(set.SCY0, dy, draw_list._ContentClipY0)
+        and ShiftedExact(set.SCX1, dx, draw_list._ContentClipX1) and ShiftedExact(set.SCY1, dy, draw_list._ContentClipY1)
+        and ShiftedExact(set.SSX, dx, draw_list._ScrollOriginX) and ShiftedExact(set.SSY, dy, draw_list._ScrollOriginY)) then return 0 end
+    for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
+        if not ShiftedExact(readf64(sv, v), dx, readf64(vb, v)) or not ShiftedExact(readf64(sv, v + 8), dy, readf64(vb, v + 8))
+            or readf64(vb, v + 16) ~= readf64(sv, v + 16) or readf64(vb, v + 24) ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32) then return 0 end
+    end
+    return 2, dx, dy
+end
+
+-- A window moved by whole pixels: its tiles are unchanged, only the layer frames move
+local function ShiftLayer(layer, dx, dy, scale)
+    layer.X += dx; layer.Y += dy
+    local root = layer.Root
+    if root ~= layer.Frame then
+        layer.CX0 += dx; layer.CY0 += dy; layer.CX1 += dx; layer.CY1 += dy
+        root.Position = UDim2.fromOffset(layer.CX0 / scale, layer.CY0 / scale)
+    else
+        root.Position = UDim2.fromOffset(layer.X / scale, layer.Y / scale)
+    end
 end
 
 -- Overlays: user Instances (e.g. a Frame holding a ViewportFrame) placed inside a window, registered every frame with
@@ -38831,9 +38973,11 @@ local function PE() if profiling then profileend() end end
 @native
 local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_x0, clip_y0, clip_x1, clip_y1)
     local scale = bd.Scale
+    local deferred = false
     -- Pass 2: hash primitives into layer-relative tiles
     PB("ImGui tile hash")
     local th1, th2, tn, tl, touched = layer.TH1, layer.TH2, layer.TN, layer.TL, layer.Touched
+    local tl1, tl2, tlf = layer.TL1, layer.TL2, layer.TLF -- per-tile list of the primitives' hashes (for partial redraws)
     for k = 1, layer.NTouched do tn[touched[k]] = 0 end
     local nt = 0
     for pi = 1, np do
@@ -38842,23 +38986,55 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
         -- The clip rect only affects pixels inside the primitive's bounds, so hash the clipped bounds (relative)
         -- instead of the clip itself: a window clipped by the (fixed) viewport rect stays hash-stable when moved.
         local cx0, cy0, cx1, cy1 = pr_bx0[p] - lx0, pr_by0[p] - ly0, pr_bx1[p] - lx0, pr_by1[p] - ly0
-        local h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
-        local h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
-        local vax, vay = lx0 + ox, ly0 + oy
         local vbuf = pr_vb[p]
-        h1, h2 = HashVertex(h1, h2, vbuf, pr_a[p], vax, vay)
-        h1, h2 = HashVertex(h1, h2, vbuf, pr_b[p], vax, vay)
-        h1, h2 = HashVertex(h1, h2, vbuf, pr_c[p], vax, vay)
-        local vd = pr_d[p]
-        if vd then h1, h2 = HashVertex(h1, h2, vbuf, vd, vax, vay) end
+        local va, vd = pr_a[p], pr_d[p]
+        -- Flat rect (single colour, no gradient, constant uv): its pixels in a tile are exactly its clipped pixel rect
+        -- inside that tile filled with one colour, so hash that per tile instead of the vertices. Resizing a window
+        -- then only changes the tiles its edges cross, not every tile its background covers.
+        local flat_rect, rcol, ruv = false, 0, 0
+        if vd and not pr_g[p] then
+            local u0, v0 = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
+            local vc = pr_c[p]
+            if not pr_t[p] or (u0 == readf64(vbuf, vc + 16) and v0 == readf64(vbuf, vc + 24)) then
+                flat_rect, rcol, ruv = true, readu32(vbuf, va + 32), u0 * 8192 + v0
+            end
+        end
+        local h1, h2 = 0, 0
+        local fsig = -1 -- flat rect: colour/uv/texture without the geometry (-1: not a flat rect)
+        if flat_rect then fsig = ((rcol * 8191 + ruv * 4096) % P1 * 64 + tex_id) % P1 end
+        if not flat_rect then
+            h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
+            h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+            local vax, vay = lx0 + ox, ly0 + oy
+            if vd then
+                -- Axis aligned quad: the collect pass checked that TR/BL (positions, uvs, colours) follow from TL/BR
+                -- (and the gradient kind), so TL + BR + kind determine its pixels
+                h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
+                h1, h2 = HashVertex(h1, h2, vbuf, pr_c[p], vax, vay)
+                local gk = pr_g[p]
+                if gk then h1 = (h1 * 48271 + gk) % P1; h2 = (h2 * 16807 + gk * 3) % P2 end
+            else
+                h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
+                h1, h2 = HashVertex(h1, h2, vbuf, pr_b[p], vax, vay)
+                h1, h2 = HashVertex(h1, h2, vbuf, pr_c[p], vax, vay)
+            end
+        end
         for ty = floor((pr_by0[p] - ly0) / TILE), floor((pr_by1[p] - 1 - ly0) / TILE) do
             for tx = floor((pr_bx0[p] - lx0) / TILE), floor((pr_bx1[p] - 1 - lx0) / TILE) do
+                if flat_rect then
+                    local tx0, ty0 = tx * TILE, ty * TILE
+                    local ix0, iy0 = max(cx0 - tx0, 0), max(cy0 - ty0, 0)
+                    local ix1, iy1 = min(cx1 - tx0, TILE), min(cy1 - ty0, TILE)
+                    local r = ((ix0 * 131 + iy0) * 131 + ix1) * 131 + iy1
+                    h1 = ((r * 48271 + rcol) % P1 * 48271 + ruv * 4096 + 7) % P1
+                    h2 = ((r * 16807 + rcol + tex_id) % P2 * 16807 + ruv * 65521 + 11) % P2
+                end
                 local key = ty * KEY_W + tx
                 local k = tn[key]
                 if not k or k == 0 then
                     k = 0
                     th1[key], th2[key] = 0, 0
-                    if not tl[key] then tl[key] = {} end
+                    if not tl[key] then tl[key] = {}; tl1[key] = {}; tl2[key] = {}; tlf[key] = {} end
                     nt = nt + 1
                     touched[nt] = key
                     layer.TX[key], layer.TY[key] = tx, ty
@@ -38866,6 +39042,7 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
                 k = k + 1
                 tn[key] = k
                 tl[key][k] = p
+                tl1[key][k], tl2[key][k], tlf[key][k] = h1, h2, fsig
                 th1[key] = (th1[key] * 48271 + h1) % P1
                 th2[key] = (th2[key] * 16807 + h2 + k) % P2
             end
@@ -38899,7 +39076,7 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
     PB("ImGui raster+upload")
     for key, tile in pairs(layer.Tiles) do
         if not tn[key] or tn[key] == 0 then
-            if tile.Visible then tile.Visible = false; tile.Label.Visible = false; tile.H1 = -1 end
+            if tile.Visible then tile.Visible = false; tile.Label.Visible = false; tile.H1 = -1; tile.ON = -1 end
         end
     end
     for kk = 1, nt do
@@ -38907,14 +39084,27 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
         local count = tn[key]
         local tx, ty = layer.TX[key], layer.TY[key]
         local tile = GetTile(bd, layer, key, tx, ty)
-        if force or tile.H1 ~= th1[key] or tile.H2 ~= th2[key] then
+        local dirty = force or tile.H1 ~= th1[key] or tile.H2 ~= th2[key]
+        if dirty and bd.RedrawStarted and (tile.Deferred or 0) < MAX_DEFER_FRAMES
+            and ((bd.RedrawBudget > 0 and os.clock() - bd.FrameT0 >= bd.RedrawBudget) or (bd.TileLimit and bd.FrameTiles >= bd.TileLimit)) then -- (TileLimit: test hook, tools/test/scripts/t_pixels.luau)
+            -- Over this frame's redraw budget: keep showing the old pixels, redraw on a following frame. The tile's
+            -- stored hashes/list still describe what it shows, so the next comparison is against the real content.
+            tile.Deferred = (tile.Deferred or 0) + 1
+            if force then tile.H1 = -1; tile.ON = -1 end -- full redraw later (force doesn't persist)
+            deferred = true
+            dirty = false
+        end
+        if dirty then
+            bd.RedrawStarted = true
+            bd.FrameTiles += 1
+            tile.Deferred = 0
             tile.H1, tile.H2 = th1[key], th2[key]
             local x0, y0 = lx0 + tx * TILE, ly0 + ty * TILE
             local x1, y1 = x0 + TILE, y0 + TILE
             buf, buf_w = tile.Buffer, TILE
-            local list = tl[key]
-            -- Dirty region = old content bounds + new content bounds. Outside it the tile is already
-            -- transparent, so only this region is cleared and uploaded (edge tiles are often mostly empty).
+            local list, lh1, lh2 = tl[key], tl1[key], tl2[key]
+            local oh1, oh2, ob0, ob1, ob2, ob3, on = tile.OH1, tile.OH2, tile.OB0, tile.OB1, tile.OB2, tile.OB3, tile.ON
+            -- New content bounds (union of the primitives' bounds in this tile)
             local nx0, ny0, nx1, ny1 = TILE, TILE, 0, 0
             for k = 1, count do
                 local p = list[k]
@@ -38926,8 +39116,63 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
                 if d > ny1 then ny1 = d end
             end
             nx0, ny0, nx1, ny1 = max(nx0, 0), max(ny0, 0), min(nx1, TILE), min(ny1, TILE)
-            local rx0, ry0, rx1, ry1 = min(nx0, tile.BX0), min(ny0, tile.BY0), max(nx1, tile.BX1), max(ny1, tile.BY1)
+            local rx0, ry0, rx1, ry1
+            if force or on < 0 then
+                -- Dirty region = old content bounds + new content bounds. Outside it the tile is already
+                -- transparent, so only this region is cleared and uploaded (edge tiles are often mostly empty).
+                rx0, ry0, rx1, ry1 = min(nx0, tile.BX0), min(ny0, tile.BY0), max(nx1, tile.BX1), max(ny1, tile.BY1)
+            else
+                -- Partial redraw: the primitives before the first and after the last changed one are the same as last
+                -- time. A pixel that no changed primitive (old or new) touches is covered by the same primitives in the
+                -- same order, so it is already correct: only the bounds of the changed ones are cleared and redrawn.
+                local i, lim = 1, min(on, count)
+                while i <= lim and oh1[i] == lh1[i] and oh2[i] == lh2[i] do i += 1 end
+                local j = 0
+                while j <= lim - i and oh1[on - j] == lh1[count - j] and oh2[on - j] == lh2[count - j] do j += 1 end
+                rx0, ry0, rx1, ry1 = TILE, TILE, 0, 0
+                local of, lf = tile.OF, tlf[key]
+                local paired = on - j - i == count - j - i
+                for k = i, count - j do
+                    local p = list[k]
+                    local a, b, c, d = max(pr_bx0[p] - x0, 0), max(pr_by0[p] - y0, 0), min(pr_bx1[p] - x0, TILE), min(pr_by1[p] - y0, TILE)
+                    local oa, ob, oc, od = ob0[k], ob1[k], ob2[k], ob3[k]
+                    if paired and lf[k] >= 0 and lf[k] == of[k] then
+                        -- Same flat rect (colour/uv/texture) with new bounds: pixels inside both are unchanged, only the
+                        -- strips between the old and new edges can differ (e.g. a window background growing on resize)
+                        local uy0, uy1 = min(b, ob), max(d, od)
+                        local ux0, ux1 = min(a, oa), max(c, oc)
+                        if a ~= oa then ux0 = min(a, oa); local e = max(a, oa); rx0 = min(rx0, ux0); rx1 = max(rx1, e); ry0 = min(ry0, uy0); ry1 = max(ry1, uy1) end
+                        if c ~= oc then local e = min(c, oc); rx0 = min(rx0, e); rx1 = max(rx1, max(c, oc)); ry0 = min(ry0, uy0); ry1 = max(ry1, uy1) end
+                        if b ~= ob then ry0 = min(ry0, min(b, ob)); ry1 = max(ry1, max(b, ob)); rx0 = min(rx0, ux0); rx1 = max(rx1, ux1) end
+                        if d ~= od then ry0 = min(ry0, min(d, od)); ry1 = max(ry1, max(d, od)); rx0 = min(rx0, ux0); rx1 = max(rx1, ux1) end
+                    else
+                        if a < rx0 then rx0 = a end
+                        if b < ry0 then ry0 = b end
+                        if c > rx1 then rx1 = c end
+                        if d > ry1 then ry1 = d end
+                        if k <= on - j then
+                            if oa < rx0 then rx0 = oa end
+                            if ob < ry0 then ry0 = ob end
+                            if oc > rx1 then rx1 = oc end
+                            if od > ry1 then ry1 = od end
+                        end
+                    end
+                end
+                for k = count - j + 1, on - j do -- old middle longer than the new one
+                    if ob0[k] < rx0 then rx0 = ob0[k] end
+                    if ob1[k] < ry0 then ry0 = ob1[k] end
+                    if ob2[k] > rx1 then rx1 = ob2[k] end
+                    if ob3[k] > ry1 then ry1 = ob3[k] end
+                end
+            end
             tile.BX0, tile.BY0, tile.BX1, tile.BY1 = nx0, ny0, nx1, ny1
+            -- Remember this list for the next partial redraw
+            for k = 1, count do
+                local p = list[k]
+                oh1[k], oh2[k], tile.OF[k] = lh1[k], lh2[k], tlf[key][k]
+                ob0[k], ob1[k], ob2[k], ob3[k] = max(pr_bx0[p] - x0, 0), max(pr_by0[p] - y0, 0), min(pr_bx1[p] - x0, TILE), min(pr_by1[p] - y0, TILE)
+            end
+            tile.ON = count
             local rw = rx1 - rx0
             if rw == TILE then
                 buffer.fill(buf, ry0 * TILE * 4, 0, (ry1 - ry0) * TILE * 4)
@@ -38937,8 +39182,10 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
             local tox, toy = ox + x0, oy + y0
             for k = 1, count do
                 local p = list[k]
-                local cx0, cy0 = max(pr_cx0[p], x0) - x0, max(pr_cy0[p], y0) - y0
-                local cx1, cy1 = min(pr_cx1[p], x1) - x0, min(pr_cy1[p], y1) - y0
+                -- clip to the dirty region (only those pixels are redrawn)
+                local cx0, cy0 = max(pr_cx0[p] - x0, rx0), max(pr_cy0[p] - y0, ry0)
+                local cx1, cy1 = min(pr_cx1[p] - x0, rx1), min(pr_cy1[p] - y0, ry1)
+                if cx0 >= cx1 or cy0 >= cy1 or pr_bx0[p] - x0 >= rx1 or pr_by0[p] - y0 >= ry1 or pr_bx1[p] - x0 <= rx0 or pr_by1[p] - y0 <= ry0 then continue end
                 local va, vc, vd, vbuf = pr_a[p], pr_c[p], pr_d[p], pr_vb[p]
                 if vd then
                     local ax, ay, cx, cy = readf64(vbuf, va) - tox, readf64(vbuf, va + 8) - toy, readf64(vbuf, vc) - tox, readf64(vbuf, vc + 8) - toy
@@ -38957,31 +39204,42 @@ local function DrawLayer(bd, layer, plist, np, lx0, ly0, ox, oy, force, z, clip_
                 tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
             elseif rw > 0 and ry1 > ry0 then
                 local rh = ry1 - ry0
-                local sub = buffer.create(rw * rh * 4)
+                local sk = rw * 1024 + rh -- partial upload buffers are reused (WritePixelsBuffer needs the exact size)
+                local sub = sub_bufs[sk]
+                if not sub then
+                    if n_sub_bufs >= 256 then table.clear(sub_bufs); n_sub_bufs = 0 end
+                    sub = buffer.create(rw * rh * 4); sub_bufs[sk] = sub; n_sub_bufs += 1
+                end
                 for y = 0, rh - 1 do buffer.copy(sub, y * rw * 4, buf, ((ry0 + y) * TILE + rx0) * 4, rw * 4) end
                 tile.Image:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), sub)
             end
             PE()
         end
-        if not tile.Visible then
+        if not tile.Visible and (tile.Deferred or 0) == 0 then -- (a deferred tile that was hidden holds old pixels: stays hidden until drawn)
             tile.Visible = true
             tile.Label.Visible = true
         end
     end
     PE()
+    return deferred
 end
 
 @native
 function ImGui_ImplRoblox_RenderDrawData(draw_data)
     local bd = ImGui_ImplRoblox_GetBackendData()
     PB("ImGui RenderDrawData")
+    bd.FrameT0 = os.clock()
+    bd.FrameTiles = 0
+    bd.RedrawStarted = false -- the first dirty tile of a frame is always redrawn (progress), the rest within the budget
+    bd.Stale = nil
 
     PB("ImGui textures")
     if draw_data.Textures ~= nil then
         for _, tex in draw_data.Textures:iter() do
             if tex.Status ~= ImTextureStatus.OK then
+                -- No redraw needed for WantUpdates: it only writes texture portions which have never been used before
+                -- (new glyphs/rects), so no existing tile samples them. Created textures get a new (never reused) id.
                 ImGui_ImplRoblox_UpdateTexture(tex)
-                bd.ForceRedraw = true -- texture contents changed: tiles sampling it must be redrawn
             end
         end
     end
@@ -39019,19 +39277,26 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
 
     local n = 0
     local z = 0
+    local any_deferred = false
     for _, draw_list in draw_data.CmdLists:iter() do
-        -- Unchanged draw list (same vertex bytes, indices, commands, origin and scroll): its layers are already
-        -- correct, only restack them. Static windows then cost one byte compare instead of collect + hash.
+        -- Unchanged draw list (same vertices, indices, commands, origin and scroll): its layers are already correct,
+        -- only restack them. Moved by whole pixels (a dragged window): only move its layers. Either way no collect + hash.
         PB("ImGui unchanged check")
-        local sig = DrawListSignature(draw_list, ox, oy)
         local set = bd.Layers[draw_list]
-        if sig and set and not force and set.Sig == sig then
+        local same, sdx, sdy = 0, 0, 0
+        if not force then same, sdx, sdy = CompareDrawList(set, draw_list, ox, oy, sw, sh) end
+        if same ~= 0 then
             for kind = 1, 3 do
                 local layer = set[kind]
                 if layer and layer.Visible then
+                    if same == 2 then ShiftLayer(layer, sdx, sdy, bd.Scale) end
                     z += 1
                     if layer.Z ~= z then layer.Z = z; layer.Root.ZIndex = z end
                 end
+            end
+            if same == 2 then
+                Snapshot(set, draw_list, ox, oy, sw, sh)
+                set.SEX0 += sdx; set.SEY0 += sdy; set.SEX1 += sdx; set.SEY1 += sdy
             end
             set.LastUsed = frame_no
             z = PlaceOverlays(bd, draw_list, z, ox, oy)
@@ -39050,13 +39315,30 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
             content_x1, content_y1 = min(floor(ccx1 - ox), lim_x1), min(floor(ccy1 - oy), lim_y1)
         end
         local seen_content = false
+        -- extents of everything clamped by the clip limits below (lim_free: nothing was), for the move fast path
+        local ex0, ey0, ex1, ey1 = math.huge, math.huge, -math.huge, -math.huge
+        local lim_free = true
+        if ccx0 then
+            local a, b, c, d = floor(ccx0 - ox), floor(ccy0 - oy), floor(ccx1 - ox), floor(ccy1 - oy)
+            if a < lim_x0 or b < lim_y0 or c > lim_x1 or d > lim_y1 then lim_free = false end
+            ex0, ey0, ex1, ey1 = min(ex0, a), min(ey0, b), max(ex1, c), max(ey1, d)
+        end
+        local ci = 0
         for _, pcmd in draw_list.CmdBuffer:iter() do
+            ci += 1
+            cm_free[ci], cm_kind[ci] = false, 0
             if pcmd.UserCallback ~= nil then
                 pcmd.UserCallback(draw_list, pcmd)
             elseif pcmd.ElemCount > 0 then
                 local clip = pcmd.ClipRect
-                local cx0, cy0 = max(floor(clip.x - ox), lim_x0), max(floor(clip.y - oy), lim_y0)
-                local cx1, cy1 = min(floor(clip.z - ox), lim_x1), min(floor(clip.w - oy), lim_y1)
+                local rcx0, rcy0, rcx1, rcy1 = floor(clip.x - ox), floor(clip.y - oy), floor(clip.z - ox), floor(clip.w - oy)
+                if rcx0 < lim_x0 or rcy0 < lim_y0 or rcx1 > lim_x1 or rcy1 > lim_y1 then lim_free = false end
+                if rcx0 < ex0 then ex0 = rcx0 end
+                if rcy0 < ey0 then ey0 = rcy0 end
+                if rcx1 > ex1 then ex1 = rcx1 end
+                if rcy1 > ey1 then ey1 = rcy1 end
+                local cx0, cy0 = max(rcx0, lim_x0), max(rcy0, lim_y0)
+                local cx1, cy1 = min(rcx1, lim_x1), min(rcy1, lim_y1)
                 local kind = 1
                 if ccx0 and clip.x >= ccx0 and clip.y >= ccy0 and clip.z <= ccx1 and clip.w <= ccy1 then
                     kind = 2; seen_content = true
@@ -39067,6 +39349,8 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                 elseif seen_content then
                     kind = 3
                 end
+                cm_kind[ci] = kind
+                local cfree, cex0, cey0, cex1, cey1 = cx1 > cx0 and cy1 > cy0, math.huge, math.huge, -math.huge, -math.huge
                 if cx1 > cx0 and cy1 > cy0 then
                     local tex_id = pcmd:GetTexID()
                     local t = bd.Textures[tex_id]
@@ -39112,6 +39396,16 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                             bx1, by1 = ceil(max(pax, pbx, pcx) - ox) + 1, ceil(max(pay, pby, pcy) - oy) + 1
                             i = i + 3
                         end
+                        if bx0 < cx0 or by0 < cy0 or bx1 > cx1 or by1 > cy1 then cfree = false end
+                        if bx0 < cex0 then cex0 = bx0 end
+                        if by0 < cey0 then cey0 = by0 end
+                        if bx1 > cex1 then cex1 = bx1 end
+                        if by1 > cey1 then cey1 = by1 end
+                        if bx0 < ex0 then ex0 = bx0 end
+                        if by0 < ey0 then ey0 = by0 end
+                        if bx1 > ex1 then ex1 = bx1 end
+                        if by1 > ey1 then ey1 = by1 end
+                        if bx0 < lim_x0 or by0 < lim_y0 or bx1 > lim_x1 or by1 > lim_y1 then lim_free = false end
                         if bx0 < cx0 then bx0 = cx0 end
                         if by0 < cy0 then by0 = cy0 end
                         if bx1 > cx1 then bx1 = cx1 end
@@ -39125,12 +39419,16 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
                         end
                     end
                 end
+                if cex0 > cex1 then cex0, cey0, cex1, cey1 = 0, 0, 0, 0 end -- (no primitives)
+                cm_free[ci] = cfree
+                cm_x0[ci], cm_y0[ci], cm_x1[ci], cm_y1[ci] = cex0, cey0, cex1, cey1
             end
         end
         PE()
 
         -- Split into layer kinds and place each one
         set = bd.Layers[draw_list]
+        local list_deferred = false
         local nk1, nk2, nk3 = 0, 0, 0
         local o1x, o1y, o3x, o3y = math.huge, math.huge, math.huge, math.huge
         for p = first, n do
@@ -39149,19 +39447,28 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
         end
         if nk1 > 0 then
             z += 1
-            DrawLayer(bd, GetLayer(bd, draw_list, 1), plist1, nk1, o1x, o1y, ox, oy, force, z)
+            if DrawLayer(bd, GetLayer(bd, draw_list, 1), plist1, nk1, o1x, o1y, ox, oy, force, z) then list_deferred = true end
         elseif set and set[1] then HideLayer(set[1]) end
         if nk2 > 0 then
             z += 1
-            DrawLayer(bd, GetLayer(bd, draw_list, 2), plist2, nk2, floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy), ox, oy, force, z,
-                content_x0, content_y0, content_x1, content_y1)
+            if DrawLayer(bd, GetLayer(bd, draw_list, 2), plist2, nk2, floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy), ox, oy, force, z,
+                content_x0, content_y0, content_x1, content_y1) then list_deferred = true end
         elseif set and set[2] then HideLayer(set[2]) end
         if nk3 > 0 then
             z += 1
-            DrawLayer(bd, GetLayer(bd, draw_list, 3), plist3, nk3, o3x, o3y, ox, oy, force, z)
+            if DrawLayer(bd, GetLayer(bd, draw_list, 3), plist3, nk3, o3x, o3y, ox, oy, force, z) then list_deferred = true end
         elseif set and set[3] then HideLayer(set[3]) end
         set = bd.Layers[draw_list]
-        if set then set.LastUsed = frame_no; set.Sig = sig end
+        -- (deferred tiles: not "unchanged" next frame even if the draw list is, so they get redrawn)
+        if set then
+            set.LastUsed = frame_no
+            if list_deferred then set.SnapOK = false else
+                Snapshot(set, draw_list, ox, oy, sw, sh)
+                set.SLimFree = lim_free
+                set.SEX0, set.SEY0, set.SEX1, set.SEY1 = ex0, ey0, ex1, ey1
+            end
+        end
+        if list_deferred then any_deferred = true end
         z = PlaceOverlays(bd, draw_list, z, ox, oy)
     end
 
@@ -39174,7 +39481,7 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     -- Hide layers not drawn this frame; free long unused ones (closed windows, old tooltips)
     for draw_list, set in pairs(bd.Layers) do
         if set.LastUsed ~= frame_no then
-            set.Sig = nil -- hidden now: must go through the full path when shown again
+            set.SnapOK = false -- hidden now: must go through the full path when shown again
             for kind = 1, 3 do if set[kind] then HideLayer(set[kind]) end end
             if frame_no - set.LastUsed > LAYER_KEEP_FRAMES then
                 DestroyLayerSet(set)
@@ -39186,6 +39493,8 @@ function ImGui_ImplRoblox_RenderDrawData(draw_data)
     -- drop references so old vertex tables can be collected
     for k = n + 1, bd.LastPrimCount do pr_t[k], pr_vb[k] = nil, nil end
     bd.LastPrimCount = n
+    -- Tiles left for later: if the app doesn't submit a new frame, Heartbeat finishes them from this draw data
+    if any_deferred then bd.Stale = draw_data; bd.StaleHB = bd.HB end
     PE()
 end
 
@@ -39211,7 +39520,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 60, BusyRenderRate = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
+        Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 0, BusyRenderRate = 0, RedrawBudget = 0.0015, HB = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -39278,7 +39587,10 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         if d and os.clock() + 0.002 >= bd.NextRender then
             bd.Pending = nil
             ImGui_ImplRoblox_RenderDrawData(d)
+        elseif bd.Stale and bd.HB > bd.StaleHB then -- deferred tiles of a frame not followed by a new one
+            ImGui_ImplRoblox_RenderDrawData(bd.Stale)
         end
+        bd.HB += 1
     end)
 
     connect(UserInputService.WindowFocused, function() ImGui.GetIO():AddFocusEvent(true) end)
@@ -39341,6 +39653,7 @@ function ImGui_ImplRoblox_NewFrame()
     local io = ImGui.GetIO()
     local bd = ImGui_ImplRoblox_GetBackendData()
     if bd.Pending then bd.Pending = nil; table.clear(bd.Overlays) end -- skipped frame superseded (its draw lists get reset)
+    bd.Stale = nil
 
     local screen = bd.Gui.AbsoluteSize
     local w, h = floor(screen.X * bd.Scale), floor(screen.Y * bd.Scale)
@@ -39447,7 +39760,14 @@ function ImGui_ImplRoblox_NewFrame()
     PE()
 end
 
---- Max tile redraws per second (default 60); 0 = every frame. imgui logic still runs every frame.
+--- Max milliseconds per frame spent redrawing changed tiles (default 1.5; 0 = no limit). Tiles over the budget keep
+--- their previous pixels and are redrawn on the following frames (each one at most a few frames late), so a big change
+--- (resizing a large window, opening one, scrolling a long list) is spread over frames instead of one long frame.
+function ImGui_ImplRoblox_SetRedrawBudget(ms)
+    ImGui_ImplRoblox_GetBackendData().RedrawBudget = (ms or 0) / 1000
+end
+
+--- Max tile redraws per second (default 0 = every frame, limited by the redraw budget instead). imgui logic still runs every frame.
 function ImGui_ImplRoblox_SetRenderRate(hz)
     ImGui_ImplRoblox_GetBackendData().RenderRate = hz or 0
 end
@@ -39477,6 +39797,7 @@ ImGui_ImplRoblox = {
     AddFile        = ImGui_ImplRoblox_AddFile,
     SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     SetRenderRate  = ImGui_ImplRoblox_SetRenderRate,
+    SetRedrawBudget = ImGui_ImplRoblox_SetRedrawBudget,
     SetOverlay     = ImGui_ImplRoblox_SetOverlay,
     SetTextProxy   = ImGui_ImplRoblox_SetTextProxy,
     CreateTexture  = ImGui_ImplRoblox_CreateTexture,
@@ -70559,6 +70880,7 @@ return {
     ImGui_ImplRoblox_SetBusyRenderRate = ImGui_ImplRoblox_SetBusyRenderRate,
     ImGui_ImplRoblox_SetOverlay = ImGui_ImplRoblox_SetOverlay,
     ImGui_ImplRoblox_SetProfiling = ImGui_ImplRoblox_SetProfiling,
+    ImGui_ImplRoblox_SetRedrawBudget = ImGui_ImplRoblox_SetRedrawBudget,
     ImGui_ImplRoblox_SetRenderRate = ImGui_ImplRoblox_SetRenderRate,
     ImGui_ImplRoblox_SetRenderScale = ImGui_ImplRoblox_SetRenderScale,
     ImGui_ImplRoblox_SetTextProxy = ImGui_ImplRoblox_SetTextProxy,

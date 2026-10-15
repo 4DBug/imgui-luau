@@ -2869,6 +2869,7 @@ end
 --- @param wrap_width float
 --- @param flags      ImDrawTextFlags
 --- @return int
+@native
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
     -- For references, possible wrap point marked with ^
     --  "aaa bbb, ccc,ddd. eee   fff. ggg!"
@@ -2899,10 +2900,12 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     local span_width = 0.0
 
     local stop = false
+    local text_is_str = type(text) == "string" -- [Luau] ImStrByte() inlined (once per character)
     while s < text_end do
         repeat
         --- @type unsigned_int
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end
         local next_s
         if c < 0x80 then
             next_s = s + 1
@@ -2931,8 +2934,8 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
         -- Classify current character
         local curr_type
-        if c < 128 then
-            curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_0000_007f, c)
+        if c < 128 then -- [Luau] ImTextClassifierGet() inlined
+            curr_type = bit32.band(bit32.rshift(g_CharClassifierIsSeparator_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
         elseif (c >= 0x3000 and c < 0x3010) then
             curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_3000_300f, bit32.band(c, 15))
         else
@@ -3011,9 +3014,11 @@ local TEXT_SIZE_CACHE_MAX = 4096
 
 @native
 function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    local text_is_str = type(text) == "string"
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
     -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
     local cache_key = nil
+    local wrap_cache = nil
     if text_begin == 1 and out_offset == nil and wrap_width <= 0.0 and max_width >= FLT_MAX and type(text) == "string"
         and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
         local baked = font:GetFontBaked(size)
@@ -3026,6 +3031,23 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             return ImVec2(e[1] * (size / baked.Size), e[2] * size), #text + 1
         end
         cache_key = text
+    elseif text_begin == 1 and out_offset == nil and wrap_width > 0.0 and max_width >= FLT_MAX and text_is_str
+        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+        -- [Luau] same for wrapped text (TextWrapped() measures every line every frame): exact results per (size, wrap width, text)
+        local baked = font:GetFontBaked(size)
+        local cache = baked._TextSizeCache
+        if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
+            cache = {}; baked._TextSizeCache = cache; baked._TextSizeCacheN = 0
+        end
+        local by_size = cache[size]
+        if by_size == nil then by_size = {}; cache[size] = by_size end
+        local by_wrap = by_size[wrap_width]
+        if by_wrap == nil then by_wrap = {}; by_size[wrap_width] = by_wrap end
+        local e = by_wrap[text]
+        if e then
+            return ImVec2(e[1], e[2]), e[3]
+        end
+        wrap_cache = by_wrap
     end
     if not text_end then
         text_end = #text + 1 -- FIXME-OPT: Need to avoid this.
@@ -3073,7 +3095,8 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
         -- Decode and advance source
         local prev_s = s
-        local c = ImStrByte(text, s)
+        local c
+        if text_is_str then c = string.byte(text, s) else c = text[s] end -- [Luau] ImStrByte() inlined
         if c < 0x80 then
             s = s + 1
         else
@@ -3132,6 +3155,9 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     if cache_key then
         baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
+        baked._TextSizeCacheN = baked._TextSizeCacheN + 1
+    elseif wrap_cache then
+        wrap_cache[text] = { text_size.x, text_size.y, out_remaining }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 

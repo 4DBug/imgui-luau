@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--quiet", action="store_true", help="no random input (scripted tests drive io themselves)")
     args = ap.parse_args()
 
-    code, out = run(args, "")
+    code, out = run(args, os.environ.get("RUN_FLAGS", ""))
     print(out if os.environ.get("FULL_OUTPUT") else out[-4000:])
     sys.exit(code)
 
