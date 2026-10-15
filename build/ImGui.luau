@@ -39764,7 +39764,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
     local bd = {
         Time = os.clock(), Gui = gui, Connections = {},
         Textures = {}, TextureCount = 0, MouseX = -1, MouseY = -1,
-        Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 0, BusyRenderRate = 0, RedrawBudget = 0.0015, HB = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
+        Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 0, BusyRenderRate = 0, RedrawBudget = 0, HB = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
 
@@ -40004,7 +40004,8 @@ function ImGui_ImplRoblox_NewFrame()
     PE()
 end
 
---- Max milliseconds per frame spent redrawing changed tiles (default 1.5; 0 = no limit). Tiles over the budget keep
+--- Opt-in: max milliseconds per frame spent redrawing changed tiles (default 0 = no limit, every change is drawn the
+--- same frame). With a budget (e.g. 1.5), tiles over it keep
 --- their previous pixels and are redrawn on the following frames (each one at most a few frames late), so a big change
 --- (resizing a large window, opening one, scrolling a long list) is spread over frames instead of one long frame.
 function ImGui_ImplRoblox_SetRedrawBudget(ms)
