@@ -1539,7 +1539,7 @@ function ImGui.TableUpdateLayout(table_)
 
     local inner_window = table_.InnerWindow
     local bs = g.BoxSelectState
-    if bs and bs.Window == inner_window and bs.UnclipMode then
+    if bs.Window == inner_window and bs.UnclipMode then
         ImGui.TableApplyExternalUnclipRect(table_, bs.UnclipRect)
     end
 

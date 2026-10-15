@@ -386,6 +386,16 @@ end
 --@hoist
 function ImSaturate(f) return ((f < 0.0 and 0.0) or (f > 1.0 and 1.0) or f) end
 
+--- @param x float
+--- @return float # Sign operator - returns -1, 0 or 1 based on sign of argument
+function ImSign(x) if x < 0.0 then return -1.0 elseif x > 0.0 then return 1.0 end return 0.0 end
+
+function ImLinearRemapClamp(s0, s1, d0, d1, x) return ImSaturate((x - s0) / (s1 - s0)) * (d1 - d0) + d0 end
+
+--- @param c int # byte
+--- @return int
+function ImToUpper(c) if c >= 97 and c <= 122 then return bit32.band(c, bit32.bnot(32)) end return c end
+
 IM_F32_TO_INT8_UNBOUND = function(val) return math.floor(val * 255.0 + (val >= 0 and 0.5 or -0.5)) end -- Unsaturated, for display purpose
 IM_F32_TO_INT8_SAT = function(val) return math.floor(ImSaturate(val) * 255.0 + 0.5) end -- Saturated, always output 0..255
 
@@ -658,6 +668,12 @@ end
 --- @nodiscard
 function ImGui.WindowPosAbsToRel(window, p) local off = window.DC.CursorStartPos return ImVec2(p.x - off.x, p.y - off.y) end
 
+--- @param window ImGuiWindow
+--- @param p      ImVec2
+--- @return ImVec2
+--- @nodiscard
+function ImGui.WindowPosRelToAbs(window, p) local off = window.DC.CursorStartPos return ImVec2(p.x + off.x, p.y + off.y) end
+
 --- @param c char
 --- @return bool # True if this character is a ' ' or '\t'
 function ImCharIsBlankA(c) return c == 32 or c == 9 end
@@ -879,6 +895,9 @@ function IM_RECT:Add(p)
         if p.y > self.Max.y then self.Max.y = p.y end
     end
 end
+
+function IM_RECT:AddX(x) if self.Min.x > x then self.Min.x = x end if self.Max.x < x then self.Max.x = x end end
+function IM_RECT:AddY(y) if self.Min.y > y then self.Min.y = y end if self.Max.y < y then self.Max.y = y end end
 
 --- @param amount float|ImVec2
 @native
@@ -1849,6 +1868,164 @@ local function ImGuiNavItemData()
 end
 
 -------------------------------------------------------------------------------
+-- [SECTION] Typing-select support
+-------------------------------------------------------------------------------
+
+-- Flags for GetTypingSelectRequest()
+--- @enum ImGuiTypingSelectFlags
+ImGuiTypingSelectFlags = {
+    None                = 0,
+    AllowBackspace      = bitLShift(1, 0), -- Backspace to delete character inputs. If using: ensure GetTypingSelectRequest() is not called more than once per frame (filter by e.g. focus state)
+    AllowSingleCharMode = bitLShift(1, 1), -- Allow "single char" search mode which is activated when pressing the same character multiple times.
+}
+
+-- Returned by GetTypingSelectRequest(), designed to eventually be public.
+--- @class ImGuiTypingSelectRequest
+--- @field Flags           ImGuiTypingSelectFlags # Flags passed to GetTypingSelectRequest()
+--- @field SearchBufferLen int
+--- @field SearchBuffer    string                 # Search buffer contents (use full string. unless SingleCharMode is set, in which case use SingleCharSize).
+--- @field SelectRequest   bool                   # Set when buffer was modified this frame, requesting a selection.
+--- @field SingleCharMode  bool                   # Notify when buffer contains same character repeated, to implement special mode. In this situation it preferred to not display any on-screen search indication.
+--- @field SingleCharSize  int                    # Length in bytes of first letter codepoint (1 for ascii, 2-4 for UTF-8). If (SearchBufferLen==RepeatCharSize) only 1 letter has been input.
+local function ImGuiTypingSelectRequest()
+    return { Flags = 0, SearchBufferLen = 0, SearchBuffer = "", SelectRequest = false, SingleCharMode = false, SingleCharSize = 0 }
+end
+
+-- Storage for GetTypingSelectRequest()
+-- [Port] SearchBuffer is an immutable Lua string (C++: char[64], 63 bytes max + zero terminator). SearchBuffer[0] != 0 -> #SearchBuffer ~= 0.
+--- @class ImGuiTypingSelectState
+--- @field Request            ImGuiTypingSelectRequest # User-facing data
+--- @field SearchBuffer       string                   # Search buffer: no need to make dynamic as this search is very transient.
+--- @field FocusScope         ImGuiID
+--- @field LastRequestFrame   int
+--- @field LastRequestTime    float
+--- @field SingleCharModeLock bool                     # After a certain single char repeat count we lock into SingleCharMode. Two benefits: 1) buffer never fill, 2) we can provide an immediate SingleChar mode without timer elapsing.
+MT.ImGuiTypingSelectState = {}
+MT.ImGuiTypingSelectState.__index = MT.ImGuiTypingSelectState
+
+--- @return ImGuiTypingSelectState
+function ImGuiTypingSelectState()
+    return setmetatable({ Request = ImGuiTypingSelectRequest(), SearchBuffer = "", FocusScope = 0, LastRequestFrame = 0, LastRequestTime = 0.0, SingleCharModeLock = false }, MT.ImGuiTypingSelectState)
+end
+function MT.ImGuiTypingSelectState:Clear() self.SearchBuffer = ""; self.SingleCharModeLock = false end -- We preserve remaining data for easier debugging
+
+-------------------------------------------------------------------------------
+-- [SECTION] Box-select support
+-------------------------------------------------------------------------------
+
+--- @class ImGuiBoxSelectState
+--- @field ID                    ImGuiID
+--- @field IsActive              bool
+--- @field IsStarting            bool
+--- @field IsStartedFromVoid     bool         # Starting click was not from an item.
+--- @field IsStartedSetNavIdOnce bool
+--- @field RequestClear          bool
+--- @field KeyMods               ImGuiKeyChord # Latched key-mods for box-select logic.
+--- @field StartPosRel           ImVec2       # Start position in window-contents relative space (to support scrolling)
+--- @field EndPosRel             ImVec2       # End position in window-contents relative space
+--- @field ScrollAccum           ImVec2       # Scrolling accumulator (to behave at high-frame spaces)
+--- @field Window                ImGuiWindow?
+--- @field UnclipMode            bool         # (Temp/Transient, here in hot area). Set/cleared by the BeginMultiSelect()/EndMultiSelect() owning active box-select.
+--- @field UnclipRect            ImRect       # Rectangle where ItemAdd() clipping may be temporarily disabled. Need support by multi-select supporting widgets.
+--- @field UnclipRects           ImRect[]     # Per-axis versions. [Port] 1-based: [1] = upstream [0] (X), [2] = upstream [1] (Y)
+--- @field BoxSelectRectPrev     ImRect       # Selection rectangle in absolute coordinates (derived every frame from BoxSelectStartPosRel and MousePos)
+--- @field BoxSelectRectCurr     ImRect
+--- @return ImGuiBoxSelectState
+function ImGuiBoxSelectState()
+    return {
+        -- Active box-selection data (persistent, 1 active at a time)
+        ID = 0, IsActive = false, IsStarting = false, IsStartedFromVoid = false, IsStartedSetNavIdOnce = false, RequestClear = false,
+        KeyMods = 0,
+        StartPosRel = ImVec2(), EndPosRel = ImVec2(), ScrollAccum = ImVec2(),
+        Window = nil,
+
+        -- Temporary/Transient data
+        UnclipMode = false,
+        UnclipRect = ImRect(),
+        UnclipRects = { ImRect(), ImRect() },
+        BoxSelectRectPrev = ImRect(),
+        BoxSelectRectCurr = ImRect(),
+    }
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Multi-select support
+-------------------------------------------------------------------------------
+
+-- We always assume that -1 is an invalid value (which works for indices and pointers)
+-- (ImGuiSelectionUserData_Invalid is defined above with the ImGuiSelectionUserData alias)
+
+-- Temporary storage for multi-select
+--- @class ImGuiMultiSelectTempData
+--- @field IO                           ImGuiMultiSelectIO # MUST BE FIRST FIELD. Requests are set and returned by BeginMultiSelect()/EndMultiSelect() + written to by user during the loop.
+--- @field Storage                      ImGuiMultiSelectState?
+--- @field FocusScopeId                 ImGuiID            # Copied from g.CurrentFocusScopeId (unless another selection scope was pushed manually)
+--- @field Flags                        ImGuiMultiSelectFlags
+--- @field ScopeRectMin                 ImVec2
+--- @field BackupCursorMaxPos           ImVec2
+--- @field BoxSelectId                  ImGuiID
+--- @field KeyMods                      ImGuiKeyChord
+--- @field LoopRequestSetAll            int                # -1: no operation, 0: clear all, 1: select all.
+--- @field IsEndIO                      bool               # Set when switching IO from BeginMultiSelect() to EndMultiSelect() state.
+--- @field IsFocused                    bool               # Set if currently focusing the selection scope (any item of the selection). May be used if you have custom shortcut associated to selection.
+--- @field IsKeyboardSetRange           bool               # Set by BeginMultiSelect() when using Shift+Navigation. Because scrolling may be affected we can't afford a frame of lag with Shift+Navigation.
+--- @field NavIdPassedBy                bool
+--- @field RangeSrcPassedBy             bool               # Set by the item that matches RangeSrcItem.
+--- @field RangeDstPassedBy             bool               # Set by the item that matches NavJustMovedToId when IsSetRange is set.
+--- @field IsSoleOrUnknownSelectionSize bool
+MT.ImGuiMultiSelectTempData = {}
+MT.ImGuiMultiSelectTempData.__index = MT.ImGuiMultiSelectTempData
+
+--- @return ImGuiMultiSelectTempData
+function ImGuiMultiSelectTempData()
+    local this = setmetatable({ IO = ImGuiMultiSelectIO(), ScopeRectMin = ImVec2(), BackupCursorMaxPos = ImVec2() }, MT.ImGuiMultiSelectTempData)
+    this:Clear()
+    return this
+end
+-- Zero-clear except IO as we preserve IO.Requests[] buffer allocation.
+function MT.ImGuiMultiSelectTempData:Clear()
+    self:ClearIO()
+    self.Storage = nil
+    self.FocusScopeId = 0
+    self.Flags = 0
+    ImVec2_CopyV(self.ScopeRectMin, 0.0, 0.0)
+    ImVec2_CopyV(self.BackupCursorMaxPos, 0.0, 0.0)
+    self.BoxSelectId = 0
+    self.KeyMods = 0
+    self.LoopRequestSetAll = 0
+    self.IsEndIO = false
+    self.IsFocused = false
+    self.IsKeyboardSetRange = false
+    self.NavIdPassedBy = false
+    self.RangeSrcPassedBy = false
+    self.RangeDstPassedBy = false
+    self.IsSoleOrUnknownSelectionSize = false
+end
+function MT.ImGuiMultiSelectTempData:ClearIO() local io = self.IO; io.Requests:resize(0); io.RangeSrcItem = ImGuiSelectionUserData_Invalid; io.NavIdItem = ImGuiSelectionUserData_Invalid; io.NavIdSelected = false; io.RangeSrcReset = false end
+
+-- Persistent storage for multi-select (as long as selection is alive)
+--- @class ImGuiMultiSelectState
+--- @field Window            ImGuiWindow?
+--- @field ID                ImGuiID
+--- @field LastFrameActive   int                    # Last used frame-count, for GC.
+--- @field LastSelectionSize int                    # Set by BeginMultiSelect() based on optional info provided by user. May be -1 if unknown.
+--- @field RangeSelected     int                    # -1 (don't have) or true/false
+--- @field NavIdSelected     int                    # -1 (don't have) or true/false
+--- @field RangeSrcItem      ImGuiSelectionUserData #
+--- @field NavIdItem         ImGuiSelectionUserData # SetNextItemSelectionUserData() value for NavId (if part of submitted items)
+--- @return ImGuiMultiSelectState
+function ImGuiMultiSelectState()
+    return { Window = nil, ID = 0, LastFrameActive = 0, LastSelectionSize = 0, RangeSelected = -1, NavIdSelected = -1, RangeSrcItem = ImGuiSelectionUserData_Invalid, NavIdItem = ImGuiSelectionUserData_Invalid }
+end
+
+--- @param id ImGuiID
+--- @return ImGuiBoxSelectState?
+function ImGui.GetBoxSelectState(id) local g = GImGui; if id ~= 0 and g.BoxSelectState.ID == id and g.BoxSelectState.IsActive then return g.BoxSelectState end return nil end
+--- @param id ImGuiID
+--- @return ImGuiMultiSelectState?
+function ImGui.GetMultiSelectState(id) local g = GImGui; return g.MultiSelectStorage:GetByKey(id) end
+
+-------------------------------------------------------------------------------
 -- [SECTION] ImGuiContext (main Dear ImGui context)
 -------------------------------------------------------------------------------
 
@@ -2129,6 +2306,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         NavHighlightItemUnderNav = false, -- Disable mouse hovering highlight. Highlight navigation focused item instead of mouse hovered item.
         NavIdIsAlive = false, -- Nav widget has been seen this frame ~~ NavRectRel is valid
         NavInputSource = ImGuiInputSource.Keyboard, -- Keyboard or Gamepad mode? THIS CAN ONLY BE ImGuiInputSource.Keyboard or ImGuiInputSource.Gamepad
+        NavLastValidSelectionUserData = ImGuiSelectionUserData_Invalid, -- Last valid data passed to SetNextItemSelectionUser(), or -1. For current window. Not reset when focusing an item that doesn't have selection data.
         NavWindowingTarget = nil, NavWindowingTargetAnim = nil, NavWindowingListWindow = nil, -- Target window when doing Ctrl+Tab (or Pad Menu + FocusPrev/Next), this window is temporarily displayed top-most!
         NavWindowingTimer = 0.0, NavWindowingHighlightAlpha = 0.0,
         NavWindowingToggleLayer = false, -- Set while Alt or GamepadMenu is held, may be cleared by other operations, and processed when releasing the key.
@@ -2167,6 +2345,14 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         NavNextActivateFlags = ImGuiActivateFlags.None,
         NavActivateId = 0, NavActivateDownId = 0, NavActivatePressedId = 0, -- ~~ (g.ActiveId == 0) && (IsKeyPressed(ImGuiKey.Space) || IsKeyDown(ImGuiKey.Enter) || IsKeyPressed(ImGuiKey.NavGamepadActivate)) ? NavId : 0, also set when calling ActivateItemByID()
         NavActivateFlags = ImGuiActivateFlags.None,
+
+        -- Navigation: record of last move request
+        NavJustMovedFromFocusScopeId = 0, -- Just navigated from this focus scope id (result of a successfully MoveRequest).
+        NavJustMovedToId = 0, -- Just navigated to this id (result of a successfully MoveRequest).
+        NavJustMovedToFocusScopeId = 0, -- Just navigated to this focus scope id (result of a successfully MoveRequest).
+        NavJustMovedToKeyMods = 0,
+        NavJustMovedToIsTabbing = false, -- Copy of ImGuiNavMoveFlags.IsTabbing. Maybe we should store whole flags.
+        NavJustMovedToHasSelectionData = false, -- Copy of move result's ItemFlags & ImGuiItemFlags.HasSelectionUserData). Maybe we should just store ImGuiNavItemData.
 
         FrameCount = 0,
 
@@ -2228,6 +2414,8 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         MouseCursor = ImGuiMouseCursor.Arrow,
         MouseStationaryTimer = 0.0, -- Time the mouse has been stationary (with some loose heuristic)
 
+        TypingSelectState = ImGuiTypingSelectState(), -- State for GetTypingSelectRequest()
+
         InputTextState = ImGuiInputTextState(),
         InputTextLineIndex = ImGuiTextIndex(), -- Temporary storage
         InputTextDeactivatedState = ImGuiInputTextDeactivatedState(),
@@ -2248,6 +2436,13 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         DebugHoveredDockNode = nil, -- Hovered dock node.
         CurrentTabBarStack = ImVector(), -- holds ImGuiTabBar references directly (no ImGuiPtrOrIndex needed in Lua)
         ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
+
+        -- Multi-Select state
+        BoxSelectState = ImGuiBoxSelectState(),
+        CurrentMultiSelect = nil,
+        MultiSelectTempDataStacked = 0, -- Temporary multi-select data size (because we leave previous instances undestructed, we generally don't use MultiSelectTempData.Size)
+        MultiSelectTempData = ImVector(), -- ImVector<ImGuiMultiSelectTempData>, 1-based
+        MultiSelectStorage = ImPool(ImGuiMultiSelectState), -- ImPool<ImGuiMultiSelectState>
 
         WindowResizeBorderExpectedRect = ImRect(), -- Expected border rect, switch to relative edit if moving
         WindowResizeRelativeMode = false,

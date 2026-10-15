@@ -13,6 +13,7 @@ CHECKS=(
 "readme-min|README OK|MINIFY=1 $R --main tools/test/scripts/t_readme.luau --frames 30"
 "cached|CACHED OK|$R --main tools/test/scripts/t_cached_window.luau --frames 130"
 "fixes|FIXES OK|$R --main tools/test/scripts/t_fixes.luau --frames 55"
+"multiselect|MULTISELECT OK|$R --main tools/test/scripts/t_multiselect.luau --frames 380"
 "nodemo|NODEMO OK|NO_DEMO=1 $R --main tools/test/scripts/t_nodemo.luau --frames 25"
 "widgets|OK|$R --main tools/test/scripts/t_widgets.luau --frames 80"
 "tables|OK|$R --main tools/test/scripts/t_tables.luau --frames 150"
