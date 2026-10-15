@@ -33,6 +33,14 @@ end
 local T = G.ImGuiContextHookType
 hook(T.NewFramePre, "nfpre"); hook(T.NewFramePost, "nfpost"); hook(T.RenderPre, "rpre"); local rpost = hook(T.RenderPost, "rpost")
 
+-- Context defaults (ImGuiContext()/ImGuiIO() constructors, upstream values)
+check(ctx.DebugFlashStyleColorIdx == G.ImGuiCol.COUNT and ctx.ActiveIdSource == G.ImGuiInputSource.None and io.MouseSource == G.ImGuiMouseSource.Mouse
+    and ctx.DebugBreakKeyChord == G.ImGuiKey.Pause and ctx.DebugItemPickerActive == false and ctx.DebugLocateId == 0 and ctx.CurrentPixelDensity == 1.0, "context defaults")
+check(T.PendingRemoval_ == 7 and T.Shutdown == 6, "ImGuiContextHookType values")
+check(io.BackendPlatformName == "imgui_impl_roblox" and io.BackendRendererName == "imgui_impl_roblox", "BackendPlatformName/BackendRendererName")
+check((os.date == nil) == (ImGui.GetPlatformIO().Platform_SessionDate == 0), "Platform_SessionDate set from os.date() when available") -- (the test sandbox has no os.date)
+ImGui.GetPlatformIO().Platform_SessionDate = 20261015 -- exercise the metrics Settings section date code
+
 -- Style color flash
 local col = ImGui.GetStyle().Colors[G.ImGuiCol.Button]
 local orig = { col.x, col.y, col.z, col.w }
@@ -60,6 +68,11 @@ game:GetService("RunService").Stepped:Connect(function()
     ImGui.DebugDrawItemRect(); ImGui.DebugDrawCursorPos(); ImGui.DebugDrawLineExtents()
     ImGui.DebugTextUnformattedWithLocateItem(("id 0x%08X here"):format(target_id))
     ImGui.End()
+    if f == 3 then -- open the metrics Settings/InputText sections
+        local mw = ImGui.FindWindowByName("Dear ImGui Metrics/Debugger")
+        for _, lbl in { "Settings", "SettingsWindows", "SettingsTables", "InputText" } do mw.DC.StateStorage[mw:GetID(lbl)] = true end
+        ctx.DebugMetricsConfig.SettingsHighlightOldEntries = true
+    end
     ImGui.SetNextWindowPos(ImVec2(400, 10), G.ImGuiCond.Always); ImGui.ShowMetricsWindow()
     ImGui.SetNextWindowPos(ImVec2(400, 300), G.ImGuiCond.Always); ImGui.ShowDebugLogWindow()
     if f == 4 then
@@ -71,7 +84,7 @@ game:GetService("RunService").Stepped:Connect(function()
     if f == 2 then check(table.concat(log, " ") == "nfpre nfpost rpre rpost nfpre nfpost rpre", "RemoveContextHook: " .. table.concat(log, " ")) end
     if f == 60 then
         local c = ImGui.GetStyle().Colors[G.ImGuiCol.Button]
-        check(c.x == orig[1] and c.y == orig[2] and c.z == orig[3] and c.w == orig[4] and ctx.DebugFlashStyleColorIdx == nil, "flash restored color exactly")
+        check(c.x == orig[1] and c.y == orig[2] and c.z == orig[3] and c.w == orig[4] and ctx.DebugFlashStyleColorIdx == G.ImGuiCol.COUNT, "flash restored color exactly")
         check(picked ~= nil and picked ~= 0 and picked == button_id, ("item picker set DebugItemPickerBreakId (%s vs %s)"):format(tostring(picked), tostring(button_id)))
         check(not ctx.DebugItemPickerActive and broke >= 1, ("item picker break hook called (%d)"):format(broke))
         if #failed == 0 then print("DEBUGTOOLS OK") end

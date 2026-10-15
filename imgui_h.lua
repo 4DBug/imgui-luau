@@ -756,6 +756,7 @@ function ImTextureData()
     this.UniqueID             = 0 -- w    -   -- [DEBUG] Sequential index to facilitate identifying a texture when debugging/printing. Unique per atlas.
     this.Status               = ImTextureStatus.Destroyed -- rw   rw  -- ImTextureStatus.OK/_WantCreate/_WantUpdates/_WantDestroy. Always use SetStatus() to modify!
     this.BackendUserData      = nil -- -    rw  -- Convenience storage for backend. Some backends may have enough with TexID.
+    this.QueueUserData        = nil -- r    -   -- Convenience storage for a staged/multi-threaded rendering texture queue (e.g. imgui_threaded_rendering.h. See #8597). When ~= nil, core assumes the texture is referenced by the queue.
     this.TexID                = ImTextureID_Invalid -- r    w   -- Backend-specific texture identifier. Always use SetTexID() to modify! The identifier will stored in ImDrawCmd::GetTexID() and passed to backend's RenderDrawData function.
     this.Format               = 0 -- w    r   -- ImTextureFormat.RGBA32 (default) or ImTextureFormat.Alpha8
     this.Width                = 0 -- w    r   -- Texture width
@@ -1234,6 +1235,8 @@ function ImGuiIO()
         -- Other state maintained from data above + IO function calls
         KeyMods  = nil, -- Key mods flags (any of ImGuiMod_Ctrl/ImGuiMod_Shift/ImGuiMod_Alt/ImGuiMod_Super flags, same as io.KeyCtrl/KeyShift/KeyAlt/KeySuper but merged into flags). Read-only, updated by NewFrame()
 
+        BackendPlatformName = nil, -- = NULL
+        BackendRendererName = nil, -- = NULL
         BackendFlags = ImGuiBackendFlags.None, -- = 0              -- See ImGuiBackendFlags_ enum. Set by backend (imgui_impl_xxx files or custom backend) to communicate features supported by the backend.
         ConfigFlags  = ImGuiConfigFlags.None, -- = 0              -- See ImGuiConfigFlags_ enum. Set by user/application. Keyboard/Gamepad navigation options, etc.
         DisplaySize = ImVec2(-1.0, -1.0), -- <unset>          -- Main display size, in pixels (== GetMainViewport()->Size). May change every frame.
@@ -1261,6 +1264,8 @@ function ImGuiIO()
         MouseWheelH = 0, -- Mouse wheel Horizontal. >0 scrolls Left, <0 scrolls Right. Most users don't have a mouse with a horizontal wheel, may not be filled by all backends.
 
         MouseCtrlLeftAsRightClick = false, -- (OSX) Set to true when the current click was a Ctrl+Click that spawned a simulated right click
+        MouseSource = ImGuiMouseSource.Mouse, -- Mouse actual input peripheral (Mouse/TouchScreen/Pen).
+        PenPressure = 0.0, -- Touch/Pen pressure (0.0f to 1.0f, should be >0.0f only when MouseDown[0] == true). Helper storage currently unused by Dear ImGui.
 
         MouseWheelRequestAxisSwap = false, -- On a non-Mac system, holding Shift requests WheelY to perform the equivalent of a WheelX event. On a Mac system this is already enforced by the system.
 
@@ -1539,6 +1544,7 @@ function ImGuiViewport()
 
         PlatformHandle = nil, -- void* to hold higher-level, platform window handle (e.g. HWND for Win32 backend, Uint32 WindowID for SDL, GLFWWindow* for GLFW), for FindViewportByPlatformHandle().
         PlatformHandleRaw = nil, -- void* to hold lower-level, platform-native window handle (always HWND on Win32 platform, unused for other platforms).
+        PlatformIconData = nil, -- [EXPERIMENTAL] Pass opaque data for Platform backend to handle.
         PlatformWindowCreated = false -- Platform window has been created (Platform_CreateWindow() has been called). This is false during the first frame where a viewport is being created.
     }, MT.ImGuiViewport)
 end
@@ -1570,11 +1576,23 @@ function ImGuiPlatformIO()
         -- (default to use native Win32 clipboard on Windows, otherwise uses a private clipboard. Override to access OS clipboard on other architectures)
         Platform_GetClipboardTextFn = nil, -- Should return nil on failure (e.g. clipboard data is not text).
         Platform_SetClipboardTextFn = nil,
+        Platform_ClipboardUserData = nil,
 
         -- Optional: Open link/folder/file in OS Shell
         -- (default to use ShellExecuteW() on Windows, system() on Linux/Mac. expected to return false on failure, but some platforms may always return true)
         Platform_OpenInShellFn = nil,
         Platform_OpenInShellUserData = nil,
+
+        -- Optional: Notify OS Input Method Editor of the screen position of your cursor for text input position (e.g. when using Japanese/Chinese IME on Windows)
+        Platform_SetImeDataFn = nil, -- fun(ctx, viewport, data)
+        Platform_ImeUserData = nil,
+
+        -- Optional: Platform locale
+        -- [Experimental] Configure decimal point e.g. '.' or ',' useful for some languages (e.g. German), generally pulled from *localeconv()->decimal_point
+        Platform_LocaleDecimalPoint = 46, -- '.'
+
+        -- Optional: Session date
+        Platform_SessionDate = 0, -- Integer storing YYYYMMDD e.g. 20261231 corresponding to the beginning of application session.
 
         -------------------------------------------------------------------------------
         -- Input - Interface with Renderer Backend
@@ -1587,6 +1605,12 @@ function ImGuiPlatformIO()
         -- Written by some backends during ImGui_ImplXXXX_RenderDrawData() call to point backend_specific ImGui_ImplXXXX_RenderState* structure.
         Renderer_RenderState = nil,
 
+        -- Optional: Standard draw callbacks (set by backends that support them)
+        DrawCallback_ResetRenderState = nil, -- Request to reset the graphics/render state.
+        DrawCallback_SetSamplerLinear = nil, -- Request backend to set texture sampling to Linear.
+        DrawCallback_SetSamplerNearest = nil, -- Request backend to set texture sampling to Nearest/Point.
+        DrawCallback_SetSamplerFromTex = nil, -- Request backend to use sampler associated to texture - only available in some backends: OpenGL2/3 and SDLRenderer3.
+
         -- (Optional) Monitor list
         -- - Updated by: app/backend. Update every frame to dynamically support changing monitor or DPI configuration.
         -- - Used by: dear imgui to query DPI info, clamp popups/tooltips within same monitor and not have them straddle monitors.
@@ -1597,10 +1621,6 @@ function ImGuiPlatformIO()
         -- Viewports list (the list is updated by calling ImGui.EndFrame or ImGui.Render)
         -- (in the future we will attempt to organize this feature to remove the need for a "main viewport")
         Viewports = ImVector(), -- Main viewports, followed by all secondary viewports.
-
-        -- Optional: Platform locale
-        -- [Experimental] Configure decimal point e.g. '.' or ',' useful for some languages (e.g. German), generally pulled from *localeconv()->decimal_point
-        Platform_LocaleDecimalPoint = 46, -- '.'
 
         Platform_OnChangedViewport = nil, -- (Optional) [BETA] FIXME-DPI: DPI handling: Called during Begin() every time the viewport we are outputting into changes, so backend has a chance to swap fonts to adjust style.
     }
@@ -1988,10 +2008,12 @@ ImGuiStyleVar = {
     DragDropTargetRounding      = 37, -- float     DragDropTargetRounding
     ButtonTextAlign             = 38, -- ImVec2    ButtonTextAlign
     SelectableTextAlign         = 39, -- ImVec2    SelectableTextAlign
-    SeparatorTextBorderSize     = 40, -- float     SeparatorTextBorderSize
-    SeparatorTextAlign          = 41, -- ImVec2    SeparatorTextAlign
-    SeparatorTextPadding        = 42, -- ImVec2    SeparatorTextPadding
-    COUNT                       = 43
+    SeparatorSize               = 40, -- float     SeparatorSize
+    SeparatorTextBorderSize     = 41, -- float     SeparatorTextBorderSize
+    SeparatorTextAlign          = 42, -- ImVec2    SeparatorTextAlign
+    SeparatorTextPadding        = 43, -- ImVec2    SeparatorTextPadding
+    DockingSeparatorSize        = 44, -- float     DockingSeparatorSize
+    COUNT                       = 45
 }
 
 -- Flags for ImGui.IsItemHovered(), ImGui.IsWindowHovered()
@@ -2080,8 +2102,9 @@ ImGuiKey = {
     RightCtrl  = 531, RightShift = 532, RightAlt = 533, RightSuper = 534,
     Menu       = 535,
 
-    -- 1 ~ 9
+    -- 0 ~ 9 (upstream ImGuiKey_0..ImGuiKey_9: K0..K9 in this port, ImGuiKey["0"]..ImGuiKey["9"] are aliases)
     K0 = 536, K1 = 537, K2 = 538, K3 = 539, K4 = 540, K5 = 541, K6 = 542, K7 = 543, K8 = 544, K9 = 545,
+    ["0"] = 536, ["1"] = 537, ["2"] = 538, ["3"] = 539, ["4"] = 540, ["5"] = 541, ["6"] = 542, ["7"] = 543, ["8"] = 544, ["9"] = 545,
 
     A = 546, B = 547, C = 548, D = 549, E = 550, F = 551, G = 552, H = 553, I = 554, J = 555,
     K = 556, L = 557, M = 558, N = 559, O = 560, P = 561, Q = 562, R = 563, S = 564, T = 565,
@@ -2308,7 +2331,7 @@ ImGuiComboFlags = {
 }
 
 ImGuiComboFlags.HeightMask_ = bitOr(ImGuiComboFlags.HeightSmall, ImGuiComboFlags.HeightRegular, ImGuiComboFlags.HeightLarge, ImGuiComboFlags.HeightLargest)
-ImGuiComboFlags.CustomPreview = bitLShift(1, 20)
+ImGuiComboFlags.CustomPreview = bitLShift(1, 20) -- [Luau] obsolete: removed in 1.93.0 (BeginComboPreview() no longer needs a flag), kept as an ignored value
 
 -- Flags for ImGui.Selectable()
 --- @enum ImGuiSelectableFlags
@@ -2430,6 +2453,7 @@ function ImGuiWindowClass()
         TabItemFlagsOverrideSet  = 0, -- [EXPERIMENTAL] TabItem flags to set when a window of this class gets submitted into a dock node tab bar. May use with ImGuiTabItemFlags.Leading or ImGuiTabItemFlags.Trailing.
         DockNodeFlagsOverrideSet = 0, -- [EXPERIMENTAL] Dock node flags to set when a window of this class is hosted by a dock node (it doesn't have to be selected!)
         DockingAlwaysTabBar      = false, -- Set to true to enforce single floating windows of this class always having their own docking node (equivalent of setting the global io.ConfigDockingAlwaysTabBar)
+        PlatformIconData         = nil, -- void* to hold custom data structure for the OS / platform to specify an icon. Currently unused for exposed to allow experiments.
         DockingAllowUnclassed    = true -- Set to true to allow windows of this class to be docked/merged with an unclassed window. -- FIXME-DOCK: Move to DockNodeFlags override?
     }
 end
@@ -2775,6 +2799,13 @@ function ImGuiPayload_IsDelivery(p) return p.Delivery end
 -------------------------------------------------------------------------------
 -- [SECTION] Helpers (ImGuiOnceUponAFrame, ImGuiTextFilter, ImGuiTextBuffer, ImGuiStorage, ImGuiListClipper, Math Operators, ImColor)
 -------------------------------------------------------------------------------
+
+-- Flags for ImGuiListClipper (currently not fully exposed in function calls: a future refactor will likely add this to ImGuiListClipper::Begin function equivalent)
+--- @enum ImGuiListClipperFlags
+ImGuiListClipperFlags = {
+    None                  = 0,
+    NoSetTableRowCounters = bitLShift(1, 0), -- [Internal] Disabled modifying table row counters. Avoid assumption that 1 clipper item == 1 table row.
+}
 
 -- Helper: Growable text buffer for logging/accumulating text
 -- (this could be called 'ImGuiTextBuilder' / 'ImGuiStringBuilder')

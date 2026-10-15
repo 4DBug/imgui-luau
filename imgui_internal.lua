@@ -1578,6 +1578,30 @@ ImGuiLayoutType =
     Vertical   = 1
 }
 
+--- @enum ImGuiLogFlags
+ImGuiLogFlags =
+{
+    None = 0,
+
+    OutputTTY       = bitLShift(1, 0),
+    OutputFile      = bitLShift(1, 1),
+    OutputBuffer    = bitLShift(1, 2),
+    OutputClipboard = bitLShift(1, 3),
+}
+ImGuiLogFlags.OutputMask_ = bitOr(ImGuiLogFlags.OutputTTY, ImGuiLogFlags.OutputFile, ImGuiLogFlags.OutputBuffer, ImGuiLogFlags.OutputClipboard)
+
+-- Flags for internal's BeginColumns(). This is an obsolete API. Prefer using BeginTable() nowadays!
+--- @enum ImGuiOldColumnFlags
+ImGuiOldColumnFlags =
+{
+    None                   = 0,
+    NoBorder               = bitLShift(1, 0), -- Disable column dividers
+    NoResize               = bitLShift(1, 1), -- Disable resizing columns when clicking on the dividers
+    NoPreserveWidths       = bitLShift(1, 2), -- Disable column width preservation when adjusting columns
+    NoForceWithinWindow    = bitLShift(1, 3), -- Disable forcing columns to fit within window
+    GrowParentContentsSize = bitLShift(1, 4), -- Restore pre-1.51 behavior of extending the parent window contents size but _without affecting the columns width at all_. Will eventually remove.
+}
+
 --- @enum ImGuiSeparatorFlags
 ImGuiSeparatorFlags =
 {
@@ -1725,7 +1749,8 @@ function ImGuiWindowStackData()
         ParentLastItemDataBackup            = ImGuiLastItemData(),
         StackSizesInBegin                   = nil, -- Store size of various stacks for asserting
         DisabledOverrideReenable            = nil, -- Non-child window override disabled flag
-        DisabledOverrideReenableAlphaBackup = nil
+        DisabledOverrideReenableAlphaBackup = nil,
+        ParentLastComboPreviewRect          = ImRect(),
     }
 end
 
@@ -1747,7 +1772,10 @@ local function ImGuiComboPreviewData()
         BackupCursorMaxPos           = ImVec2(),
         BackupCursorPosPrevLine      = ImVec2(),
         BackupPrevLineTextBaseOffset = 0.0,
-        BackupLayout                 = 0
+        BackupLayout                 = 0,
+        BackupWorkRectMaxX           = 0.0,
+        BackupContentRectMaxX        = 0.0,
+        WithinPreview                = false,
     }
 end
 
@@ -1804,6 +1832,7 @@ local function ImGuiInputTextState()
         SelectedAllMouseLock = false, -- after a double-click to select all, we ignore further mouse drags to update selection
         EditedBefore = false,    -- edited since activated
         EditedThisFrame = false, -- edited this frame
+        ValidatedThisFrame = false, -- validated this frame (e.g. Enter pressed)
         WantReloadUserBuf = false, -- force a reload of user buf so it may be modified externally. may be automatic in future version.
         LastMoveDirectionLR = ImGuiDir.Left, -- ImGuiDir_Left or ImGuiDir_Right. track last movement direction so when cursor cross over a word-wrapping boundaries we can display it on either line depending on last move.s
         ReloadSelectionStart = 0,
@@ -1957,8 +1986,23 @@ end
 local function ImGuiMetricsConfig()
     return
     {
+        ShowDebugLog = false,
+        ShowIDStackTool = false,
+        ShowWindowsRects = false,
+        ShowWindowsBeginOrder = false,
+        ShowTablesRects = false,
+        ShowDrawCmdMesh = true,
+        ShowDrawCmdBoundingBoxes = true,
+        ShowTextEncodingViewer = false,
+        ShowTextureUsedRect = false,
+        ShowDockingNodes = false,
+        ShowWindowsRectsType = -1,
+        ShowTablesRectsType = -1,
         HighlightMonitorIdx = -1,
         HighlightViewportID = 0,
+        SettingsDiscardMonths = 6,
+        SettingsHighlightOldEntries = false,
+        ShowFontPreview = true,
     }
 end
 
@@ -2172,7 +2216,7 @@ function ImGui.GetMultiSelectState(id) local g = GImGui; return g.MultiSelectSto
 --- @field FontSize                           float
 --- @field FontSizeBase                       float
 --- @field FontBakedScale                     float
---- @field FontRasterizerDensity              float
+--- @field CurrentPixelDensity                float
 --- @field DrawListSharedData                 ImDrawListSharedData
 --- @field NextItemData                       ImGuiNextItemData
 --- @field LastItemData                       ImGuiLastItemData
@@ -2359,6 +2403,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         KeysRoutingTable = ImGuiKeyRoutingTable(),
 
         InputEventsQueue = ImVector(), -- Input events which will be trickled/written into IO structure.
+        InputEventsTrail = ImVector(), -- Past input events processed in NewFrame(). This is to allow domain-specific application to access e.g mouse/pen trail.
 
         InputEventsNextMouseSource = ImGuiMouseSource.Mouse,
         InputEventsNextEventId = 1,
@@ -2399,6 +2444,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         ActiveIdPreviousFrame = 0,
 
         ActiveIdTimer = 0.0,
+        ActiveIdSource = ImGuiInputSource.None, -- Activating source: ImGuiInputSource.Mouse OR ImGuiInputSource.Keyboard OR ImGuiInputSource.Gamepad
 
         LastActiveId = 0, -- Store the last non-zero ActiveId, useful for animation.
         LastActiveIdTimer = 0.0, -- Store the last non-zero ActiveId timer since the beginning of activation, useful for animation.
@@ -2480,6 +2526,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         NavJustMovedToFocusScopeId = 0, -- Just navigated to this focus scope id (result of a successfully MoveRequest).
         NavJustMovedToKeyMods = 0,
         NavJustMovedToIsTabbing = false, -- Copy of ImGuiNavMoveFlags.IsTabbing. Maybe we should store whole flags.
+        NavJustMovedToIsInit = false, -- Copy of ImGuiNavMoveFlags.IsInit. Maybe we should store whole flags.
         NavJustMovedToHasSelectionData = false, -- Copy of move result's ItemFlags & ImGuiItemFlags.HasSelectionUserData). Maybe we should just store ImGuiNavItemData.
 
         FrameCount = 0,
@@ -2513,7 +2560,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         FontRefSize = 0.0,
 
-        FontRasterizerDensity = 1.0,
+        CurrentPixelDensity = 1.0,
 
         FontAtlases = ImVector(), -- List of font atlases used by the context (generally only contains g.IO.Fonts aka the main font atlas)
 
@@ -2616,6 +2663,8 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         -- Hooks
         Hooks = ImVector(), -- Hooks for extensions (e.g. test engine)
         HookIdNext = 0, -- Next available HookId
+        SessionDate = ImGuiPackedDate(), -- Packed copy of platform_io.Platform_SessionDate, when valid.
+        DemoMarkerCallback = nil, -- [Luau] fun(file, line, section)
 
         -- Drag and Drop
         DragDropActive = false,
@@ -2663,11 +2712,29 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         LocalizationTable = {},
 
+        DebugLogBuf = ImGuiTextBuffer(),
+        DebugLogLines = { "" }, -- [Luau] upstream DebugLogIndex: Lua array of complete lines (without '\n'), last one being filled
         DebugLogFlags = bitOr(ImGuiDebugLogFlags.EventError, ImGuiDebugLogFlags.OutputToTTY),
-        DebugFlashStyleColorIdx = nil,
+        DebugFlashStyleColorIdx = ImGuiCol.COUNT, -- (Keep close to ColorStack to share cache line)
         DebugBeginReturnValueCullDepth = -1, -- Cycle between 0..9 then wrap around.
+        DebugLocateId = 0, -- Storage for DebugLocateItemOnHover() feature: this is read by ItemAdd() so we keep it in a hot/cached location
+        DebugLogAutoDisableFlags = ImGuiDebugLogFlags.None,
+        DebugLogAutoDisableFrames = 0,
+        DebugLocateFrames = 0, -- For DebugLocateItemOnHover(). This is used together with DebugLocateId which is in a hot/cached spot above.
+        DebugItemPickerActive = false, -- Item picker is active (started with DebugStartItemPicker())
+        DebugItemPickerMouseButton = ImGuiMouseButton.Left,
+        DebugItemPickerBreakId = 0, -- Will call IM_DEBUG_BREAK() when encountering this ID
+        DebugFlashStyleColorTime = 0.0,
+        DebugFlashStyleColorBackup = ImVec4(0, 0, 0, 0),
+        -- Same as DebugBreakClearData(). Those fields are scattered in their respective subsystem to stay in hot-data locations
+        DebugBreakInLocateId = false, -- Debug break in ItemAdd() call for g.DebugLocateId.
+        DebugBreakKeyChord = ImGuiKey.Pause, -- = ImGuiKey_Pause
+        DebugBreakInShortcutRouting = ImGuiKey.None, -- Set to break in SetShortcutRouting()/Shortcut() calls.
+        DebugBreakCallback = nil, -- [Luau] fun(ctx): called by IM_DEBUG_BREAK() (Lua can't break into a debugger)
 
         DebugMetricsConfig = ImGuiMetricsConfig(),
+        DebugItemPathQuery = ImGuiDebugItemPathQuery(),
+        DebugIDStackTool = ImGuiIDStackTool(),
         DebugHookIdInfoId = 0, -- Will call core hooks: DebugHookIdInfo() from GetID functions, used by ID Stack Tool
         DebugAllocInfo = ImGuiDebugAllocInfo(),
 
@@ -2748,8 +2815,21 @@ function ImGuiWindowSettings()
         DockId       = 0, -- ID of last known DockNode (even if the DockNode is invisible because it has only 1 active window), or 0 if none.
         DockOrder    = -1, -- Order of the last time the window was visible within its DockNode. This is used to reorder windows that are reappearing on the same frame. Same value between windows that were active and windows that were none are possible.
         ClassId      = 0, -- ID of window class if specified
-        LastUsedDate = 0,
+        LastUsedDate = 0, -- [Luau] stored unpacked (YYYYMMDD int, 0 = invalid) instead of ImGuiPackedDate
     }, MT.ImGuiWindowSettings)
+end
+
+--- @class ImGuiSettingsCleanupArgs
+function ImGuiSettingsCleanupArgs()
+    return {
+        TypeHashFilter = 0, -- Set to restrict cleanup to a given .ini type, e.g. == ImHashStr("Window"), ImHashStr("Table"). Otherwise every types supporting Cleanup will be affected.
+        DiscardOlderThanMonths = 0, -- Enable to discard entries older than XX months.
+        DiscardWhenMissingDate = false, -- Enable to discard entries missing a date.
+        DiscardAll = false, -- Enable to discard all entries = same as calling ClearIniSettings() except it may be filtered.
+        SetCurrentSessionDateToAll = false, -- Enable to write current SessionDate to all supporting entries. // Let us know in #9460 if you use this.
+        SetCurrentSessionDateWhenMissingDate = false, -- Enable to write current SessionDate to all supporting entries missing a date. // Let us know in #9460 if you use this.
+        _DiscardOlderThanDate = 0, -- [Internal]
+    }
 end
 
 -- Simple column measurement, currently used for MenuItem() only.. This is very short-sighted/throw-away code and NOT a generic helper.
@@ -3125,6 +3205,7 @@ end
 --- @field LastAlpha                   float
 --- @field LastFocusedHadNavWindow     bool
 --- @field PlatformMonitor             short
+--- @field BgFgDrawListsLastFrameActive [int, int]              # 1-based
 --- @field BgFgDrawListsLastTimeActive [int, int]               # 1-based
 --- @field BgFgDrawLists               [ImDrawList, ImDrawList] # 1-based
 --- @field DrawDataP                   ImDrawData
@@ -3204,6 +3285,7 @@ function ImGuiViewportP()
     this.LastFocusedHadNavWindow = false -- Instead of maintaining a LastFocusedWindow (which may harder to correctly maintain), we merely store weither NavWindow ~= nil last time the viewport was focused.
     this.PlatformMonitor = -1
 
+    this.BgFgDrawListsLastFrameActive = {-1, -1} -- Last frame the background (1) and foreground (2) draw lists were used.
     this.BgFgDrawListsLastTimeActive = {-1, -1} -- Timestamps for Gc.
     this.BgFgDrawLists = {nil, nil} -- Convenience background [1] and foreground [2] draw lists. We use them to draw software mouser cursor when io.MouseDrawCursor is set and to draw most debug overlays.
     this.DrawDataP = ImDrawData()
@@ -3847,10 +3929,21 @@ MT.ImGuiListClipperData.__index = MT.ImGuiListClipperData
 function ImGuiListClipperData() return setmetatable({ ListClipper = nil, LossynessOffset = 0.0, StepNo = 0, ItemsFrozen = 0, Ranges = ImVector() }, MT.ImGuiListClipperData) end
 function MT.ImGuiListClipperData:Reset(clipper) self.ListClipper = clipper; self.StepNo = 0; self.ItemsFrozen = 0; self.Ranges:resize(0) end
 
-function ImGuiStackLevelInfo() return { ID = 0, QueryFrameCount = 0, QuerySuccess = false, DataType = -1, DescOffset = -1 } end
-function ImGuiDebugItemPathQuery() return { MainID = 0, Active = false, Complete = false, Step = 0, Results = ImVector(), ResultsDescBuf = ImGuiTextBuffer(), ResultPathBuf = ImGuiTextBuffer() } end
+-- [Luau] Desc holds the description string (upstream: DescOffset into ImGuiDebugItemPathQuery::ResultsDescBuf)
+function ImGuiStackLevelInfo() return { ID = 0, QueryFrameCount = 0, QuerySuccess = false, DataType = -1, Desc = nil } end
+-- [Luau] Results is a 1-based Lua array of ImGuiStackLevelInfo; ResultsDescBuf/ResultPathBuf are replaced by Lua strings.
+function ImGuiDebugItemPathQuery() return { MainID = 0, Active = false, Complete = false, Step = 0, Results = {} } end
 function ImGuiIDStackTool() return { OptHexEncodeNonAsciiChars = true, OptCopyToClipboardOnCtrlC = false, LastActiveFrame = -1, CopyToClipboardLastTime = -FLT_MAX } end
-function ImGuiContextHook() return { HookId = 0, Type = 0, Owner = 0, Callback = nil, UserData = nil } end
+--- @enum ImGuiContextHookType
+ImGuiContextHookType = { NewFramePre = 0, NewFramePost = 1, EndFramePre = 2, EndFramePost = 3, RenderPre = 4, RenderPost = 5, Shutdown = 6, PendingRemoval_ = 7 }
+
+--- @class ImGuiContextHook
+--- @field HookId   ImGuiID              -- A unique ID assigned by AddContextHook()
+--- @field Type     ImGuiContextHookType
+--- @field Owner    ImGuiID
+--- @field Callback fun(ctx: ImGuiContext, hook: ImGuiContextHook)?
+--- @field UserData any
+function ImGuiContextHook() return { HookId = 0, Type = ImGuiContextHookType.NewFramePre, Owner = 0, Callback = nil, UserData = nil } end
 
 -------------------------------------------------------------------------------
 -- [Luau] ImGui:: inline helpers from imgui_internal.h
@@ -3860,7 +3953,7 @@ function ImGui.GetCurrentTable() local g = GImGui; return g.CurrentTable end
 --- @param window        ImGuiWindow
 --- @param parent_window ImGuiWindow?
 function ImGui.SetWindowParentWindowForFocusRoute(window, parent_window) window.ParentWindowForFocusRoute = parent_window end -- You may also use SetNextWindowClass()'s FocusRouteParentWindowId field.
-function ImGui.GetPixelDensity() return GImGui.FontRasterizerDensity end -- [Luau] g.FontRasterizerDensity == upstream g.CurrentPixelDensity
+function ImGui.GetPixelDensity() return GImGui.CurrentPixelDensity end
 function ImGui.ScrollToBringRectIntoView(window, rect) ImGui.ScrollToRect(window, rect, ImGuiScrollFlags.KeepVisibleEdgeY) end
 function ImGui.GetItemStatusFlags() local g = GImGui; return g.LastItemData.StatusFlags end
 function ImGui.GetActiveID() local g = GImGui; return g.ActiveId end

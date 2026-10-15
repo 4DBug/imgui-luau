@@ -431,6 +431,8 @@ function ImGui_ImplLOVE_Init(opts)
     local io = ImGui.GetIO()
     local bd = { Time = love.timer.getTime(), Root = opts.root or "", Textures = {}, TextureCount = 0, Meshes = {}, FrameNo = 0 }
     io.BackendPlatformUserData = bd
+    io.BackendPlatformName = "imgui_impl_love"
+    io.BackendRendererName = "imgui_impl_love"
     io.BackendFlags = bit32.bor(io.BackendFlags, ImGuiBackendFlags.RendererHasTextures, ImGuiBackendFlags.RendererHasVtxOffset, ImGuiBackendFlags.HasMouseCursors)
 
     local platform_io = ImGui.GetPlatformIO()
@@ -449,6 +451,8 @@ function ImGui_ImplLOVE_Shutdown()
     for _, m in pairs(bd.Meshes) do m.Mesh:release() end
     for _, t in pairs(bd.Textures) do t:release() end
     io.BackendPlatformUserData = nil
+    io.BackendPlatformName = nil
+    io.BackendRendererName = nil
     io.BackendFlags = bit32.band(io.BackendFlags, bit32.bnot(bit32.bor(ImGuiBackendFlags.RendererHasTextures, ImGuiBackendFlags.RendererHasVtxOffset, ImGuiBackendFlags.HasMouseCursors)))
 end
 

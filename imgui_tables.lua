@@ -352,16 +352,6 @@ function ImGuiOldColumns()
              HostBackupClipRect = ImRect(), HostBackupParentWorkRect = ImRect(), Columns = ImVector(), Splitter = ImDrawListSplitter() }
 end
 
--- Flags for internal's BeginColumns(). This is an obsolete API. Prefer using BeginTable() nowadays!
-ImGuiOldColumnFlags = ImGuiOldColumnFlags or {
-    None                   = 0,
-    NoBorder               = lshift(1, 0), -- Disable column dividers
-    NoResize               = lshift(1, 1), -- Disable resizing columns when clicking on the dividers
-    NoPreserveWidths       = lshift(1, 2), -- Disable column width preservation when adjusting columns
-    NoForceWithinWindow    = lshift(1, 3), -- Disable forcing columns to fit within window
-    GrowParentContentsSize = lshift(1, 4), -- Restore pre-1.51 behavior of extending the parent window contents size but _without affecting the columns width at all_. Will eventually remove.
-}
-
 ImGuiTableColumnFlags.NoDirectResize_ = ImGuiTableColumnFlags.NoDirectResize_ or lshift(1, 30) -- [Internal] Disable user resizing this column directly (it may however we resized indirectly from its left edge)
 
 local function Rect(r) return ImRect(r.Min.x, r.Min.y, r.Max.x, r.Max.y) end
@@ -4241,6 +4231,7 @@ function ImGui.TableSaveSettings(table_)
         table_.SettingsOffset = SettingsTablesOffsetFromPtr(settings)
     end
     settings.ColumnsCount = table_.ColumnsCount
+    settings.LastUsedDate = GImGui.SessionDate:Unpack()
 
     -- Serialize ImGuiTable/ImGuiTableColumn into ImGuiTableSettings/ImGuiTableColumnSettings
     IM_ASSERT(settings.ID == table_.ID)
@@ -4309,6 +4300,7 @@ function ImGui.TableLoadSettings(table_)
 
     table_.SettingsLoadedFlags = settings.SaveFlags
     table_.RefScale = settings.RefScale
+    settings.LastUsedDate = GImGui.SessionDate:Unpack()
     -- TableUpdateLayout() will then call TableLoadSettingsForColumns() to apply the data.
 end
 
@@ -4440,7 +4432,7 @@ local function TableSettingsHandler_Cleanup(ctx, handler, args)
             table_.SettingsOffset = -1
         end
     end
-    -- [Luau] settings.LastUsedDate is stored unpacked (YYYYMMDD int, 0 = none); g.SessionDate is an ImGuiPackedDate when set
+    -- [Luau] settings.LastUsedDate is stored unpacked (YYYYMMDD int, 0 = none); g.SessionDate is an ImGuiPackedDate
     for _, settings in g.SettingsTables:iter() do
         local is_valid = ImGuiPackedDate(settings.LastUsedDate):IsValid()
         if args._DiscardOlderThanDate ~= 0 and settings.LastUsedDate < args._DiscardOlderThanDate then
@@ -4448,7 +4440,7 @@ local function TableSettingsHandler_Cleanup(ctx, handler, args)
         elseif args.DiscardWhenMissingDate and not is_valid then
             settings.ID = 0
         elseif args.SetCurrentSessionDateToAll or (args.SetCurrentSessionDateWhenMissingDate and not is_valid) then
-            settings.LastUsedDate = g.SessionDate and g.SessionDate:Unpack() or 0
+            settings.LastUsedDate = g.SessionDate:Unpack()
         end
     end
 end
@@ -4496,7 +4488,7 @@ local function TableSettingsHandler_ReadLine(ctx, handler, settings, line)
     local f = string.match(line, "^RefScale=([%-%d%.eE+]+)")
     if f then settings.RefScale = tonumber(f); return end
     local n = string.match(line, "^LastUsed=(%d+)")
-    if n then settings.LastUsedDate = tonumber(n); return end
+    if n then settings.LastUsedDate = ImGuiPackedDate(tonumber(n)):Unpack(); return end
 
     local column_n, rest = string.match(line, "^Column (%-?%d+)(.*)$")
     if column_n then

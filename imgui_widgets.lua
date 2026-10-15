@@ -1943,7 +1943,7 @@ function ImGui.BeginCombo(label, preview_value, flags)
     local id = window:GetID(label)
     IM_ASSERT(bit32.band(flags, bit32.bor(ImGuiComboFlags.NoArrowButton, ImGuiComboFlags.NoPreview)) ~= bit32.bor(ImGuiComboFlags.NoArrowButton, ImGuiComboFlags.NoPreview)) -- Can't use both flags together
     if bit32.band(flags, ImGuiComboFlags.WidthFitPreview) ~= 0 then
-        IM_ASSERT(bit32.band(flags, bit32.bor(ImGuiComboFlags.NoPreview, ImGuiComboFlags.CustomPreview)) == 0)
+        IM_ASSERT(bit32.band(flags, ImGuiComboFlags.NoPreview) == 0)
     end
 
     local arrow_size
@@ -2013,11 +2013,11 @@ function ImGui.BeginCombo(label, preview_value, flags)
 
     ImGui.RenderFrameBorder(bb.Min, bb.Max, style.FrameRounding)
 
-    -- Custom preview
-    if bit32.band(flags, ImGuiComboFlags.CustomPreview) ~= 0 then
+    -- Store geometry for BeginComboPreview() - only necessary when visible.
+    if bit32.band(flags, ImGuiComboFlags.NoPreview) ~= 0 then
+        g.ComboPreviewData.PreviewRect = ImRect()
+    else
         g.ComboPreviewData.PreviewRect = ImRect(bb.Min.x, bb.Min.y, value_x2, bb.Max.y)
-        IM_ASSERT(preview_value == nil or preview_value == "")
-        preview_value = nil
     end
 
     -- Render preview and label
@@ -2112,13 +2112,14 @@ function ImGui.BeginComboPopup(popup_id, bb, flags)
     end
 
     g.BeginComboDepth = g.BeginComboDepth + 1
-
+    ImRect_Copy(g.CurrentWindowStack:back().ParentLastComboPreviewRect, g.ComboPreviewData.PreviewRect)
     return true
 end
 
 function ImGui.EndCombo()
     local g = GImGui
     g.BeginComboDepth = g.BeginComboDepth - 1
+    ImRect_Copy(g.ComboPreviewData.PreviewRect, g.CurrentWindowStack:back().ParentLastComboPreviewRect)
 
     local name = ImFormatString("##Combo_%02d", g.BeginComboDepth) -- FIXME: Move those to helpers?
 
@@ -2131,21 +2132,27 @@ end
 
 -- Submit preview contents for BeginCombo()/EndCombo(), to display contents that's more than just a text label.
 -- - [BETA] See GitHub issues: #1658, #4168.
--- - Call directly after the BeginCombo/EndCombo block (requires ImGuiComboFlags.CustomPreview).
+-- - Make sure you call this after EndCombo().
 -- - The preview is designed to only host non-interactive elements.
 -- - Not compatible with ImGuiComboFlags.WidthFitPreview.
+-- - 2026-09-08 (1.93.0): removed ImGuiComboFlags.CustomPreview. You can use BeginComboPreview()/EndComboPreview() without an extra flag.
 function ImGui.BeginComboPreview()
     local g = GImGui
     local window = g.CurrentWindow
-    local preview_data = g.ComboPreviewData
 
-    if window.SkipItems or not (bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0) then
+    if window.SkipItems or bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) == 0 then
         return false
     end
-
-    IM_ASSERT(g.LastItemData.Rect.Min.x == preview_data.PreviewRect.Min.x and g.LastItemData.Rect.Min.y == preview_data.PreviewRect.Min.y) -- Didn't call after BeginCombo/EndCombo block or forgot to pass ImGuiComboFlags.CustomPreview flag?
-
-    if not window.ClipRect:Overlaps(preview_data.PreviewRect) then -- Narrower test (optional)
+    local preview_data = g.ComboPreviewData
+    if not window.ClipRect:Overlaps(preview_data.PreviewRect) or preview_data.PreviewRect:GetWidth() <= 0.0 then -- Narrower test (optional) + handle _NoPreview
+        return false
+    end
+    if not (g.LastItemData.Rect.Min.x == preview_data.PreviewRect.Min.x and g.LastItemData.Rect.Min.y == preview_data.PreviewRect.Min.y) then -- IM_ASSERT_USER_ERROR_RETV()
+        IM_ASSERT_USER_ERROR(false, "Call BeginComboPreview() after BeginCombo(), not after EndCombo()!") -- Calling after EndCombo() works only if you don't nest combos.
+        return false
+    end
+    if preview_data.WithinPreview then
+        IM_ASSERT_USER_ERROR(false, "Cannot recurse BeginComboPreview(): call EndComboPreview() before opening another combo.")
         return false
     end
 
@@ -2155,7 +2162,11 @@ function ImGui.BeginComboPreview()
     ImVec2_Copy(preview_data.BackupCursorPosPrevLine, window.DC.CursorPosPrevLine)
     preview_data.BackupPrevLineTextBaseOffset = window.DC.PrevLineTextBaseOffset
     preview_data.BackupLayout = window.DC.LayoutType
-
+    preview_data.WithinPreview = true
+    preview_data.BackupWorkRectMaxX = window.WorkRect.Max.x
+    preview_data.BackupContentRectMaxX = window.ContentRegionRect.Max.x
+    window.WorkRect.Max.x = preview_data.PreviewRect.Max.x - g.Style.FramePadding.x
+    window.ContentRegionRect.Max.x = window.WorkRect.Max.x
     ImVec2_Copy(window.DC.CursorPos, preview_data.PreviewRect.Min + g.Style.FramePadding)
     ImVec2_Copy(window.DC.CursorMaxPos, window.DC.CursorPos)
     window.DC.LayoutType = ImGuiLayoutType.Horizontal
@@ -2187,10 +2198,11 @@ function ImGui.EndComboPreview()
     ImVec2_Copy(window.DC.CursorMaxPos, ImMax(window.DC.CursorMaxPos, preview_data.BackupCursorMaxPos)) -- No need to do the same with IdealMaxPos
     ImVec2_Copy(window.DC.CursorPosPrevLine, preview_data.BackupCursorPosPrevLine)
     window.DC.PrevLineTextBaseOffset = preview_data.BackupPrevLineTextBaseOffset
+    window.WorkRect.Max.x = preview_data.BackupWorkRectMaxX
+    window.ContentRegionRect.Max.x = preview_data.BackupContentRectMaxX
     window.DC.LayoutType = preview_data.BackupLayout
     window.DC.IsSameLine = false
-
-    preview_data.PreviewRect = ImRect()
+    preview_data.WithinPreview = false
 end
 
 -- Getter for the old Combo() API: Lua array of strings (1-based), `idx` is 0-based
@@ -2894,6 +2906,13 @@ function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min
     -- Only mark as edited if new value is different
     g.LastItemData.ItemFlags = bit32.band(g.LastItemData.ItemFlags, bit32.bnot(ImGuiItemFlags.NoMarkEdited))
     local value_changed = data_backup ~= data
+    if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0 then
+        local state = ImGui.GetInputTextState(g.LastItemData.ID)
+        if state ~= nil then
+            value_changed = value_changed or ((bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0) and (state.EditedThisFrame or state.ValidatedThisFrame) or state.ValidatedThisFrame)
+        end
+    end
+
     if value_changed then
         ImGui.MarkItemEdited(id)
     end
@@ -2968,6 +2987,12 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
             -- g.DeactivatedItemData.HasBeenEditedBefore = false; // Will be set below by MarkItemEdited()
             -- if (IsItemDeactivated()) // Should be unnecessary
             data, value_changed = ImGui.DataTypeApplyFromText(buf, data_type, data, format, bit32.band(flags, ImGuiInputTextFlags.ParseEmptyRefVal) ~= 0 and data_default or nil)
+        end
+    end
+    if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0 then
+        local state = ImGui.GetInputTextState(g.LastItemData.ID)
+        if state ~= nil then
+            value_changed = value_changed or ((bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.LiveEditOnInputScalar) ~= 0) and (state.EditedThisFrame or state.ValidatedThisFrame) or state.ValidatedThisFrame)
         end
     end
 
@@ -5601,6 +5626,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
     if state ~= nil and state.ID == id then
         state.Flags = flags
+        state.EditedThisFrame = false; state.ValidatedThisFrame = false
 
         -- Word-wrapping: attempt to keep cursor in view while resizing frame/parent (FIXME-WORDWRAP: would be better to preserve same relative offset)
         if is_wordwrap and state.WrapWidth ~= wrap_width then
@@ -5614,7 +5640,6 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     if g.ActiveId == id then
         --- @cast state ImGuiInputTextState
         IM_ASSERT(state ~= nil)
-        state.EditedThisFrame = false
         state.BufCapacity = buf_size
         state.WrapWidth = wrap_width
 
@@ -6329,6 +6354,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
 
+    if state and validated then
+        state.ValidatedThisFrame = true
+    end
     if value_changed then
         ImGui.MarkItemEdited(id)
     end
@@ -6361,7 +6389,7 @@ function ImGui.DebugNodeInputTextState(state)
     local stb_state = state.Stb
     local undo_state = stb_state.undostate
     ImGui.Text("ID: 0x%08X, ActiveID: 0x%08X", state.ID, g.ActiveId)
-    if ImGui.DebugLocateItemOnHover then ImGui.DebugLocateItemOnHover(state.ID) end -- [Luau] not ported yet
+    ImGui.DebugLocateItemOnHover(state.ID)
     local wrap_dir = ""
     if bit32.band(state.Flags, ImGuiInputTextFlags.WordWrap) ~= 0 then
         if state.LastMoveDirectionLR == ImGuiDir.Left then wrap_dir = " (L)" else wrap_dir = " (R)" end

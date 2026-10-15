@@ -1356,6 +1356,8 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1, TilesActive = false, RenderRate = 0, BusyRenderRate = 0, RedrawBudget = 0, HB = 0, NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = bd
+    io.BackendPlatformName = "imgui_impl_roblox"
+    io.BackendRendererName = "imgui_impl_roblox"
 
     io.BackendFlags = bit32.bor(io.BackendFlags, ImGuiBackendFlags.RendererHasTextures, ImGuiBackendFlags.RendererHasVtxOffset)
 
@@ -1475,6 +1477,8 @@ function ImGui_ImplRoblox_Shutdown()
     bd.Gui:Destroy()
 
     io.BackendPlatformUserData = nil
+    io.BackendPlatformName = nil
+    io.BackendRendererName = nil
     io.BackendFlags = bit32.band(io.BackendFlags, bit32.bnot(bit32.bor(
         ImGuiBackendFlags.RendererHasTextures,
         ImGuiBackendFlags.RendererHasVtxOffset
