@@ -1,6 +1,6 @@
 [package]
 name = "4dbug/imgui-luau"
-version = "0.1.4"
+version = "0.2.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 license = "MIT"
