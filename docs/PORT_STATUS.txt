@@ -14,18 +14,18 @@ polyline stroker (AddPolyline), Lua-native replacements (ImGuiStorage, ImStr*, I
 upstream file              funcs    ported   by size  similarity     stubs
 imgui.cpp                    786     87.4%     93.5%       75.1%         2
 imgui_widgets.cpp            308     93.8%     98.7%       78.4%         1
-imgui_draw.cpp               258     81.8%     92.3%       61.1%         2
+imgui_draw.cpp               258     86.8%     94.4%       61.2%         2
 imgui_tables.cpp             113     96.5%     99.0%       74.0%         0
 imgui_demo.cpp                56    100.0%    100.0%       55.8%         0
 imgui.h                      110     53.6%     37.4%       60.0%         0
-imgui_internal.h             269     62.5%     65.7%       67.6%         1
-TOTAL                       1900     83.1%     95.3%       70.4%         6
+imgui_internal.h             269     63.2%     67.5%       68.5%         1
+TOTAL                       1900     83.9%     95.6%       70.4%         6
 
-upstream code reproduced (similarity x ported size / all upstream size):  67.0%
+upstream code reproduced (similarity x ported size / all upstream size):  67.2%
 Public API (imgui.h, namespace ImGui)                 368 /  376   97.9%
 Internal API (imgui_internal.h, namespace ImGui)      417 /  443   94.1%
-Enum values (imgui.h + imgui_internal.h)             1034 / 1078   95.9%
-Struct fields (imgui.h + imgui_internal.h)           1833 / 1926   95.2%
+Enum values (imgui.h + imgui_internal.h)             1037 / 1078   96.2%
+Struct fields (imgui.h + imgui_internal.h)           1839 / 1926   95.5%
 
 Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)
 
@@ -41,7 +41,7 @@ imgui.cpp
   [ ]        FreeWrapper                                                                                 
 
   -- USER FACING STRUCTURES (ImGuiStyle, ImGuiIO, ImGuiPlatformIO)
-  [x]   33%  ImGuiStyle::ImGuiStyle                                     imgui_internal.lua:1518          
+  [x]   33%  ImGuiStyle::ImGuiStyle                                     imgui_internal.lua:1530          
   [x]   83%  ImGuiStyle::ScaleAllSizes                                  imgui.lua:4779                   
   [x]   12%  ImGuiIO::ImGuiIO                                           imgui_h.lua:1187                 
   [x]   83%  ImGuiIO::AddInputCharacter                                 imgui.lua:7983                   
@@ -200,7 +200,7 @@ imgui.cpp
   [ ]        ImGui::GetAllocatorFunctions                                                                
   [x]   87%  ImGui::CreateContext                                       imgui.lua:5580                   
   [x]   83%  ImGui::DestroyContext                                      imgui.lua:5592                   
-  [x]    6%  ImGuiContext::ImGuiContext                                 imgui_internal.lua:2239          
+  [x]    6%  ImGuiContext::ImGuiContext                                 imgui_internal.lua:2251          
   [-]        ImGuiContext::~ImGuiContext                                                                 c++-only
   [x]   78%  ImGui::Initialize                                          imgui.lua:5538                   
   [x]   44%  ImGui::Shutdown                                            imgui.lua:14315                  
@@ -210,7 +210,7 @@ imgui.cpp
   [ ]        ImGui::CallContextHooks                                                                     
 
   -- MAIN CODE (most of the code! lots of stuff, needs tidying up!)
-  [x]   11%  ImGuiWindow::ImGuiWindow                                   imgui_internal.lua:2843          
+  [x]   11%  ImGuiWindow::ImGuiWindow                                   imgui_internal.lua:2855          
   [-]        ImGuiWindow::~ImGuiWindow                                                                   c++-only
   [x]   74%  SetCurrentWindow                                           imgui.lua:10805                  
   [x]   85%  ImGui::GcCompactTransientMiscBuffers                       imgui.lua:10826                  
@@ -1076,7 +1076,7 @@ imgui_widgets.cpp
   [x]   79%  STB_TEXTEDIT_DELETECHARS                                   imgui_widgets.lua:4712           
   [x]   87%  STB_TEXTEDIT_INSERTCHARS                                   imgui_widgets.lua:4726           
   [x]   81%  stb_textedit_replace                                       imgui_widgets.lua:4769           
-  [x]   12%  ImGuiInputTextState::ImGuiInputTextState                   imgui_internal.lua:1705          
+  [x]   12%  ImGuiInputTextState::ImGuiInputTextState                   imgui_internal.lua:1717          
   [-]        ImGuiInputTextState::~ImGuiInputTextState                                                   c++-only
   [x]   93%  ImGuiInputTextState::OnKeyPressed                          imgui_widgets.lua:4797           
   [x]   63%  ImGuiInputTextState::OnCharPressed                         imgui_widgets.lua:4812           
@@ -1219,7 +1219,7 @@ imgui_widgets.cpp
 
   -- Widgets: BeginTabBar, EndTabBar, etc.
   [x]   19%  ImGuiTabBarSection::ImGuiTabBarSection                     imgui_widgets.lua:10678          
-  [x]   16%  ImGuiTabBar::ImGuiTabBar                                   imgui_internal.lua:2210          
+  [x]   16%  ImGuiTabBar::ImGuiTabBar                                   imgui_internal.lua:2222          
   [x]   65%  TabItemGetSectionIdx                                       imgui_widgets.lua:10645          
   [ ]        TabItemComparerBySection                                                                    
   [ ]        TabItemComparerByBeginOrder                                                                 
@@ -1273,7 +1273,7 @@ imgui_draw.cpp
   [x]   82%  ImGui::StyleColorsLight                                    imgui_draw.lua:270               
 
   -- ImDrawList
-  [x]   30%  ImDrawListSharedData::ImDrawListSharedData                 imgui_internal.lua:1120          
+  [x]   30%  ImDrawListSharedData::ImDrawListSharedData                 imgui_internal.lua:1132          
   [-]        ImDrawListSharedData::~ImDrawListSharedData                                                 c++-only
   [x]   57%  ImDrawListSharedData::SetCircleTessellationMaxError        imgui_draw.lua:3918              
   [x]    6%  ImDrawList::ImDrawList                                     imgui_h.lua:657                  
@@ -1351,20 +1351,20 @@ imgui_draw.cpp
   [x]   84%  ImDrawList::AddImageRounded                                imgui_draw.lua:6549              
 
   -- ImTriangulator, ImDrawList concave polygon fill
-  [ ]        ImTriangulatorNode::Unlink                                                                  
-  [ ]        ImTriangulatorNodeSpan::push_back                                                           
-  [ ]        ImTriangulatorNodeSpan::find_erase_unsorted                                                 
-  [ ]        ImTriangulator::EstimateTriangleCount                                                       
-  [ ]        ImTriangulator::EstimateScratchBufferSize                                                   
-  [ ]        ImTriangulator::Init                                                                        
-  [ ]        ImTriangulator::BuildNodes                                                                  
-  [ ]        ImTriangulator::BuildReflexes                                                               
-  [ ]        ImTriangulator::BuildEars                                                                   
-  [ ]        ImTriangulator::GetNextTriangle                                                             
-  [ ]        ImTriangulator::FlipNodeList                                                                
-  [ ]        ImTriangulator::IsEar                                                                       
-  [ ]        ImTriangulator::ReclassifyNode                                                              
-  [x]   17%  ImDrawList::AddConcavePolyFilled                           imgui_draw.lua:7460              
+  [x]   35%  ImTriangulatorNode::Unlink                                 imgui_draw.lua:7478              
+  [x]   50%  ImTriangulatorNodeSpan::push_back                          imgui_draw.lua:7491              
+  [x]   66%  ImTriangulatorNodeSpan::find_erase_unsorted                imgui_draw.lua:7492              
+  [x]   84%  ImTriangulator::EstimateTriangleCount                      imgui_draw.lua:7508              
+  [x]   71%  ImTriangulator::EstimateScratchBufferSize                  imgui_draw.lua:7510              
+  [x]   38%  ImTriangulator::Init                                       imgui_draw.lua:7516              
+  [x]   45%  ImTriangulator::BuildNodes                                 imgui_draw.lua:7541              
+  [x]   32%  ImTriangulator::BuildReflexes                              imgui_draw.lua:7554              
+  [x]   38%  ImTriangulator::BuildEars                                  imgui_draw.lua:7566              
+  [x]   53%  ImTriangulator::GetNextTriangle                            imgui_draw.lua:7582              
+  [x]   65%  ImTriangulator::FlipNodeList                               imgui_draw.lua:7620              
+  [x]   56%  ImTriangulator::IsEar                                      imgui_draw.lua:7643              
+  [x]   58%  ImTriangulator::ReclassifyNode                             imgui_draw.lua:7658              
+  [x]   39%  ImDrawList::AddConcavePolyFilled                           imgui_draw.lua:7701              
 
   -- ImDrawListSplitter
   [x]   58%  ImDrawListSplitter::ClearFreeMemory                        imgui_draw.lua:4201              
@@ -1964,13 +1964,13 @@ imgui.h
   [x]   92%  ImDrawListSplitter::Clear                                  imgui_draw.lua:4196              
   [ ]        ImDrawList::GetClipRectMin                                                                  
   [ ]        ImDrawList::GetClipRectMax                                                                  
-  [x]   80%  ImDrawList::AddPolyline                                    imgui_internal.lua:1077          
-  [x]  100%  ImDrawList::PathClear                                      imgui_internal.lua:1029          
-  [x]   16%  ImDrawList::PathLineTo                                     imgui_internal.lua:1033          
-  [x]   48%  ImDrawList::PathLineToMergeDuplicate                       imgui_internal.lua:1043          
-  [x]   94%  ImDrawList::PathFillConvex                                 imgui_internal.lua:1053          
-  [x]   94%  ImDrawList::PathFillConcave                                imgui_draw.lua:7501              
-  [x]   75%  ImDrawList::PathStroke                                     imgui_internal.lua:1061          
+  [x]   80%  ImDrawList::AddPolyline                                    imgui_internal.lua:1089          
+  [x]  100%  ImDrawList::PathClear                                      imgui_internal.lua:1041          
+  [x]   16%  ImDrawList::PathLineTo                                     imgui_internal.lua:1045          
+  [x]   48%  ImDrawList::PathLineToMergeDuplicate                       imgui_internal.lua:1055          
+  [x]   94%  ImDrawList::PathFillConvex                                 imgui_internal.lua:1065          
+  [x]   94%  ImDrawList::PathFillConcave                                imgui_draw.lua:7795              
+  [x]   75%  ImDrawList::PathStroke                                     imgui_internal.lua:1073          
   [x]   89%  ImDrawList::ChannelsSplit                                  imgui_draw.lua:4377              
   [x]   80%  ImDrawList::ChannelsMerge                                  imgui_draw.lua:4378              
   [x]   89%  ImDrawList::ChannelsSetCurrent                             imgui_draw.lua:4380              
@@ -2040,8 +2040,8 @@ imgui_internal.h
   [x]   35%  ImUpperPowerOfTwo                                          imgui_internal.lua:280           
   [x]   82%  ImCountSetBits                                             imgui_internal.lua:295           
   [x]   62%  ImToUpper                                                  imgui_internal.lua:403           
-  [x]   75%  ImCharIsBlankA                                             imgui_internal.lua:692           
-  [x]   83%  ImCharIsBlankW                                             imgui_internal.lua:695           
+  [x]   75%  ImCharIsBlankA                                             imgui_internal.lua:704           
+  [x]   83%  ImCharIsBlankW                                             imgui_internal.lua:707           
   [ ]        ImCharIsXdigitA                                                                             
   [x]    0%  ImFileOpen                                                 imgui.lua:4702                   
   [x]    0%  ImFileClose                                                imgui.lua:4719                   
@@ -2080,41 +2080,41 @@ imgui_internal.h
   [x]   71%  ImExponentialMovingAverage                                 imgui_internal.lua:308           
   [x]   60%  ImIsTruncated                                              imgui_internal.lua:264           
   [x]   60%  ImIsTruncated4                                             imgui_internal.lua:266           
-  [ ]        ImTriangleArea                                                                              
-  [ ]        ImTriangleIsClockwise                                                                       
-  [x]    0%  IM_MSVC_RUNTIME_CHECKS_OFF::ImVec1                         imgui_internal.lua:797           
+  [x]  100%  ImTriangleArea                                             imgui_internal.lua:468           
+  [x]  100%  ImTriangleIsClockwise                                      imgui_internal.lua:474           
+  [x]    0%  IM_MSVC_RUNTIME_CHECKS_OFF::ImVec1                         imgui_internal.lua:809           
   [ ]        ImVec2i::ImVec2i                                                                            
   [ ]        ImVec2ih::ImVec2ih                                                                          
-  [x]    0%  ImRect::ImRect                                             imgui_internal.lua:827           
-  [x]   90%  ImRect::GetCenter                                          imgui_internal.lua:857           
-  [x]   89%  ImRect::GetSize                                            imgui_internal.lua:862           
-  [x]   94%  ImRect::GetWidth                                           imgui_internal.lua:858           
-  [x]   94%  ImRect::GetHeight                                          imgui_internal.lua:859           
-  [x]   91%  ImRect::GetArea                                            imgui_internal.lua:951           
-  [x]   33%  ImRect::GetTL                                              imgui_internal.lua:865           
-  [x]   89%  ImRect::GetTR                                              imgui_internal.lua:867           
-  [x]   89%  ImRect::GetBL                                              imgui_internal.lua:869           
-  [x]   33%  ImRect::GetBR                                              imgui_internal.lua:871           
-  [x]   43%  ImRect::Contains                                           imgui_internal.lua:834           
-  [x]   96%  ImRect::ContainsWithPad                                    imgui_internal.lua:846           
-  [x]   14%  ImRect::Overlaps                                           imgui_internal.lua:852           
-  [x]   59%  ImRect::Add                                                imgui_internal.lua:896           
-  [x]   96%  ImRect::AddX                                               imgui_internal.lua:912           
-  [x]   96%  ImRect::AddY                                               imgui_internal.lua:913           
-  [x]   38%  ImRect::Expand                                             imgui_internal.lua:917           
-  [x]   64%  ImRect::Translate                                          imgui_internal.lua:934           
-  [x]   55%  ImRect::TranslateX                                         imgui_internal.lua:940           
-  [x]   55%  ImRect::TranslateY                                         imgui_internal.lua:945           
-  [x]   22%  ImRect::ClipWith                                           imgui_internal.lua:876           
-  [x]   20%  ImRect::ClipWithFull                                       imgui_internal.lua:886           
-  [x]   91%  ImRect::IsInverted                                         imgui_internal.lua:949           
-  [x]   94%  ImRect::ToVec4                                             imgui_internal.lua:928           
-  [x]   36%  ImRect::AsVec4                                             imgui_internal.lua:954           
+  [x]    0%  ImRect::ImRect                                             imgui_internal.lua:839           
+  [x]   90%  ImRect::GetCenter                                          imgui_internal.lua:869           
+  [x]   89%  ImRect::GetSize                                            imgui_internal.lua:874           
+  [x]   94%  ImRect::GetWidth                                           imgui_internal.lua:870           
+  [x]   94%  ImRect::GetHeight                                          imgui_internal.lua:871           
+  [x]   91%  ImRect::GetArea                                            imgui_internal.lua:963           
+  [x]   33%  ImRect::GetTL                                              imgui_internal.lua:877           
+  [x]   89%  ImRect::GetTR                                              imgui_internal.lua:879           
+  [x]   89%  ImRect::GetBL                                              imgui_internal.lua:881           
+  [x]   33%  ImRect::GetBR                                              imgui_internal.lua:883           
+  [x]   43%  ImRect::Contains                                           imgui_internal.lua:846           
+  [x]   96%  ImRect::ContainsWithPad                                    imgui_internal.lua:858           
+  [x]   14%  ImRect::Overlaps                                           imgui_internal.lua:864           
+  [x]   59%  ImRect::Add                                                imgui_internal.lua:908           
+  [x]   96%  ImRect::AddX                                               imgui_internal.lua:924           
+  [x]   96%  ImRect::AddY                                               imgui_internal.lua:925           
+  [x]   38%  ImRect::Expand                                             imgui_internal.lua:929           
+  [x]   64%  ImRect::Translate                                          imgui_internal.lua:946           
+  [x]   55%  ImRect::TranslateX                                         imgui_internal.lua:952           
+  [x]   55%  ImRect::TranslateY                                         imgui_internal.lua:957           
+  [x]   22%  ImRect::ClipWith                                           imgui_internal.lua:888           
+  [x]   20%  ImRect::ClipWithFull                                       imgui_internal.lua:898           
+  [x]   91%  ImRect::IsInverted                                         imgui_internal.lua:961           
+  [x]   94%  ImRect::ToVec4                                             imgui_internal.lua:940           
+  [x]   36%  ImRect::AsVec4                                             imgui_internal.lua:966           
   [ ]        ImBitArrayGetStorageSizeInBytes                                                             
   [ ]        ImBitArrayClearAllBits                                                                      
   [ ]        ImBitArrayTestBit                                                                           
   [ ]        ImBitArrayClearBit                                                                          
-  [x]   34%  ImBitArraySetBit                                           imgui_internal.lua:989           
+  [x]   34%  ImBitArraySetBit                                           imgui_internal.lua:1001          
   [ ]        ImBitArraySetBitRange                                                                       
   [ ]        ImBitVector::Create                                                                         
   [ ]        ImBitVector::Clear                                                                          
@@ -2166,10 +2166,10 @@ imgui_internal.h
   [ ]        template::offset_from_ptr                                                                   
   [ ]        template::ptr_from_offset                                                                   
   [ ]        template::swap                                                                              
-  [x]   83%  ImGuiTextIndex::clear                                      imgui_internal.lua:1819          
-  [x]  100%  ImGuiTextIndex::size                                       imgui_internal.lua:1821          
-  [x]   71%  ImGuiTextIndex::get_line_begin                             imgui_internal.lua:1823          
-  [x]   76%  ImGuiTextIndex::get_line_end                               imgui_internal.lua:1827          
+  [x]   83%  ImGuiTextIndex::clear                                      imgui_internal.lua:1831          
+  [x]  100%  ImGuiTextIndex::size                                       imgui_internal.lua:1833          
+  [x]   71%  ImGuiTextIndex::get_line_begin                             imgui_internal.lua:1835          
+  [x]   76%  ImGuiTextIndex::get_line_end                               imgui_internal.lua:1839          
   [ ]        ImGuiTextFilterItem::ImGuiTextFilterItem                                                    
   [ ]        ImGuiPackedDate::ImGuiPackedDate                                                            
   [ ]        ImGuiPackedDate::IsValid                                                                    
@@ -2177,37 +2177,37 @@ imgui_internal.h
   [ ]        ImGuiPackedDate::SubtractMonths                                                             
 
   -- ImDrawList support
-  [x]   27%  ImDrawDataBuilder::ImDrawDataBuilder                       imgui_internal.lua:3016          
+  [x]   27%  ImDrawDataBuilder::ImDrawDataBuilder                       imgui_internal.lua:3028          
 
   -- Style support
   [ ]        ImGuiStyleVarInfo::GetVarPtr                                                                
-  [x]   39%  ImGuiStyleMod::ImGuiStyleMod                               imgui_internal.lua:1268          
+  [x]   39%  ImGuiStyleMod::ImGuiStyleMod                               imgui_internal.lua:1280          
 
   -- Widgets support: flags, enums, data structures
-  [x]   21%  ImGuiComboPreviewData::ImGuiComboPreviewData               imgui_internal.lua:1665          
-  [x]   12%  ImGuiMenuColumns::ImGuiMenuColumns                         imgui_internal.lua:2683          
-  [x]   20%  ImGuiInputTextDeactivatedState::ImGuiInputTextDeactivatedState imgui_internal.lua:1751          
+  [x]   21%  ImGuiComboPreviewData::ImGuiComboPreviewData               imgui_internal.lua:1677          
+  [x]   12%  ImGuiMenuColumns::ImGuiMenuColumns                         imgui_internal.lua:2695          
+  [x]   20%  ImGuiInputTextDeactivatedState::ImGuiInputTextDeactivatedState imgui_internal.lua:1763          
   [ ]        ImGuiInputTextDeactivatedState::ClearFreeMemory                                             
   [ ]        ImGuiInputTextState::ClearText                                                              
   [ ]        ImGuiInputTextState::ClearFreeMemory                                                        
   [ ]        ImGuiInputTextState::GetText                                                                
-  [x]    3%  ImGuiNextWindowData::ImGuiNextWindowData                   imgui_internal.lua:1433          
+  [x]    3%  ImGuiNextWindowData::ImGuiNextWindowData                   imgui_internal.lua:1445          
   [ ]        ImGuiNextWindowData::ClearFlags                                                             
-  [x]   20%  ImGuiNextItemData::ImGuiNextItemData                       imgui_internal.lua:1385          
+  [x]   20%  ImGuiNextItemData::ImGuiNextItemData                       imgui_internal.lua:1397          
   [ ]        ImGuiNextItemData::ClearFlags                                                               
-  [x]   11%  ImGuiLastItemData::ImGuiLastItemData                       imgui_internal.lua:1305          
+  [x]   11%  ImGuiLastItemData::ImGuiLastItemData                       imgui_internal.lua:1317          
   [x]    8%  ImGuiErrorRecoveryState::ImGuiErrorRecoveryState           imgui.lua:19808                  
   [ ]        ImGuiPtrOrIndex::ImGuiPtrOrIndex                                                            
 
   -- Popup support
-  [x]   36%  ImGuiPopupData::ImGuiPopupData                             imgui_internal.lua:3570          
+  [x]   36%  ImGuiPopupData::ImGuiPopupData                             imgui_internal.lua:3582          
 
   -- Inputs support
-  [x]    9%  ImGuiInputEvent::ImGuiInputEvent                           imgui_internal.lua:3364          
-  [x]   73%  ImGuiKeyRoutingData::ImGuiKeyRoutingData                   imgui_internal.lua:1772          
-  [x]   10%  ImGuiKeyRoutingTable::ImGuiKeyRoutingTable                 imgui_internal.lua:1799          
+  [x]    9%  ImGuiInputEvent::ImGuiInputEvent                           imgui_internal.lua:3376          
+  [x]   73%  ImGuiKeyRoutingData::ImGuiKeyRoutingData                   imgui_internal.lua:1784          
+  [x]   10%  ImGuiKeyRoutingTable::ImGuiKeyRoutingTable                 imgui_internal.lua:1811          
   [ ]        ImGuiKeyRoutingTable::Clear                                                                 
-  [x]   64%  ImGuiKeyOwnerData::ImGuiKeyOwnerData                       imgui_internal.lua:647           
+  [x]   64%  ImGuiKeyOwnerData::ImGuiKeyOwnerData                       imgui_internal.lua:659           
 
   -- Clipper support
   [ ]        ImGuiListClipperRange::FromIndices                                                          
@@ -2216,25 +2216,25 @@ imgui_internal.h
   [ ]        ImGuiListClipperData::Reset                                                                 
 
   -- Navigation support
-  [x]   13%  ImGuiNavItemData::ImGuiNavItemData                         imgui_internal.lua:1905          
+  [x]   13%  ImGuiNavItemData::ImGuiNavItemData                         imgui_internal.lua:1917          
   [ ]        ImGuiNavItemData::Clear                                                                     
 
   -- Typing-select support
-  [x]    7%  ImGuiTypingSelectState::ImGuiTypingSelectState             imgui_internal.lua:1949          
-  [x]   71%  ImGuiTypingSelectState::Clear                              imgui_internal.lua:1952          
+  [x]    7%  ImGuiTypingSelectState::ImGuiTypingSelectState             imgui_internal.lua:1961          
+  [x]   71%  ImGuiTypingSelectState::Clear                              imgui_internal.lua:1964          
 
   -- Columns support
   [x]   19%  ImGuiOldColumnData::ImGuiOldColumnData                     imgui_tables.lua:340             
   [x]    5%  ImGuiOldColumns::ImGuiOldColumns                           imgui_tables.lua:345             
 
   -- Box-select support
-  [x]    6%  ImGuiBoxSelectState::ImGuiBoxSelectState                   imgui_internal.lua:1976          
+  [x]    6%  ImGuiBoxSelectState::ImGuiBoxSelectState                   imgui_internal.lua:1988          
 
   -- Multi-select support
-  [x]    9%  ImGuiMultiSelectTempData::ImGuiMultiSelectTempData         imgui_internal.lua:2022          
-  [x]   10%  ImGuiMultiSelectTempData::Clear                            imgui_internal.lua:2028          
-  [x]   67%  ImGuiMultiSelectTempData::ClearIO                          imgui_internal.lua:2046          
-  [x]   72%  ImGuiMultiSelectState::ImGuiMultiSelectState               imgui_internal.lua:2059          
+  [x]    9%  ImGuiMultiSelectTempData::ImGuiMultiSelectTempData         imgui_internal.lua:2034          
+  [x]   10%  ImGuiMultiSelectTempData::Clear                            imgui_internal.lua:2040          
+  [x]   67%  ImGuiMultiSelectTempData::ClearIO                          imgui_internal.lua:2058          
+  [x]   72%  ImGuiMultiSelectState::ImGuiMultiSelectState               imgui_internal.lua:2071          
 
   -- Docking support
   [x]  100%  ImGuiDockNode::IsRootNode                                  imgui.lua:1095                   
@@ -2252,23 +2252,23 @@ imgui_internal.h
   [x]   20%  ImGuiDockContext::ImGuiDockContext                         imgui.lua:1040                   
 
   -- Viewport support
-  [x]   36%  ImGuiViewportP::ImGuiViewportP                             imgui_internal.lua:3103          
+  [x]   36%  ImGuiViewportP::ImGuiViewportP                             imgui_internal.lua:3115          
   [-]        ImGuiViewportP::~ImGuiViewportP                                                             c++-only
-  [x]   78%  ImGuiViewportP::ClearRequestFlags                          imgui_internal.lua:3058          
-  [x]   94%  ImGuiViewportP::CalcWorkRectPos                            imgui_internal.lua:3065          
-  [x]   98%  ImGuiViewportP::CalcWorkRectSize                           imgui_internal.lua:3069          
-  [x]   87%  ImGuiViewportP::UpdateWorkRect                             imgui_internal.lua:3074          
-  [x]   92%  ImGuiViewportP::GetMainRect                                imgui_internal.lua:3081          
-  [x]   92%  ImGuiViewportP::GetWorkRect                                imgui_internal.lua:3088          
-  [x]   96%  ImGuiViewportP::GetBuildWorkRect                           imgui_internal.lua:3095          
+  [x]   78%  ImGuiViewportP::ClearRequestFlags                          imgui_internal.lua:3070          
+  [x]   94%  ImGuiViewportP::CalcWorkRectPos                            imgui_internal.lua:3077          
+  [x]   98%  ImGuiViewportP::CalcWorkRectSize                           imgui_internal.lua:3081          
+  [x]   87%  ImGuiViewportP::UpdateWorkRect                             imgui_internal.lua:3086          
+  [x]   92%  ImGuiViewportP::GetMainRect                                imgui_internal.lua:3093          
+  [x]   92%  ImGuiViewportP::GetWorkRect                                imgui_internal.lua:3100          
+  [x]   96%  ImGuiViewportP::GetBuildWorkRect                           imgui_internal.lua:3107          
 
   -- Settings support
-  [x]   18%  ImGuiWindowSettings::ImGuiWindowSettings                   imgui_internal.lua:2650          
+  [x]   18%  ImGuiWindowSettings::ImGuiWindowSettings                   imgui_internal.lua:2662          
   [ ]        ImGuiWindowSettings::GetName                                                                
   [x]   13%  ImGuiSettingsHandler::ImGuiSettingsHandler                 imgui_h.lua:2898                 
 
   -- Metrics, Debug Tools
-  [x]    7%  ImGuiDebugAllocInfo::ImGuiDebugAllocInfo                   imgui_internal.lua:1853          
+  [x]    7%  ImGuiDebugAllocInfo::ImGuiDebugAllocInfo                   imgui_internal.lua:1865          
   [ ]        ImGuiStackLevelInfo::ImGuiStackLevelInfo                                                    
   [ ]        ImGuiDebugItemPathQuery::ImGuiDebugItemPathQuery                                            
   [ ]        ImGuiIDStackTool::ImGuiIDStackTool                                                          
@@ -2277,12 +2277,12 @@ imgui_internal.h
   [ ]        ImGuiContextHook::ImGuiContextHook                                                          
 
   -- ImGuiWindowTempData, ImGuiWindow
-  [x]   92%  ImGuiWindow::Rect                                          imgui_internal.lua:2824          
-  [x]   84%  ImGuiWindow::TitleBarRect                                  imgui_internal.lua:2830          
-  [x]   91%  ImGuiWindow::MenuBarRect                                   imgui_internal.lua:2836          
+  [x]   92%  ImGuiWindow::Rect                                          imgui_internal.lua:2836          
+  [x]   84%  ImGuiWindow::TitleBarRect                                  imgui_internal.lua:2842          
+  [x]   91%  ImGuiWindow::MenuBarRect                                   imgui_internal.lua:2848          
 
   -- Tab bar, Tab item support
-  [x]   50%  ImGuiTabItem::ImGuiTabItem                                 imgui_internal.lua:2191          
+  [x]   50%  ImGuiTabItem::ImGuiTabItem                                 imgui_internal.lua:2203          
 
   -- Table support + internal API
   [x]   28%  ImGuiTableColumn::ImGuiTableColumn                         imgui_tables.lua:240             
@@ -2302,32 +2302,32 @@ imgui_internal.h
   [x]  100%  GetCurrentWindowRead                                       imgui.lua:13592                  
   [x]  100%  GetCurrentWindow                                           imgui.lua:13599                  
   [ ]        SetWindowParentWindowForFocusRoute                                                          
-  [x]   99%  WindowRectAbsToRel                                         imgui_internal.lua:664           
-  [x]   99%  WindowRectRelToAbs                                         imgui_internal.lua:669           
-  [x]   98%  WindowPosAbsToRel                                          imgui_internal.lua:682           
-  [x]   98%  WindowPosRelToAbs                                          imgui_internal.lua:688           
+  [x]   99%  WindowRectAbsToRel                                         imgui_internal.lua:676           
+  [x]   99%  WindowRectRelToAbs                                         imgui_internal.lua:681           
+  [x]   98%  WindowPosAbsToRel                                          imgui_internal.lua:694           
+  [x]   98%  WindowPosRelToAbs                                          imgui_internal.lua:700           
   [ ]        GetPixelDensity                                                                             
-  [x]   55%  GetRoundedFontSize                                         imgui_internal.lua:658           
+  [x]   55%  GetRoundedFontSize                                         imgui_internal.lua:670           
   [x]   15%  GetForegroundDrawList                                      imgui.lua:13675                  
-  [x]   80%  LocalizeGetMsg                                             imgui_internal.lua:3674          
+  [x]   80%  LocalizeGetMsg                                             imgui_internal.lua:3686          
   [ ]        ScrollToBringRectIntoView                                                                   
   [ ]        GetItemStatusFlags                                                                          
   [ ]        GetActiveID                                                                                 
   [ ]        GetFocusID                                                                                  
   [x]    2%  ItemSize                                                   imgui.lua:6492                   
-  [x]  100%  IsNamedKey                                                 imgui_internal.lua:572           
-  [x]   75%  IsNamedKeyOrMod                                            imgui_internal.lua:603           
+  [x]  100%  IsNamedKey                                                 imgui_internal.lua:584           
+  [x]   75%  IsNamedKeyOrMod                                            imgui_internal.lua:615           
   [ ]        IsLegacyKey                                                                                 
-  [x]   60%  IsKeyboardKey                                              imgui_internal.lua:577           
-  [x]   60%  IsGamepadKey                                               imgui_internal.lua:582           
-  [x]   60%  IsMouseKey                                                 imgui_internal.lua:587           
-  [x]   60%  IsAliasKey                                                 imgui_internal.lua:592           
-  [x]  100%  IsLRModKey                                                 imgui_internal.lua:597           
-  [x]   76%  ConvertSingleModFlagToKey                                  imgui_internal.lua:609           
+  [x]   60%  IsKeyboardKey                                              imgui_internal.lua:589           
+  [x]   60%  IsGamepadKey                                               imgui_internal.lua:594           
+  [x]   60%  IsMouseKey                                                 imgui_internal.lua:599           
+  [x]   60%  IsAliasKey                                                 imgui_internal.lua:604           
+  [x]  100%  IsLRModKey                                                 imgui_internal.lua:609           
+  [x]   76%  ConvertSingleModFlagToKey                                  imgui_internal.lua:621           
   [x]   17%  GetKeyData                                                 imgui.lua:8440                   
-  [x]   97%  MouseButtonToKey                                           imgui_internal.lua:569           
-  [x]   81%  IsActiveIdUsingNavDir                                      imgui_internal.lua:673           
-  [x]   88%  GetKeyOwnerData                                            imgui_internal.lua:635           
+  [x]   97%  MouseButtonToKey                                           imgui_internal.lua:581           
+  [x]   81%  IsActiveIdUsingNavDir                                      imgui_internal.lua:685           
+  [x]   88%  GetKeyOwnerData                                            imgui_internal.lua:647           
   [x]  100%  DockNodeGetRootNode                                        imgui.lua:4488                   
   [x]  100%  DockNodeIsInHierarchyOf                                    imgui.lua:4493                   
   [x]   86%  DockNodeGetDepth                                           imgui.lua:4501                   
@@ -2335,26 +2335,26 @@ imgui_internal.h
   [ ]        GetWindowDockNode                                                                           
   [x]   97%  DockBuilderGetCentralNode                                  imgui.lua:3661                   
   [ ]        GetCurrentFocusScope                                                                        
-  [x]   91%  GetBoxSelectState                                          imgui_internal.lua:2065          
-  [x]   95%  GetMultiSelectState                                        imgui_internal.lua:2068          
+  [x]   91%  GetBoxSelectState                                          imgui_internal.lua:2077          
+  [x]   95%  GetMultiSelectState                                        imgui_internal.lua:2080          
   [ ]        GetCurrentTabBar                                                                            
   [x]   35%  TabBarGetTabOrder                                          imgui_widgets.lua:11197          
   [-]        RenderNavHighlight                                                                          obsolete
-  [x]  100%  TempInputIsActive                                          imgui_internal.lua:3681          
-  [x]   88%  GetInputTextState                                          imgui_internal.lua:3689          
+  [x]  100%  TempInputIsActive                                          imgui_internal.lua:3693          
+  [x]   88%  GetInputTextState                                          imgui_internal.lua:3701          
   [ ]        IsItemActiveAsInputText                                                                     
-  [x]   80%  SetNextItemColorMarker                                     imgui_internal.lua:1083          
+  [x]   80%  SetNextItemColorMarker                                     imgui_internal.lua:1095          
 
   -- ImFontLoader
-  [x]    6%  ImFontLoader::ImFontLoader                                 imgui_internal.lua:3165          
+  [x]    6%  ImFontLoader::ImFontLoader                                 imgui_internal.lua:3177          
 
   -- ImFontAtlas internal API
   [-]        operator==                                                                                  c++-only
   [-]        operator!=                                                                                  c++-only
-  [x]   75%  ImFontAtlasRectId_GetIndex                                 imgui_internal.lua:3217          
-  [x]   62%  ImFontAtlasRectId_GetGeneration                            imgui_internal.lua:3221          
-  [x]   77%  ImFontAtlasRectId_Make                                     imgui_internal.lua:3226          
-  [x]   18%  ImFontAtlasBuilder::ImFontAtlasBuilder                     imgui_internal.lua:1184          
+  [x]   75%  ImFontAtlasRectId_GetIndex                                 imgui_internal.lua:3229          
+  [x]   62%  ImFontAtlasRectId_GetGeneration                            imgui_internal.lua:3233          
+  [x]   77%  ImFontAtlasRectId_Make                                     imgui_internal.lua:3238          
+  [x]   18%  ImFontAtlasBuilder::ImFontAtlasBuilder                     imgui_internal.lua:1196          
 
 ====================================================================================================
 API declarations not ported (by upstream line)
@@ -2489,7 +2489,7 @@ Enums (values ported / total; missing listed)
   ImGuiWindowRefreshFlags_                    4 /    4
   ImTextureFormat                             2 /    2
   ImTextureStatus                             5 /    5
-  ImTriangulatorNodeType                      0 /    3   missing: ImTriangulatorNodeType_Convex, ImTriangulatorNodeType_Ear, ImTriangulatorNodeType_Reflex
+  ImTriangulatorNodeType                      3 /    3
   ImWcharClass                                3 /    3
   MyItemColumnID                              5 /    5
 
@@ -2635,8 +2635,8 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImRect                                      2 /    2
   ImTextureData                              16 /   17   missing: QueueUserData
   ImTextureRect                               4 /    4
-  ImTriangulator                              0 /    4   missing: _TrianglesLeft, _Nodes, _Ears, _Reflexes
-  ImTriangulatorNode                          3 /    5   missing: Next, Prev
+  ImTriangulator                              4 /    4
+  ImTriangulatorNode                          5 /    5
   ImTriangulatorNodeSpan                      2 /    2
   ImVec2i                                     2 /    2
   ImVec2ih                                    2 /    2
