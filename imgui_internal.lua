@@ -837,14 +837,21 @@ function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end -- Bottom-rig
 --- @param r ImRect
 @native
 function IM_RECT:ClipWith(r)
-    ImVec2_Copy(self.Min, ImMax(self.Min, r.Min)); ImVec2_Copy(self.Max, ImMin(self.Max, r.Max))
+    -- [Luau] scalar math, no temporary ImVec2 (= ImMax(Min, r.Min) / ImMin(Max, r.Max))
+    local smin, smax, rmin, rmax = self.Min, self.Max, r.Min, r.Max
+    smin.x = mathMax(smin.x, rmin.x); smin.y = mathMax(smin.y, rmin.y)
+    smax.x = mathMin(smax.x, rmax.x); smax.y = mathMin(smax.y, rmax.y)
 end
 
 -- Full version, ensure both points are fully clipped.
 --- @param r ImRect
 @native
 function IM_RECT:ClipWithFull(r)
-    ImVec2_Copy(self.Min, ImClamp(self.Min, r.Min, r.Max)); ImVec2_Copy(self.Max, ImClamp(self.Max, r.Min, r.Max))
+    -- [Luau] scalar math, no temporary ImVec2 (= ImClamp(Min/Max, r.Min, r.Max))
+    local smin, smax, rmin, rmax = self.Min, self.Max, r.Min, r.Max
+    local min_x, min_y, max_x, max_y = rmin.x, rmin.y, rmax.x, rmax.y
+    smin.x = mathMax(min_x, mathMin(smin.x, max_x)); smin.y = mathMax(min_y, mathMin(smin.y, max_y))
+    smax.x = mathMax(min_x, mathMin(smax.x, max_x)); smax.y = mathMax(min_y, mathMin(smax.y, max_y))
 end
 
 --- @param p ImRect|ImVec2
@@ -983,7 +990,15 @@ function MT.ImDrawList:PathClear() self._Path:clear() end
 
 --- @param pos ImVec2
 @native
-function MT.ImDrawList:PathLineTo(pos) self._Path:push_back(pos) end
+function MT.ImDrawList:PathLineTo(pos)
+    -- [Luau] inline self._Path:push_back(pos) (ImVec2_TCopy into the preallocated slot)
+    local path = self._Path
+    local n = path.Size + 1
+    if n > path.Capacity then path:push_back(pos) return end
+    local dest = path.Data[n]
+    dest.x = pos.x; dest.y = pos.y
+    path.Size = n
+end
 
 function MT.ImDrawList:PathLineToMergeDuplicate(pos)
     local path_size = self._Path.Size

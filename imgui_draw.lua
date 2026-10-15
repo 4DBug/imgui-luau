@@ -2608,7 +2608,7 @@ function MT.ImFont:GetFontBaked(size, density)
 
     -- Round font size
     -- - ImGui.PushFont() will already round, but other paths calling GetFontBaked() directly also needs it (e.g. ImFontAtlasBuildPreloadAllGlyphRanges)
-    size = ImGui.GetRoundedFontSize(size)
+    size = math.floor(size + 0.5) -- [Luau] inline ImGui.GetRoundedFontSize() == IM_ROUND()
 
     if density < 0.0 then
         density = self.CurrentRasterizerDensity
@@ -2869,8 +2869,37 @@ end
 --- @param wrap_width float
 --- @param flags      ImDrawTextFlags
 --- @return int
-@native
+local ImFontCalcWordWrapPositionEx_Uncached
+local WRAP_MEMO_MAX = 4096
+
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
+    local baked = font:GetFontBaked(size)
+    if type(text) ~= "string" then
+        return ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
+    end
+    -- [Luau] memo per baked font and string: CalcTextSize() and RenderText() of wrapped text ask for the same wrap points
+    -- (same text/pos/width) every frame. The result only depends on these inputs and the (immutable once loaded) glyph advances.
+    -- ponytail: whole-memo reset at WRAP_MEMO_MAX strings, LRU if dynamic text churns it
+    local memo = baked._WrapMemo
+    if memo == nil or baked._WrapMemoN >= WRAP_MEMO_MAX then
+        memo = {}; baked._WrapMemo = memo; baked._WrapMemoN = 0
+    end
+    local e = memo[text]
+    if e == nil or e.ww ~= wrap_width or e.size ~= size or e.te ~= text_end or e.fl ~= flags then
+        if e == nil then baked._WrapMemoN = baked._WrapMemoN + 1 end
+        e = { ww = wrap_width, size = size, te = text_end, fl = flags }
+        memo[text] = e
+    else
+        local r = e[pos]
+        if r then return r end
+    end
+    local r = ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
+    e[pos] = r
+    return r
+end
+
+@native
+function ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
     -- For references, possible wrap point marked with ^
     --  "aaa bbb, ccc,ddd. eee   fff. ggg!"
     --      ^    ^    ^   ^   ^__    ^    ^
@@ -2881,7 +2910,7 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     -- Cut words that cannot possibly fit within one line.
     -- e.g.: "The tropical fish" with ~5 characters worth of width --> "The tr" "opical" "fish"
 
-    local baked = font:GetFontBaked(size)
+    -- [Luau] baked = font:GetFontBaked(size) is done by the caller
     local scale = size / baked.Size
 
     local line_width = 0.0
@@ -2901,6 +2930,9 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
     local stop = false
     local text_is_str = type(text) == "string" -- [Luau] ImStrByte() inlined (once per character)
+    local adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] hoisted, refreshed after a glyph load
+    local CLASS_BLANK, CLASS_PUNCT, CLASS_OTHER = ImWcharClass.Blank, ImWcharClass.Punct, ImWcharClass.Other
+    local classifier_0000_007f = g_CharClassifierIsSeparator_0000_007f
     while s < text_end do
         repeat
         --- @type unsigned_int
@@ -2927,24 +2959,25 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
         end
 
         -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
-        local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
+        local char_width = (c < adv_n) and adv_data[c + 1] or -1.0
         if char_width < 0.0 then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
+            adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size
         end
 
         -- Classify current character
         local curr_type
         if c < 128 then -- [Luau] ImTextClassifierGet() inlined
-            curr_type = bit32.band(bit32.rshift(g_CharClassifierIsSeparator_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
+            curr_type = bit32.band(bit32.rshift(classifier_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
         elseif (c >= 0x3000 and c < 0x3010) then
             curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_3000_300f, bit32.band(c, 15))
         else
-            curr_type = ImWcharClass.Other
+            curr_type = CLASS_OTHER
         end
 
-        if curr_type == ImWcharClass.Blank then
+        if curr_type == CLASS_BLANK then
             -- End span: 'A ' or '. '
-            if (prev_type ~= ImWcharClass.Blank and not keep_blanks) then
+            if (prev_type ~= CLASS_BLANK and not keep_blanks) then
                 span_end = s
                 line_width = line_width + span_width
                 span_width = 0.0
@@ -2953,13 +2986,13 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
             blank_width = blank_width + char_width
         else
             -- End span: '.X' unless X is a digit
-            if (prev_type == ImWcharClass.Punct and curr_type ~= ImWcharClass.Punct and not (c >= 48 and c <= 57)) then -- FIXME: Digit checks might be removed if allow custom separators (#8503)
+            if (prev_type == CLASS_PUNCT and curr_type ~= CLASS_PUNCT and not (c >= 48 and c <= 57)) then -- FIXME: Digit checks might be removed if allow custom separators (#8503)
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
                 blank_width = 0.0
                 span_width = 0.0
             -- End span: 'A ' or '. '
-            elseif (prev_type == ImWcharClass.Blank and keep_blanks) then
+            elseif (prev_type == CLASS_BLANK and keep_blanks) then
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
                 blank_width = 0.0
@@ -3019,8 +3052,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
     local cache_key = nil
     local wrap_cache = nil
-    if text_begin == 1 and out_offset == nil and wrap_width <= 0.0 and max_width >= FLT_MAX and type(text) == "string"
-        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+    local text_len1 = text_is_str and #text + 1 or -1
+    local cacheable = text_is_str and text_begin == 1 and out_offset == nil and max_width >= FLT_MAX
+        and (text_end == nil or text_end == text_len1) and (text_end_display == nil or text_end_display == text_len1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0)
+    if cacheable and wrap_width <= 0.0 then
         local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
         if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
@@ -3028,11 +3063,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
         local e = cache[text]
         if e then
-            return ImVec2(e[1] * (size / baked.Size), e[2] * size), #text + 1
+            return ImVec2(e[1] * (size / baked.Size), e[2] * size), text_len1
         end
         cache_key = text
-    elseif text_begin == 1 and out_offset == nil and wrap_width > 0.0 and max_width >= FLT_MAX and text_is_str
-        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+    elseif cacheable and wrap_width > 0.0 then
         -- [Luau] same for wrapped text (TextWrapped() measures every line every frame): exact results per (size, wrap width, text)
         local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
@@ -3068,6 +3102,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     local s = text_begin
     local stop = false
+    local adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] hoisted, refreshed after a glyph load
     while s < text_end_display do
         repeat
         -- Word-wrapping
@@ -3075,6 +3110,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(font, size, text, s, text_end, wrap_width - line_width, flags)
+                adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] may have loaded glyphs
             end
 
             if s >= word_wrap_eol then
@@ -3121,9 +3157,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
 
         -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
-        local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
+        local char_width = (c < adv_n) and adv_data[c + 1] or -1.0
         if (char_width < 0.0) then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
+            adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size
         end
         char_width = char_width * scale
 
@@ -3181,6 +3218,8 @@ end
 --- @param col           ImU32
 --- @param c             ImWchar
 --- @param cpu_fine_clip ImVec4
+local RenderChar_a, RenderChar_c, RenderChar_uv_a, RenderChar_uv_c = ImVec2(), ImVec2(), ImVec2(), ImVec2()
+
 function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
     local baked = self:GetFontBaked(size)
     local glyph = baked:FindGlyph(c)
@@ -3228,7 +3267,10 @@ function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
         if y1 >= y2 then return end
     end
     draw_list:PrimReserve(6, 4)
-    draw_list:PrimRectUV(ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col)
+    -- [Luau] scratch vectors, PrimRectUV() only reads them
+    local a, c, uv_a, uv_c = RenderChar_a, RenderChar_c, RenderChar_uv_a, RenderChar_uv_c
+    a.x = x1; a.y = y1; c.x = x2; c.y = y2; uv_a.x = u1; uv_a.y = v1; uv_c.x = u2; uv_c.y = v2
+    draw_list:PrimRectUV(a, c, uv_a, uv_c, col)
 end
 
 function MT.ImFontAtlas:AddFont(font_cfg_in)
@@ -3671,7 +3713,10 @@ function MT.ImDrawList:AddDrawCmd()
     draw_cmd.IdxOffset = self.IdxBuffer.Size
 
     IM_ASSERT(draw_cmd.ClipRect.x <= draw_cmd.ClipRect.z and draw_cmd.ClipRect.y <= draw_cmd.ClipRect.w)
-    self.CmdBuffer:push_back(draw_cmd)
+    -- [Luau] inline self.CmdBuffer:push_back(draw_cmd)
+    local cmd_buffer = self.CmdBuffer
+    local n = cmd_buffer.Size + 1
+    if n > cmd_buffer.Capacity then cmd_buffer:push_back(draw_cmd) else cmd_buffer.Data[n] = draw_cmd; cmd_buffer.Size = n end
 end
 
 -- Pop trailing draw command (used before merging or presenting to user)
@@ -3722,15 +3767,17 @@ end
 --- @param CMD_RHS ImDrawCmd|ImDrawCmdHeader
 --- @return bool
 local function ImDrawCmd_HeaderCompare(CMD_LHS, CMD_RHS)
-    if CMD_LHS.ClipRect.x ~= CMD_RHS.ClipRect.x or
-        CMD_LHS.ClipRect.y ~= CMD_RHS.ClipRect.y or
-        CMD_LHS.ClipRect.z ~= CMD_RHS.ClipRect.z or
-        CMD_LHS.ClipRect.w ~= CMD_RHS.ClipRect.w then
+    local lcr, rcr = CMD_LHS.ClipRect, CMD_RHS.ClipRect -- [Luau] cache
+    if lcr.x ~= rcr.x or
+        lcr.y ~= rcr.y or
+        lcr.z ~= rcr.z or
+        lcr.w ~= rcr.w then
         return false
     end
 
-    if CMD_LHS.TexRef._TexData ~= CMD_RHS.TexRef._TexData or
-        CMD_LHS.TexRef._TexID ~= CMD_RHS.TexRef._TexID then
+    local ltex, rtex = CMD_LHS.TexRef, CMD_RHS.TexRef
+    if ltex ~= rtex and (ltex._TexData ~= rtex._TexData or
+        ltex._TexID ~= rtex._TexID) then
         return false
     end
 
@@ -3779,10 +3826,14 @@ function MT.ImDrawList:_OnChangedClipRect()
     -- If current command is used with different settings we need to add a new command
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
-    if (curr_cmd.ElemCount ~= 0 and self._CmdHeader.ClipRect ~= curr_cmd.ClipRect) then
-        self:AddDrawCmd()
+    if curr_cmd.ElemCount ~= 0 then
+        -- [Luau] inline IM_VEC4.__eq
+        local hcr, ccr = self._CmdHeader.ClipRect, curr_cmd.ClipRect
+        if hcr.x ~= ccr.x or hcr.y ~= ccr.y or hcr.z ~= ccr.z or hcr.w ~= ccr.w then
+            self:AddDrawCmd()
 
-        return
+            return
+        end
     end
 
     IM_ASSERT(curr_cmd.UserCallback == nil)
@@ -3896,8 +3947,8 @@ function MT.ImDrawListSplitter:Split(draw_list, channels_count)
         if i > old_channels_count or channels[i] == nil then
             channels[i] = ImDrawChannel()
         else
-            channels[i]._CmdBuffer:resize(0)
-            channels[i]._IdxBuffer:resize(0)
+            channels[i]._CmdBuffer.Size = 0 -- [Luau] inline resize(0)
+            channels[i]._IdxBuffer.Size = 0
         end
     end
 end
@@ -3956,16 +4007,21 @@ function MT.ImDrawListSplitter:Merge(draw_list)
     local dst_idx = draw_list.IdxBuffer.Data
     for i = 2, self._Count do
         local ch = channels[i]
-        local src_cmds = ch._CmdBuffer.Data
-        for n = 1, ch._CmdBuffer.Size do
-            dst_cmds[cmd_write] = src_cmds[n]
-            src_cmds[n] = nil -- ownership moved to the draw list
-            cmd_write = cmd_write + 1
+        -- [Luau] skip empty buffers: their .Data may be nil (reading it goes through IM_VECTOR.__index)
+        if ch._CmdBuffer.Size > 0 then
+            local src_cmds = ch._CmdBuffer.Data
+            for n = 1, ch._CmdBuffer.Size do
+                dst_cmds[cmd_write] = src_cmds[n]
+                src_cmds[n] = nil -- ownership moved to the draw list
+                cmd_write = cmd_write + 1
+            end
         end
-        local src_idx = ch._IdxBuffer.Data
-        for n = 1, ch._IdxBuffer.Size do
-            dst_idx[idx_write] = src_idx[n]
-            idx_write = idx_write + 1
+        if ch._IdxBuffer.Size > 0 then
+            local src_idx = ch._IdxBuffer.Data
+            for n = 1, ch._IdxBuffer.Size do
+                dst_idx[idx_write] = src_idx[n]
+                idx_write = idx_write + 1
+            end
         end
     end
     draw_list._IdxWritePtr = idx_write
@@ -3988,6 +4044,7 @@ end
 
 --- @param draw_list ImDrawList
 --- @param idx       int # 0-based channel index
+@native
 function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     IM_ASSERT(idx >= 0 and idx < self._Count)
     if self._Current == idx then
@@ -4001,18 +4058,29 @@ function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     cur._IdxBuffer = draw_list.IdxBuffer
     self._Current = idx
     local ch = channels[idx + 1]
-    draw_list.CmdBuffer = ch._CmdBuffer
-    draw_list.IdxBuffer = ch._IdxBuffer
-    draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
+    local cmd_buffer = ch._CmdBuffer
+    local idx_buffer = ch._IdxBuffer
+    draw_list.CmdBuffer = cmd_buffer
+    draw_list.IdxBuffer = idx_buffer
+    draw_list._IdxWritePtr = idx_buffer.Size + 1
 
     -- If current command is used with different settings we need to add a new command
-    local curr_cmd = nil
-    if draw_list.CmdBuffer.Size > 0 then curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] end
-    if curr_cmd == nil then
+    -- [Luau] ImDrawCmd_HeaderCopyRef() / ImDrawCmd_HeaderCompare() inlined
+    local cmd_count = cmd_buffer.Size
+    if cmd_count == 0 then
         draw_list:AddDrawCmd()
-    elseif curr_cmd.ElemCount == 0 then
-        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
-    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        return
+    end
+    local curr_cmd = cmd_buffer.Data[cmd_count]
+    local header = draw_list._CmdHeader
+    local hcr, ccr = header.ClipRect, curr_cmd.ClipRect
+    if curr_cmd.ElemCount == 0 then
+        ccr.x = hcr.x; ccr.y = hcr.y; ccr.z = hcr.z; ccr.w = hcr.w -- Copy ClipRect, TexRef, VtxOffset
+        curr_cmd.TexRef = header.TexRef
+        curr_cmd.VtxOffset = header.VtxOffset
+    elseif ccr.x ~= hcr.x or ccr.y ~= hcr.y or ccr.z ~= hcr.z or ccr.w ~= hcr.w
+        or curr_cmd.TexRef._TexData ~= header.TexRef._TexData or curr_cmd.TexRef._TexID ~= header.TexRef._TexID
+        or curr_cmd.VtxOffset ~= header.VtxOffset then
         draw_list:AddDrawCmd()
     end
 end
@@ -4046,14 +4114,15 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         local vtx_inner_idx = self._VtxCurrentIdx
         local vtx_outer_idx = self._VtxCurrentIdx + 1
         local idx_data = self.IdxBuffer.Data
+        local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
         for i = 2, points_count - 1 do
-            local idx_write_ptr = self._IdxWritePtr
             idx_data[idx_write_ptr + 0] = vtx_inner_idx; idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_inner_idx + (i * 2)
-            self._IdxWritePtr = idx_write_ptr + 3
+            idx_write_ptr = idx_write_ptr + 3
         end
 
         -- Compute normals
-        self._Data.TempBuffer:reserve_discard(points_count)
+        local temp_buffer = self._Data.TempBuffer
+        if points_count > temp_buffer.Capacity then temp_buffer:reserve_discard(points_count) end -- [Luau] skip the method lookup when no growth is needed
         local temp_normals = self._Data.TempBuffer.Data
 
         local i0 = points_count
@@ -4070,6 +4139,8 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         end
 
         local vtx_data = self.VtxBuffer.Buf
+        local vtx_write_ptr = self._VtxWritePtr
+        local uv_x, uv_y = uv.x, uv.y
         i0 = points_count
         for i1 = 1, points_count do
             local n0 = temp_normals[i0]
@@ -4080,18 +4151,19 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             dm_x = dm_x * AA_SIZE * 0.5
             dm_y = dm_y * AA_SIZE * 0.5
 
-            local vtx_write_ptr = self._VtxWritePtr
-            WV(vtx_data, vtx_write_ptr + 0, points[i1].x - dm_x, points[i1].y - dm_y, uv.x, uv.y, col)
-            WV(vtx_data, vtx_write_ptr + 1, points[i1].x + dm_x, points[i1].y + dm_y, uv.x, uv.y, col_trans)
-            self._VtxWritePtr = vtx_write_ptr + 2
+            local p1 = points[i1]
+            WV(vtx_data, vtx_write_ptr + 0, p1.x - dm_x, p1.y - dm_y, uv_x, uv_y, col)
+            WV(vtx_data, vtx_write_ptr + 1, p1.x + dm_x, p1.y + dm_y, uv_x, uv_y, col_trans)
+            vtx_write_ptr = vtx_write_ptr + 2
 
-            local idx_write_ptr = self._IdxWritePtr
             idx_data[idx_write_ptr + 0] = vtx_inner_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_outer_idx + ((i0 - 1) * 2)
             idx_data[idx_write_ptr + 3] = vtx_outer_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 4] = vtx_outer_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 5] = vtx_inner_idx + ((i1 - 1) * 2)
-            self._IdxWritePtr = idx_write_ptr + 6
+            idx_write_ptr = idx_write_ptr + 6
 
             i0 = i1
         end
+        self._VtxWritePtr = vtx_write_ptr
+        self._IdxWritePtr = idx_write_ptr
         self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
     else
         local idx_count = (points_count - 2) * 3
@@ -4142,8 +4214,9 @@ end
 -- Reserve space for a number of vertices and indices.
 -- You must finish filling your reserved data before calling PrimReserve() again, as it may reallocate or
 -- submit the intermediate results. PrimUnreserve() can be used to release unused allocations.
+-- [Luau] local function (also MT.ImDrawList.PrimReserve): hot callers in this file skip the method lookup
 @native
-function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
+local function PrimReserve(self, idx_count, vtx_count)
     -- Large mesh support (when enabled)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
@@ -4158,14 +4231,20 @@ function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
     local draw_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     draw_cmd.ElemCount = draw_cmd.ElemCount + idx_count
 
-    local vtx_buffer_old_size = self.VtxBuffer.Size
-    self.VtxBuffer:resize(vtx_buffer_old_size + vtx_count)
+    -- [Luau] inline resize() when no growth is needed (IdxBuffer:resize goes through IM_VECTOR.__index)
+    local vtx_buffer = self.VtxBuffer
+    local vtx_buffer_old_size = vtx_buffer.Size
+    local vtx_new_size = vtx_buffer_old_size + vtx_count
+    if vtx_new_size > vtx_buffer.Capacity then vtx_buffer:resize(vtx_new_size) else vtx_buffer.Size = vtx_new_size end
     self._VtxWritePtr = vtx_buffer_old_size + 1
 
-    local idx_buffer_old_size = self.IdxBuffer.Size
-    self.IdxBuffer:resize(idx_buffer_old_size + idx_count)
+    local idx_buffer = self.IdxBuffer
+    local idx_buffer_old_size = idx_buffer.Size
+    local idx_new_size = idx_buffer_old_size + idx_count
+    if idx_new_size > idx_buffer.Capacity then idx_buffer:resize(idx_new_size) else idx_buffer.Size = idx_new_size end
     self._IdxWritePtr = idx_buffer_old_size + 1
 end
+MT.ImDrawList.PrimReserve = PrimReserve
 
 -- Release the number of reserved vertices/indices from the end of the last reservation made with PrimReserve().
 function MT.ImDrawList:PrimUnreserve(idx_count, vtx_count)
@@ -4185,12 +4264,13 @@ end
 --- @param a   ImVec2
 --- @param c   ImVec2
 --- @param col ImU32
+-- [Luau] scalar PrimRect (a = ax,ay; c = cx,cy): no ImVec2 needed by callers, vertex writes inlined
 @native
-function MT.ImDrawList:PrimRect(a, c, col)
+local function PrimRectXY(self, ax, ay, cx, cy, col)
     local uv = self._Data.TexUvWhitePixel
 
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+    local idx_data = self.IdxBuffer.Data; local b = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -4202,15 +4282,20 @@ function MT.ImDrawList:PrimRect(a, c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    local ax, ay, cx, cy, u, v = a.x, a.y, c.x, c.y, uv.x, uv.y
-    WV(vtx_data, vtx_write_ptr + 0, ax, ay, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 1, cx, ay, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 2, cx, cy, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 3, ax, cy, u, v, col)
+    local u, v = uv.x, uv.y
+    local o = (vtx_write_ptr - 1) * 36
+    writef64(b, o, ax); writef64(b, o + 8, ay); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
+    writef64(b, o + 36, cx); writef64(b, o + 44, ay); writef64(b, o + 52, u); writef64(b, o + 60, v); writeu32(b, o + 68, col)
+    writef64(b, o + 72, cx); writef64(b, o + 80, cy); writef64(b, o + 88, u); writef64(b, o + 96, v); writeu32(b, o + 104, col)
+    writef64(b, o + 108, ax); writef64(b, o + 116, cy); writef64(b, o + 124, u); writef64(b, o + 132, v); writeu32(b, o + 140, col)
 
     self._VtxWritePtr = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
     self._IdxWritePtr = idx_write_ptr + 6
+end
+
+function MT.ImDrawList:PrimRect(a, c, col)
+    PrimRectXY(self, a.x, a.y, c.x, c.y, col)
 end
 
 --- @param a    ImVec2
@@ -4282,11 +4367,12 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
         local idx_count = use_texture and (count * 6) or (thick_line and count * 18 or count * 12)
         local vtx_count = use_texture and (points_count * 2) or (thick_line and points_count * 4 or points_count * 3)
-        self:PrimReserve(idx_count, vtx_count)
+        PrimReserve(self, idx_count, vtx_count)
 
         -- Temporary buffer
         local temp_buffer_size = points_count * ((use_texture or not thick_line) and 3 or 5)
-        self._Data.TempBuffer:reserve_discard(temp_buffer_size)
+        local temp_buffer = self._Data.TempBuffer
+        if temp_buffer_size > temp_buffer.Capacity then temp_buffer:reserve_discard(temp_buffer_size) end -- [Luau] skip the method lookup when no growth is needed
         local temp_normals = self._Data.TempBuffer.Data
         local temp_points = self._Data.TempBuffer.Data; local temp_points_start = points_count + 1
 
@@ -4322,6 +4408,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
             local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
@@ -4342,45 +4429,44 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
                 if use_texture then
                     -- Add indices for two triangles
-                    local idx_write_ptr = self._IdxWritePtr
                     idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 1
                     idx_data[idx_write_ptr + 3] = idx2 + 1; idx_data[idx_write_ptr + 4] = idx1 + 1; idx_data[idx_write_ptr + 5] = idx2 + 0
-                    self._IdxWritePtr = idx_write_ptr + 6
+                    idx_write_ptr = idx_write_ptr + 6
                 else
                     -- Add indices for four triangles
-                    local idx_write_ptr = self._IdxWritePtr
                     idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 2
                     idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 0
                     idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
                     idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
-                    self._IdxWritePtr = idx_write_ptr + 12
+                    idx_write_ptr = idx_write_ptr + 12
                 end
 
                 idx1 = idx2
             end
+            self._IdxWritePtr = idx_write_ptr
 
             -- Add vertices
+            local vtx_write_ptr = self._VtxWritePtr
             if use_texture then
                 -- Texture-based: need to implement TexUvLines lookup
                 local tex_uvs = self._Data.TexUvLines[integer_thickness]
                 local tex_uv0 = ImVec2(tex_uvs.x, tex_uvs.y)
                 local tex_uv1 = ImVec2(tex_uvs.z, tex_uvs.w)
                 for i = 0, points_count - 1 do
-                    local vtx_write_ptr = self._VtxWritePtr
                     WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 2 + 0], tex_uv0, col)
                     WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 1], tex_uv1, col)
-                    self._VtxWritePtr = vtx_write_ptr + 2
+                    vtx_write_ptr = vtx_write_ptr + 2
                 end
             else
                 -- If we're not using a texture, we need the center vertex as well
                 for i = 0, points_count - 1 do
-                    local vtx_write_ptr = self._VtxWritePtr
                     WVP(vtx_data, vtx_write_ptr + 0, points[i + 1], opaque_uv, col)
                     WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 0], opaque_uv, col_trans)
                     WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 2 + 1], opaque_uv, col_trans)
-                    self._VtxWritePtr = vtx_write_ptr + 3
+                    vtx_write_ptr = vtx_write_ptr + 3
                 end
             end
+            self._VtxWritePtr = vtx_write_ptr
         else
             -- [PATH 3] Non texture-based lines (thick)
             local half_inner_thickness = (thickness - AA_SIZE) * 0.5
@@ -4401,6 +4487,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
             local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
@@ -4426,34 +4513,35 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 temp_points[temp_points_start + out_off + 3].y = points[i2].y - dm_out_y
 
                 -- Add indices
-                local idx_write_ptr = self._IdxWritePtr
                 idx_data[idx_write_ptr + 0] = idx2 + 1; idx_data[idx_write_ptr + 1] = idx1 + 1; idx_data[idx_write_ptr + 2] = idx1 + 2
                 idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 1
                 idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
                 idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
                 idx_data[idx_write_ptr + 12] = idx2 + 2; idx_data[idx_write_ptr + 13] = idx1 + 2; idx_data[idx_write_ptr + 14] = idx1 + 3
                 idx_data[idx_write_ptr + 15] = idx1 + 3; idx_data[idx_write_ptr + 16] = idx2 + 3; idx_data[idx_write_ptr + 17] = idx2 + 2
-                self._IdxWritePtr = idx_write_ptr + 18
+                idx_write_ptr = idx_write_ptr + 18
 
                 idx1 = idx2
             end
+            self._IdxWritePtr = idx_write_ptr
 
             -- Add vertices
+            local vtx_write_ptr = self._VtxWritePtr
             for i = 0, points_count - 1 do
-                local vtx_write_ptr = self._VtxWritePtr
                 WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 4 + 0], opaque_uv, col_trans)
                 WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 4 + 1], opaque_uv, col)
                 WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 4 + 2], opaque_uv, col)
                 WVP(vtx_data, vtx_write_ptr + 3, temp_points[temp_points_start + i * 4 + 3], opaque_uv, col_trans)
-                self._VtxWritePtr = vtx_write_ptr + 4
+                vtx_write_ptr = vtx_write_ptr + 4
             end
+            self._VtxWritePtr = vtx_write_ptr
         end
         self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
     else
         -- [PATH 4] Non texture-based, Non anti-aliased lines
         local idx_count = count * 6
         local vtx_count = count * 4
-        self:PrimReserve(idx_count, vtx_count)
+        PrimReserve(self, idx_count, vtx_count)
 
         local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i1 = 1, count do
@@ -4483,7 +4571,20 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
     end
 end
 
-function MT.ImDrawList:PathRect(a, b, rounding, flags)
+-- [Luau] scalar PathLineTo(): no temporary ImVec2 (the path slot is written in place)
+local function PathLineToXY(self, x, y)
+    local path = self._Path
+    local n = path.Size + 1
+    if n > path.Capacity then path:push_back(ImVec2(x, y)) return end
+    local dest = path.Data[n]
+    dest.x = x; dest.y = y
+    path.Size = n
+end
+
+local _PathArcToFastExXY -- [Luau] forward declaration, defined below with _PathArcToFastEx()
+
+-- [Luau] scalar PathRect (a = ax,ay; b = bx,by); PathRect() below wraps it
+local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
 
@@ -4492,24 +4593,29 @@ function MT.ImDrawList:PathRect(a, b, rounding, flags)
         if bit32.band(flags, ImDrawFlags.RoundCornersMask_) == 0 then
             flags = bit32.bor(flags, ImDrawFlags.RoundCornersAll)
         end
-        rounding = ImMin(rounding, ImAbs(b.x - a.x) * (((bit32.band(flags, ImDrawFlags.RoundCornersTop) == ImDrawFlags.RoundCornersTop) or (bit32.band(flags, ImDrawFlags.RoundCornersBottom) == ImDrawFlags.RoundCornersBottom)) and 0.5 or 1.0) - 1.0)
-        rounding = ImMin(rounding, ImAbs(b.y - a.y) * (((bit32.band(flags, ImDrawFlags.RoundCornersLeft) == ImDrawFlags.RoundCornersLeft) or (bit32.band(flags, ImDrawFlags.RoundCornersRight) == ImDrawFlags.RoundCornersRight)) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(bx - ax) * (((bit32.band(flags, ImDrawFlags.RoundCornersTop) == ImDrawFlags.RoundCornersTop) or (bit32.band(flags, ImDrawFlags.RoundCornersBottom) == ImDrawFlags.RoundCornersBottom)) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(by - ay) * (((bit32.band(flags, ImDrawFlags.RoundCornersLeft) == ImDrawFlags.RoundCornersLeft) or (bit32.band(flags, ImDrawFlags.RoundCornersRight) == ImDrawFlags.RoundCornersRight)) and 0.5 or 1.0) - 1.0)
     end
     if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone) then
-        self:PathLineTo(a)
-        self:PathLineTo(ImVec2(b.x, a.y))
-        self:PathLineTo(b)
-        self:PathLineTo(ImVec2(a.x, b.y))
+        PathLineToXY(self, ax, ay)
+        PathLineToXY(self, bx, ay)
+        PathLineToXY(self, bx, by)
+        PathLineToXY(self, ax, by)
     else
         local rounding_tl = (bit32.band(flags, ImDrawFlags.RoundCornersTopLeft) ~= 0) and rounding or 0.0
         local rounding_tr = (bit32.band(flags, ImDrawFlags.RoundCornersTopRight) ~= 0) and rounding or 0.0
         local rounding_br = (bit32.band(flags, ImDrawFlags.RoundCornersBottomRight) ~= 0) and rounding or 0.0
         local rounding_bl = (bit32.band(flags, ImDrawFlags.RoundCornersBottomLeft) ~= 0) and rounding or 0.0
-        self:PathArcToFast(ImVec2(a.x + rounding_tl, a.y + rounding_tl), rounding_tl, 6, 9)
-        self:PathArcToFast(ImVec2(b.x - rounding_tr, a.y + rounding_tr), rounding_tr, 9, 12)
-        self:PathArcToFast(ImVec2(b.x - rounding_br, b.y - rounding_br), rounding_br, 0, 3)
-        self:PathArcToFast(ImVec2(a.x + rounding_bl, b.y - rounding_bl), rounding_bl, 3, 6)
+        -- [Luau] inline PathArcToFast() (radius < 0.5 handled by _PathArcToFastExXY())
+        _PathArcToFastExXY(self, ax + rounding_tl, ay + rounding_tl, rounding_tl, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, bx - rounding_tr, ay + rounding_tr, rounding_tr, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, bx - rounding_br, by - rounding_br, rounding_br, 0 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, ax + rounding_bl, by - rounding_bl, rounding_bl, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
     end
+end
+
+function MT.ImDrawList:PathRect(a, b, rounding, flags)
+    PathRectXY(self, a.x, a.y, b.x, b.y, rounding, flags)
 end
 
 @native
@@ -4520,10 +4626,10 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
 
     if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone) then
-        self:PrimReserve(6, 4)
-        self:PrimRect(p_min, p_max, col)
+        PrimReserve(self, 6, 4) -- [Luau] local calls
+        PrimRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, col)
     else
-        self:PathRect(p_min, p_max, rounding, flags)
+        PathRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, rounding, flags)
         self:PathFillConvex(col)
     end
 end
@@ -4542,13 +4648,19 @@ function MT.ImDrawList:AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_u
     end
 
     local uv = self._Data.TexUvWhitePixel
-    self:PrimReserve(6, 4)
-    self:PrimWriteIdx(self._VtxCurrentIdx); self:PrimWriteIdx(self._VtxCurrentIdx + 1); self:PrimWriteIdx(self._VtxCurrentIdx + 2)
-    self:PrimWriteIdx(self._VtxCurrentIdx); self:PrimWriteIdx(self._VtxCurrentIdx + 2); self:PrimWriteIdx(self._VtxCurrentIdx + 3)
-    self:PrimWriteVtx(p_min, uv, col_upr_left)
-    self:PrimWriteVtx(ImVec2(p_max.x, p_min.y), uv, col_upr_right)
-    self:PrimWriteVtx(p_max, uv, col_bot_right)
-    self:PrimWriteVtx(ImVec2(p_min.x, p_max.y), uv, col_bot_left)
+    PrimReserve(self, 6, 4)
+    -- [Luau] inline PrimWriteIdx()/PrimWriteVtx(): direct writes, no temporary ImVec2
+    local idx, idx_data, idx_write_ptr = self._VtxCurrentIdx, self.IdxBuffer.Data, self._IdxWritePtr
+    idx_data[idx_write_ptr] = idx; idx_data[idx_write_ptr + 1] = idx + 1; idx_data[idx_write_ptr + 2] = idx + 2
+    idx_data[idx_write_ptr + 3] = idx; idx_data[idx_write_ptr + 4] = idx + 2; idx_data[idx_write_ptr + 5] = idx + 3
+    self._IdxWritePtr = idx_write_ptr + 6
+    local vtx_data, vtx_write_ptr = self.VtxBuffer.Buf, self._VtxWritePtr
+    WV(vtx_data, vtx_write_ptr + 0, p_min.x, p_min.y, uv.x, uv.y, col_upr_left)
+    WV(vtx_data, vtx_write_ptr + 1, p_max.x, p_min.y, uv.x, uv.y, col_upr_right)
+    WV(vtx_data, vtx_write_ptr + 2, p_max.x, p_max.y, uv.x, uv.y, col_bot_right)
+    WV(vtx_data, vtx_write_ptr + 3, p_min.x, p_max.y, uv.x, uv.y, col_bot_left)
+    self._VtxWritePtr = vtx_write_ptr + 4
+    self._VtxCurrentIdx = idx + 4
 end
 
 -- p_min = upper-left, p_max = lower-right
@@ -4581,17 +4693,17 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     if (rounding == nil or rounding < 0.5 or bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone)
         and thickness >= 1.0 and thickness % 1 == 0 and p_max.x - p_min.x > 2 * thickness and p_max.y - p_min.y > 2 * thickness then
         local x0, y0, x1, y1, t = p_min.x, p_min.y, p_max.x, p_max.y, thickness
-        self:PrimReserve(24, 16)
-        self:PrimRect(ImVec2(x0, y0), ImVec2(x1, y0 + t), col)
-        self:PrimRect(ImVec2(x0, y1 - t), ImVec2(x1, y1), col)
-        self:PrimRect(ImVec2(x0, y0 + t), ImVec2(x0 + t, y1 - t), col)
-        self:PrimRect(ImVec2(x1 - t, y0 + t), ImVec2(x1, y1 - t), col)
+        PrimReserve(self, 24, 16)
+        PrimRectXY(self, x0, y0, x1, y0 + t, col)
+        PrimRectXY(self, x0, y1 - t, x1, y1, col)
+        PrimRectXY(self, x0, y0 + t, x0 + t, y1 - t, col)
+        PrimRectXY(self, x1 - t, y0 + t, x1, y1 - t, col)
         return
     end
     if bit32.band(self.Flags, ImDrawListFlags.AntiAliasedLines) ~= 0 then
-        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.50, 0.50), rounding, flags)
+        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.50, p_max.y - 0.50, rounding, flags) -- [Luau] scalar math, no temporary ImVec2
     else
-        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.49, 0.49), rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
+        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.49, p_max.y - 0.49, rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
     end
 
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
@@ -4600,8 +4712,8 @@ end
 function MT.ImDrawList:AddLine(p1, p2, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
 
-    self:PathLineTo(p1 + ImVec2(0.5, 0.5))
-    self:PathLineTo(p2 + ImVec2(0.5, 0.5))
+    PathLineToXY(self, p1.x + 0.5, p1.y + 0.5) -- [Luau] scalar math, no temporary ImVec2
+    PathLineToXY(self, p2.x + 0.5, p2.y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -4616,8 +4728,8 @@ function MT.ImDrawList:AddLineH(min_x, max_x, y, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
-    self:PathLineTo(ImVec2(min_x + 0.5, y + 0.5))
-    self:PathLineTo(ImVec2(max_x + 0.5, y + 0.5))
+    PathLineToXY(self, min_x + 0.5, y + 0.5)
+    PathLineToXY(self, max_x + 0.5, y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -4632,8 +4744,8 @@ function MT.ImDrawList:AddLineV(x, min_y, max_y, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
-    self:PathLineTo(ImVec2(x + 0.5, min_y + 0.5))
-    self:PathLineTo(ImVec2(x + 0.5, max_y + 0.5))
+    PathLineToXY(self, x + 0.5, min_y + 0.5)
+    PathLineToXY(self, x + 0.5, max_y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -4693,7 +4805,7 @@ function MT.ImDrawList:AddCircle(center, radius, col, num_segments, thickness)
 
     if num_segments <= 0 then
         -- Use arc with automatic segment count
-        self:_PathArcToFastEx(center, radius - 0.5, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
+        _PathArcToFastExXY(self, center.x, center.y, radius - 0.5, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
         self._Path.Size = self._Path.Size - 1
     else
         -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
@@ -4720,7 +4832,7 @@ function MT.ImDrawList:AddCircleFilled(center, radius, col, num_segments)
 
     if num_segments <= 0 then
         -- Use arc with automatic segment count
-        self:_PathArcToFastEx(center, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
+        _PathArcToFastExXY(self, center.x, center.y, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
         self._Path.Size = self._Path.Size - 1
     else
         -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
@@ -4743,6 +4855,8 @@ end
 --- @param text_end            int
 --- @param wrap_width          float
 --- @param cpu_fine_clip_rect? ImVec4
+local AddText_clip_rect = ImVec4()
+
 @native
 function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect)
     -- Overload: AddText(pos, col, text, text_end?)
@@ -4768,13 +4882,14 @@ function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text
         font_size = self._Data.FontSize
     end
 
-    local clip_rect = ImVec4() -- Don't modify the clip rect!
-    ImVec4_Copy(clip_rect, self._CmdHeader.ClipRect)
+    local clip_rect = AddText_clip_rect -- Don't modify the clip rect! -- [Luau] scratch: ImFont:RenderText() only reads it
+    local src = self._CmdHeader.ClipRect
+    clip_rect.x = src.x; clip_rect.y = src.y; clip_rect.z = src.z; clip_rect.w = src.w
     if (cpu_fine_clip_rect) then
-        clip_rect.x = ImMax(clip_rect.x, cpu_fine_clip_rect.x)
-        clip_rect.y = ImMax(clip_rect.y, cpu_fine_clip_rect.y)
-        clip_rect.z = ImMin(clip_rect.z, cpu_fine_clip_rect.z)
-        clip_rect.w = ImMin(clip_rect.w, cpu_fine_clip_rect.w)
+        clip_rect.x = math.max(clip_rect.x, cpu_fine_clip_rect.x)
+        clip_rect.y = math.max(clip_rect.y, cpu_fine_clip_rect.y)
+        clip_rect.z = math.min(clip_rect.z, cpu_fine_clip_rect.z)
+        clip_rect.w = math.min(clip_rect.w, cpu_fine_clip_rect.w)
     end
 
     font:RenderText(self, font_size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, (cpu_fine_clip_rect ~= nil) and ImDrawTextFlags.CpuFineClip or ImDrawTextFlags.None)
@@ -4872,20 +4987,25 @@ function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_
         if cr.w > current.w then cr.w = current.w end
     end
 
-    cr.z = ImMax(cr.x, cr.z)
-    cr.w = ImMax(cr.y, cr.w)
+    cr.z = math.max(cr.x, cr.z)
+    cr.w = math.max(cr.y, cr.w)
 
-    self._ClipRectStack:push_back(cr)
+    -- [Luau] inline self._ClipRectStack:push_back(cr)
+    local stack = self._ClipRectStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(cr) else stack.Data[n] = cr; stack.Size = n end
     ImVec4_Copy(self._CmdHeader.ClipRect, cr)
     self:_OnChangedClipRect()
 end
 
 function MT.ImDrawList:PopClipRect()
-    self._ClipRectStack:pop_back()
-    if (self._ClipRectStack.Size == 0) then -- LUA: No "Ternary Operator"
+    local stack = self._ClipRectStack
+    IM_ASSERT(stack.Size > 0)
+    stack.Size = stack.Size - 1 -- [Luau] inline pop_back()
+    if (stack.Size == 0) then -- LUA: No "Ternary Operator"
         ImVec4_Copy(self._CmdHeader.ClipRect, self._Data.ClipRectFullscreen)
     else
-        ImVec4_Copy(self._CmdHeader.ClipRect, self._ClipRectStack.Data[self._ClipRectStack.Size])
+        ImVec4_Copy(self._CmdHeader.ClipRect, stack.Data[stack.Size])
     end
     self:_OnChangedClipRect()
 end
@@ -4895,10 +5015,11 @@ end
 --- @param a_min_sample int
 --- @param a_max_sample int
 --- @param a_step       int
+-- [Luau] scalar center (cx, cy); assigned to the forward-declared local, _PathArcToFastEx() wraps it
 @native
-function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, a_step)
+function _PathArcToFastExXY(self, cx, cy, radius, a_min_sample, a_max_sample, a_step)
     if radius < 0.5 then
-        self._Path:push_back(center)
+        PathLineToXY(self, cx, cy)
         return
     end
 
@@ -4934,6 +5055,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     self._Path:resize(self._Path.Size + samples)
     local out_ptr = self._Path.Size - samples + 1
 
+    local path_data, arc_fast_vtx = self._Path.Data, self._Data.ArcFastVtx -- [Luau] cache
     local sample_index = a_min_sample
     if sample_index < 0 or sample_index >= IM_DRAWLIST_ARCFAST_SAMPLE_MAX then
         sample_index = sample_index % IM_DRAWLIST_ARCFAST_SAMPLE_MAX
@@ -4950,8 +5072,9 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
                 sample_index = sample_index - IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
 
-            local s = self._Data.ArcFastVtx[sample_index + 1]
-            ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+            local s = arc_fast_vtx[sample_index + 1]
+            local d = path_data[out_ptr]
+            d.x = cx + s.x * radius; d.y = cy + s.y * radius
             out_ptr = out_ptr + 1
 
             a = a + a_step
@@ -4966,8 +5089,9 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
                 sample_index = sample_index + IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
 
-            local s = self._Data.ArcFastVtx[sample_index + 1]
-            ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+            local s = arc_fast_vtx[sample_index + 1]
+            local d = path_data[out_ptr]
+            d.x = cx + s.x * radius; d.y = cy + s.y * radius
             out_ptr = out_ptr + 1
 
             a = a - a_step
@@ -4982,12 +5106,17 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
             normalized_max_sample = normalized_max_sample + IM_DRAWLIST_ARCFAST_SAMPLE_MAX
         end
 
-        local s = self._Data.ArcFastVtx[normalized_max_sample + 1]
-        ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+        local s = arc_fast_vtx[normalized_max_sample + 1]
+        local d = path_data[out_ptr]
+        d.x = cx + s.x * radius; d.y = cy + s.y * radius
         out_ptr = out_ptr + 1
     end
 
     IM_ASSERT_PARANOID(self._Path.Size == out_ptr - 1)
+end
+
+function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, a_step)
+    _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, a_step)
 end
 
 -- 0: East, 3: South, 6: West, 9: North, 12: East
@@ -4998,7 +5127,7 @@ function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
         return
     end
 
-    self:_PathArcToFastEx(center, radius, a_min_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, a_max_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+    _PathArcToFastExXY(self, center.x, center.y, radius, a_min_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, a_max_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
 end
 
 --- @param center       ImVec2
@@ -5014,11 +5143,17 @@ function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
 
     -- Note that we are adding a point at both a_min and a_max.
     -- If you are trying to draw a full closed circle you don't want the overlapping points!
-    self._Path:reserve(self._Path.Size + (num_segments + 1))
+    local path = self._Path
+    path:reserve(path.Size + (num_segments + 1))
+    -- [Luau] write into the reserved ImVec2 slots: no temporary ImVec2, no push_back() method lookups
+    local data, size = path.Data, path.Size
     for i = 0, num_segments do
         local a = a_min + (i / num_segments) * (a_max - a_min)
-        self._Path:push_back(ImVec2(center.x + ImCos(a) * radius, center.y + ImSin(a) * radius))
+        size = size + 1
+        local p = data[size]
+        p.x = center.x + ImCos(a) * radius; p.y = center.y + ImSin(a) * radius
     end
+    path.Size = size
 end
 
 --- @param center        ImVec2
@@ -5059,9 +5194,9 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
 
         self._Path:reserve(self._Path.Size + (a_mid_samples + 1 + (a_emit_start and 1 or 0) + (a_emit_end and 1 or 0)))
 
-        if a_emit_start      then self._Path:push_back(ImVec2(center.x + ImCos(a_min) * radius, center.y + ImSin(a_min) * radius)) end
-        if a_mid_samples > 0 then self:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, 0) end
-        if a_emit_end        then self._Path:push_back(ImVec2(center.x + ImCos(a_max) * radius, center.y + ImSin(a_max) * radius)) end
+        if a_emit_start      then PathLineToXY(self, center.x + ImCos(a_min) * radius, center.y + ImSin(a_min) * radius) end -- [Luau] no temporary ImVec2
+        if a_mid_samples > 0 then _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, 0) end
+        if a_emit_end        then PathLineToXY(self, center.x + ImCos(a_max) * radius, center.y + ImSin(a_max) * radius) end
     else
         local arc_length = ImAbs(a_max - a_min)
         local circle_segment_count = self:_CalcCircleAutoSegmentCount(radius)
@@ -5172,6 +5307,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(self, size, text, s, text_end, wrap_width - (x - origin_x), flags)
+                lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data -- [Luau] may have loaded glyphs
             end
 
             if s >= word_wrap_eol then
@@ -5371,18 +5507,24 @@ end
 --- @param pos       ImVec2
 --- @param col       ImU32
 --- @param sz        float
+local checkmark_p = ImVec2() -- [Luau] scratch: PathLineTo() copies the point
+
 function ImGui.RenderCheckMark(draw_list, pos, col, sz)
-    local thickness = ImMax(sz / 5.0, 1.0)
+    local thickness = math.max(sz / 5.0, 1.0)
     sz = sz - thickness * 0.5
-    pos = pos + ImVec2(thickness * 0.25, thickness * 0.25)
+    local pos_x, pos_y = pos.x + thickness * 0.25, pos.y + thickness * 0.25 -- [Luau] scalar pos
 
     local third = sz / 3.0
-    local bx = pos.x + third
-    local by = pos.y + sz - third * 0.5
+    local bx = pos_x + third
+    local by = pos_y + sz - third * 0.5
 
-    draw_list:PathLineTo(ImVec2(bx - third, by - third))
-    draw_list:PathLineTo(ImVec2(bx, by))
-    draw_list:PathLineTo(ImVec2(bx + third * 2.0, by - third * 2.0))
+    local p = checkmark_p
+    p.x = bx - third; p.y = by - third
+    draw_list:PathLineTo(p)
+    p.x = bx; p.y = by
+    draw_list:PathLineTo(p)
+    p.x = bx + third * 2.0; p.y = by - third * 2.0
+    draw_list:PathLineTo(p)
     draw_list:PathStroke(col, thickness)
 end
 

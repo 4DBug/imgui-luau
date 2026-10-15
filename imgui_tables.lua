@@ -200,6 +200,7 @@ end
 
 local bit32 = bit32
 local band, bor, bnot, lshift, rshift = bit32.band, bit32.bor, bit32.bnot, bit32.lshift, bit32.rshift
+local mathMax, mathMin = math.max, math.min -- [Luau] scalar ImMax()/ImMin() in table code are written as mathMax()/mathMin() (no call through the vector-aware helper)
 
 IM_COL32_DISABLE = IM_COL32(0, 0, 0, 1) -- Special sentinel code which cannot be used as a regular color.
 IMGUI_TABLE_MAX_COLUMNS = 512 -- Arbitrary "safety" maximum, may be lifted in the future if needed. Must fit in ImGuiTableColumnIdx/ImGuiTableDrawChannelIdx.
@@ -482,7 +483,7 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
     -- - always performing the GetOrAddByKey() O(log N) query in g.Tables.Map[].
     local use_child_window = band(flags, bor(ImGuiTableFlags.ScrollX, ImGuiTableFlags.ScrollY)) ~= 0
     local avail_size = ImGui.GetContentRegionAvail()
-    local actual_outer_size = ImTrunc(ImGui.CalcItemSize(outer_size, ImMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and ImMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0))
+    local actual_outer_size = ImTrunc(ImGui.CalcItemSize(outer_size, mathMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and mathMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0))
     local outer_rect = ImRect(outer_window.DC.CursorPos, outer_window.DC.CursorPos + actual_outer_size)
     local outer_window_is_measuring_size = (outer_window.AutoFitFramesX > 0) or (outer_window.AutoFitFramesY > 0) -- Doesn't apply to AlwaysAutoResize windows!
     if use_child_window and ImGui.IsClippedEx(outer_rect, 0) and not outer_window_is_measuring_size then
@@ -638,15 +639,15 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
         -- different x/y values to BeginChild().
         local border_size = TABLE_BORDER_SIZE
         if band(flags, ImGuiTableFlags.BordersOuterV) ~= 0 then
-            table_.HostClipRect.Min.x = ImMin(table_.HostClipRect.Min.x + border_size, table_.HostClipRect.Max.x)
+            table_.HostClipRect.Min.x = mathMin(table_.HostClipRect.Min.x + border_size, table_.HostClipRect.Max.x)
             if inner_window.DecoOuterSizeX2 == 0.0 then
-                table_.HostClipRect.Max.x = ImMax(table_.HostClipRect.Max.x - border_size, table_.HostClipRect.Min.x)
+                table_.HostClipRect.Max.x = mathMax(table_.HostClipRect.Max.x - border_size, table_.HostClipRect.Min.x)
             end
         end
         if band(flags, ImGuiTableFlags.BordersOuterH) ~= 0 then
-            table_.HostClipRect.Min.y = ImMin(table_.HostClipRect.Min.y + border_size, table_.HostClipRect.Max.y)
+            table_.HostClipRect.Min.y = mathMin(table_.HostClipRect.Min.y + border_size, table_.HostClipRect.Max.y)
             if inner_window.DecoOuterSizeY2 == 0.0 then
-                table_.HostClipRect.Max.y = ImMax(table_.HostClipRect.Max.y - border_size, table_.HostClipRect.Min.y)
+                table_.HostClipRect.Max.y = mathMax(table_.HostClipRect.Max.y - border_size, table_.HostClipRect.Min.y)
             end
         end
     end
@@ -679,7 +680,7 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
     ImRect_Copy(table_.InnerClipRect, (inner_window == outer_window) and table_.WorkRect or inner_window.ClipRect)
     table_.InnerClipRect:ClipWith(table_.WorkRect)     -- We need this to honor inner_width
     table_.InnerClipRect:ClipWithFull(table_.HostClipRect)
-    table_.InnerClipRect.Max.y = (band(flags, ImGuiTableFlags.NoHostExtendY) ~= 0) and ImMin(table_.InnerClipRect.Max.y, inner_window.WorkRect.Max.y) or table_.HostClipRect.Max.y
+    table_.InnerClipRect.Max.y = (band(flags, ImGuiTableFlags.NoHostExtendY) ~= 0) and mathMin(table_.InnerClipRect.Max.y, inner_window.WorkRect.Max.y) or table_.HostClipRect.Max.y
 
     table_.RowPosY1 = table_.WorkRect.Min.y -- This is needed somehow
     table_.RowPosY2 = table_.WorkRect.Min.y
@@ -1050,7 +1051,7 @@ function ImGui.TableUpdateLayout(table_)
     BitArrayClearAll(table_.EnabledMaskByIndex)
     BitArrayClearAll(table_.EnabledMaskByDisplayOrder)
     table_.LeftMostEnabledColumn = -1
-    table_.MinColumnWidth = ImMax(1.0, g.Style.FramePadding.x * 1.0) -- g.Style.ColumnsMinSpacing -- FIXME-TABLE
+    table_.MinColumnWidth = mathMax(1.0, g.Style.FramePadding.x * 1.0) -- g.Style.ColumnsMinSpacing -- FIXME-TABLE
 
     -- [Part 1] Apply/lock Enabled and Order states. Calculate auto/ideal width for columns. Count fixed/stretch columns.
     -- Process columns in their visible orders as we are building the Prev/Next indices.
@@ -1152,7 +1153,7 @@ function ImGui.TableUpdateLayout(table_)
                 stretch_sum_width_auto = stretch_sum_width_auto + column.WidthAuto
                 count_stretch = count_stretch + 1
             else
-                fixed_max_width_auto = ImMax(fixed_max_width_auto, column.WidthAuto)
+                fixed_max_width_auto = mathMax(fixed_max_width_auto, column.WidthAuto)
                 count_fixed = count_fixed + 1
             end
         end
@@ -1204,7 +1205,7 @@ function ImGui.TableUpdateLayout(table_)
                 -- FIXME: Move this to .WidthGiven to avoid temporary lossyness?
                 -- FIXME: This break IsPreserveWidthAuto from not flickering if the stored WidthAuto was smaller.
                 if column.AutoFitQueue > 0x01 and table_.IsInitializing and not column.IsPreserveWidthAuto then
-                    column.WidthRequest = ImMax(column.WidthRequest, table_.MinColumnWidth * 4.0) -- FIXME-TABLE: Another constant/scale?
+                    column.WidthRequest = mathMax(column.WidthRequest, table_.MinColumnWidth * 4.0) -- FIXME-TABLE: Another constant/scale?
                 end
                 sum_width_requests = sum_width_requests + column.WidthRequest
             else
@@ -1238,7 +1239,7 @@ function ImGui.TableUpdateLayout(table_)
     local work_rect = Rect(table_.WorkRect)
     local width_spacings = (table_.OuterPaddingX * 2.0) + (table_.CellSpacingX1 + table_.CellSpacingX2) * (table_.ColumnsEnabledCount - 1)
     local width_removed = (table_.HasScrollbarYPrev and not table_.InnerWindow.ScrollbarY) and g.Style.ScrollbarSize or 0.0 -- To synchronize decoration width of synced tables with mismatching scrollbar state (#5920)
-    local width_avail = ImMax(1.0, ((band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0 and table_.InnerWidth == 0.0) and table_.InnerClipRect:GetWidth() or work_rect:GetWidth()) - width_removed)
+    local width_avail = mathMax(1.0, ((band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0 and table_.InnerWidth == 0.0) and table_.InnerClipRect:GetWidth() or work_rect:GetWidth()) - width_removed)
     local width_avail_for_stretched_columns = width_avail - width_spacings - sum_width_requests
     local width_remaining_for_stretched_columns = width_avail_for_stretched_columns
     table_.ColumnsGivenWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount
@@ -1249,7 +1250,7 @@ function ImGui.TableUpdateLayout(table_)
             -- Allocate width for stretched/weighted columns (StretchWeight gets converted into WidthRequest)
             if band(column.Flags, ImGuiTableColumnFlags.WidthStretch) ~= 0 then
                 local weight_ratio = column.StretchWeight / stretch_sum_weights
-                column.WidthRequest = IM_TRUNC(ImMax(width_avail_for_stretched_columns * weight_ratio, table_.MinColumnWidth) + 0.01)
+                column.WidthRequest = IM_TRUNC(mathMax(width_avail_for_stretched_columns * weight_ratio, table_.MinColumnWidth) + 0.01)
                 width_remaining_for_stretched_columns = width_remaining_for_stretched_columns - column.WidthRequest
             end
 
@@ -1260,7 +1261,7 @@ function ImGui.TableUpdateLayout(table_)
             end
 
             -- Assign final width, record width in case we will need to shrink
-            column.WidthGiven = ImTrunc(ImMax(column.WidthRequest, table_.MinColumnWidth))
+            column.WidthGiven = ImTrunc(mathMax(column.WidthRequest, table_.MinColumnWidth))
             table_.ColumnsGivenWidth = table_.ColumnsGivenWidth + column.WidthGiven
         end
     end
@@ -1291,7 +1292,7 @@ function ImGui.TableUpdateLayout(table_)
     table_instance.HoveredRowLast = table_instance.HoveredRowNext
     table_instance.HoveredRowNext = -1
     table_.HoveredColumnBody = -1; table_.HoveredColumnBorder = -1
-    local mouse_hit_rect = ImRect(table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, ImMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight))
+    local mouse_hit_rect = ImRect(table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, mathMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight))
     local backup_active_id = g.ActiveId
     g.ActiveId = 0
     local is_hovering_table = ImGui.ItemHoverable(mouse_hit_rect, 0, ImGuiItemFlags.None)
@@ -1346,8 +1347,8 @@ function ImGui.TableUpdateLayout(table_)
 
             -- Lock width based on start position and minimum/maximum width for this position
             column.WidthMax = ImGui.TableCalcMaxColumnWidth(table_, column_n)
-            column.WidthGiven = ImMin(column.WidthGiven, column.WidthMax)
-            column.WidthGiven = ImMax(column.WidthGiven, ImMin(column.WidthRequest, table_.MinColumnWidth))
+            column.WidthGiven = mathMin(column.WidthGiven, column.WidthMax)
+            column.WidthGiven = mathMax(column.WidthGiven, mathMin(column.WidthRequest, table_.MinColumnWidth))
             column.MaxX = offset_x + column.WidthGiven + table_.CellSpacingX1 + table_.CellSpacingX2 + table_.CellPaddingX * 2.0
 
             -- Lock other positions
@@ -1455,7 +1456,7 @@ function ImGui.TableUpdateLayout(table_)
     -- [Part 7] Detect/store when we are hovering the unused space after the right-most column (so e.g. context menus can react on it)
     -- Clear Resizable flag if none of our column are actually resizable (either via an explicit _NoResize flag, either
     -- because of using _WidthAuto/_WidthStretch). This will hide the resizing option from the context menu.
-    local unused_x1 = ImMax(table_.WorkRect.Min.x, table_.Columns[table_.RightMostEnabledColumn].ClipRect.Max.x)
+    local unused_x1 = mathMax(table_.WorkRect.Min.x, table_.Columns[table_.RightMostEnabledColumn].ClipRect.Max.x)
     if is_hovering_table and table_.HoveredColumnBody == -1 then
         if mouse_skewed_x >= unused_x1 then
             table_.HoveredColumnBody = columns_count
@@ -1475,7 +1476,7 @@ function ImGui.TableUpdateLayout(table_)
     end
     if band(table_.Flags, ImGuiTableFlags.NoHostExtendX) ~= 0 then
         table_.OuterRect.Max.x = unused_x1; table_.WorkRect.Max.x = unused_x1
-        table_.InnerClipRect.Max.x = ImMin(table_.InnerClipRect.Max.x, unused_x1)
+        table_.InnerClipRect.Max.x = mathMin(table_.InnerClipRect.Max.x, unused_x1)
     end
     ImRect_Copy(table_.InnerWindow.ParentWorkRect, table_.WorkRect)
     table_.BorderX1 = table_.InnerClipRect.Min.x
@@ -1486,7 +1487,7 @@ function ImGui.TableUpdateLayout(table_)
     if band(table_.Flags, ImGuiTableFlags.NoHostExtendY) ~= 0 then
         window_content_max_y = table_.OuterRect.Max.y
     else
-        window_content_max_y = ImMax(table_.InnerWindow.ContentRegionRect.Max.y, (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and 0.0 or table_.OuterRect.Max.y)
+        window_content_max_y = mathMax(table_.InnerWindow.ContentRegionRect.Max.y, (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and 0.0 or table_.OuterRect.Max.y)
     end
     table_.InnerWindow.WorkRect.Max.y = ImClamp(window_content_max_y - g.Style.CellPadding.y, table_.InnerWindow.WorkRect.Min.y, table_.InnerWindow.WorkRect.Max.y)
 
@@ -1578,7 +1579,7 @@ function ImGui.TableUpdateBorders(table_)
     local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
     local hit_half_width = ImTrunc(TABLE_RESIZE_SEPARATOR_HALF_THICKNESS * g.CurrentDpiScale)
     local hit_y1 = ((table_.FreezeRowsCount >= 1) and table_.OuterRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight
-    local hit_y2_body = ImMax(table_.OuterRect.Max.y, hit_y1 + table_instance.LastOuterHeight - table_.AngledHeadersHeight)
+    local hit_y2_body = mathMax(table_.OuterRect.Max.y, hit_y1 + table_instance.LastOuterHeight - table_.AngledHeadersHeight)
     local hit_y2_head = hit_y1 + table_instance.LastTopHeadersRowHeight
 
     for order_n = 0, table_.ColumnsCount - 1 do
@@ -1672,10 +1673,10 @@ function ImGui.EndTable()
     if inner_window ~= outer_window then
         inner_window.DC.CursorMaxPos.y = inner_content_max_y
     elseif band(flags, ImGuiTableFlags.NoHostExtendY) == 0 then
-        local v = ImMax(table_.OuterRect.Max.y, inner_content_max_y) -- Patch OuterRect/InnerRect height
+        local v = mathMax(table_.OuterRect.Max.y, inner_content_max_y) -- Patch OuterRect/InnerRect height
         table_.OuterRect.Max.y = v; table_.InnerRect.Max.y = v
     end
-    table_.WorkRect.Max.y = ImMax(table_.WorkRect.Max.y, table_.OuterRect.Max.y)
+    table_.WorkRect.Max.y = mathMax(table_.WorkRect.Max.y, table_.OuterRect.Max.y)
     table_instance.LastOuterHeight = table_.OuterRect:GetHeight()
 
     -- Setup inner scrolling range
@@ -1685,10 +1686,10 @@ function ImGui.EndTable()
         local outer_padding_for_border = (band(table_.Flags, ImGuiTableFlags.BordersOuterV) ~= 0) and TABLE_BORDER_SIZE or 0.0
         local max_pos_x = inner_window.DC.CursorMaxPos.x
         if table_.RightMostEnabledColumn ~= -1 then
-            max_pos_x = ImMax(max_pos_x, table_.Columns[table_.RightMostEnabledColumn].WorkMaxX + table_.CellPaddingX + table_.OuterPaddingX - outer_padding_for_border)
+            max_pos_x = mathMax(max_pos_x, table_.Columns[table_.RightMostEnabledColumn].WorkMaxX + table_.CellPaddingX + table_.OuterPaddingX - outer_padding_for_border)
         end
         if table_.ResizedColumn ~= -1 then
-            max_pos_x = ImMax(max_pos_x, table_.ResizeLockMinContentsX2)
+            max_pos_x = mathMax(max_pos_x, table_.ResizeLockMinContentsX2)
         end
         inner_window.DC.CursorMaxPos.x = max_pos_x + table_.TempData.AngledHeadersExtraWidth
     end
@@ -1731,12 +1732,12 @@ function ImGui.EndTable()
                 auto_fit_width_for_stretched = auto_fit_width_for_stretched + column_width_request
             end
             if band(column.Flags, ImGuiTableColumnFlags.WidthStretch) ~= 0 and band(column.Flags, ImGuiTableColumnFlags.NoResize) ~= 0 then
-                auto_fit_width_for_stretched_min = ImMax(auto_fit_width_for_stretched_min, column_width_request / (column.StretchWeight / table_.ColumnsStretchSumWeights))
+                auto_fit_width_for_stretched_min = mathMax(auto_fit_width_for_stretched_min, column_width_request / (column.StretchWeight / table_.ColumnsStretchSumWeights))
             end
         end
     end
     local width_spacings = (table_.OuterPaddingX * 2.0) + (table_.CellSpacingX1 + table_.CellSpacingX2) * (table_.ColumnsEnabledCount - 1)
-    table_.ColumnsAutoFitWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount + auto_fit_width_for_fixed + ImMax(auto_fit_width_for_stretched, auto_fit_width_for_stretched_min)
+    table_.ColumnsAutoFitWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount + auto_fit_width_for_fixed + mathMax(auto_fit_width_for_stretched, auto_fit_width_for_stretched_min)
 
     -- Update scroll
     if band(table_.Flags, ImGuiTableFlags.ScrollX) == 0 and inner_window ~= outer_window then
@@ -1801,27 +1802,27 @@ function ImGui.EndTable()
         -- FIXME-TABLE: Could we remove this section?
         -- ColumnsAutoFitWidth may be one frame ahead here since for Fixed+NoResize is calculated from latest contents
         IM_ASSERT(band(table_.Flags, ImGuiTableFlags.ScrollX) == 0)
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth)
     elseif temp_data.UserOuterSize.x <= 0.0 then
         -- Some references for this: #7651 + tests "table_reported_size", "table_reported_size_outer" equivalent Y block, #9352
         -- - FIXME-TABLE: Would make sense to pre-compute expected scrollbar visibility/sizes to generally save a frame of feedback? See broken test in 'table_reported_size_outer'
         local outer_content_max_x = table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth
         local decoration_size = table_.TempData.AngledHeadersExtraWidth + ((inner_window ~= outer_window) and inner_window.ScrollbarSizes.x or 0.0)
-        outer_window.DC.IdealMaxPos.x = ImMax(outer_window.DC.IdealMaxPos.x, outer_content_max_x + decoration_size - temp_data.UserOuterSize.x)
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, ImMin(table_.OuterRect.Max.x, outer_content_max_x + decoration_size))
+        outer_window.DC.IdealMaxPos.x = mathMax(outer_window.DC.IdealMaxPos.x, outer_content_max_x + decoration_size - temp_data.UserOuterSize.x)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, mathMin(table_.OuterRect.Max.x, outer_content_max_x + decoration_size))
     else
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, table_.OuterRect.Max.x)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, table_.OuterRect.Max.x)
     end
     if temp_data.UserOuterSize.y <= 0.0 then
         -- (same comment as above)
         local outer_content_size_y = (inner_window == outer_window) and (inner_content_max_y - table_.InnerRect.Min.y) or (inner_content_max_y - inner_window.DC.CursorStartPos.y)
         local outer_content_max_y = table_.OuterRect.Min.y + outer_content_size_y
         local decoration_size = (inner_window ~= outer_window) and inner_window.ScrollbarSizes.y or 0.0
-        outer_window.DC.IdealMaxPos.y = ImMax(outer_window.DC.IdealMaxPos.y, outer_content_max_y + decoration_size - temp_data.UserOuterSize.y)
-        outer_window.DC.CursorMaxPos.y = ImMax(backup_outer_max_pos.y, ImMin(table_.OuterRect.Max.y, outer_content_max_y + decoration_size))
+        outer_window.DC.IdealMaxPos.y = mathMax(outer_window.DC.IdealMaxPos.y, outer_content_max_y + decoration_size - temp_data.UserOuterSize.y)
+        outer_window.DC.CursorMaxPos.y = mathMax(backup_outer_max_pos.y, mathMin(table_.OuterRect.Max.y, outer_content_max_y + decoration_size))
     else
         -- OuterRect.Max.y may already have been pushed downward from the initial value (unless ImGuiTableFlags.NoHostExtendY is set)
-        outer_window.DC.CursorMaxPos.y = ImMax(backup_outer_max_pos.y, table_.OuterRect.Max.y)
+        outer_window.DC.CursorMaxPos.y = mathMax(backup_outer_max_pos.y, table_.OuterRect.Max.y)
     end
 
     -- Save settings
@@ -2039,7 +2040,7 @@ function ImGui.TableSetupScrollFreeze(columns, rows)
     IM_ASSERT(columns >= 0 and columns < IMGUI_TABLE_MAX_COLUMNS)
     IM_ASSERT(rows >= 0 and rows < 128) -- Arbitrary limit
 
-    table_.FreezeColumnsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0) and ImMin(columns, table_.ColumnsCount) or 0
+    table_.FreezeColumnsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0) and mathMin(columns, table_.ColumnsCount) or 0
     table_.FreezeColumnsCount = (table_.InnerWindow.Scroll.x ~= 0.0) and table_.FreezeColumnsRequest or 0
     table_.FreezeRowsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and rows or 0
     table_.FreezeRowsCount = (table_.InnerWindow.Scroll.y ~= 0.0) and table_.FreezeRowsRequest or 0
@@ -2065,11 +2066,23 @@ end
 -- they would meddle many times with the underlying ImDrawCmd.
 -- Instead, we do a preemptive overwrite of clipping rectangle _without_ altering the command-buffer and let
 -- the subsequent single call to SetCurrentChannel() does it things once.
+@native
 function ImGui.SetWindowClipRectBeforeSetChannel(window, clip_rect)
-    local clip_rect_vec4 = clip_rect:ToVec4()
-    ImRect_Copy(window.ClipRect, clip_rect)
-    ImVec4_Copy(window.DrawList._CmdHeader.ClipRect, clip_rect_vec4)
-    window.DrawList._ClipRectStack.Data[window.DrawList._ClipRectStack.Size] = clip_rect_vec4
+    -- [Luau] scalar copies, no temporary ImVec4: the clip rect stack top is a uniquely owned ImVec4 (PushClipRect always pushes a fresh one), so overwrite it in place
+    local min, max = clip_rect.Min, clip_rect.Max
+    local x1, y1, x2, y2 = min.x, min.y, max.x, max.y
+    local wcr = window.ClipRect
+    wcr.Min.x = x1; wcr.Min.y = y1; wcr.Max.x = x2; wcr.Max.y = y2
+    local draw_list = window.DrawList
+    local hcr = draw_list._CmdHeader.ClipRect
+    hcr.x = x1; hcr.y = y1; hcr.z = x2; hcr.w = y2
+    local stack = draw_list._ClipRectStack
+    local top = stack.Data[stack.Size]
+    if top ~= nil then
+        top.x = x1; top.y = y1; top.z = x2; top.w = y2
+    else
+        stack.Data[stack.Size] = ImVec4(x1, y1, x2, y2)
+    end
 end
 
 function ImGui.TableGetColumnCount()
@@ -2154,8 +2167,8 @@ function ImGui.TableGetCellBgRect(table_, column_n)
     --    x1 = x1 - table.OuterPaddingX
     --if column.NextEnabledColumn == -1 then
     --    x2 = x2 + table.OuterPaddingX
-    x1 = ImMax(x1, table_.WorkRect.Min.x)
-    x2 = ImMin(x2, table_.WorkRect.Max.x)
+    x1 = mathMax(x1, table_.WorkRect.Min.x)
+    x2 = mathMin(x2, table_.WorkRect.Max.x)
     return ImRect(x1, table_.RowPosY1, x2, table_.RowPosY2)
 end
 
@@ -2274,8 +2287,7 @@ function ImGui.TableNextRow(row_flags, row_min_height)
 
     -- We honor min_row_height requested by user, but cannot guarantee per-row maximum height,
     -- because that would essentially require a unique clipping rectangle per-cell.
-    table_.RowPosY2 = table_.RowPosY2 + table_.RowCellPaddingY * 2.0
-    table_.RowPosY2 = ImMax(table_.RowPosY2, table_.RowPosY1 + row_min_height)
+    table_.RowPosY2 = mathMax(table_.RowPosY2 + table_.RowCellPaddingY * 2.0, table_.RowPosY1 + row_min_height) -- [Luau] inline ImMax
 
     -- Disable output until user calls TableNextColumn()
     table_.InnerWindow.SkipItems = true
@@ -2302,15 +2314,16 @@ function ImGui.TableBeginRow(table_)
 
     table_.RowPosY1 = next_y1; table_.RowPosY2 = next_y1
     table_.RowTextBaseline = 0.0
-    table_.RowIndentOffsetX = window.DC.Indent.x - table_.HostIndentX -- Lock indent
+    local dc = window.DC -- [Luau] cache
+    table_.RowIndentOffsetX = dc.Indent.x - table_.HostIndentX -- Lock indent
 
-    window.DC.PrevLineTextBaseOffset = 0.0
-    window.DC.CursorPosPrevLine.x = window.DC.CursorPos.x
-    window.DC.CursorPosPrevLine.y = window.DC.CursorPos.y + table_.RowCellPaddingY -- This allows users to call SameLine() to share LineSize between columns.
-    window.DC.PrevLineSize.x = 0.0; window.DC.PrevLineSize.y = 0.0 -- This allows users to call SameLine() to share LineSize between columns, and to call it from first column too.
-    window.DC.CurrLineSize.x = 0.0; window.DC.CurrLineSize.y = 0.0
-    window.DC.IsSameLine = false; window.DC.IsSetPos = false
-    window.DC.CursorMaxPos.y = next_y1
+    dc.PrevLineTextBaseOffset = 0.0
+    dc.CursorPosPrevLine.x = dc.CursorPos.x
+    dc.CursorPosPrevLine.y = dc.CursorPos.y + table_.RowCellPaddingY -- This allows users to call SameLine() to share LineSize between columns.
+    dc.PrevLineSize.x = 0.0; dc.PrevLineSize.y = 0.0 -- This allows users to call SameLine() to share LineSize between columns, and to call it from first column too.
+    dc.CurrLineSize.x = 0.0; dc.CurrLineSize.y = 0.0
+    dc.IsSameLine = false; dc.IsSetPos = false
+    dc.CursorMaxPos.y = next_y1
 
     -- Making the header BG color non-transparent will allow us to overlay it multiple times when handling smooth dragging.
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 then
@@ -2320,6 +2333,9 @@ function ImGui.TableBeginRow(table_)
         end
     end
 end
+
+-- [Luau] scratch vectors for TableEndRow() row background (never escape)
+local TableEndRow_RowMin, TableEndRow_RowMax = ImVec2(), ImVec2()
 
 -- [Internal] Called by TableNextRow()
 function ImGui.TableEndRow(table_)
@@ -2347,7 +2363,7 @@ function ImGui.TableEndRow(table_)
     local bg_y2 = table_.RowPosY2
     local unfreeze_rows_actual = (table_.CurrentRow + 1 == table_.FreezeRowsCount)
     local unfreeze_rows_request = (table_.CurrentRow + 1 == table_.FreezeRowsRequest)
-    local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
+    local table_instance = (table_.InstanceCurrent == 0) and table_.InstanceDataFirst or ImGui.TableGetInstanceData(table_, table_.InstanceCurrent) -- [Luau] inline common case
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 and (table_.CurrentRow == 0 or band(table_.LastRowFlags, ImGuiTableRowFlags.Headers) ~= 0) then
         table_instance.LastTopHeadersRowHeight = table_instance.LastTopHeadersRowHeight + bg_y2 - bg_y1
     end
@@ -2384,7 +2400,9 @@ function ImGui.TableEndRow(table_)
             -- In theory we could call SetWindowClipRectBeforeSetChannel() but since we know TableEndRow() is
             -- always followed by a change of clipping rectangle we perform the smallest overwrite possible here.
             if band(table_.Flags, ImGuiTableFlags.NoClip) == 0 then
-                ImVec4_Copy(window.DrawList._CmdHeader.ClipRect, table_.Bg0ClipRectForDrawCmd:ToVec4())
+                -- [Luau] scalar copy, no temporary ImVec4
+                local src, dst = table_.Bg0ClipRectForDrawCmd, window.DrawList._CmdHeader.ClipRect
+                dst.x = src.Min.x; dst.y = src.Min.y; dst.z = src.Max.x; dst.w = src.Max.y
             end
             table_.DrawSplitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_BG0)
         end
@@ -2392,13 +2410,16 @@ function ImGui.TableEndRow(table_)
         -- Draw row background
         -- We soft/cpu clip this so all backgrounds and borders can share the same clipping rectangle
         if bg_col0 ~= 0 or bg_col1 ~= 0 then
-            local row_rect = ImRect(table_.WorkRect.Min.x, bg_y1, table_.WorkRect.Max.x, bg_y2)
-            row_rect:ClipWith(table_.BgClipRect)
-            if bg_col0 ~= 0 and row_rect.Min.y < row_rect.Max.y then
-                window.DrawList:AddRectFilled(row_rect.Min, row_rect.Max, bg_col0)
+            -- [Luau] row_rect = ImRect(WorkRect.Min.x, bg_y1, WorkRect.Max.x, bg_y2); row_rect:ClipWith(BgClipRect), in scratch vectors (only read by AddRectFilled)
+            local bg_clip_rect = table_.BgClipRect
+            local row_min, row_max = TableEndRow_RowMin, TableEndRow_RowMax
+            row_min.x = mathMax(table_.WorkRect.Min.x, bg_clip_rect.Min.x); row_min.y = mathMax(bg_y1, bg_clip_rect.Min.y)
+            row_max.x = mathMin(table_.WorkRect.Max.x, bg_clip_rect.Max.x); row_max.y = mathMin(bg_y2, bg_clip_rect.Max.y)
+            if bg_col0 ~= 0 and row_min.y < row_max.y then
+                window.DrawList:AddRectFilled(row_min, row_max, bg_col0)
             end
-            if bg_col1 ~= 0 and row_rect.Min.y < row_rect.Max.y then
-                window.DrawList:AddRectFilled(row_rect.Min, row_rect.Max, bg_col1)
+            if bg_col1 ~= 0 and row_min.y < row_max.y then
+                window.DrawList:AddRectFilled(row_min, row_max, bg_col1)
             end
         end
 
@@ -2411,8 +2432,8 @@ function ImGui.TableEndRow(table_)
                 local column = table_.Columns[cell_data.Column]
                 local cell_bg_rect = ImGui.TableGetCellBgRect(table_, cell_data.Column)
                 cell_bg_rect:ClipWith(table_.BgClipRect)
-                cell_bg_rect.Min.x = ImMax(cell_bg_rect.Min.x, column.ClipRect.Min.x) -- So that first column after frozen one gets clipped when scrolling
-                cell_bg_rect.Max.x = ImMin(cell_bg_rect.Max.x, column.MaxX)
+                cell_bg_rect.Min.x = mathMax(cell_bg_rect.Min.x, column.ClipRect.Min.x) -- So that first column after frozen one gets clipped when scrolling
+                cell_bg_rect.Max.x = mathMin(cell_bg_rect.Max.x, column.MaxX)
                 if cell_bg_rect.Min.y < cell_bg_rect.Max.y then
                     window.DrawList:AddRectFilled(cell_bg_rect.Min, cell_bg_rect.Max, cell_data.BgColor)
                 end
@@ -2438,7 +2459,7 @@ function ImGui.TableEndRow(table_)
         for column_n = 0, table_.ColumnsCount - 1 do
             table_.Columns[column_n].NavLayerCurrent = table_.NavLayer
         end
-        local y0 = ImMax(table_.RowPosY2 + 1, table_.InnerClipRect.Min.y)
+        local y0 = mathMax(table_.RowPosY2 + 1, table_.InnerClipRect.Min.y)
         table_instance.LastFrozenHeight = y0 - table_.OuterRect.Min.y
 
         if unfreeze_rows_actual then
@@ -2446,7 +2467,7 @@ function ImGui.TableEndRow(table_)
             table_.IsUnfrozenRows = true
 
             -- BgClipRect starts as table.InnerClipRect, reduce it now and make BgClipRectForDrawCmd == BgClipRect
-            local min_y = ImMin(y0, table_.InnerClipRect.Max.y)
+            local min_y = mathMin(y0, table_.InnerClipRect.Max.y)
             table_.BgClipRect.Min.y = min_y; table_.Bg2ClipRectForDrawCmd.Min.y = min_y
             table_.BgClipRect.Max.y = table_.InnerClipRect.Max.y; table_.Bg2ClipRectForDrawCmd.Max.y = table_.InnerClipRect.Max.y
             table_.Bg2DrawChannelCurrent = table_.Bg2DrawChannelUnfrozen
@@ -2518,6 +2539,7 @@ function ImGui.TableSetColumnIndex(column_n)
 end
 
 -- [Public] Append into the next column, wrap and create a new row when already on last column
+@native
 function ImGui.TableNextColumn()
     local g = GImGui
     local table_ = g.CurrentTable
@@ -2525,28 +2547,33 @@ function ImGui.TableNextColumn()
         return false
     end
 
-    if table_.IsInsideRow and table_.CurrentColumn + 1 < table_.ColumnsCount then
-        if table_.CurrentColumn ~= -1 then
+    local current_column = table_.CurrentColumn
+    local next_column
+    if table_.IsInsideRow and current_column + 1 < table_.ColumnsCount then
+        if current_column ~= -1 then
             ImGui.TableEndCell(table_)
         end
-        ImGui.TableBeginCell(table_, table_.CurrentColumn + 1)
+        next_column = current_column + 1
     else
         ImGui.TableNextRow()
-        ImGui.TableBeginCell(table_, 0)
+        next_column = 0
     end
+    ImGui.TableBeginCell(table_, next_column)
 
     -- Return whether the column is visible. User may choose to skip submitting items based on this return value,
     -- however they shouldn't skip submitting for columns that may have the tallest contribution to row height.
-    return table_.Columns[table_.CurrentColumn].IsRequestOutput
+    return table_.Columns[next_column].IsRequestOutput
 end
 
 -- [Internal] Called by TableSetColumnIndex()/TableNextColumn()
 -- This is called very frequently, so we need to be mindful of unnecessary overhead.
 -- FIXME-TABLE FIXME-OPT: Could probably shortcut some things for non-active or clipped columns.
+@native
 function ImGui.TableBeginCell(table_, column_n)
     local g = GImGui
     local column = table_.Columns[column_n]
     local window = table_.InnerWindow
+    local dc = window.DC -- [Luau] cache
     table_.CurrentColumn = column_n
 
     -- Start position is roughly ~~ CellRect.Min + CellPadding + Indent
@@ -2555,35 +2582,45 @@ function ImGui.TableBeginCell(table_, column_n)
         start_x = start_x + table_.RowIndentOffsetX -- ~~ += window.DC.Indent.x - table.HostIndentX, except we locked it for the row.
     end
 
-    window.DC.CursorPos.x = start_x
-    window.DC.CursorPos.y = table_.RowPosY1 + table_.RowCellPaddingY
-    window.DC.CursorMaxPos.x = window.DC.CursorPos.x
-    window.DC.ColumnsOffset.x = start_x - window.Pos.x - window.DC.Indent.x -- FIXME-WORKRECT
-    window.DC.CursorPosPrevLine.x = window.DC.CursorPos.x -- PrevLine.y is preserved. This allows users to call SameLine() to share LineSize between columns.
-    window.DC.CurrLineTextBaseOffset = table_.RowTextBaseline
-    window.DC.NavLayerCurrent = column.NavLayerCurrent
+    local start_y = table_.RowPosY1 + table_.RowCellPaddingY
+    dc.CursorPos.x = start_x
+    dc.CursorPos.y = start_y
+    dc.CursorMaxPos.x = start_x
+    dc.ColumnsOffset.x = start_x - window.Pos.x - dc.Indent.x -- FIXME-WORKRECT
+    dc.CursorPosPrevLine.x = start_x -- PrevLine.y is preserved. This allows users to call SameLine() to share LineSize between columns.
+    dc.CurrLineTextBaseOffset = table_.RowTextBaseline
+    dc.NavLayerCurrent = column.NavLayerCurrent
 
     -- Note how WorkRect.Max.y is only set once during layout
-    window.WorkRect.Min.y = window.DC.CursorPos.y
-    window.WorkRect.Min.x = column.WorkMinX
-    window.WorkRect.Max.x = column.WorkMaxX
-    window.DC.ItemWidth = column.ItemWidth
+    local work_rect = window.WorkRect
+    work_rect.Min.y = start_y
+    work_rect.Min.x = column.WorkMinX
+    work_rect.Max.x = column.WorkMaxX
+    dc.ItemWidth = column.ItemWidth
 
-    window.SkipItems = column.IsSkipItems
-    if column.IsSkipItems then
+    local skip_items = column.IsSkipItems
+    window.SkipItems = skip_items
+    if skip_items then
         g.LastItemData.ID = 0
         g.LastItemData.StatusFlags = 0
     end
 
     -- Also see TablePushColumnChannel()
+    -- [Luau] inline the SetCurrentChannel() early-out (same channel) to skip the method call
+    local splitter = table_.DrawSplitter
     if band(table_.Flags, ImGuiTableFlags.NoClip) ~= 0 then
         -- FIXME: if we end up drawing all borders/bg in EndTable, could remove this and just assert that channel hasn't changed.
-        table_.DrawSplitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_NOCLIP)
+        if splitter._Current ~= TABLE_DRAW_CHANNEL_NOCLIP then
+            splitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_NOCLIP)
+        end
         --IM_ASSERT(table.DrawSplitter._Current == TABLE_DRAW_CHANNEL_NOCLIP)
     else
         -- FIXME-TABLE: Could avoid this if draw channel is dummy channel?
         ImGui.SetWindowClipRectBeforeSetChannel(window, column.ClipRect)
-        table_.DrawSplitter:SetCurrentChannel(window.DrawList, column.DrawChannelCurrent)
+        local channel = column.DrawChannelCurrent
+        if splitter._Current ~= channel then
+            splitter:SetCurrentChannel(window.DrawList, channel)
+        end
     end
 
     -- Logging
@@ -2594,31 +2631,34 @@ function ImGui.TableBeginCell(table_, column_n)
 end
 
 -- [Internal] Called by TableNextRow()/TableSetColumnIndex()/TableNextColumn()
+@native
 function ImGui.TableEndCell(table_)
     local column = table_.Columns[table_.CurrentColumn]
     local window = table_.InnerWindow
+    local dc = window.DC -- [Luau] cache; mathMax() inlined as math.max below
 
-    if window.DC.IsSetPos then
+    if dc.IsSetPos then
         ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     end
 
     -- Report maximum position so we can infer content size per column.
-    local x = window.DC.CursorMaxPos.x
+    local cursor_max_pos = dc.CursorMaxPos
+    local x = cursor_max_pos.x
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 then
-        column.ContentMaxXHeadersUsed = ImMax(column.ContentMaxXHeadersUsed, x) -- Useful in case user submit contents in header row that is not a TableHeader() call
+        column.ContentMaxXHeadersUsed = mathMax(column.ContentMaxXHeadersUsed, x) -- Useful in case user submit contents in header row that is not a TableHeader() call
     elseif table_.IsUnfrozenRows then
-        column.ContentMaxXUnfrozen = ImMax(column.ContentMaxXUnfrozen, x)
+        column.ContentMaxXUnfrozen = mathMax(column.ContentMaxXUnfrozen, x)
     else
-        column.ContentMaxXFrozen = ImMax(column.ContentMaxXFrozen, x)
+        column.ContentMaxXFrozen = mathMax(column.ContentMaxXFrozen, x)
     end
     if column.IsEnabled then
-        table_.RowPosY2 = ImMax(table_.RowPosY2, window.DC.CursorMaxPos.y + table_.RowCellPaddingY)
+        table_.RowPosY2 = mathMax(table_.RowPosY2, cursor_max_pos.y + table_.RowCellPaddingY)
     end
-    column.ItemWidth = window.DC.ItemWidth
+    column.ItemWidth = dc.ItemWidth
 
     -- Propagate text baseline for the entire row
     -- FIXME-TABLE: Here we propagate text baseline from the last line of the cell.. instead of the first one.
-    table_.RowTextBaseline = ImMax(table_.RowTextBaseline, window.DC.PrevLineTextBaseOffset)
+    table_.RowTextBaseline = mathMax(table_.RowTextBaseline, dc.PrevLineTextBaseOffset)
 end
 
 -------------------------------------------------------------------------------
@@ -2663,11 +2703,11 @@ end
 
 -- Note this is meant to be stored in column.WidthAuto, please generally use the WidthAuto field
 function ImGui.TableGetColumnWidthAuto(table_, column)
-    local content_width_body = ImMax(column.ContentMaxXFrozen, column.ContentMaxXUnfrozen) - column.WorkMinX
+    local content_width_body = mathMax(column.ContentMaxXFrozen, column.ContentMaxXUnfrozen) - column.WorkMinX
     local content_width_headers = column.ContentMaxXHeadersIdeal - column.WorkMinX
     local width_auto = content_width_body
     if band(column.Flags, ImGuiTableColumnFlags.NoHeaderWidth) == 0 then
-        width_auto = ImMax(width_auto, content_width_headers)
+        width_auto = mathMax(width_auto, content_width_headers)
     end
 
     -- Non-resizable fixed columns preserve their requested width
@@ -2677,7 +2717,7 @@ function ImGui.TableGetColumnWidthAuto(table_, column)
         end
     end
 
-    return ImMax(width_auto, table_.MinColumnWidth)
+    return mathMax(width_auto, table_.MinColumnWidth)
 end
 
 -- 'width' = inner column width, without padding
@@ -2693,7 +2733,7 @@ function ImGui.TableSetColumnWidth(column_n, width)
     -- Compare both requested and actual given width to avoid overwriting requested width when column is stuck (minimum size, bounded)
     IM_ASSERT(table_.MinColumnWidth > 0.0)
     local min_width = table_.MinColumnWidth
-    local max_width = ImMax(min_width, column_0.WidthMax) -- Don't use TableCalcMaxColumnWidth() here as it would rely on MinX from last instance (#7933)
+    local max_width = mathMax(min_width, column_0.WidthMax) -- Don't use TableCalcMaxColumnWidth() here as it would rely on MinX from last instance (#7933)
     column_0_width = ImClamp(column_0_width, min_width, max_width)
     if column_0.WidthGiven == column_0_width or column_0.WidthRequest == column_0_width then
         return
@@ -2754,7 +2794,7 @@ function ImGui.TableSetColumnWidth(column_n, width)
 
     -- Resizing from right-side of a Stretch column before a Fixed column forward sizing to left-side of fixed column.
     -- (old_a + old_b == new_a + new_b) --> (new_a == old_a + old_b - new_b)
-    local column_1_width = ImMax(column_1.WidthRequest - (column_0_width - column_0.WidthRequest), min_width)
+    local column_1_width = mathMax(column_1.WidthRequest - (column_0_width - column_0.WidthRequest), min_width)
     column_0_width = column_0.WidthRequest + column_1.WidthRequest - column_1_width
     IM_ASSERT(column_0_width > 0.0 and column_1_width > 0.0)
     column_0.WidthRequest = column_0_width
@@ -2970,6 +3010,12 @@ end
 --
 -- This function is particularly tricky to understand.. take a breath.
 -- (Lua: splitter channel n lives in splitter._Channels.Data[n + 1]; bit arrays are Lua sets)
+local TableMergeDrawChannels_MergeGroups = {}
+for n = 0, 3 do
+    TableMergeDrawChannels_MergeGroups[n] = { ClipRect = ImRect(), ChannelsCount = 0, ChannelsMask = {} }
+end
+local TableMergeDrawChannels_RemainingMask = {}
+local TableMergeDrawChannels_DstTmp = {}
 function ImGui.TableMergeDrawChannels(table_)
     local splitter = table_.DrawSplitter
     local channels = splitter._Channels.Data
@@ -2979,12 +3025,18 @@ function ImGui.TableMergeDrawChannels(table_)
 
     -- Track which groups we are going to attempt to merge, and which channels goes into each group.
     local merge_group_mask = 0x00
-    local merge_groups = {}
+    -- [Luau] reuse file-level scratch storage (function is not re-entrant, nothing escapes)
+    local merge_groups = TableMergeDrawChannels_MergeGroups
     for n = 0, 3 do
-        merge_groups[n] = { ClipRect = ImRect(), ChannelsCount = 0, ChannelsMask = {} }
+        local merge_group = merge_groups[n]
+        local cr = merge_group.ClipRect
+        cr.Min.x = 0.0; cr.Min.y = 0.0; cr.Max.x = 0.0; cr.Max.y = 0.0
+        merge_group.ChannelsCount = 0
+        table.clear(merge_group.ChannelsMask)
     end
     local max_draw_channels = (4 + table_.ColumnsCount * 2)
-    local remaining_mask = {}
+    local remaining_mask = TableMergeDrawChannels_RemainingMask
+    table.clear(remaining_mask)
 
     -- 1. Scan channels and take note of those which can be merged
     for column_n = 0, table_.ColumnsCount - 1 do
@@ -3011,9 +3063,9 @@ function ImGui.TableMergeDrawChannels(table_)
                     if band(column.Flags, ImGuiTableColumnFlags.NoClip) == 0 then
                         local content_max_x
                         if not has_freeze_v then
-                            content_max_x = ImMax(column.ContentMaxXUnfrozen, column.ContentMaxXHeadersUsed) -- No row freeze
+                            content_max_x = mathMax(column.ContentMaxXUnfrozen, column.ContentMaxXHeadersUsed) -- No row freeze
                         elseif merge_group_sub_n == 0 then
-                            content_max_x = ImMax(column.ContentMaxXFrozen, column.ContentMaxXHeadersUsed)   -- Row freeze: use width before freeze
+                            content_max_x = mathMax(column.ContentMaxXFrozen, column.ContentMaxXHeadersUsed)   -- Row freeze: use width before freeze
                         else
                             content_max_x = column.ContentMaxXUnfrozen                                        -- Row freeze: use width after freeze
                         end
@@ -3026,12 +3078,18 @@ function ImGui.TableMergeDrawChannels(table_)
                     IM_ASSERT(channel_no < max_draw_channels)
                     local merge_group = merge_groups[merge_group_n]
                     if merge_group.ChannelsCount == 0 then
-                        merge_group.ClipRect = ImRect(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX)
+                        local gcr = merge_group.ClipRect -- [Luau] in place (merge_groups are local to this call)
+                        gcr.Min.x = FLT_MAX; gcr.Min.y = FLT_MAX; gcr.Max.x = -FLT_MAX; gcr.Max.y = -FLT_MAX
                     end
                     merge_group.ChannelsMask[channel_no] = true
                     merge_group.ChannelsCount = merge_group.ChannelsCount + 1
                     local cr = cmds.Data[1].ClipRect
-                    merge_group.ClipRect:Add(ImRect(cr.x, cr.y, cr.z, cr.w))
+                    -- [Luau] scalar version of merge_group.ClipRect:Add(ImRect(cr.x, cr.y, cr.z, cr.w))
+                    local gmin, gmax = merge_group.ClipRect.Min, merge_group.ClipRect.Max
+                    if gmin.x > cr.x then gmin.x = cr.x end
+                    if gmin.y > cr.y then gmin.y = cr.y end
+                    if gmax.x < cr.z then gmax.x = cr.z end
+                    if gmax.y < cr.w then gmax.y = cr.w end
                     merge_group_mask = bor(merge_group_mask, lshift(1, merge_group_n))
                 until true
             end
@@ -3046,7 +3104,8 @@ function ImGui.TableMergeDrawChannels(table_)
     if merge_group_mask ~= 0 then
         -- We skip channel 0 (Bg0/Bg1) and 1 (Bg2 frozen) from the shuffling since they won't move - see channels allocation in TableSetupDrawChannels().
         local LEADING_DRAW_CHANNELS = 2
-        local dst_tmp = {}
+        local dst_tmp = TableMergeDrawChannels_DstTmp -- [Luau] scratch
+        table.clear(dst_tmp)
         for n = LEADING_DRAW_CHANNELS, splitter._Count - 1 do
             remaining_mask[n] = true
         end
@@ -3069,16 +3128,16 @@ function ImGui.TableMergeDrawChannels(table_)
                 -- FIXME-TABLE FIXME-WORKRECT: We are wasting a merge opportunity on tables without scrolling if column doesn't fit
                 -- within host clip rect, solely because of the half-padding difference between window.WorkRect and window.InnerClipRect.
                 if band(merge_group_n, 1) == 0 or not has_freeze_h then
-                    merge_clip_rect.Min.x = ImMin(merge_clip_rect.Min.x, host_rect.Min.x)
+                    merge_clip_rect.Min.x = mathMin(merge_clip_rect.Min.x, host_rect.Min.x)
                 end
                 if band(merge_group_n, 2) == 0 or not has_freeze_v then
-                    merge_clip_rect.Min.y = ImMin(merge_clip_rect.Min.y, host_rect.Min.y)
+                    merge_clip_rect.Min.y = mathMin(merge_clip_rect.Min.y, host_rect.Min.y)
                 end
                 if band(merge_group_n, 1) ~= 0 then
-                    merge_clip_rect.Max.x = ImMax(merge_clip_rect.Max.x, host_rect.Max.x)
+                    merge_clip_rect.Max.x = mathMax(merge_clip_rect.Max.x, host_rect.Max.x)
                 end
                 if band(merge_group_n, 2) ~= 0 and band(table_.Flags, ImGuiTableFlags.NoHostExtendY) == 0 then
-                    merge_clip_rect.Max.y = ImMax(merge_clip_rect.Max.y, host_rect.Max.y)
+                    merge_clip_rect.Max.y = mathMax(merge_clip_rect.Max.y, host_rect.Max.y)
                 end
                 --ImGui.GetForegroundDrawList():AddRect(merge_group.ClipRect.Min, merge_group.ClipRect.Max, IM_COL32(255, 0, 0, 200), 0.0, 0, 1.0) -- [DEBUG]
                 --ImGui.GetForegroundDrawList():AddLine(merge_group.ClipRect.Min, merge_clip_rect.Min, IM_COL32(255, 100, 0, 200))
@@ -3096,7 +3155,8 @@ function ImGui.TableMergeDrawChannels(table_)
 
                         local channel = channels[n + 1]
                         IM_ASSERT(channel._CmdBuffer.Size == 1)
-                        ImVec4_Copy(channel._CmdBuffer.Data[1].ClipRect, merge_clip_rect:ToVec4())
+                        local dst = channel._CmdBuffer.Data[1].ClipRect -- [Luau] scalar copy, no temporary ImVec4
+                        dst.x = merge_clip_rect.Min.x; dst.y = merge_clip_rect.Min.y; dst.z = merge_clip_rect.Max.x; dst.w = merge_clip_rect.Max.y
                         dst_tmp[#dst_tmp + 1] = channel
                     end
                     n = n + 1
@@ -3122,6 +3182,7 @@ function ImGui.TableMergeDrawChannels(table_)
         for i = 1, #dst_tmp do
             channels[LEADING_DRAW_CHANNELS + i] = dst_tmp[i]
         end
+        table.clear(dst_tmp) -- [Luau] don't keep channel references alive in the scratch
     end
 end
 
@@ -3152,9 +3213,9 @@ function ImGui.TableDrawBorders(table_)
     -- Draw inner border and resizing feedback
     local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
     local border_size = TABLE_BORDER_SIZE
-    local draw_y1 = ImMax(table_.InnerRect.Min.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight) + ((band(table_.Flags, ImGuiTableFlags.BordersOuterH) ~= 0) and border_size or 0.0)
+    local draw_y1 = mathMax(table_.InnerRect.Min.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight) + ((band(table_.Flags, ImGuiTableFlags.BordersOuterH) ~= 0) and border_size or 0.0)
     local draw_y2_body = table_.InnerRect.Max.y
-    local draw_y2_head = table_.IsUsingHeaders and ImMin(table_.InnerRect.Max.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_instance.LastTopHeadersRowHeight) or draw_y1
+    local draw_y2_head = table_.IsUsingHeaders and mathMin(table_.InnerRect.Max.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_instance.LastTopHeadersRowHeight) or draw_y1
     if band(table_.Flags, ImGuiTableFlags.BordersInnerV) ~= 0 then
         for order_n = 0, table_.ColumnsCount - 1 do
             repeat
@@ -3310,7 +3371,7 @@ function ImGui.TableSetColumnSortDirection(column_n, sort_direction, append_to_s
     local sort_order_max = 0
     if append_to_sort_specs then
         for other_column_n = 0, table_.ColumnsCount - 1 do
-            sort_order_max = ImMax(sort_order_max, table_.Columns[other_column_n].SortOrder)
+            sort_order_max = mathMax(sort_order_max, table_.Columns[other_column_n].SortOrder)
         end
     end
 
@@ -3468,7 +3529,7 @@ function ImGui.TableGetHeaderRowHeight()
     for column_n = 0, table_.ColumnsCount - 1 do
         if BitTest(table_.EnabledMaskByIndex, column_n) then
             if band(table_.Columns[column_n].Flags, ImGuiTableColumnFlags.NoHeaderLabel) == 0 then
-                row_height = ImMax(row_height, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n)).y)
+                row_height = mathMax(row_height, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n)).y)
             end
         end
     end
@@ -3482,7 +3543,7 @@ function ImGui.TableGetHeaderAngledMaxLabelWidth()
     for column_n = 0, table_.ColumnsCount - 1 do
         if BitTest(table_.EnabledMaskByIndex, column_n) then
             if band(table_.Columns[column_n].Flags, ImGuiTableColumnFlags.AngledHeader) ~= 0 then
-                width = ImMax(width, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n), nil, true).x)
+                width = mathMax(width, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n), nil, true).x)
             end
         end
     end
@@ -3561,8 +3622,11 @@ function ImGui.TableHeader(label)
 
     -- If we already got a row height, there's use that.
     -- FIXME-TABLE: Padding problem if the correct outer-padding CellBgRect strays off our ClipRect?
-    local cell_r = ImGui.TableGetCellBgRect(table_, column_n)
-    local label_height = ImMax(label_size.y, table_.RowMinHeight - table_.RowCellPaddingY * 2.0)
+    -- [Luau] scalar version of: cell_r = TableGetCellBgRect(table_, column_n) (Min.x/Min.y/Max.x/Max.y -> cell_x1/cell_y1/cell_x2/cell_y2)
+    local cell_x1 = mathMax(column.MinX, table_.WorkRect.Min.x)
+    local cell_x2 = mathMin(column.MaxX, table_.WorkRect.Max.x)
+    local cell_y1, cell_y2 = table_.RowPosY1, table_.RowPosY2
+    local label_height = mathMax(label_size.y, table_.RowMinHeight - table_.RowCellPaddingY * 2.0)
 
     -- Calculate ideal size for sort order arrow
     local w_arrow = 0.0
@@ -3583,12 +3647,12 @@ function ImGui.TableHeader(label)
 
     -- We feed our unclipped width to the column without writing on CursorMaxPos, so that column is still considered for merging.
     local max_pos_x = label_pos.x + label_size.x + w_sort_text + w_arrow
-    column.ContentMaxXHeadersUsed = ImMax(column.ContentMaxXHeadersUsed, sort_arrow and cell_r.Max.x or ImMin(max_pos_x, cell_r.Max.x))
-    column.ContentMaxXHeadersIdeal = ImMax(column.ContentMaxXHeadersIdeal, max_pos_x)
+    column.ContentMaxXHeadersUsed = mathMax(column.ContentMaxXHeadersUsed, sort_arrow and cell_x2 or mathMin(max_pos_x, cell_x2))
+    column.ContentMaxXHeadersIdeal = mathMax(column.ContentMaxXHeadersIdeal, max_pos_x)
 
     -- Keep header highlighted when context menu is open.
     local id = window:GetID(label)
-    local bb = ImRect(cell_r.Min.x, cell_r.Min.y, cell_r.Max.x, ImMax(cell_r.Max.y, cell_r.Min.y + label_height + g.Style.CellPadding.y * 2.0))
+    local bb = ImRect(cell_x1, cell_y1, cell_x2, mathMax(cell_y2, cell_y1 + label_height + g.Style.CellPadding.y * 2.0))
     ImGui.ItemSize(ImVec2(0.0, label_height)) -- Don't declare unclipped width, it'll be fed ContentMaxPosHeadersIdeal
     if not ImGui.ItemAdd(bb, id) then
         return
@@ -3626,13 +3690,13 @@ function ImGui.TableHeader(label)
         --      ... 2  3  4        ...  2  3  4   (Display order)
         -- - The other constraints are enforced by TableQueueSetColumnDisplayOrder() which might early out.
         table_.InstanceInteracted = table_.InstanceCurrent
-        if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < cell_r.Min.x then
+        if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < cell_x1 then
             local prev_column = (column.PrevEnabledColumn ~= -1) and table_.Columns[column.PrevEnabledColumn] or nil
             if prev_column then
                 ImGui.TableQueueSetColumnDisplayOrder(table_, column_n, prev_column.DisplayOrder)
             end
         end
-        if g.IO.MouseDelta.x > 0.0 and g.IO.MousePos.x > cell_r.Max.x then
+        if g.IO.MouseDelta.x > 0.0 and g.IO.MousePos.x > cell_x2 then
             local next_column = (column.NextEnabledColumn ~= -1) and table_.Columns[column.NextEnabledColumn] or nil
             if next_column then
                 ImGui.TableQueueSetColumnDisplayOrder(table_, column_n, next_column.DisplayOrder)
@@ -3643,10 +3707,10 @@ function ImGui.TableHeader(label)
     -- Sort order arrow
     -- - Only clip label for a visible arrow. Auto-fit still accounts for a possible arrow, but when
     --   manually sized smaller we don't clip the label for the sake of an arrow that isn't displayed.
-    local ellipsis_max = ImMax(cell_r.Max.x - (sort_arrow and (w_arrow + w_sort_text) or 0.0), label_pos.x)
+    local ellipsis_max = mathMax(cell_x2 - (sort_arrow and (w_arrow + w_sort_text) or 0.0), label_pos.x)
     if band(table_.Flags, ImGuiTableFlags.Sortable) ~= 0 and band(column.Flags, ImGuiTableColumnFlags.NoSort) == 0 then
         if column.SortOrder ~= -1 then
-            local x = ImMax(cell_r.Min.x, cell_r.Max.x - w_arrow - w_sort_text)
+            local x = mathMax(cell_x1, cell_x2 - w_arrow - w_sort_text)
             local y = label_pos.y
             if column.SortOrder > 0 then
                 ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.Text, 0.70))
