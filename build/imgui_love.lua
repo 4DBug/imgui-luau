@@ -5649,7 +5649,7 @@ function ImGui.PushFont(font, font_size_base)
     assert(font ~= nil)
     assert(font_size_base >= 0.0)
 
-    g.FontStack:push_back(ImFontStackData(font, g.FontSizeBase, g.FontSize))
+    g.FontStack:push_back(ImFontStackData(g.Font, g.FontSizeBase, g.FontSize))
 
     if font_size_base == 0.0 then
         font_size_base = g.FontSizeBase -- Keep current font size
@@ -55771,7 +55771,7 @@ function ImGui.TextEx(text, text_end, flags)
 
                 local line_size = ImGui.CalcTextSizeEx(text, line, line_end)
                 text_size.x = ImMax(text_size.x, line_size.x)
-                ImGui.RenderText(pos, text, line, nil, false)
+                ImGui.RenderText(pos, text, line, line_end, false)
                 line = line_end + 1
                 line_rect.Min.y = line_rect.Min.y + line_height
                 line_rect.Max.y = line_rect.Max.y + line_height

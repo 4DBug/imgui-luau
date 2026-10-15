@@ -5467,7 +5467,7 @@ function ImGui.PushFont(font, font_size_base)
     IM_ASSERT(font ~= nil)
     IM_ASSERT(font_size_base >= 0.0)
 
-    g.FontStack:push_back(ImFontStackData(font, g.FontSizeBase, g.FontSize))
+    g.FontStack:push_back(ImFontStackData(g.Font, g.FontSizeBase, g.FontSize))
 
     if font_size_base == 0.0 then
         font_size_base = g.FontSizeBase -- Keep current font size
