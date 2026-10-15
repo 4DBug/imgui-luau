@@ -2653,6 +2653,32 @@ function ImGuiTextBufferMT:appendf(fmt, ...) self.Buf[#self.Buf + 1] = string.fo
 function ImGuiTextBufferMT:c_str() return table.concat(self.Buf) end
 function ImGuiTextBufferMT:size() return #self:c_str() end
 
+-- Helpers: ImColor() implicitly converts colors to either ImU32 (packed 4x1 byte) or ImVec4 (4x1 float)
+-- Prefer using IM_COL32() macros. Avoid storing ImColor! Store either u32 of ImVec4. This is not a full-featured color class.
+-- **None of the ImGui API are using ImColor directly but you can use it as a convenience to pass colors in either ImU32 or ImVec4 formats. Explicitly cast to ImU32 or ImVec4 if needed.
+-- [Luau] no implicit conversions: use :U32() / .Value (ImVec4). Overloads: ImColor(), ImColor(r, g, b, a) floats,
+-- ImColor(ImVec4), ImColor(ImU32). The C++ int (0-255) overload can't be told apart from floats: use ImColor(IM_COL32(r, g, b, a)).
+--- @class ImColor
+local ImColorMT = {}
+ImColorMT.__index = ImColorMT
+ImColor = setmetatable({}, { __call = function(_, r, g, b, a)
+    local self = setmetatable({ Value = ImVec4() }, ImColorMT)
+    if type(r) == "table" then
+        ImVec4_Copy(self.Value, r)
+    elseif r ~= nil and g == nil then
+        local s = 1.0 / 255.0
+        self.Value.x = bit32.band(bit32.rshift(r, IM_COL32_R_SHIFT), 0xFF) * s; self.Value.y = bit32.band(bit32.rshift(r, IM_COL32_G_SHIFT), 0xFF) * s
+        self.Value.z = bit32.band(bit32.rshift(r, IM_COL32_B_SHIFT), 0xFF) * s; self.Value.w = bit32.band(bit32.rshift(r, IM_COL32_A_SHIFT), 0xFF) * s
+    elseif r ~= nil then
+        self.Value.x = r; self.Value.y = g; self.Value.z = b; self.Value.w = a or 1.0
+    end
+    return self
+end })
+function ImColorMT:U32() return ImGui.ColorConvertFloat4ToU32(self.Value) end
+-- FIXME-OBSOLETE: May need to obsolete/cleanup those helpers.
+function ImColorMT:SetHSV(h, s, v, a) self.Value.x, self.Value.y, self.Value.z = ImGui.ColorConvertHSVtoRGB(h, s, v); self.Value.w = a or 1.0 end
+function ImColor.HSV(h, s, v, a) local r, g, b = ImGui.ColorConvertHSVtoRGB(h, s, v); return ImColor(r, g, b, a or 1.0) end
+
 --- @class ImGuiSettingsHandler
 --- Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
 --- WriteAllFn(ctx, handler, buf: ImGuiTextBuffer)
