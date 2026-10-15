@@ -1,4 +1,5 @@
--- Regressions vs upstream: clipboard paste filter (InputTextEx), ImParseFormatTrimDecorations (Ctrl+click temp input), ShrinkWidths tie order
+-- Regressions vs upstream: clipboard paste filter (InputTextEx), ImParseFormatTrimDecorations (Ctrl+click temp input), ShrinkWidths tie order,
+-- CalcItemSize by value, PushClipRectFullScreen (drop target outside clip rect)
 local G = require(game:GetService("ReplicatedStorage"):WaitForChild("ImGui"))
 local ImGui, ImVec2 = G.ImGui, G.ImVec2
 ImGui.CreateContext(); G.ImGui_ImplRoblox.Init()
@@ -48,6 +49,12 @@ game:GetService("RunService").Stepped:Connect(function()
     ImGui.InputText("##t", buf, 64); rects.t = rect()
     sf = ImGui.SliderFloat("##s", sf, 0.0, 100.0, "%.0f deg"); rects.s = rect()
     di = ImGui.DragInt("##d", di, 1, 0, 100, "%d%%"); rects.d = rect()
+    -- CalcItemSize takes 'size' by value: the caller's ImVec2 must not be written to
+    local bsz, csz = ImVec2(0, 0), ImVec2(-1, 40)
+    ImGui.Button("sz", bsz); check(bsz.x == 0 and bsz.y == 0, "Button wrote size_arg")
+    ImGui.BeginChild("c", csz); ImGui.EndChild(); check(csz.x == -1 and csz.y == 40, "BeginChild wrote size_arg")
+    -- drop target rect sticking out of the window clip rect pushes a full-screen clip rect
+    ImGui.RenderDragDropTargetRectForItem(G.ImRect(-50, -50, 900, 900))
     ImGui.End()
     ImGui.Render(); G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     if f == 8 then check(edit_text() == "abc\u{e9}", "paste: '" .. edit_text() .. "'") end

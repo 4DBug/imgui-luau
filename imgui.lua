@@ -6941,8 +6941,14 @@ end
 --- @param default_h float
 --- @return ImVec2
 function ImGui.CalcItemSize(size, default_w, default_h)
+    return ImVec2(ImGui._CalcItemSizeXY(size.x, size.y, default_w, default_h)) -- [Luau] 'size' is by value upstream: never written to
+end
+
+-- [Luau] scalar CalcItemSize(): callers that build 'size' themselves skip both ImVec2 allocations
+--- @return float, float
+function ImGui._CalcItemSizeXY(size_x, size_y, default_w, default_h)
     local avail_x, avail_y
-    if size.x < 0.0 or size.y < 0.0 then
+    if size_x < 0.0 or size_y < 0.0 then
         -- [Luau] scalar GetContentRegionAvail(), no temporary ImVec2
         local g = GImGui
         local window = g.CurrentWindow
@@ -6950,19 +6956,19 @@ function ImGui.CalcItemSize(size, default_w, default_h)
         avail_x = mx.x - window.DC.CursorPos.x; avail_y = mx.y - window.DC.CursorPos.y
     end
 
-    if size.x == 0.0 then
-        size.x = default_w
-    elseif size.x < 0.0 then
-        size.x = math.max(4.0, avail_x + size.x)  -- <-- size.x is negative here so we are subtracting
+    if size_x == 0.0 then
+        size_x = default_w
+    elseif size_x < 0.0 then
+        size_x = math.max(4.0, avail_x + size_x)  -- <-- size.x is negative here so we are subtracting
     end
 
-    if size.y == 0.0 then
-        size.y = default_h
-    elseif size.y < 0.0 then
-        size.y = math.max(4.0, avail_y + size.y)  -- <-- size.y is negative here so we are subtracting
+    if size_y == 0.0 then
+        size_y = default_h
+    elseif size_y < 0.0 then
+        size_y = math.max(4.0, avail_y + size_y)  -- <-- size.y is negative here so we are subtracting
     end
 
-    return size
+    return size_x, size_y
 end
 
 function ImGui.GetTextLineHeight()
