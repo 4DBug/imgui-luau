@@ -1,5 +1,5 @@
--- Runs examples/example_love and examples/example_shared main.lua headless under LuaJIT (mock love) for some frames.
-for _, ex in ipairs({ "examples/example_love", "examples/example_shared" }) do
+-- Runs examples/example_love main.lua headless under LuaJIT (mock love) for some frames.
+for _, ex in ipairs({ "examples/example_love" }) do
     dofile("tools/test/love/mock_love.lua")
     love.filesystem.getSource = function() return ex end
     love.filesystem.load = function(p) return assert(loadfile(ex .. "/" .. p)) end

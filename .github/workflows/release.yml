@@ -35,28 +35,20 @@ jobs:
         run: |
           mkdir -p dist
           python3 tools/bundle.py dist/roblox                       # ImGui.luau (library + demo)
-          python3 tools/bundle.py --no-demo dist/roblox-nodemo        # ImGui.luau (library only)
           python3 tools/bundle.py --target love dist/love             # imgui_love.lua (library + demo)
-          python3 tools/bundle.py --target love --no-demo dist/love-nodemo
           # minified variants (comments/whitespace stripped, same code): tools/minify.py
           python3 tools/minify.py dist/roblox/ImGui.luau dist/ImGui.min.luau
-          python3 tools/minify.py dist/roblox-nodemo/ImGui.luau dist/ImGui-nodemo.min.luau
           python3 tools/minify.py dist/love/imgui_love.lua dist/imgui_love.min.lua
-          python3 tools/minify.py dist/love-nodemo/imgui_love.lua dist/imgui_love-nodemo.min.lua
 
       - name: Check
         run: |
           python3 tools/sync_github_readme.py --check
           luau-compile --null dist/roblox/ImGui.luau
-          luau-compile --null dist/roblox-nodemo/ImGui.luau
           sed 's|require(script:WaitForChild("Impl"))|nil|' dist/roblox/ImGuiTyped.luau > /tmp/ImGuiTyped.luau && luau-analyze /tmp/ImGuiTyped.luau
           luajit -bl dist/love/imgui_love.lua > /dev/null
-          luajit -bl dist/love-nodemo/imgui_love.lua > /dev/null
           python3 tools/minify.py --test
           luau-compile --null dist/ImGui.min.luau
-          luau-compile --null dist/ImGui-nodemo.min.luau
           luajit -bl dist/imgui_love.min.lua > /dev/null
-          luajit -bl dist/imgui_love-nodemo.min.lua > /dev/null
           python3 tools/test/run.py --main tools/test/scripts/t_readme.luau --frames 30 --quiet --roblox --timeout 300 | tee /tmp/r.txt
           grep -q "README OK" /tmp/r.txt
           python3 tools/test/run.py --main tools/test/scripts/t_cached_window.luau --frames 130 --quiet --roblox --timeout 300 | tee /tmp/c.txt
@@ -78,16 +70,14 @@ jobs:
           V="${GITHUB_REF_NAME}"
           cd dist
           cp roblox/ImGui.luau ImGui.luau
-          cp roblox-nodemo/ImGui.luau ImGui-nodemo.luau
           cp love/imgui_love.lua imgui_love.lua
-          cp love-nodemo/imgui_love.lua imgui_love-nodemo.lua
           # Roblox: module + example LocalScript + Rojo project
           mkdir -p pkg-roblox/build && cp ImGui.luau roblox/ImGuiTyped.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
-          mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox ../examples/example_shared pkg-roblox/examples/
+          mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox pkg-roblox/examples/
           (cd pkg-roblox && zip -qr ../imgui-luau-roblox-$V.zip .)
           # LÖVE: bundle + fonts + examples (run: love examples/example_love)
           mkdir -p pkg-love/build && cp imgui_love.lua pkg-love/build/ && cp -r ../fonts pkg-love/ && rm -f pkg-love/fonts/*.lua
-          mkdir -p pkg-love/examples && cp -r ../examples/example_love ../examples/example_shared pkg-love/examples/
+          mkdir -p pkg-love/examples && cp -r ../examples/example_love pkg-love/examples/
           (cd pkg-love && zip -qr ../imgui-luau-love-$V.zip .)
           ls -la
 
@@ -97,9 +87,7 @@ jobs:
         with:
           files: |
             dist/ImGui.luau
-            dist/ImGui-nodemo.luau
             dist/imgui_love.lua
-            dist/imgui_love-nodemo.lua
             dist/*.min.luau
             dist/*.min.lua
             dist/*.zip
@@ -127,4 +115,4 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest --latest --title "Latest build (${GITHUB_SHA::7})" \
             --notes "Automatic build of ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Tag a commit v* for a versioned release." \
-            dist/ImGui.luau dist/ImGui-nodemo.luau dist/imgui_love.lua dist/imgui_love-nodemo.lua dist/*.min.luau dist/*.min.lua dist/*.zip
+            dist/ImGui.luau dist/imgui_love.lua dist/*.min.luau dist/*.min.lua dist/*.zip

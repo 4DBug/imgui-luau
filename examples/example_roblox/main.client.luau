@@ -17,7 +17,7 @@ setfenv(1, setmetatable({}, {
 
 local MainScale = 1.0
 local RenderScale = 1.0
-local RenderRate = 0 -- 0 = every frame (tile redraws are limited by the redraw budget instead)
+local RenderRate = 60 -- max tile redraws per second (0 = every frame, limited by the redraw budget instead)
 local ThumbnailSize = 420
 local FontSize = 13.0
 local FontNames = { "Cousine-Regular", "DroidSans", "Karla-Regular", "ProggyTiny", "Roboto-Medium" }
