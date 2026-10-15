@@ -10,6 +10,7 @@
 #               test engine. They're listed separately in the report.
 import os, re, sys
 from difflib import SequenceMatcher
+from fnmatch import fnmatchcase
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from minify import TOKEN as LUA_TOKEN
 
@@ -20,6 +21,62 @@ PORT_FILES = sorted(f for f in os.listdir(ROOT) if f.endswith(".lua"))
 LUA_CLASS_ALIAS = {"IM_RECT": "ImRect", "IM_VECTOR": "ImVector", "IM_POOL": "ImPool", "IMGUI_VIEWPORT_P": "ImGuiViewportP",
                    "ImGuiTextBufferMT": "ImGuiTextBuffer", "IMGUI_TEXT_INDEX": "ImGuiTextIndex", "IM_PAYLOAD": "ImGuiPayload",
                    "DN": "ImGuiDockNode", "IM_VTXBUF": "ImVector"}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Intentional Lua replacements: [=] rows, not counted as missing. (glob over the upstream key "Class::name" / "Struct::field",
+# reason, regex that must match the port sources - if the port's mechanism disappears, the entry falls back to [ ] / missing).
+# Only applies when no same-named port definition / field exists.
+# ---------------------------------------------------------------------------------------------------------------------
+REPLACED = [
+    # functions
+    ("ImGuiStorage::*", "Lua table keyed by ID (e.g. window.StateStorage = {})", r"StateStorage\s*=\s*\{\}"),
+    ("ImGuiStoragePair::*", "Lua table keyed by ID", r"StateStorage\s*=\s*\{\}"),
+    ("PairComparerByID", "table.sort over Lua table keys", r"table\.sort\("),
+    ("ImStr*", "Lua string library (string.find/sub/lower, immutable strings)", r"string\.find\("),
+    ("ImMemdup", "Lua strings/tables are values, no copy needed", r"string\.find\("),
+    ("ImFormatString*", "string.format", r"ImFormatString\s*=\s*string\.format"),
+    ("ImText*Utf8*", "strings stay UTF-8 bytes: ImStd.ImTextCharFromUtf8 decoder + utf8 library", r"function ImStd\.ImTextCharFromUtf8"),
+    ("MallocWrapper", "GC; IM_ALLOC = ImGui.MemAlloc", r"IM_ALLOC\s*=\s*ImGui\.MemAlloc"),
+    ("FreeWrapper", "GC; IM_ALLOC = ImGui.MemAlloc", r"IM_ALLOC\s*=\s*ImGui\.MemAlloc"),
+    ("ImGui::GetAllocatorFunctions", "GC, no allocator to query", r"IM_ALLOC\s*=\s*ImGui\.MemAlloc"),
+    ("ImFileWrite", "no filesystem on Roblox: SaveIniSettingsToDisk is a no-op, use SaveIniSettingsToMemory", r"Roblox: no disk"),
+    ("ImSwap", "Lua multiple assignment a, b = b, a", r"\b([\w.]+), ([\w.]+) = \2, \1\b"),
+    ("ImGui::DebugCheckVersionAndDataLayout", "C++ ABI / sizeof check", None),
+    ("TableSettingsCalcChunkSize", "sizeof; table settings are a plain ImVector", r"SettingsTables\s*=\s*ImVector\(\)"),
+    ("ImVector::size", "v.Size field", r"function IM_VECTOR:"),
+    ("ImVector::capacity", "v.Capacity field", r"function IM_VECTOR:"),
+    ("ImVector::front", "v.Data[1]", r"function IM_VECTOR:"),
+    ("ImVector::begin", "v.Data / v:iter()", r"function IM_VECTOR:iter\("),
+    ("ImVector::end", "v.Data / v:iter()", r"function IM_VECTOR:iter\("),
+    ("ImVector::size_in_bytes", "sizeof", None),
+    ("ImVector::max_size", "sizeof", None),
+    ("ImVector::clear_destruct", "GC: clear_delete / clear", r"function IM_VECTOR:clear_delete\("),
+    ("ImVector::find", "find_index (no element pointers)", r"function IM_VECTOR:find_index\("),
+    ("ImSpan::*", "plain Lua tables (e.g. table.Columns = {})", r"Columns = \{\}, ColumnsSize = 0"),
+    ("ImSpanAllocator::*", "plain Lua tables, no arena", r"Columns = \{\}, ColumnsSize = 0"),
+    ("ImStableVector::*", "ImVector (Lua references are stable)", r"BakedPool\s*=\s*ImVector\(\)"),
+    ("ImChunkStream::*", "plain ImVector of settings tables", r"SettingsTables\s*=\s*ImVector\(\)"),
+    ("ImPool::GetAliveCount", "pool.AliveCount field", r"\.AliveCount\)"),
+    ("ImPool::GetBufSize", "pool.BufSize field / GetMapSize()", r"function IM_POOL:GetMapSize\(\) return self\.BufSize"),
+    ("ImPool::TryGetMapData", "GetByIndex (removed slots hold false)", r"function IM_POOL:GetByIndex\("),
+    ("ImGuiTextBuffer::begin", "chunk-list string builder: c_str()", r"function ImGuiTextBufferMT:c_str\("),
+    ("ImGuiTextBuffer::end", "chunk-list string builder: c_str()", r"function ImGuiTextBufferMT:c_str\("),
+    ("ImGuiTextBuffer::resize", "chunk-list string builder, no byte buffer", r"function ImGuiTextBufferMT:c_str\("),
+    ("ImGuiTextBuffer::reserve", "chunk-list string builder, no byte buffer", r"function ImGuiTextBufferMT:c_str\("),
+    ("ImGuiTextBuffer::appendfv", "appendf(fmt, ...) (Lua varargs)", r"function ImGuiTextBufferMT:appendf\("),
+    ("ImGuiTextIndex::append", "debug log keeps a Lua line list (g.DebugLogLines)", r"g\.DebugLogLines\s*="),
+    # struct fields (ImSpan*/ImStableVector/ImGuiStoragePair fields: covered by the globs above)
+    ("ImGuiTextBuffer::EmptyString", "c_str() of an empty chunk list", r"function ImGuiTextBufferMT:c_str\("),
+    ("ImGuiWindow::NameBufLen", "window.Name is an immutable Lua string", None),
+    ("ImGuiTextFilterItem::Begin", "item.Text substring", r"Text = string\.sub\(buf, b, e - 1\)"),
+    ("ImGuiTextFilterItem::Len", "item.Text substring", r"Text = string\.sub\(buf, b, e - 1\)"),
+    ("ImDrawVert::uv", "vertices packed into VtxBuffer.Buf (VTX_STRIDE bytes per vertex)", r"VTX_STRIDE\s*=\s*\d+"),
+    ("ImDrawVert::col", "vertices packed into VtxBuffer.Buf (VTX_STRIDE bytes per vertex)", r"VTX_STRIDE\s*=\s*\d+"),
+    ("ImGuiContext::DebugLogIndex", "Lua line list g.DebugLogLines", r"g\.DebugLogLines\s*="),
+    ("ImGuiContext::TempKeychordName", "GetKeyChordName returns a Lua string", r"\.\. \(\(key ~= ImGuiKey\.None"),
+    ("ImGuiContext::DragDropPayloadBuf*", "payload.Data holds the Lua value", r"payload\.Data = data"),
+    ("ImGuiTabBar::TabsNames", "names stored on the tab (tab.Name)", r"Tab names are stored on the tab itself"),
+]
 
 # ---------------------------------------------------------------------------------------------------------------------
 # C++ side
@@ -63,6 +120,7 @@ def cpp_tokens(src):
         out.append((kind, text, line, next((x for x in reversed(stack) if x), None)))
     return out, sections
 
+CPP_MACROS = {"IM_MSVC_RUNTIME_CHECKS_OFF", "IM_MSVC_RUNTIME_CHECKS_RESTORE"}  # argument-less macro lines, no trailing ';'
 CTRL = {"if", "for", "while", "switch", "catch", "sizeof", "return", "alignof", "decltype", "IM_ASSERT", "defined"}
 
 def match_back(toks, i, close, open_):
@@ -173,7 +231,8 @@ def parse_cpp(fname):
                         j += 1
                     if nm: enums[nm] = (vals, line, section_at(line))
                 elif any(x in ("struct", "class", "union") for x in pre) and "=" not in pre:
-                    names = [x for x in pre if re.match(r"[A-Za-z_]\w*$", x) and x not in ("struct", "class", "union", "IMGUI_API", "typedef", "final", "public", "private", "alignas")]
+                    kw = max(q for q, x in enumerate(pre) if x in ("struct", "class", "union"))  # skips macro lines / template<...> before it
+                    names = [x for x in pre[kw:] if re.match(r"[A-Za-z_]\w*$", x) and x not in ("struct", "class", "union", "IMGUI_API", "typedef", "final", "public", "private", "alignas")]
                     nm = names[0] if names else cls
                     if nm and "union" not in pre: structs.setdefault(nm, ([], line, section_at(line)))
                     scan(i + 1, e, nm, ns)
@@ -187,11 +246,12 @@ def parse_cpp(fname):
                 st = toks[stmt_start:i]
                 txt = [x[1] for x in st]
                 if txt and txt[0] in ("public", "private", "protected") and len(txt) > 1 and txt[1] == ":": st, txt = st[2:], txt[2:]
+                while txt and txt[0] in CPP_MACROS: st, txt = st[1:], txt[1:]
                 if txt and ns == "ImGui" and cls is None and "(" in txt and txt[0] not in ("typedef", "struct", "enum", "using"):
                     p = txt.index("(")
                     if p > 0 and st[p - 1][0] == "name" and txt[p - 1] not in CTRL:
                         decls.setdefault(txt[p - 1], (st[p - 1][2], st[p - 1][3], section_at(st[p - 1][2])))
-                elif txt and cls and txt[0] not in ("typedef", "friend", "static", "using", "enum", "struct", "class", "template", "IM_MSVC_RUNTIME_CHECKS_OFF", "IM_MSVC_RUNTIME_CHECKS_RESTORE"):
+                elif txt and cls and txt[0] not in ("typedef", "friend", "static", "using", "enum", "struct", "class", "template"):
                     eq = txt.index("=") if "=" in txt else len(txt)
                     pa = txt.index("(") if "(" in txt else len(txt)
                     if pa >= eq:  # not a method declaration
@@ -376,6 +436,9 @@ def main():
     by_name = {}
     for d in sorted(defs, key=lambda d: d.alias is not None): by_name.setdefault(d.name, []).append(d)
     port_classes = {d.cls for d in defs if d.cls}
+    port_class_files = {}
+    for d in defs:
+        if d.cls: port_class_files.setdefault(d.cls, set()).add(d.file)
 
     def find(u):
         m = re.match(r"I?M?STB_TEXTEDIT_(\w+?)(_IMPL)?$", u.name)
@@ -389,7 +452,9 @@ def main():
             if u.name == u.cls:  # constructor: function ImGuiStyle() / MT.X.new
                 c = [d for d in cands if d.cls is None] or [d for d in by_name.get("new", []) if d.cls == u.cls]
                 return c[0] if c else None
-            if u.cls in port_classes: return None
+            if u.cls in port_classes:  # only a classless helper in the class's own file (local function _grow_capacity)
+                loose = [d for d in cands if d.cls is None and d.file in port_class_files[u.cls]] if len(cands) == 1 else []
+                return loose[0] if loose else None
             loose = [d for d in cands if d.cls in (None, "ImGui")] if len(cands) == 1 else []
             return loose[0] if loose else None
         pref = [d for d in cands if d.cls == "ImGui"] + [d for d in cands if d.cls is None] + [d for d in cands if d.cls in ("ImStd", "ImStb")]
@@ -426,16 +491,24 @@ def main():
             else: structs_all[k] = v
         decls_by_file[f] = decls
 
-    tot = {"n": 0, "have": 0, "stub": 0, "size": 0, "size_have": 0, "simw": 0.0, "size_sim": 0}
+    port_src = "\n".join(open(os.path.join(ROOT, f), encoding="utf-8").read() for f in PORT_FILES)
+    ev_ok = {ev: ev is None or re.search(ev, port_src) is not None for _, _, ev in REPLACED}
+    def replaced(key):
+        return next((why for pat, why, ev in REPLACED if ev_ok[ev] and fnmatchcase(key, pat)), None)
+
+    tot = {"n": 0, "have": 0, "stub": 0, "size": 0, "size_have": 0, "simw": 0.0, "size_sim": 0, "repl": 0}
     for f in CPP_FILES:
         rows = []
-        st = {"n": 0, "have": 0, "stub": 0, "size": 0, "size_have": 0, "simw": 0.0, "size_sim": 0}
+        st = {"n": 0, "have": 0, "stub": 0, "size": 0, "size_have": 0, "simw": 0.0, "size_sim": 0, "repl": 0}
         for u in sorted(all_up[f], key=lambda u: u.line):
             un = norm_cpp(u.body)
             if u.excl:
                 rows.append((u.section, "[-]", "", u, None, u.excl)); continue
-            st["n"] += 1; st["size"] += len(un)
             p = find(u)
+            why = replaced(u.key) if p is None else None
+            if why:
+                st["repl"] += 1; rows.append((u.section, "[=]", "", u, None, why)); continue
+            st["n"] += 1; st["size"] += len(un)
             if p is None:
                 rows.append((u.section, "[ ]", "", u, None, "")); continue
             body = p.body
@@ -474,34 +547,41 @@ def main():
             else: missing.append(v)
         enum_rows.append((nm, have, counted, missing))
 
-    field_rows, field_n, field_have = [], 0, 0
+    field_rows, field_n, field_have, field_repl = [], 0, 0, 0
     for nm, (fl, line, sec) in sorted(structs_all.items()):
         fl = [x for x in fl if not x[2]]
-        if not fl: continue
+        repl = [x[0] for x in fl if x[0] not in lua_fields and replaced("%s::%s" % (nm, x[0]))]
+        fl = [x for x in fl if x[0] not in repl]
+        if not fl and not repl: continue
         missing = [x[0] for x in fl if x[0] not in lua_fields]
-        field_n += len(fl); field_have += len(fl) - len(missing)
-        field_rows.append((nm, len(fl) - len(missing), len(fl), missing))
+        field_n += len(fl); field_have += len(fl) - len(missing); field_repl += len(repl)
+        field_rows.append((nm, len(fl) - len(missing), len(fl), missing, repl))
 
-    api_rows = []
+    api_rows, api_repl = [], 0
     port_names = set(by_name)
     for f, label in (("imgui.h", "Public API (imgui.h, namespace ImGui)"), ("imgui_internal.h", "Internal API (imgui_internal.h, namespace ImGui)")):
         d = {k: v for k, v in decls_by_file[f].items() if not v[1]}
+        r = [k for k in d if k not in port_names and replaced("ImGui::" + k)]
+        api_repl += len(r)
+        for k in r: del d[k]
         have = [k for k in d if k in port_names]
         api_rows.append((label, len(have), len(d), sorted((k for k in d if k not in port_names), key=lambda k: d[k][0]), d))
 
     # ------------------------------------------------------------------ summary (stdout + file)
     head = []
-    head.append("%-22s %9s %9s %9s %11s %9s" % ("upstream file", "funcs", "ported", "by size", "similarity", "stubs"))
+    head.append("%-22s %9s %9s %9s %11s %9s %9s" % ("upstream file", "funcs", "ported", "by size", "similarity", "stubs", "replaced"))
     for f, s in summary:
-        head.append("%-22s %9d %9s %9s %11s %9d" % (f, s["n"], pct(s["have"], s["n"]), pct(s["size_have"], s["size"]),
-                    pct(s["simw"], s["size_sim"]), s["stub"]))
-    head.append("%-22s %9d %9s %9s %11s %9d" % ("TOTAL", tot["n"], pct(tot["have"], tot["n"]), pct(tot["size_have"], tot["size"]),
-                pct(tot["simw"], tot["size_sim"]), tot["stub"]))
+        head.append("%-22s %9d %9s %9s %11s %9d %9d" % (f, s["n"], pct(s["have"], s["n"]), pct(s["size_have"], s["size"]),
+                    pct(s["simw"], s["size_sim"]), s["stub"], s["repl"]))
+    head.append("%-22s %9d %9s %9s %11s %9d %9d" % ("TOTAL", tot["n"], pct(tot["have"], tot["n"]), pct(tot["size_have"], tot["size"]),
+                pct(tot["simw"], tot["size_sim"]), tot["stub"], tot["repl"]))
     head.append("")
     head.append("upstream code reproduced (similarity x ported size / all upstream size): %s" % pct(tot["simw"] / max(1, tot["size_sim"]) * tot["size_have"], tot["size"]))
     for label, h, n, _, _ in api_rows: head.append("%-52s %4d / %4d  %s" % (label, h, n, pct(h, n)))
     head.append("%-52s %4d / %4d  %s" % ("Enum values (imgui.h + imgui_internal.h)", enum_have, enum_n, pct(enum_have, enum_n)))
     head.append("%-52s %4d / %4d  %s" % ("Struct fields (imgui.h + imgui_internal.h)", field_have, field_n, pct(field_have, field_n)))
+    head.append("%d intentionally replaced by Lua equivalents [=] (%d functions, %d API declarations, %d struct fields), not counted above"
+                % (tot["repl"] + api_repl + field_repl, tot["repl"], api_repl, field_repl))
     print("\n".join(head))
 
     L = []
@@ -513,6 +593,7 @@ def main():
     L.append("          by size    = same, weighted by upstream body size (tokens)")
     L.append("          similarity = normalized token similarity of the ported bodies (difflib ratio), weighted by size")
     L.append("          stubs      = ported but (nearly) empty in the port")
+    L.append("          replaced   = [=] rows: intentionally replaced by a Lua mechanism (REPLACED table), excluded from funcs")
     L.append("Name-based matching: a renamed port function shows as [ ], a same-named one counts even if it differs. Treat as estimates.")
     L.append("Port-only helpers called from a ported function (same file) are inlined before comparing, since the port splits some big functions.")
     L.append("Known low scores that are not missing code: data-driven port code (e.g. DemoWindowTables' section table), the older 1.92")
@@ -520,7 +601,7 @@ def main():
     L.append("")
     L += head
     L.append("")
-    L.append("Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)")
+    L.append("Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [=] replaced by Lua equivalent (reason)   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)")
     for f, rows in report:
         L.append("")
         L.append("=" * 100)
@@ -534,7 +615,7 @@ def main():
             L.append("  %s %5s  %-58s %-32s %s" % (mark, sim, u.key, where, note))
     L.append("")
     L.append("=" * 100)
-    L.append("API declarations not ported (by upstream line)")
+    L.append("API declarations not ported (by upstream line; [=] replacements excluded)")
     L.append("=" * 100)
     for label, h, n, missing, d in api_rows:
         L.append(""); L.append("  %s: %d / %d" % (label, h, n))
@@ -551,10 +632,11 @@ def main():
         L.append("  %-40s %4d / %4d%s" % (nm, h, n, ("   missing: " + ", ".join(missing)) if missing else ""))
     L.append("")
     L.append("=" * 100)
-    L.append("Struct fields (name found in the port / total; missing listed). Field names are matched globally, so common names may over-count.")
+    L.append("Struct fields (name found in the port / total; missing listed; [=] replaced by Lua equivalent, excluded from total). Field names are matched globally, so common names may over-count.")
     L.append("=" * 100)
-    for nm, h, n, missing in field_rows:
-        L.append("  %-40s %4d / %4d%s" % (nm, h, n, ("   missing: " + ", ".join(missing)) if missing else ""))
+    for nm, h, n, missing, repl in field_rows:
+        L.append("  %-40s %4d / %4d%s%s" % (nm, h, n, ("   missing: " + ", ".join(missing)) if missing else "",
+                                           ("   [=] " + ", ".join("%s (%s)" % (x, replaced("%s::%s" % (nm, x))) for x in repl)) if repl else ""))
     out = os.path.join(ROOT, "docs", "PORT_STATUS.txt")
     open(out, "w").write("\n".join(L) + "\n")
     print("\nwrote docs/PORT_STATUS.txt")
