@@ -9482,10 +9482,13 @@ function ImGui.SetItemKeyOwner(key, flags)
 end
 
 -- This is equivalent to comparing KeyMods + doing a IsKeyPressed()
+-- [Port] public overload IsKeyChordPressed(key_chord) == IsKeyChordPressed(key_chord, ImGuiInputFlags_None, ImGuiKeyOwner_Any)
 --- @param key_chord ImGuiKeyChord
---- @param flags     ImGuiInputFlags
---- @param owner_id  ImGuiID
+--- @param flags?    ImGuiInputFlags
+--- @param owner_id? ImGuiID
 function ImGui.IsKeyChordPressed(key_chord, flags, owner_id)
+    if flags == nil then flags = ImGuiInputFlags.None end
+    if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
     local g = GImGui
     key_chord = ImGui.FixupKeyChord(key_chord)
     local mods = bit32.band(key_chord, ImGuiMod_Mask_)
@@ -9515,10 +9518,13 @@ function ImGui.SetNextItemShortcut(key_chord, flags)
     g.NextItemData.ShortcutFlags = flags
 end
 
+-- [Port] public overload Shortcut(key_chord, flags = 0) == Shortcut(key_chord, flags, ImGuiKeyOwner_Any)
 --- @param key_chord ImGuiKeyChord
---- @param flags     ImGuiInputFlags
---- @param owner_id  ImGuiID
+--- @param flags?    ImGuiInputFlags
+--- @param owner_id? ImGuiID
 function ImGui.Shortcut(key_chord, flags, owner_id)
+    if flags == nil then flags = 0 end
+    if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
     local g = GImGui
     -- IMGUI_DEBUG_LOG("Shortcut(%s, flags=%X, owner_id=0x%08X)\n", ImGui.GetKeyChordName(key_chord, g.TempBuffer.Data, g.TempBuffer.Size), flags, owner_id)
 
@@ -12745,6 +12751,17 @@ function ImGui.Begin(name, open, flags)
     end
 
     if open == nil then open = true end
+
+    -- [DEBUG] io.ConfigDebugBeginReturnValue override return value to test Begin/End and BeginChild/EndChild behaviors.
+    -- (The implicit fallback window is NOT automatically ended allowing it to always be able to receive commands without crashing)
+    if not window.IsFallbackWindow then
+        if (g.IO.ConfigDebugBeginReturnValueOnce and window_just_created) or (g.IO.ConfigDebugBeginReturnValueLoop and g.DebugBeginReturnValueCullDepth == g.CurrentWindowStack.Size) then
+            if window.AutoFitFramesX > 0 then window.AutoFitFramesX = window.AutoFitFramesX + 1 end
+            if window.AutoFitFramesY > 0 then window.AutoFitFramesY = window.AutoFitFramesY + 1 end
+            return open, false
+        end
+    end
+
     return open, not window.SkipItems
 end
 
@@ -14030,6 +14047,14 @@ function ImGui.NewFrame()
     g.ErrorCountCurrentFrame = 0
     g.StackSizesInNewFrame = g.StackSizesInNewFrame or ImGuiErrorRecoveryState()
     ImGui.ErrorRecoveryStoreState(g.StackSizesInNewFrame)
+
+    -- [DEBUG] When io.ConfigDebugBeginReturnValue is set, we make Begin()/BeginChild() return false at different level of the window-stack,
+    -- allowing to validate correct Begin/End behavior in user code.
+    if g.IO.ConfigDebugBeginReturnValueLoop then
+        g.DebugBeginReturnValueCullDepth = (g.DebugBeginReturnValueCullDepth == -1) and 0 or ((g.DebugBeginReturnValueCullDepth + (((g.FrameCount % 4) == 0) and 1 or 0)) % 10)
+    else
+        g.DebugBeginReturnValueCullDepth = -1
+    end
 end
 
 -- This is normally called by Render(). You may want to call it directly if you want to avoid calling Render() but the gain will be very minimal.
@@ -14450,9 +14475,10 @@ end
 --- @param pos          ImVec2
 --- @param items_height float
 function ImGui.CalcClipRectVisibleItemsY(clip_rect, pos, items_height)
-    local visible_start = ImMax(ImTrunc((clip_rect.Min.y - pos.y) / items_height), 0)
-    local visible_end = ImMax(ImTrunc(ImCeil((clip_rect.Max.y - pos.y) / items_height)), visible_start)
-    return visible_start + 1, visible_end + 1
+    -- [Port] returns (out_visible_start, out_visible_end), 0-based like upstream
+    local out_visible_start = ImMax(ImTrunc((clip_rect.Min.y - pos.y) / items_height), 0)
+    local out_visible_end = ImMax(ImTrunc(ImCeil((clip_rect.Max.y - pos.y) / items_height)), out_visible_start)
+    return out_visible_start, out_visible_end
 end
 
 -------------------------------------------------------------------------------
@@ -19742,14 +19768,6 @@ function MT.ImGuiListClipper:Step()
     return ret
 end
 
--- Generic helper, equivalent to old ImGui.CalcListClipping() but stateless
--- Returns (out_visible_start, out_visible_end)
-function ImGui.CalcClipRectVisibleItemsY(clip_rect, pos, items_height)
-    local out_visible_start = ImMax(ImTrunc((clip_rect.Min.y - pos.y) / items_height), 0)
-    local out_visible_end = ImMax(ImTrunc(ImCeil((clip_rect.Max.y - pos.y) / items_height)), out_visible_start)
-    return out_visible_start, out_visible_end
-end
-
 -------------------------------------------------------------------------------
 -- [SECTION] ERROR CHECKING, STATE RECOVERY
 -------------------------------------------------------------------------------
@@ -21064,7 +21082,7 @@ function ImGui.ShowMetricsWindow(p_open)
         _, g.DebugShowGroupRects = ImGui.Checkbox("Show groups rectangles", g.DebugShowGroupRects == true) -- Storing in context as this is used by group code and prefers to be in hot-data
 
         ImGui.SeparatorText("Validate")
-        _, io.ConfigDebugBeginReturnValueLoop = ImGui.Checkbox("Debug Begin/BeginChild return value", io.ConfigDebugBeginReturnValueLoop == true)
+        _, io.ConfigDebugBeginReturnValueLoop = ImGui.Checkbox("Debug Begin/BeginChild return value", io.ConfigDebugBeginReturnValueLoop)
         ImGui.SameLine(); MetricsHelpMarker("Some calls to Begin()/BeginChild() will return false.\n\nWill cycle through window depths then repeat. Windows should be flickering while running.")
         _, cfg.ShowTextEncodingViewer = ImGui.Checkbox("UTF-8 Encoding viewer", cfg.ShowTextEncodingViewer == true)
         ImGui.SameLine(); MetricsHelpMarker("You can also call ImGui::DebugTextEncoding() from your code with a given string to test that your UTF-8 encoding settings are correct.")

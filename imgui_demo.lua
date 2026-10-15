@@ -1188,10 +1188,6 @@ end
 -- [SECTION] DemoWindowWidgetsColorAndPickers()
 -------------------------------------------------------------------------------
 
--- [Port] the library does not define the standard color payload types (ColorButton drag source is not ported yet)
-IMGUI_PAYLOAD_TYPE_COLOR_3F = IMGUI_PAYLOAD_TYPE_COLOR_3F or "_COL3F"
-IMGUI_PAYLOAD_TYPE_COLOR_4F = IMGUI_PAYLOAD_TYPE_COLOR_4F or "_COL4F"
-
 S.DemoWindowWidgetsColorAndPickers = {
     color = ImVec4(114.0 / 255.0, 144.0 / 255.0, 154.0 / 255.0, 200.0 / 255.0),
     base_flags = ImGuiColorEditFlags.None,
@@ -1301,7 +1297,7 @@ function DemoWindowWidgetsColorAndPickers()
                 if ImGui.BeginDragDropTarget() then
                     local payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F)
                     if payload then
-                        local d = payload.Data -- [Port] memcpy -> copy components (Data is a 1-based float array or ImVec4)
+                        local d = payload.Data -- [Port] memcpy -> copy components (Data is a 1-based float array)
                         saved_palette[n + 1].x, saved_palette[n + 1].y, saved_palette[n + 1].z = d[1], d[2], d[3]
                     end
                     payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F)
@@ -7315,9 +7311,8 @@ function DemoWindowInputs()
             local line_height = ImGui.GetTextLineHeightWithSpacing()
             local key_chord = bit32.bor(ImGuiMod_Ctrl, ImGuiKey.A)
 
-            -- [Port] ImGui.Shortcut() has no owner_id default (upstream public overload passes ImGuiKeyOwner_Any): pass it explicitly.
             ImGui.Text("Ctrl+A")
-            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags, ImGuiKeyOwner_Any) and "PRESSED" or "...")
+            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags) and "PRESSED" or "...")
 
             ImGui.PushStyleColor(ImGuiCol.ChildBg, ImVec4(1.0, 0.0, 1.0, 0.1))
 
@@ -7327,7 +7322,7 @@ function DemoWindowInputs()
 
             -- 1: Window polling for Ctrl+A
             ImGui.Text("(in WindowA)")
-            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags, ImGuiKeyOwner_Any) and "PRESSED" or "...")
+            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags) and "PRESSED" or "...")
 
             -- 2: InputText also polling for Ctrl+A: it always uses _RouteFocused internally (gets priority when active)
             -- (Commented because the owner-aware version of Shortcut() is still in imgui_internal.h)
@@ -7347,7 +7342,7 @@ function DemoWindowInputs()
             -- 4: Child window polling for Ctrl+A. It is deeper than WindowA and gets priority when focused.
             ImGui.BeginChild("ChildE", ImVec2(-FLT_MIN, line_height * 4), true)
             ImGui.Text("(in ChildE: using same Shortcut)")
-            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags, ImGuiKeyOwner_Any) and "PRESSED" or "...")
+            ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags) and "PRESSED" or "...")
             ImGui.EndChild()
 
             -- 5: In a popup
@@ -7356,7 +7351,7 @@ function DemoWindowInputs()
             end
             if ImGui.BeginPopup("PopupF") then
                 ImGui.Text("(in PopupF)")
-                ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags, ImGuiKeyOwner_Any) and "PRESSED" or "...")
+                ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused() and 1 or 0, ImGui.Shortcut(key_chord, flags) and "PRESSED" or "...")
                 -- (Commented because the owner-aware version of Shortcut() is still in imgui_internal.h)
                 --ImGui.InputText("InputTextG", str, IM_COUNTOF(str), ImGuiInputTextFlags.ReadOnly);
                 --ImGui.Text("IsWindowFocused: %d, Shortcut: %s", ImGui.IsWindowFocused(), ImGui.Shortcut(key_chord, flags, ImGui.GetItemID()) ? "PRESSED" : "...");
@@ -7735,7 +7730,7 @@ function ImGui.ShowStyleEditor(ref)
         end
         ImGui.SameLine(0.0, 0.0); ImGui.Text(" (out %.2f)", ImGui.GetFontSize())
         style.FontScaleMain = ImGui.DragFloat("FontScaleMain", style.FontScaleMain, 0.02, 0.5, 4.0)
-        ImGui.BeginDisabled(ImGui.GetIO().ConfigDpiScaleFonts == true) -- [Port] field is nil in the port's ImGuiIO (nil would mean "disabled")
+        ImGui.BeginDisabled(ImGui.GetIO().ConfigDpiScaleFonts)
         style.FontScaleDpi = ImGui.DragFloat("FontScaleDpi", style.FontScaleDpi, 0.02, 0.5, 4.0)
         ImGui.SetItemTooltip("When io.ConfigDpiScaleFonts is set, this value is automatically overwritten.")
         ImGui.EndDisabled()
@@ -7987,7 +7982,7 @@ function ImGui.ShowStyleEditor(ref)
 
             _, style.AntiAliasedFill = ImGui.Checkbox("Anti-aliased fill", style.AntiAliasedFill)
             local io = ImGui.GetIO()
-            _, io.ConfigDebugDrawListDefaultsToStrokeLegacy = ImGui.Checkbox("Debug: DrawList Defaults to _StrokeLegacy", io.ConfigDebugDrawListDefaultsToStrokeLegacy == true) -- [Port] field not declared in the port's ImGuiIO
+            _, io.ConfigDebugDrawListDefaultsToStrokeLegacy = ImGui.Checkbox("Debug: DrawList Defaults to _StrokeLegacy", io.ConfigDebugDrawListDefaultsToStrokeLegacy)
 
             ImGui.PushItemWidth(ImGui.GetFontSize() * 8)
             -- [Port] the library still stores the older style.CurveTessellationTol (== MaxError * MaxError) instead of style.CurveTessellationMaxError

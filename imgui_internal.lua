@@ -1757,12 +1757,14 @@ IMGUI_TEXT_INDEX.__index = IMGUI_TEXT_INDEX
 
 function IMGUI_TEXT_INDEX:clear() self.Offsets:clear(); self.EndOffset = 0; end
 
+function IMGUI_TEXT_INDEX:size() return self.Offsets.Size end
+-- [Port] 'n' is a 0-based line number like upstream (Offsets.Data is 1-based), 'base' the 1-based position of the buffer start; returns 1-based positions
 function IMGUI_TEXT_INDEX:get_line_begin(base, n)
-    return base + (self.Offsets.Size ~= 0 and self.Offsets[n] or 0)
+    return base + (self.Offsets.Size ~= 0 and self.Offsets.Data[n + 1] or 0)
 end
 
 function IMGUI_TEXT_INDEX:get_line_end(base, n)
-    return base + ((n + 1 < self.Offsets.Size) and (self.Offsets[n + 1] - 1) or self.EndOffset)
+    return base + ((n + 1 < self.Offsets.Size) and (self.Offsets.Data[n + 2] - 1) or self.EndOffset)
 end
 
 --- @return ImGuiTextIndex
@@ -2166,7 +2168,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         NavActivateId = 0, NavActivateDownId = 0, NavActivatePressedId = 0, -- ~~ (g.ActiveId == 0) && (IsKeyPressed(ImGuiKey.Space) || IsKeyDown(ImGuiKey.Enter) || IsKeyPressed(ImGuiKey.NavGamepadActivate)) ? NavId : 0, also set when calling ActivateItemByID()
         NavActivateFlags = ImGuiActivateFlags.None,
 
-        FrameCount = -1,
+        FrameCount = 0,
 
         FrameCountEnded = -1,
         FrameCountPlatformEnded = -1,
@@ -2339,6 +2341,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         DebugLogFlags = bitOr(ImGuiDebugLogFlags.EventError, ImGuiDebugLogFlags.OutputToTTY),
         DebugFlashStyleColorIdx = nil,
+        DebugBeginReturnValueCullDepth = -1, -- Cycle between 0..9 then wrap around.
 
         DebugMetricsConfig = ImGuiMetricsConfig(),
         DebugHookIdInfoId = 0, -- Will call core hooks: DebugHookIdInfo() from GetID functions, used by ID Stack Tool

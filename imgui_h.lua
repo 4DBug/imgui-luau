@@ -1198,6 +1198,9 @@ function ImGuiIO()
 
         DisplayFramebufferScale = ImVec2(1.0, 1.0), -- = (1, 1)         -- Main display density. For retina display where window coordinates are different from framebuffer coordinates. This will affect font density + will end up in ImDrawData::FramebufferScale.
 
+        -- Font system
+        FontAllowUserScaling = false, -- = false          -- Allow user scaling text of individual window with Ctrl+Wheel.
+
         -- Main Input State
         -- (this block used to be written by backend, since 1.87 it is best to NOT write to those directly, call the AddXXX functions above instead)
         -- (reading from those variables is fair game, as they are extremely unlikely to be moving anywhere)
@@ -1229,6 +1232,25 @@ function ImGuiIO()
         ConfigDebugIniSettings = false, -- = false          -- Save .ini data with extra comments (particularly helpful for Docking, but makes saving slower)
         ConfigWindowsCopyContentsWithCtrlC = false, -- = false      -- [EXPERIMENTAL] Ctrl+C copy the contents of focused window into the clipboard. Experimental because: (1) has known issues with nested Begin/End pairs (2) text output quality varies (3) text output is in submission order rather than spatial order.
         ConfigWindowsMoveFromTitleBarOnly = false, -- = false      -- Enable allowing to move windows only when clicking on their title bar. Does not apply to windows without a title bar.
+        ConfigScrollbarScrollByPage = true, -- = true           -- Enable scrolling page by page when clicking outside the scrollbar grab. When disabled, always scroll to clicked location. When enabled, Shift+Click scrolls to clicked location.
+        ConfigInputTextCursorBlink = true, -- = true           -- Enable blinking cursor (optional as some users consider it to be distracting).
+        ConfigInputTextEnterKeepActive = false, -- = false          -- [BETA] Pressing Enter will reactivate item and select all text (single-line only). Ctrl+Enter or Shift+Enter will deactivate normally.
+        ConfigDragClickToInputText = false, -- = false          -- [BETA] Enable turning DragXXX widgets into text input with a simple mouse click-release (without moving). Not desirable on devices without a keyboard.
+
+        -- Keyboard/Gamepad Navigation options
+        ConfigNavSwapGamepadButtons = false, -- = false          -- Swap Activate<>Cancel (A<>B) buttons, matching typical "Nintendo/Japanese style" gamepad layout.
+        ConfigNavMoveSetMousePos = false, -- = false          -- Directional/tabbing navigation teleports the mouse cursor. May be useful on TV/console systems where moving a virtual mouse is difficult. Will update io.MousePos and set io.WantSetMousePos=true.
+        ConfigNavCaptureKeyboard = true, -- = true           -- Sets io.WantCaptureKeyboard when io.NavActive is set.
+        ConfigNavEscapeClearFocusItem = true, -- = true           -- Pressing Escape can clear focused item + navigation id/highlight. Set to false if you want to always keep highlight on.
+        ConfigNavEscapeClearFocusWindow = false, -- = false          -- Pressing Escape can clear focused window as well (super set of io.ConfigNavEscapeClearFocusItem).
+
+        -- DPI/Scaling options
+        ConfigDpiScaleFonts = false, -- = false          -- [EXPERIMENTAL] Automatically overwrite style.FontScaleDpi when Monitor DPI changes. This will scale fonts but _NOT_ scale sizes/padding for now.
+        ConfigDpiScaleViewports = false, -- = false          -- [EXPERIMENTAL] Scale Dear ImGui and Platform Windows when Monitor DPI changes.
+
+        -- Ini Settings options
+        ConfigIniSettingsSaveLastUsedDate = true, -- = true         -- Enable loading/saving last used day (YYYYMMDD) in some .ini struct, making things easier to audit and allowing custom tools to cleanup old data.
+        ConfigIniSettingsAutoDiscardMonths = 0, -- = 0          -- [BETA] Set number of months after which unused .ini entries are discarded on load. Require platform_io.Platform_SessionDate to be set. For systems supporting the feature, .ini entries without a LastUsed field will always be discarded! Please report if you are using this.
         -- Options to configure Error Handling and how we handle recoverable errors [EXPERIMENTAL]
         -- - Error recovery is provided as a way to facilitate:
         --    - Recovery after a programming error (native code or scripting language - the latter tends to facilitate iterating on code while running).
@@ -1253,6 +1275,14 @@ function ImGuiIO()
         -- - See FAQ https://github.com/ocornut/imgui/blob/master/docs/FAQ.md#q-about-the-id-stack-system
         ConfigDebugHighlightIdConflicts = false, -- Highlight and show an error message popup when multiple items have conflicting identifiers.
         ConfigDebugHighlightIdConflictsShowItemPicker = true, -- =true -- Show "Item Picker" button in aforementioned popup.
+        ConfigDebugIsDebuggerPresent = false, -- = false          -- Enable various tools calling IM_DEBUG_BREAK().
+        -- Tools to test correct Begin/End and BeginChild/EndChild behaviors.
+        ConfigDebugBeginReturnValueOnce = false, -- = false          -- First-time calls to Begin()/BeginChild() will return false. NEEDS TO BE SET AT APPLICATION BOOT TIME if you don't want to miss windows.
+        ConfigDebugBeginReturnValueLoop = false, -- = false          -- Some calls to Begin()/BeginChild() will return false. Will cycle through window depths then repeat. Suggested use: add "io.ConfigDebugBeginReturnValue = io.KeyShift" in your main loop then occasionally press SHIFT. Windows should be flickering while running.
+        -- Option to deactivate io.AddFocusEvent(false) handling.
+        ConfigDebugIgnoreFocusLoss = false, -- = false          -- Ignore io.AddFocusEvent(false), consequently not calling io.ClearInputKeys()/io.ClearInputMouse() in input processing.
+        -- Option to default all ImDrawList to ImDrawListFlags_StrokeLegacy mode.
+        ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering. [Port] the 1.93 stroke rendering is not ported yet: no effect.
 
         IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
         IniSavingRate = 5.0, -- = 5.0f           -- Minimum time between saving positions/sizes to .ini file, in seconds.
@@ -2118,6 +2148,10 @@ ImGuiDragDropFlags = {
 }
 
 ImGuiDragDropFlags.AcceptPeekOnly = bitOr(ImGuiDragDropFlags.AcceptBeforeDelivery, ImGuiDragDropFlags.AcceptNoDrawDefaultRect) -- For peeking ahead and inspecting the payload before delivery.
+
+-- Standard Drag and Drop payload types. You can define you own payload types using short strings. Types starting with '_' are defined by Dear ImGui.
+IMGUI_PAYLOAD_TYPE_COLOR_3F = "_COL3F" -- float[3]: Standard type for colors, without alpha. User code may use this type. [Port] payload.Data = { r, g, b } (1-based)
+IMGUI_PAYLOAD_TYPE_COLOR_4F = "_COL4F" -- float[4]: Standard type for colors. User code may use this type. [Port] payload.Data = { r, g, b, a } (1-based)
 
 -- Helpers macros to generate 32-bit encoded colors
 IM_COL32_R_SHIFT = 0
