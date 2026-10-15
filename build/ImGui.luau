@@ -6384,18 +6384,26 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
 
     local g = GImGui
     local window = g.CurrentWindow
+    local last_item_data, next_item_data = g.LastItemData, g.NextItemData -- [Luau] cached field reads
 
     -- Set item data
     -- (DisplayRect is left untouched, made valid when ImGuiItemStatusFlags.HasDisplayRect is set)
-    g.LastItemData.ID = id
-    ImRect_Copy(g.LastItemData.Rect, bb)
-    ImRect_Copy(g.LastItemData.NavRect, nav_bb_arg and nav_bb_arg or bb)
-    g.LastItemData.ItemFlags = bit32.bor(g.CurrentItemFlags, g.NextItemData.ItemFlagsSet, extra_flags)
-    g.LastItemData.StatusFlags = ImGuiItemStatusFlags.None
+    last_item_data.ID = id
+    -- [Luau] inline ImRect_Copy(g.LastItemData.Rect, bb); ImRect_Copy(g.LastItemData.NavRect, nav_bb_arg or bb)
+    local bb_min, bb_max = bb.Min, bb.Max
+    local r = last_item_data.Rect
+    r.Min.x = bb_min.x; r.Min.y = bb_min.y; r.Max.x = bb_max.x; r.Max.y = bb_max.y
+    local nav_bb = nav_bb_arg and nav_bb_arg or bb
+    r = last_item_data.NavRect
+    r.Min.x = nav_bb.Min.x; r.Min.y = nav_bb.Min.y; r.Max.x = nav_bb.Max.x; r.Max.y = nav_bb.Max.y
+    last_item_data.ItemFlags = bit32.bor(g.CurrentItemFlags, next_item_data.ItemFlagsSet, extra_flags)
+    last_item_data.StatusFlags = ImGuiItemStatusFlags.None
     -- Note: we don't copy 'g.NextItemData.SelectionUserData' to an hypothetical g.LastItemData.SelectionUserData: since the former is not cleared.
 
     if id ~= 0 then
-        ImGui.KeepAliveID(id)
+        -- [Luau] inline ImGui.KeepAliveID(id)
+        if g.ActiveId == id then g.ActiveIdIsAlive = id end
+        if g.DeactivatedItemData.ID == id then g.DeactivatedItemData.IsAlive = true end
 
         -- Directional navigation processing
         -- Runs prior to clipping early-out
@@ -6407,7 +6415,7 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
         --      to reach unclipped widgets. This would work if user had explicit scrolling control (e.g. mapped on a stick).
         -- We intentionally don't check if g.NavWindow ~= nil because g.NavAnyRequest should only be set when it is non nil.
         -- If we crash on a nil g.NavWindow we need to fix the bug elsewhere.
-        if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.NoNav) == 0 then
+        if bit32.band(last_item_data.ItemFlags, ImGuiItemFlags.NoNav) == 0 then
             -- FIXME-NAV: investigate changing the window tests into a simple 'if (g.NavFocusScopeId == g.CurrentFocusScopeId)' test.
             window.DC.NavLayersActiveMaskNext = bit32.bor(window.DC.NavLayersActiveMaskNext, bit32.lshift(1, window.DC.NavLayerCurrent))
 
@@ -6420,14 +6428,14 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
             end
         end
 
-        if bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasShortcut) ~= 0 then
+        if bit32.band(next_item_data.HasFlags, ImGuiNextItemDataFlags.HasShortcut) ~= 0 then
             ImGui.ItemHandleShortcut(id)
         end
     end
 
     -- Lightweight clear of SetNextItemXXX data.
-    g.NextItemData.HasFlags = ImGuiNextItemDataFlags.None
-    g.NextItemData.ItemFlagsSet = ImGuiItemFlags.None
+    next_item_data.HasFlags = ImGuiNextItemDataFlags.None
+    next_item_data.ItemFlagsSet = ImGuiItemFlags.None
 
     -- Clipping test
     -- (this is an inline copy of IsClippedEx() so we can reuse the is_rect_visible value, otherwise we'd do 'if (IsClippedEx(bb, id)) return false')
@@ -6446,11 +6454,11 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
 
     -- We need to calculate this now to take account of the current clipping rectangle (as items like Selectable may change them)
     if is_rect_visible then
-        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible)
+        last_item_data.StatusFlags = bit32.bor(last_item_data.StatusFlags, ImGuiItemStatusFlags.Visible)
     end
 
     if ImGui.IsMouseHoveringRect(bb.Min, bb.Max) then
-        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect)
+        last_item_data.StatusFlags = bit32.bor(last_item_data.StatusFlags, ImGuiItemStatusFlags.HoveredRect)
     end
 
     return true
@@ -6496,7 +6504,7 @@ function ImGui.ItemSize(size_or_bb, text_baseline_y)
     if text_baseline_y == nil then text_baseline_y = -1.0 end
 
     local size_x, size_y
-    local bb_min = size_or_bb.Min
+    local bb_min = rawget(size_or_bb, "Min") -- [Luau] rawget: `.Min` on an ImVec2 would go through IM_VEC2.__index
     if bb_min then
         --- @cast size_or_bb ImRect
         size_x = size_or_bb.Max.x - bb_min.x; size_y = size_or_bb.Max.y - bb_min.y
@@ -6577,18 +6585,19 @@ function ImGui.SameLine(offset_from_start_x, spacing_w)
         return
     end
 
+    local dc = window.DC -- [Luau] cached field read
     if offset_from_start_x ~= 0.0 then
         if spacing_w < 0.0 then spacing_w = 0.0 end
-        window.DC.CursorPos.x = window.Pos.x - window.Scroll.x + offset_from_start_x + spacing_w + window.DC.GroupOffset.x + window.DC.ColumnsOffset.x
-        window.DC.CursorPos.y = window.DC.CursorPosPrevLine.y
+        dc.CursorPos.x = window.Pos.x - window.Scroll.x + offset_from_start_x + spacing_w + dc.GroupOffset.x + dc.ColumnsOffset.x
+        dc.CursorPos.y = dc.CursorPosPrevLine.y
     else
         if spacing_w < 0.0 then spacing_w = g.Style.ItemSpacing.x end
-        window.DC.CursorPos.x = window.DC.CursorPosPrevLine.x + spacing_w
-        window.DC.CursorPos.y = window.DC.CursorPosPrevLine.y
+        dc.CursorPos.x = dc.CursorPosPrevLine.x + spacing_w
+        dc.CursorPos.y = dc.CursorPosPrevLine.y
     end
-    ImVec2_Copy(window.DC.CurrLineSize, window.DC.PrevLineSize)
-    window.DC.CurrLineTextBaseOffset = window.DC.PrevLineTextBaseOffset
-    window.DC.IsSameLine = true
+    dc.CurrLineSize.x = dc.PrevLineSize.x; dc.CurrLineSize.y = dc.PrevLineSize.y -- [Luau] inline ImVec2_Copy()
+    dc.CurrLineTextBaseOffset = dc.PrevLineTextBaseOffset
+    dc.IsSameLine = true
 end
 
 --- @param indent_w? float
@@ -6636,7 +6645,10 @@ end
 function ImGui.PushItemWidth(item_width)
     local g = GImGui
     local window = g.CurrentWindow
-    window.DC.ItemWidthStack:push_back(window.DC.ItemWidth) -- Backup current width
+    -- [Luau] inline window.DC.ItemWidthStack:push_back(window.DC.ItemWidth) -- Backup current width
+    local stack = window.DC.ItemWidthStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(window.DC.ItemWidth) else stack.Data[n] = window.DC.ItemWidth; stack.Size = n end
     window.DC.ItemWidth = (item_width == 0.0) and window.DC.ItemWidthDefault or item_width
     g.NextItemData.HasFlags = bit32.band(g.NextItemData.HasFlags, bit32.bnot(ImGuiNextItemDataFlags.HasWidth))
 end
@@ -6648,8 +6660,9 @@ function ImGui.PopItemWidth()
         IM_ASSERT_USER_ERROR(false, "Calling PopItemWidth() too many times!")
         return
     end
-    window.DC.ItemWidth = window.DC.ItemWidthStack:back()
-    window.DC.ItemWidthStack:pop_back()
+    local stack = window.DC.ItemWidthStack
+    window.DC.ItemWidth = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
+    stack.Size = stack.Size - 1
 end
 
 --- @param components int
@@ -6920,8 +6933,10 @@ function ImGui.CalcItemWidth()
     end
 
     if w < 0.0 then
-        local region_avail_x = ImGui.GetContentRegionAvail().x
-        w = ImMax(1.0, region_avail_x + w)
+        -- [Luau] scalar GetContentRegionAvail().x, no temporary ImVec2
+        local mx = (window.DC.CurrentColumns or g.CurrentTable) and window.WorkRect.Max or window.ContentRegionRect.Max
+        local region_avail_x = mx.x - window.DC.CursorPos.x
+        w = math.max(1.0, region_avail_x + w)
     end
 
     w = IM_TRUNC(w)
@@ -6937,21 +6952,25 @@ end
 --- @param default_h float
 --- @return ImVec2
 function ImGui.CalcItemSize(size, default_w, default_h)
-    local avail
+    local avail_x, avail_y
     if size.x < 0.0 or size.y < 0.0 then
-        avail = ImGui.GetContentRegionAvail()
+        -- [Luau] scalar GetContentRegionAvail(), no temporary ImVec2
+        local g = GImGui
+        local window = g.CurrentWindow
+        local mx = (window.DC.CurrentColumns or g.CurrentTable) and window.WorkRect.Max or window.ContentRegionRect.Max
+        avail_x = mx.x - window.DC.CursorPos.x; avail_y = mx.y - window.DC.CursorPos.y
     end
 
     if size.x == 0.0 then
         size.x = default_w
     elseif size.x < 0.0 then
-        size.x = ImMax(4.0, avail.x + size.x)  -- <-- size.x is negative here so we are subtracting
+        size.x = math.max(4.0, avail_x + size.x)  -- <-- size.x is negative here so we are subtracting
     end
 
     if size.y == 0.0 then
         size.y = default_h
     elseif size.y < 0.0 then
-        size.y = ImMax(4.0, avail.y + size.y)  -- <-- size.y is negative here so we are subtracting
+        size.y = math.max(4.0, avail_y + size.y)  -- <-- size.y is negative here so we are subtracting
     end
 
     return size
@@ -7492,7 +7511,10 @@ function ImGui.PushID(str_id)
     local g = GImGui
     local window = g.CurrentWindow
     local id = window:GetID(str_id)
-    window.IDStack:push_back(id)
+    -- [Luau] inline window.IDStack:push_back(id)
+    local stack = window.IDStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(id) else stack.Data[n] = id; stack.Size = n end
 end
 
 -- Push a given id value ignoring the ID stack as a seed.
@@ -7503,14 +7525,18 @@ function ImGui.PushOverrideID(id)
     if g.DebugHookIdInfoId == id and id ~= 0 then
         ImGui.DebugHookIdInfo(id, ImGuiDataType.ID, nil)
     end
-    window.IDStack:push_back(id)
+    -- [Luau] inline window.IDStack:push_back(id)
+    local stack = window.IDStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(id) else stack.Data[n] = id; stack.Size = n end
 end
 
 @native
 function ImGui.PopID()
     local window = GImGui.CurrentWindow
-    IM_ASSERT_USER_ERROR_RET(window.IDStack.Size > 1, "Calling PopID() too many times!")
-    window.IDStack:pop_back()
+    local stack = window.IDStack
+    IM_ASSERT_USER_ERROR_RET(stack.Size > 1, "Calling PopID() too many times!")
+    stack.Size = stack.Size - 1 -- [Luau] inline stack:pop_back()
 end
 
 -- This is one of the very rare legacy case where we use ImGuiWindow methods,
@@ -7519,7 +7545,8 @@ end
 --- @return ImGuiID
 @native
 function MT.ImGuiWindow:GetID(id)
-    local seed = self.IDStack:back()
+    local stack = self.IDStack
+    local seed = stack.Data[stack.Size] -- [Luau] inline self.IDStack:back()
 
     local h
     if type(id) == "string" then
@@ -7915,7 +7942,9 @@ end
 function ImGui.IsClippedEx(bb, id)
     local g = GImGui
     local window = g.CurrentWindow
-    if not bb:Overlaps(window.ClipRect) then
+    -- [Luau] inline bb:Overlaps(window.ClipRect)
+    local bmin, bmax, cr = bb.Min, bb.Max, window.ClipRect
+    if not (bmin.x <= cr.Max.x and bmax.x >= cr.Min.x and bmin.y <= cr.Max.y and bmax.y >= cr.Min.y) then
         if id == 0 or (id ~= g.ActiveId and id ~= g.ActiveIdPreviousFrame and id ~= g.NavId and id ~= g.NavActivateId) then
             if not g.ItemUnclipByLog then
                 return true
@@ -10022,7 +10051,7 @@ function ImGui.CalcWrapWidthForPos(pos, wrap_pos_x)
         wrap_pos_x = wrap_pos_x + window.Pos.x - window.Scroll.x -- wrap_pos_x is provided is window local space
     end
 
-    return ImMax(wrap_pos_x - pos.x, 1.0)
+    return math.max(wrap_pos_x - pos.x, 1.0)
 end
 
 -------------------------------------------------------------------------------
@@ -10044,7 +10073,7 @@ function ImGui.FindRenderedTextEnd(text, text_end)
     end
 
     text_display_end = ImMemchr(text, "##", 1) or text_end
-    text_display_end = ImMin(text_display_end, text_end)
+    text_display_end = math.min(text_display_end, text_end) -- [Luau] scalar ImMin()
 
     return text_display_end
 end
@@ -10115,13 +10144,17 @@ end
 --- @param text_size_if_known? ImVec2
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
+local RenderTextClipped_align0 = ImVec2(0, 0) -- [Luau] shared read-only default
+local RenderTextClippedEx_pos = ImVec2()      -- [Luau] scratch: AddText() only reads pos
+local RenderTextClippedEx_fine_clip = ImVec4() -- [Luau] scratch: AddText() only reads it
+
 @native
 function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin, text_display_end, text_size_if_known, align, clip_rect)
-    if not align then align = ImVec2(0, 0) end
+    if not align then align = RenderTextClipped_align0 end
 
     -- Perform CPU side clipping for single clipped element to avoid using scissor state
-    local pos = ImVec2()
-    ImVec2_Copy(pos, pos_min)
+    local pos = RenderTextClippedEx_pos
+    pos.x = pos_min.x; pos.y = pos_min.y
 
     local text_size = text_size_if_known or ImGui.CalcTextSize(text, text_display_end, false, 0.0)
 
@@ -10133,13 +10166,13 @@ function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin
     end
 
     -- Align whole block. We should defer that to the better rendering function when we'll have support for individual line alignment.
-    if (align.x > 0.0) then pos.x = ImMax(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
-    if (align.y > 0.0) then pos.y = ImMax(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
+    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
+    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
 
     -- Render
-    local g = GImGui
     if (need_clipping) then
-        local fine_clip_rect = ImVec4(clip_min.x, clip_min.y, clip_max.x, clip_max.y)
+        local fine_clip_rect = RenderTextClippedEx_fine_clip
+        fine_clip_rect.x = clip_min.x; fine_clip_rect.y = clip_min.y; fine_clip_rect.z = clip_max.x; fine_clip_rect.w = clip_max.y
         draw_list:AddText(nil, 0.0, pos, ImGui.GetColorU32(ImGuiCol.Text), text, text_begin, text_display_end, 0.0, fine_clip_rect)
     else
         draw_list:AddText(nil, 0.0, pos, ImGui.GetColorU32(ImGuiCol.Text), text, text_begin, text_display_end, 0.0, nil)
@@ -10154,7 +10187,7 @@ end
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
 function ImGui.RenderTextClipped(pos_min, pos_max, text, text_end, text_size_if_known, align, clip_rect)
-    if not align then align = ImVec2(0, 0) end
+    if not align then align = RenderTextClipped_align0 end
 
     -- Hide anything after a '##' string
     local text_display_end = ImGui.FindRenderedTextEnd(text, text_end)
@@ -13559,15 +13592,21 @@ end
 --- @param intersect_with_current_clip_rect? bool
 @native
 function ImGui.PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
-    local window = ImGui.GetCurrentWindow()
-    window.DrawList:PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
-    ImRect_CopyFromV4(window.ClipRect, window.DrawList._ClipRectStack:back())
+    local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+    window.WriteAccessed = true
+    local draw_list = window.DrawList
+    draw_list:PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
+    local stack = draw_list._ClipRectStack
+    ImRect_CopyFromV4(window.ClipRect, stack.Data[stack.Size]) -- [Luau] inline back()
 end
 
 function ImGui.PopClipRect()
-    local window = ImGui.GetCurrentWindow()
-    window.DrawList:PopClipRect()
-    ImRect_CopyFromV4(window.ClipRect, window.DrawList._ClipRectStack:back())
+    local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+    window.WriteAccessed = true
+    local draw_list = window.DrawList
+    draw_list:PopClipRect()
+    local stack = draw_list._ClipRectStack
+    ImRect_CopyFromV4(window.ClipRect, stack.Data[stack.Size]) -- [Luau] inline back()
 end
 
 --- @param viewport      ImGuiViewportP
@@ -14212,12 +14251,12 @@ function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double
     if text == "" or (text_end and text_end <= text_begin) then
         return ImVec2(0.0, font_size)
     end
-    local text_size = font:CalcTextSizeA(font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, nil)
+    local text_size = ImFontCalcTextSizeEx(font, font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, text_display_end, nil, ImDrawTextFlags.None) -- [Luau] inline font:CalcTextSizeA()
 
     -- Round
     -- (see 7b0bf230, 4622fa4b6, #791 for details about this.)
     -- FIXME: Add a way to disable this.
-    text_size.x = ImCeilFast(text_size.x)
+    text_size.x = math.ceil(text_size.x) -- [Luau] == ImCeilFast() for all finite values, builtin
 
     return text_size
 end
@@ -14453,7 +14492,13 @@ function ImGui.GetColorU32(col, alpha_mul, col_is_u32)
         else --- @cast col ImVec4
             w = col.w * style.Alpha
         end
-        return bit32.bor(F32ToU8Sat(col.x), bit32.lshift(F32ToU8Sat(col.y), 8), bit32.lshift(F32ToU8Sat(col.z), 16), bit32.lshift(F32ToU8Sat(w), 24))
+        -- [Luau] inline F32ToU8Sat() x4
+        local x, y, z = col.x, col.y, col.z
+        if x < 0.0 then x = 0.0 elseif x > 1.0 then x = 1.0 end
+        if y < 0.0 then y = 0.0 elseif y > 1.0 then y = 1.0 end
+        if z < 0.0 then z = 0.0 elseif z > 1.0 then z = 1.0 end
+        if w < 0.0 then w = 0.0 elseif w > 1.0 then w = 1.0 end
+        return bit32.bor(math.floor(x * 255.0 + 0.5), bit32.lshift(math.floor(y * 255.0 + 0.5), 8), bit32.lshift(math.floor(z * 255.0 + 0.5), 16), bit32.lshift(math.floor(w * 255.0 + 0.5), 24))
     else
         --- @cast col ImU32
         alpha_mul = alpha_mul * style.Alpha
@@ -14474,7 +14519,10 @@ end
 function ImGui.PushStyleColor(idx, col)
     local g = GImGui
     local backup = ImGuiColorMod(idx, g.Style.Colors[idx])
-    g.ColorStack:push_back(backup)
+    -- [Luau] inline g.ColorStack:push_back(backup)
+    local stack = g.ColorStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(backup) else stack.Data[n] = backup; stack.Size = n end
     if g.DebugFlashStyleColorIdx ~= idx then
         if type(col) == "number" then
             ImGui.ColorConvertU32ToFloat4(col, g.Style.Colors[idx])
@@ -14494,10 +14542,11 @@ function ImGui.PopStyleColor(count)
         count = g.ColorStack.Size
     end
 
+    local stack = g.ColorStack
     while count > 0 do
-        local backup = g.ColorStack:back()
+        local backup = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
         ImVec4_Copy(g.Style.Colors[backup.Col], backup.BackupValue)
-        g.ColorStack:pop_back()
+        stack.Size = stack.Size - 1
         count = count - 1
     end
 end
@@ -14607,8 +14656,9 @@ function ImGui.PopStyleVar(count)
         IM_ASSERT_USER_ERROR(0, "Calling PopStyleVar() too many times!")
         count = g.StyleVarStack.Size
     end
+    local stack = g.StyleVarStack
     while count > 0 do
-        local backup = g.StyleVarStack:back()
+        local backup = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
         local var_info = ImGui.GetStyleVarInfo(backup.VarIdx)
         local data = g.Style[var_info.Key]
         if (var_info.DataType == ImGuiDataType.Float and var_info.Count == 1) then
@@ -14616,7 +14666,7 @@ function ImGui.PopStyleVar(count)
         elseif (var_info.DataType == ImGuiDataType.Float and var_info.Count == 2) then
             data.x = backup.BackupVal[1]; data.y = backup.BackupVal[2]
         end
-        g.StyleVarStack:pop_back()
+        stack.Size = stack.Size - 1
         count = count - 1
     end
 end
@@ -14626,16 +14676,21 @@ end
 function ImGui.PushTextWrapPos(wrap_local_pos_x)
     local g = GImGui
     local window = g.CurrentWindow
-    window.DC.TextWrapPosStack:push_back(window.DC.TextWrapPos)
-    window.DC.TextWrapPos = wrap_local_pos_x
+    -- [Luau] inline window.DC.TextWrapPosStack:push_back(window.DC.TextWrapPos)
+    local dc = window.DC
+    local stack = dc.TextWrapPosStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(dc.TextWrapPos) else stack.Data[n] = dc.TextWrapPos; stack.Size = n end
+    dc.TextWrapPos = wrap_local_pos_x
 end
 
 function ImGui.PopTextWrapPos()
     local g = GImGui
     local window = g.CurrentWindow
-    IM_ASSERT_USER_ERROR_RET(window.DC.TextWrapPosStack.Size > 0, "Calling PopTextWrapPos() too many times!")
-    window.DC.TextWrapPos = window.DC.TextWrapPosStack:back()
-    window.DC.TextWrapPosStack:pop_back()
+    local stack = window.DC.TextWrapPosStack
+    IM_ASSERT_USER_ERROR_RET(stack.Size > 0, "Calling PopTextWrapPos() too many times!")
+    window.DC.TextWrapPos = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
+    stack.Size = stack.Size - 1
 end
 
 --- @param window          ImGuiWindow
@@ -14876,7 +14931,8 @@ function CalcNextScrollFromScrollTargetAndClamp(window)
     ImVec2_Copy(scroll, window.Scroll)
     local decoration_size = ImVec2(window.DecoOuterSizeX1 + window.DecoInnerSizeX1 + window.DecoOuterSizeX2, window.DecoOuterSizeY1 + window.DecoInnerSizeY1 + window.DecoOuterSizeY2)
 
-    for axis = ImGuiAxis.X, ImGuiAxis.Y do
+    for axis_n = ImGuiAxis.X, ImGuiAxis.Y do
+        local axis = (axis_n == ImGuiAxis.X) and "x" or "y" -- [Luau] named key: ImVec2[1]/[2] go through IM_VEC2.__index
         if window.ScrollTarget[axis] < FLT_MAX then
             local center_ratio = window.ScrollTargetCenterRatio[axis]
             local scroll_target = window.ScrollTarget[axis]
@@ -17579,7 +17635,7 @@ end
 function ImGui.GetMainViewport()
     local g = GImGui
 
-    return g.Viewports[1]
+    return g.Viewports.Data[1] -- [Luau] .Data[]: no IM_VECTOR.__index
 end
 
 -- FIXME: This leaks access to viewports not listed in PlatformIO.Viewports[]. Problematic? (#4236)
@@ -20037,23 +20093,34 @@ function ImGui.DebugNodeFontGlyphsForSrcMask(font, baked, src_mask)
     local base = 0
     while base <= max_c do
         local count = 0
+        -- [Luau] inline IsGlyphLoaded() + FindGlyphNoFallback() (a loaded glyph never needs loading): 0xFFFF = IM_FONTGLYPH_INDEX_UNUSED, 0xFFFE = IM_FONTGLYPH_INDEX_NOT_FOUND
+        local lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
         for n = 0, 255 do
             local c = base + n
-            if baked:IsGlyphLoaded(c) then
-                local glyph = baked:FindGlyphNoFallback(c)
-                if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then count = count + 1 end
+            if c < lookup_n then
+                local i = lookup[c + 1]
+                if i ~= 0xFFFF and i ~= 0xFFFE then
+                    local glyph = glyphs[i]
+                    if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then count = count + 1 end
+                end
             end
         end
         if count > 0 and ImGui.TreeNode(base, "U+%04X..U+%04X (%d %s)", base, base + 255, count, (count > 1) and "glyphs" or "glyph") then
             -- Draw a 16x16 grid of glyphs
             local base_pos = ImGui.GetCursorScreenPos()
+            local cell_p1, cell_p2 = ImVec2(), ImVec2()
             for n = 0, 255 do
                 local c = base + n
                 -- We use ImFont:RenderChar as a shortcut because we don't have UTF-8 conversion functions
                 -- available here and thus cannot easily generate a zero-terminated UTF-8 encoded string.
-                local cell_p1 = ImVec2(base_pos.x + (n % 16) * (cell_size + cell_spacing), base_pos.y + math.floor(n / 16) * (cell_size + cell_spacing))
-                local cell_p2 = ImVec2(cell_p1.x + cell_size, cell_p1.y + cell_size)
-                local glyph = baked:IsGlyphLoaded(c) and baked:FindGlyphNoFallback(c) or nil
+                -- [Luau] reused per cell: AddRect()/RenderChar()/IsMouseHoveringRect() only read them
+                cell_p1.x = base_pos.x + (n % 16) * (cell_size + cell_spacing); cell_p1.y = base_pos.y + math.floor(n / 16) * (cell_size + cell_spacing)
+                cell_p2.x = cell_p1.x + cell_size; cell_p2.y = cell_p1.y + cell_size
+                local glyph = nil -- [Luau] inline IsGlyphLoaded() + FindGlyphNoFallback(), see above
+                if c < baked.IndexLookup.Size then
+                    local i = baked.IndexLookup.Data[c + 1]
+                    if i ~= 0xFFFF and i ~= 0xFFFE then glyph = baked.Glyphs.Data[i] end
+                end
                 draw_list:AddRect(cell_p1, cell_p2, glyph and IM_COL32(255, 255, 255, 100) or IM_COL32(255, 255, 255, 50))
                 if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then
                     font:RenderChar(draw_list, cell_size, cell_p1, glyph_col, c)
@@ -32313,7 +32380,7 @@ function MT.ImFont:GetFontBaked(size, density)
 
     -- Round font size
     -- - ImGui.PushFont() will already round, but other paths calling GetFontBaked() directly also needs it (e.g. ImFontAtlasBuildPreloadAllGlyphRanges)
-    size = ImGui.GetRoundedFontSize(size)
+    size = math.floor(size + 0.5) -- [Luau] inline ImGui.GetRoundedFontSize() == IM_ROUND()
 
     if density < 0.0 then
         density = self.CurrentRasterizerDensity
@@ -32574,8 +32641,37 @@ end
 --- @param wrap_width float
 --- @param flags      ImDrawTextFlags
 --- @return int
-@native
+local ImFontCalcWordWrapPositionEx_Uncached
+local WRAP_MEMO_MAX = 4096
+
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
+    local baked = font:GetFontBaked(size)
+    if type(text) ~= "string" then
+        return ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
+    end
+    -- [Luau] memo per baked font and string: CalcTextSize() and RenderText() of wrapped text ask for the same wrap points
+    -- (same text/pos/width) every frame. The result only depends on these inputs and the (immutable once loaded) glyph advances.
+    -- ponytail: whole-memo reset at WRAP_MEMO_MAX strings, LRU if dynamic text churns it
+    local memo = baked._WrapMemo
+    if memo == nil or baked._WrapMemoN >= WRAP_MEMO_MAX then
+        memo = {}; baked._WrapMemo = memo; baked._WrapMemoN = 0
+    end
+    local e = memo[text]
+    if e == nil or e.ww ~= wrap_width or e.size ~= size or e.te ~= text_end or e.fl ~= flags then
+        if e == nil then baked._WrapMemoN = baked._WrapMemoN + 1 end
+        e = { ww = wrap_width, size = size, te = text_end, fl = flags }
+        memo[text] = e
+    else
+        local r = e[pos]
+        if r then return r end
+    end
+    local r = ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
+    e[pos] = r
+    return r
+end
+
+@native
+function ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
     -- For references, possible wrap point marked with ^
     --  "aaa bbb, ccc,ddd. eee   fff. ggg!"
     --      ^    ^    ^   ^   ^__    ^    ^
@@ -32586,7 +32682,7 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     -- Cut words that cannot possibly fit within one line.
     -- e.g.: "The tropical fish" with ~5 characters worth of width --> "The tr" "opical" "fish"
 
-    local baked = font:GetFontBaked(size)
+    -- [Luau] baked = font:GetFontBaked(size) is done by the caller
     local scale = size / baked.Size
 
     local line_width = 0.0
@@ -32606,6 +32702,9 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
 
     local stop = false
     local text_is_str = type(text) == "string" -- [Luau] ImStrByte() inlined (once per character)
+    local adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] hoisted, refreshed after a glyph load
+    local CLASS_BLANK, CLASS_PUNCT, CLASS_OTHER = ImWcharClass.Blank, ImWcharClass.Punct, ImWcharClass.Other
+    local classifier_0000_007f = g_CharClassifierIsSeparator_0000_007f
     while s < text_end do
         repeat
         --- @type unsigned_int
@@ -32632,24 +32731,25 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
         end
 
         -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
-        local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
+        local char_width = (c < adv_n) and adv_data[c + 1] or -1.0
         if char_width < 0.0 then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
+            adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size
         end
 
         -- Classify current character
         local curr_type
         if c < 128 then -- [Luau] ImTextClassifierGet() inlined
-            curr_type = bit32.band(bit32.rshift(g_CharClassifierIsSeparator_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
+            curr_type = bit32.band(bit32.rshift(classifier_0000_007f[bit32.rshift(c, 4) + 1], bit32.lshift(bit32.band(c, 15), 1)), 0x03)
         elseif (c >= 0x3000 and c < 0x3010) then
             curr_type = ImTextClassifierGet(g_CharClassifierIsSeparator_3000_300f, bit32.band(c, 15))
         else
-            curr_type = ImWcharClass.Other
+            curr_type = CLASS_OTHER
         end
 
-        if curr_type == ImWcharClass.Blank then
+        if curr_type == CLASS_BLANK then
             -- End span: 'A ' or '. '
-            if (prev_type ~= ImWcharClass.Blank and not keep_blanks) then
+            if (prev_type ~= CLASS_BLANK and not keep_blanks) then
                 span_end = s
                 line_width = line_width + span_width
                 span_width = 0.0
@@ -32658,13 +32758,13 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
             blank_width = blank_width + char_width
         else
             -- End span: '.X' unless X is a digit
-            if (prev_type == ImWcharClass.Punct and curr_type ~= ImWcharClass.Punct and not (c >= 48 and c <= 57)) then -- FIXME: Digit checks might be removed if allow custom separators (#8503)
+            if (prev_type == CLASS_PUNCT and curr_type ~= CLASS_PUNCT and not (c >= 48 and c <= 57)) then -- FIXME: Digit checks might be removed if allow custom separators (#8503)
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
                 blank_width = 0.0
                 span_width = 0.0
             -- End span: 'A ' or '. '
-            elseif (prev_type == ImWcharClass.Blank and keep_blanks) then
+            elseif (prev_type == CLASS_BLANK and keep_blanks) then
                 span_end = s
                 line_width = line_width + (span_width + blank_width)
                 blank_width = 0.0
@@ -32724,8 +32824,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
     local cache_key = nil
     local wrap_cache = nil
-    if text_begin == 1 and out_offset == nil and wrap_width <= 0.0 and max_width >= FLT_MAX and type(text) == "string"
-        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+    local text_len1 = text_is_str and #text + 1 or -1
+    local cacheable = text_is_str and text_begin == 1 and out_offset == nil and max_width >= FLT_MAX
+        and (text_end == nil or text_end == text_len1) and (text_end_display == nil or text_end_display == text_len1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0)
+    if cacheable and wrap_width <= 0.0 then
         local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
         if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
@@ -32733,11 +32835,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
         local e = cache[text]
         if e then
-            return ImVec2(e[1] * (size / baked.Size), e[2] * size), #text + 1
+            return ImVec2(e[1] * (size / baked.Size), e[2] * size), text_len1
         end
         cache_key = text
-    elseif text_begin == 1 and out_offset == nil and wrap_width > 0.0 and max_width >= FLT_MAX and text_is_str
-        and (text_end == nil or text_end == #text + 1) and (text_end_display == nil or text_end_display == #text + 1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0) then
+    elseif cacheable and wrap_width > 0.0 then
         -- [Luau] same for wrapped text (TextWrapped() measures every line every frame): exact results per (size, wrap width, text)
         local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
@@ -32773,6 +32874,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
 
     local s = text_begin
     local stop = false
+    local adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] hoisted, refreshed after a glyph load
     while s < text_end_display do
         repeat
         -- Word-wrapping
@@ -32780,6 +32882,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(font, size, text, s, text_end, wrap_width - line_width, flags)
+                adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size -- [Luau] may have loaded glyphs
             end
 
             if s >= word_wrap_eol then
@@ -32826,9 +32929,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
 
         -- Optimized inline version of 'float char_width = GetCharAdvance((ImWchar)c);'
-        local char_width = (c < baked.IndexAdvanceX.Size) and baked.IndexAdvanceX.Data[c + 1] or -1.0
+        local char_width = (c < adv_n) and adv_data[c + 1] or -1.0
         if (char_width < 0.0) then
             char_width = BuildLoadGlyphGetAdvanceOrFallback(baked, c)
+            adv_data, adv_n = baked.IndexAdvanceX.Data, baked.IndexAdvanceX.Size
         end
         char_width = char_width * scale
 
@@ -32886,6 +32990,8 @@ end
 --- @param col           ImU32
 --- @param c             ImWchar
 --- @param cpu_fine_clip ImVec4
+local RenderChar_a, RenderChar_c, RenderChar_uv_a, RenderChar_uv_c = ImVec2(), ImVec2(), ImVec2(), ImVec2()
+
 function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
     local baked = self:GetFontBaked(size)
     local glyph = baked:FindGlyph(c)
@@ -32933,7 +33039,10 @@ function MT.ImFont:RenderChar(draw_list, size, pos, col, c, cpu_fine_clip)
         if y1 >= y2 then return end
     end
     draw_list:PrimReserve(6, 4)
-    draw_list:PrimRectUV(ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col)
+    -- [Luau] scratch vectors, PrimRectUV() only reads them
+    local a, c, uv_a, uv_c = RenderChar_a, RenderChar_c, RenderChar_uv_a, RenderChar_uv_c
+    a.x = x1; a.y = y1; c.x = x2; c.y = y2; uv_a.x = u1; uv_a.y = v1; uv_c.x = u2; uv_c.y = v2
+    draw_list:PrimRectUV(a, c, uv_a, uv_c, col)
 end
 
 function MT.ImFontAtlas:AddFont(font_cfg_in)
@@ -33376,7 +33485,10 @@ function MT.ImDrawList:AddDrawCmd()
     draw_cmd.IdxOffset = self.IdxBuffer.Size
 
     IM_ASSERT(draw_cmd.ClipRect.x <= draw_cmd.ClipRect.z and draw_cmd.ClipRect.y <= draw_cmd.ClipRect.w)
-    self.CmdBuffer:push_back(draw_cmd)
+    -- [Luau] inline self.CmdBuffer:push_back(draw_cmd)
+    local cmd_buffer = self.CmdBuffer
+    local n = cmd_buffer.Size + 1
+    if n > cmd_buffer.Capacity then cmd_buffer:push_back(draw_cmd) else cmd_buffer.Data[n] = draw_cmd; cmd_buffer.Size = n end
 end
 
 -- Pop trailing draw command (used before merging or presenting to user)
@@ -33427,15 +33539,17 @@ end
 --- @param CMD_RHS ImDrawCmd|ImDrawCmdHeader
 --- @return bool
 local function ImDrawCmd_HeaderCompare(CMD_LHS, CMD_RHS)
-    if CMD_LHS.ClipRect.x ~= CMD_RHS.ClipRect.x or
-        CMD_LHS.ClipRect.y ~= CMD_RHS.ClipRect.y or
-        CMD_LHS.ClipRect.z ~= CMD_RHS.ClipRect.z or
-        CMD_LHS.ClipRect.w ~= CMD_RHS.ClipRect.w then
+    local lcr, rcr = CMD_LHS.ClipRect, CMD_RHS.ClipRect -- [Luau] cache
+    if lcr.x ~= rcr.x or
+        lcr.y ~= rcr.y or
+        lcr.z ~= rcr.z or
+        lcr.w ~= rcr.w then
         return false
     end
 
-    if CMD_LHS.TexRef._TexData ~= CMD_RHS.TexRef._TexData or
-        CMD_LHS.TexRef._TexID ~= CMD_RHS.TexRef._TexID then
+    local ltex, rtex = CMD_LHS.TexRef, CMD_RHS.TexRef
+    if ltex ~= rtex and (ltex._TexData ~= rtex._TexData or
+        ltex._TexID ~= rtex._TexID) then
         return false
     end
 
@@ -33484,10 +33598,14 @@ function MT.ImDrawList:_OnChangedClipRect()
     -- If current command is used with different settings we need to add a new command
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
     local curr_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
-    if (curr_cmd.ElemCount ~= 0 and self._CmdHeader.ClipRect ~= curr_cmd.ClipRect) then
-        self:AddDrawCmd()
+    if curr_cmd.ElemCount ~= 0 then
+        -- [Luau] inline IM_VEC4.__eq
+        local hcr, ccr = self._CmdHeader.ClipRect, curr_cmd.ClipRect
+        if hcr.x ~= ccr.x or hcr.y ~= ccr.y or hcr.z ~= ccr.z or hcr.w ~= ccr.w then
+            self:AddDrawCmd()
 
-        return
+            return
+        end
     end
 
     IM_ASSERT(curr_cmd.UserCallback == nil)
@@ -33601,8 +33719,8 @@ function MT.ImDrawListSplitter:Split(draw_list, channels_count)
         if i > old_channels_count or channels[i] == nil then
             channels[i] = ImDrawChannel()
         else
-            channels[i]._CmdBuffer:resize(0)
-            channels[i]._IdxBuffer:resize(0)
+            channels[i]._CmdBuffer.Size = 0 -- [Luau] inline resize(0)
+            channels[i]._IdxBuffer.Size = 0
         end
     end
 end
@@ -33661,16 +33779,21 @@ function MT.ImDrawListSplitter:Merge(draw_list)
     local dst_idx = draw_list.IdxBuffer.Data
     for i = 2, self._Count do
         local ch = channels[i]
-        local src_cmds = ch._CmdBuffer.Data
-        for n = 1, ch._CmdBuffer.Size do
-            dst_cmds[cmd_write] = src_cmds[n]
-            src_cmds[n] = nil -- ownership moved to the draw list
-            cmd_write = cmd_write + 1
+        -- [Luau] skip empty buffers: their .Data may be nil (reading it goes through IM_VECTOR.__index)
+        if ch._CmdBuffer.Size > 0 then
+            local src_cmds = ch._CmdBuffer.Data
+            for n = 1, ch._CmdBuffer.Size do
+                dst_cmds[cmd_write] = src_cmds[n]
+                src_cmds[n] = nil -- ownership moved to the draw list
+                cmd_write = cmd_write + 1
+            end
         end
-        local src_idx = ch._IdxBuffer.Data
-        for n = 1, ch._IdxBuffer.Size do
-            dst_idx[idx_write] = src_idx[n]
-            idx_write = idx_write + 1
+        if ch._IdxBuffer.Size > 0 then
+            local src_idx = ch._IdxBuffer.Data
+            for n = 1, ch._IdxBuffer.Size do
+                dst_idx[idx_write] = src_idx[n]
+                idx_write = idx_write + 1
+            end
         end
     end
     draw_list._IdxWritePtr = idx_write
@@ -33693,6 +33816,7 @@ end
 
 --- @param draw_list ImDrawList
 --- @param idx       int # 0-based channel index
+@native
 function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     IM_ASSERT(idx >= 0 and idx < self._Count)
     if self._Current == idx then
@@ -33706,18 +33830,29 @@ function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
     cur._IdxBuffer = draw_list.IdxBuffer
     self._Current = idx
     local ch = channels[idx + 1]
-    draw_list.CmdBuffer = ch._CmdBuffer
-    draw_list.IdxBuffer = ch._IdxBuffer
-    draw_list._IdxWritePtr = draw_list.IdxBuffer.Size + 1
+    local cmd_buffer = ch._CmdBuffer
+    local idx_buffer = ch._IdxBuffer
+    draw_list.CmdBuffer = cmd_buffer
+    draw_list.IdxBuffer = idx_buffer
+    draw_list._IdxWritePtr = idx_buffer.Size + 1
 
     -- If current command is used with different settings we need to add a new command
-    local curr_cmd = nil
-    if draw_list.CmdBuffer.Size > 0 then curr_cmd = draw_list.CmdBuffer.Data[draw_list.CmdBuffer.Size] end
-    if curr_cmd == nil then
+    -- [Luau] ImDrawCmd_HeaderCopyRef() / ImDrawCmd_HeaderCompare() inlined
+    local cmd_count = cmd_buffer.Size
+    if cmd_count == 0 then
         draw_list:AddDrawCmd()
-    elseif curr_cmd.ElemCount == 0 then
-        ImDrawCmd_HeaderCopyRef(curr_cmd, draw_list._CmdHeader) -- Copy ClipRect, TexRef, VtxOffset
-    elseif not ImDrawCmd_HeaderCompare(curr_cmd, draw_list._CmdHeader) then
+        return
+    end
+    local curr_cmd = cmd_buffer.Data[cmd_count]
+    local header = draw_list._CmdHeader
+    local hcr, ccr = header.ClipRect, curr_cmd.ClipRect
+    if curr_cmd.ElemCount == 0 then
+        ccr.x = hcr.x; ccr.y = hcr.y; ccr.z = hcr.z; ccr.w = hcr.w -- Copy ClipRect, TexRef, VtxOffset
+        curr_cmd.TexRef = header.TexRef
+        curr_cmd.VtxOffset = header.VtxOffset
+    elseif ccr.x ~= hcr.x or ccr.y ~= hcr.y or ccr.z ~= hcr.z or ccr.w ~= hcr.w
+        or curr_cmd.TexRef._TexData ~= header.TexRef._TexData or curr_cmd.TexRef._TexID ~= header.TexRef._TexID
+        or curr_cmd.VtxOffset ~= header.VtxOffset then
         draw_list:AddDrawCmd()
     end
 end
@@ -33751,14 +33886,15 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         local vtx_inner_idx = self._VtxCurrentIdx
         local vtx_outer_idx = self._VtxCurrentIdx + 1
         local idx_data = self.IdxBuffer.Data
+        local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
         for i = 2, points_count - 1 do
-            local idx_write_ptr = self._IdxWritePtr
             idx_data[idx_write_ptr + 0] = vtx_inner_idx; idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_inner_idx + (i * 2)
-            self._IdxWritePtr = idx_write_ptr + 3
+            idx_write_ptr = idx_write_ptr + 3
         end
 
         -- Compute normals
-        self._Data.TempBuffer:reserve_discard(points_count)
+        local temp_buffer = self._Data.TempBuffer
+        if points_count > temp_buffer.Capacity then temp_buffer:reserve_discard(points_count) end -- [Luau] skip the method lookup when no growth is needed
         local temp_normals = self._Data.TempBuffer.Data
 
         local i0 = points_count
@@ -33775,6 +33911,8 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
         end
 
         local vtx_data = self.VtxBuffer.Buf
+        local vtx_write_ptr = self._VtxWritePtr
+        local uv_x, uv_y = uv.x, uv.y
         i0 = points_count
         for i1 = 1, points_count do
             local n0 = temp_normals[i0]
@@ -33785,18 +33923,19 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col)
             dm_x = dm_x * AA_SIZE * 0.5
             dm_y = dm_y * AA_SIZE * 0.5
 
-            local vtx_write_ptr = self._VtxWritePtr
-            WV(vtx_data, vtx_write_ptr + 0, points[i1].x - dm_x, points[i1].y - dm_y, uv.x, uv.y, col)
-            WV(vtx_data, vtx_write_ptr + 1, points[i1].x + dm_x, points[i1].y + dm_y, uv.x, uv.y, col_trans)
-            self._VtxWritePtr = vtx_write_ptr + 2
+            local p1 = points[i1]
+            WV(vtx_data, vtx_write_ptr + 0, p1.x - dm_x, p1.y - dm_y, uv_x, uv_y, col)
+            WV(vtx_data, vtx_write_ptr + 1, p1.x + dm_x, p1.y + dm_y, uv_x, uv_y, col_trans)
+            vtx_write_ptr = vtx_write_ptr + 2
 
-            local idx_write_ptr = self._IdxWritePtr
             idx_data[idx_write_ptr + 0] = vtx_inner_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 1] = vtx_inner_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 2] = vtx_outer_idx + ((i0 - 1) * 2)
             idx_data[idx_write_ptr + 3] = vtx_outer_idx + ((i0 - 1) * 2); idx_data[idx_write_ptr + 4] = vtx_outer_idx + ((i1 - 1) * 2); idx_data[idx_write_ptr + 5] = vtx_inner_idx + ((i1 - 1) * 2)
-            self._IdxWritePtr = idx_write_ptr + 6
+            idx_write_ptr = idx_write_ptr + 6
 
             i0 = i1
         end
+        self._VtxWritePtr = vtx_write_ptr
+        self._IdxWritePtr = idx_write_ptr
         self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
     else
         local idx_count = (points_count - 2) * 3
@@ -33847,8 +33986,9 @@ end
 -- Reserve space for a number of vertices and indices.
 -- You must finish filling your reserved data before calling PrimReserve() again, as it may reallocate or
 -- submit the intermediate results. PrimUnreserve() can be used to release unused allocations.
+-- [Luau] local function (also MT.ImDrawList.PrimReserve): hot callers in this file skip the method lookup
 @native
-function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
+local function PrimReserve(self, idx_count, vtx_count)
     -- Large mesh support (when enabled)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
@@ -33863,14 +34003,20 @@ function MT.ImDrawList:PrimReserve(idx_count, vtx_count)
     local draw_cmd = self.CmdBuffer.Data[self.CmdBuffer.Size]
     draw_cmd.ElemCount = draw_cmd.ElemCount + idx_count
 
-    local vtx_buffer_old_size = self.VtxBuffer.Size
-    self.VtxBuffer:resize(vtx_buffer_old_size + vtx_count)
+    -- [Luau] inline resize() when no growth is needed (IdxBuffer:resize goes through IM_VECTOR.__index)
+    local vtx_buffer = self.VtxBuffer
+    local vtx_buffer_old_size = vtx_buffer.Size
+    local vtx_new_size = vtx_buffer_old_size + vtx_count
+    if vtx_new_size > vtx_buffer.Capacity then vtx_buffer:resize(vtx_new_size) else vtx_buffer.Size = vtx_new_size end
     self._VtxWritePtr = vtx_buffer_old_size + 1
 
-    local idx_buffer_old_size = self.IdxBuffer.Size
-    self.IdxBuffer:resize(idx_buffer_old_size + idx_count)
+    local idx_buffer = self.IdxBuffer
+    local idx_buffer_old_size = idx_buffer.Size
+    local idx_new_size = idx_buffer_old_size + idx_count
+    if idx_new_size > idx_buffer.Capacity then idx_buffer:resize(idx_new_size) else idx_buffer.Size = idx_new_size end
     self._IdxWritePtr = idx_buffer_old_size + 1
 end
+MT.ImDrawList.PrimReserve = PrimReserve
 
 -- Release the number of reserved vertices/indices from the end of the last reservation made with PrimReserve().
 function MT.ImDrawList:PrimUnreserve(idx_count, vtx_count)
@@ -33890,12 +34036,13 @@ end
 --- @param a   ImVec2
 --- @param c   ImVec2
 --- @param col ImU32
+-- [Luau] scalar PrimRect (a = ax,ay; c = cx,cy): no ImVec2 needed by callers, vertex writes inlined
 @native
-function MT.ImDrawList:PrimRect(a, c, col)
+local function PrimRectXY(self, ax, ay, cx, cy, col)
     local uv = self._Data.TexUvWhitePixel
 
     local idx = self._VtxCurrentIdx
-    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+    local idx_data = self.IdxBuffer.Data; local b = self.VtxBuffer.Buf
 
     local idx_write_ptr = self._IdxWritePtr
     idx_data[idx_write_ptr + 0] = idx
@@ -33907,15 +34054,20 @@ function MT.ImDrawList:PrimRect(a, c, col)
     idx_data[idx_write_ptr + 5] = idx + 3
 
     local vtx_write_ptr = self._VtxWritePtr
-    local ax, ay, cx, cy, u, v = a.x, a.y, c.x, c.y, uv.x, uv.y
-    WV(vtx_data, vtx_write_ptr + 0, ax, ay, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 1, cx, ay, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 2, cx, cy, u, v, col)
-    WV(vtx_data, vtx_write_ptr + 3, ax, cy, u, v, col)
+    local u, v = uv.x, uv.y
+    local o = (vtx_write_ptr - 1) * 36
+    writef64(b, o, ax); writef64(b, o + 8, ay); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
+    writef64(b, o + 36, cx); writef64(b, o + 44, ay); writef64(b, o + 52, u); writef64(b, o + 60, v); writeu32(b, o + 68, col)
+    writef64(b, o + 72, cx); writef64(b, o + 80, cy); writef64(b, o + 88, u); writef64(b, o + 96, v); writeu32(b, o + 104, col)
+    writef64(b, o + 108, ax); writef64(b, o + 116, cy); writef64(b, o + 124, u); writef64(b, o + 132, v); writeu32(b, o + 140, col)
 
     self._VtxWritePtr = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
     self._IdxWritePtr = idx_write_ptr + 6
+end
+
+function MT.ImDrawList:PrimRect(a, c, col)
+    PrimRectXY(self, a.x, a.y, c.x, c.y, col)
 end
 
 --- @param a    ImVec2
@@ -33987,11 +34139,12 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
         local idx_count = use_texture and (count * 6) or (thick_line and count * 18 or count * 12)
         local vtx_count = use_texture and (points_count * 2) or (thick_line and points_count * 4 or points_count * 3)
-        self:PrimReserve(idx_count, vtx_count)
+        PrimReserve(self, idx_count, vtx_count)
 
         -- Temporary buffer
         local temp_buffer_size = points_count * ((use_texture or not thick_line) and 3 or 5)
-        self._Data.TempBuffer:reserve_discard(temp_buffer_size)
+        local temp_buffer = self._Data.TempBuffer
+        if temp_buffer_size > temp_buffer.Capacity then temp_buffer:reserve_discard(temp_buffer_size) end -- [Luau] skip the method lookup when no growth is needed
         local temp_normals = self._Data.TempBuffer.Data
         local temp_points = self._Data.TempBuffer.Data; local temp_points_start = points_count + 1
 
@@ -34027,6 +34180,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
             local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + (use_texture and 2 or 3))
@@ -34047,45 +34201,44 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
 
                 if use_texture then
                     -- Add indices for two triangles
-                    local idx_write_ptr = self._IdxWritePtr
                     idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 1
                     idx_data[idx_write_ptr + 3] = idx2 + 1; idx_data[idx_write_ptr + 4] = idx1 + 1; idx_data[idx_write_ptr + 5] = idx2 + 0
-                    self._IdxWritePtr = idx_write_ptr + 6
+                    idx_write_ptr = idx_write_ptr + 6
                 else
                     -- Add indices for four triangles
-                    local idx_write_ptr = self._IdxWritePtr
                     idx_data[idx_write_ptr + 0] = idx2 + 0; idx_data[idx_write_ptr + 1] = idx1 + 0; idx_data[idx_write_ptr + 2] = idx1 + 2
                     idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 0
                     idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
                     idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
-                    self._IdxWritePtr = idx_write_ptr + 12
+                    idx_write_ptr = idx_write_ptr + 12
                 end
 
                 idx1 = idx2
             end
+            self._IdxWritePtr = idx_write_ptr
 
             -- Add vertices
+            local vtx_write_ptr = self._VtxWritePtr
             if use_texture then
                 -- Texture-based: need to implement TexUvLines lookup
                 local tex_uvs = self._Data.TexUvLines[integer_thickness]
                 local tex_uv0 = ImVec2(tex_uvs.x, tex_uvs.y)
                 local tex_uv1 = ImVec2(tex_uvs.z, tex_uvs.w)
                 for i = 0, points_count - 1 do
-                    local vtx_write_ptr = self._VtxWritePtr
                     WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 2 + 0], tex_uv0, col)
                     WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 1], tex_uv1, col)
-                    self._VtxWritePtr = vtx_write_ptr + 2
+                    vtx_write_ptr = vtx_write_ptr + 2
                 end
             else
                 -- If we're not using a texture, we need the center vertex as well
                 for i = 0, points_count - 1 do
-                    local vtx_write_ptr = self._VtxWritePtr
                     WVP(vtx_data, vtx_write_ptr + 0, points[i + 1], opaque_uv, col)
                     WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 2 + 0], opaque_uv, col_trans)
                     WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 2 + 1], opaque_uv, col_trans)
-                    self._VtxWritePtr = vtx_write_ptr + 3
+                    vtx_write_ptr = vtx_write_ptr + 3
                 end
             end
+            self._VtxWritePtr = vtx_write_ptr
         else
             -- [PATH 3] Non texture-based lines (thick)
             local half_inner_thickness = (thickness - AA_SIZE) * 0.5
@@ -34106,6 +34259,7 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
             -- Generate indices and vertices
             local idx1 = self._VtxCurrentIdx
             local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+            local idx_write_ptr = self._IdxWritePtr -- [Luau] write pointers kept in locals, stored back after the loops
             for i1 = 1, count do
                 local i2 = (i1 == points_count) and 1 or i1 + 1
                 local idx2 = (i1 == points_count) and self._VtxCurrentIdx or (idx1 + 4)
@@ -34131,34 +34285,35 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
                 temp_points[temp_points_start + out_off + 3].y = points[i2].y - dm_out_y
 
                 -- Add indices
-                local idx_write_ptr = self._IdxWritePtr
                 idx_data[idx_write_ptr + 0] = idx2 + 1; idx_data[idx_write_ptr + 1] = idx1 + 1; idx_data[idx_write_ptr + 2] = idx1 + 2
                 idx_data[idx_write_ptr + 3] = idx1 + 2; idx_data[idx_write_ptr + 4] = idx2 + 2; idx_data[idx_write_ptr + 5] = idx2 + 1
                 idx_data[idx_write_ptr + 6] = idx2 + 1; idx_data[idx_write_ptr + 7] = idx1 + 1; idx_data[idx_write_ptr + 8] = idx1 + 0
                 idx_data[idx_write_ptr + 9] = idx1 + 0; idx_data[idx_write_ptr + 10] = idx2 + 0; idx_data[idx_write_ptr + 11] = idx2 + 1
                 idx_data[idx_write_ptr + 12] = idx2 + 2; idx_data[idx_write_ptr + 13] = idx1 + 2; idx_data[idx_write_ptr + 14] = idx1 + 3
                 idx_data[idx_write_ptr + 15] = idx1 + 3; idx_data[idx_write_ptr + 16] = idx2 + 3; idx_data[idx_write_ptr + 17] = idx2 + 2
-                self._IdxWritePtr = idx_write_ptr + 18
+                idx_write_ptr = idx_write_ptr + 18
 
                 idx1 = idx2
             end
+            self._IdxWritePtr = idx_write_ptr
 
             -- Add vertices
+            local vtx_write_ptr = self._VtxWritePtr
             for i = 0, points_count - 1 do
-                local vtx_write_ptr = self._VtxWritePtr
                 WVP(vtx_data, vtx_write_ptr + 0, temp_points[temp_points_start + i * 4 + 0], opaque_uv, col_trans)
                 WVP(vtx_data, vtx_write_ptr + 1, temp_points[temp_points_start + i * 4 + 1], opaque_uv, col)
                 WVP(vtx_data, vtx_write_ptr + 2, temp_points[temp_points_start + i * 4 + 2], opaque_uv, col)
                 WVP(vtx_data, vtx_write_ptr + 3, temp_points[temp_points_start + i * 4 + 3], opaque_uv, col_trans)
-                self._VtxWritePtr = vtx_write_ptr + 4
+                vtx_write_ptr = vtx_write_ptr + 4
             end
+            self._VtxWritePtr = vtx_write_ptr
         end
         self._VtxCurrentIdx = self._VtxCurrentIdx + vtx_count
     else
         -- [PATH 4] Non texture-based, Non anti-aliased lines
         local idx_count = count * 6
         local vtx_count = count * 4
-        self:PrimReserve(idx_count, vtx_count)
+        PrimReserve(self, idx_count, vtx_count)
 
         local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
         for i1 = 1, count do
@@ -34188,7 +34343,20 @@ function MT.ImDrawList:AddPolyline(points, points_count, col, thickness, flags)
     end
 end
 
-function MT.ImDrawList:PathRect(a, b, rounding, flags)
+-- [Luau] scalar PathLineTo(): no temporary ImVec2 (the path slot is written in place)
+local function PathLineToXY(self, x, y)
+    local path = self._Path
+    local n = path.Size + 1
+    if n > path.Capacity then path:push_back(ImVec2(x, y)) return end
+    local dest = path.Data[n]
+    dest.x = x; dest.y = y
+    path.Size = n
+end
+
+local _PathArcToFastExXY -- [Luau] forward declaration, defined below with _PathArcToFastEx()
+
+-- [Luau] scalar PathRect (a = ax,ay; b = bx,by); PathRect() below wraps it
+local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
 
@@ -34197,24 +34365,29 @@ function MT.ImDrawList:PathRect(a, b, rounding, flags)
         if bit32.band(flags, ImDrawFlags.RoundCornersMask_) == 0 then
             flags = bit32.bor(flags, ImDrawFlags.RoundCornersAll)
         end
-        rounding = ImMin(rounding, ImAbs(b.x - a.x) * (((bit32.band(flags, ImDrawFlags.RoundCornersTop) == ImDrawFlags.RoundCornersTop) or (bit32.band(flags, ImDrawFlags.RoundCornersBottom) == ImDrawFlags.RoundCornersBottom)) and 0.5 or 1.0) - 1.0)
-        rounding = ImMin(rounding, ImAbs(b.y - a.y) * (((bit32.band(flags, ImDrawFlags.RoundCornersLeft) == ImDrawFlags.RoundCornersLeft) or (bit32.band(flags, ImDrawFlags.RoundCornersRight) == ImDrawFlags.RoundCornersRight)) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(bx - ax) * (((bit32.band(flags, ImDrawFlags.RoundCornersTop) == ImDrawFlags.RoundCornersTop) or (bit32.band(flags, ImDrawFlags.RoundCornersBottom) == ImDrawFlags.RoundCornersBottom)) and 0.5 or 1.0) - 1.0)
+        rounding = ImMin(rounding, ImAbs(by - ay) * (((bit32.band(flags, ImDrawFlags.RoundCornersLeft) == ImDrawFlags.RoundCornersLeft) or (bit32.band(flags, ImDrawFlags.RoundCornersRight) == ImDrawFlags.RoundCornersRight)) and 0.5 or 1.0) - 1.0)
     end
     if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone) then
-        self:PathLineTo(a)
-        self:PathLineTo(ImVec2(b.x, a.y))
-        self:PathLineTo(b)
-        self:PathLineTo(ImVec2(a.x, b.y))
+        PathLineToXY(self, ax, ay)
+        PathLineToXY(self, bx, ay)
+        PathLineToXY(self, bx, by)
+        PathLineToXY(self, ax, by)
     else
         local rounding_tl = (bit32.band(flags, ImDrawFlags.RoundCornersTopLeft) ~= 0) and rounding or 0.0
         local rounding_tr = (bit32.band(flags, ImDrawFlags.RoundCornersTopRight) ~= 0) and rounding or 0.0
         local rounding_br = (bit32.band(flags, ImDrawFlags.RoundCornersBottomRight) ~= 0) and rounding or 0.0
         local rounding_bl = (bit32.band(flags, ImDrawFlags.RoundCornersBottomLeft) ~= 0) and rounding or 0.0
-        self:PathArcToFast(ImVec2(a.x + rounding_tl, a.y + rounding_tl), rounding_tl, 6, 9)
-        self:PathArcToFast(ImVec2(b.x - rounding_tr, a.y + rounding_tr), rounding_tr, 9, 12)
-        self:PathArcToFast(ImVec2(b.x - rounding_br, b.y - rounding_br), rounding_br, 0, 3)
-        self:PathArcToFast(ImVec2(a.x + rounding_bl, b.y - rounding_bl), rounding_bl, 3, 6)
+        -- [Luau] inline PathArcToFast() (radius < 0.5 handled by _PathArcToFastExXY())
+        _PathArcToFastExXY(self, ax + rounding_tl, ay + rounding_tl, rounding_tl, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, bx - rounding_tr, ay + rounding_tr, rounding_tr, 9 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, bx - rounding_br, by - rounding_br, rounding_br, 0 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+        _PathArcToFastExXY(self, ax + rounding_bl, by - rounding_bl, rounding_bl, 3 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 6 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
     end
+end
+
+function MT.ImDrawList:PathRect(a, b, rounding, flags)
+    PathRectXY(self, a.x, a.y, b.x, b.y, rounding, flags)
 end
 
 @native
@@ -34225,10 +34398,10 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
 
     if rounding < 0.5 or (bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone) then
-        self:PrimReserve(6, 4)
-        self:PrimRect(p_min, p_max, col)
+        PrimReserve(self, 6, 4) -- [Luau] local calls
+        PrimRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, col)
     else
-        self:PathRect(p_min, p_max, rounding, flags)
+        PathRectXY(self, p_min.x, p_min.y, p_max.x, p_max.y, rounding, flags)
         self:PathFillConvex(col)
     end
 end
@@ -34247,13 +34420,19 @@ function MT.ImDrawList:AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_u
     end
 
     local uv = self._Data.TexUvWhitePixel
-    self:PrimReserve(6, 4)
-    self:PrimWriteIdx(self._VtxCurrentIdx); self:PrimWriteIdx(self._VtxCurrentIdx + 1); self:PrimWriteIdx(self._VtxCurrentIdx + 2)
-    self:PrimWriteIdx(self._VtxCurrentIdx); self:PrimWriteIdx(self._VtxCurrentIdx + 2); self:PrimWriteIdx(self._VtxCurrentIdx + 3)
-    self:PrimWriteVtx(p_min, uv, col_upr_left)
-    self:PrimWriteVtx(ImVec2(p_max.x, p_min.y), uv, col_upr_right)
-    self:PrimWriteVtx(p_max, uv, col_bot_right)
-    self:PrimWriteVtx(ImVec2(p_min.x, p_max.y), uv, col_bot_left)
+    PrimReserve(self, 6, 4)
+    -- [Luau] inline PrimWriteIdx()/PrimWriteVtx(): direct writes, no temporary ImVec2
+    local idx, idx_data, idx_write_ptr = self._VtxCurrentIdx, self.IdxBuffer.Data, self._IdxWritePtr
+    idx_data[idx_write_ptr] = idx; idx_data[idx_write_ptr + 1] = idx + 1; idx_data[idx_write_ptr + 2] = idx + 2
+    idx_data[idx_write_ptr + 3] = idx; idx_data[idx_write_ptr + 4] = idx + 2; idx_data[idx_write_ptr + 5] = idx + 3
+    self._IdxWritePtr = idx_write_ptr + 6
+    local vtx_data, vtx_write_ptr = self.VtxBuffer.Buf, self._VtxWritePtr
+    WV(vtx_data, vtx_write_ptr + 0, p_min.x, p_min.y, uv.x, uv.y, col_upr_left)
+    WV(vtx_data, vtx_write_ptr + 1, p_max.x, p_min.y, uv.x, uv.y, col_upr_right)
+    WV(vtx_data, vtx_write_ptr + 2, p_max.x, p_max.y, uv.x, uv.y, col_bot_right)
+    WV(vtx_data, vtx_write_ptr + 3, p_min.x, p_max.y, uv.x, uv.y, col_bot_left)
+    self._VtxWritePtr = vtx_write_ptr + 4
+    self._VtxCurrentIdx = idx + 4
 end
 
 -- p_min = upper-left, p_max = lower-right
@@ -34286,17 +34465,17 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     if (rounding == nil or rounding < 0.5 or bit32.band(flags, ImDrawFlags.RoundCornersMask_) == ImDrawFlags.RoundCornersNone)
         and thickness >= 1.0 and thickness % 1 == 0 and p_max.x - p_min.x > 2 * thickness and p_max.y - p_min.y > 2 * thickness then
         local x0, y0, x1, y1, t = p_min.x, p_min.y, p_max.x, p_max.y, thickness
-        self:PrimReserve(24, 16)
-        self:PrimRect(ImVec2(x0, y0), ImVec2(x1, y0 + t), col)
-        self:PrimRect(ImVec2(x0, y1 - t), ImVec2(x1, y1), col)
-        self:PrimRect(ImVec2(x0, y0 + t), ImVec2(x0 + t, y1 - t), col)
-        self:PrimRect(ImVec2(x1 - t, y0 + t), ImVec2(x1, y1 - t), col)
+        PrimReserve(self, 24, 16)
+        PrimRectXY(self, x0, y0, x1, y0 + t, col)
+        PrimRectXY(self, x0, y1 - t, x1, y1, col)
+        PrimRectXY(self, x0, y0 + t, x0 + t, y1 - t, col)
+        PrimRectXY(self, x1 - t, y0 + t, x1, y1 - t, col)
         return
     end
     if bit32.band(self.Flags, ImDrawListFlags.AntiAliasedLines) ~= 0 then
-        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.50, 0.50), rounding, flags)
+        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.50, p_max.y - 0.50, rounding, flags) -- [Luau] scalar math, no temporary ImVec2
     else
-        self:PathRect(p_min + ImVec2(0.50, 0.50), p_max - ImVec2(0.49, 0.49), rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
+        PathRectXY(self, p_min.x + 0.50, p_min.y + 0.50, p_max.x - 0.49, p_max.y - 0.49, rounding, flags) -- Better looking lower-right corner and rounded non-AA shapes.
     end
 
     self:PathStroke(col, thickness, ImDrawFlags.Closed)
@@ -34305,8 +34484,8 @@ end
 function MT.ImDrawList:AddLine(p1, p2, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then return end
 
-    self:PathLineTo(p1 + ImVec2(0.5, 0.5))
-    self:PathLineTo(p2 + ImVec2(0.5, 0.5))
+    PathLineToXY(self, p1.x + 0.5, p1.y + 0.5) -- [Luau] scalar math, no temporary ImVec2
+    PathLineToXY(self, p2.x + 0.5, p2.y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -34321,8 +34500,8 @@ function MT.ImDrawList:AddLineH(min_x, max_x, y, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
-    self:PathLineTo(ImVec2(min_x + 0.5, y + 0.5))
-    self:PathLineTo(ImVec2(max_x + 0.5, y + 0.5))
+    PathLineToXY(self, min_x + 0.5, y + 0.5)
+    PathLineToXY(self, max_x + 0.5, y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -34337,8 +34516,8 @@ function MT.ImDrawList:AddLineV(x, min_y, max_y, col, thickness)
     if bit32.band(col, IM_COL32_A_MASK) == 0 then
         return
     end
-    self:PathLineTo(ImVec2(x + 0.5, min_y + 0.5))
-    self:PathLineTo(ImVec2(x + 0.5, max_y + 0.5))
+    PathLineToXY(self, x + 0.5, min_y + 0.5)
+    PathLineToXY(self, x + 0.5, max_y + 0.5)
     self:PathStroke(col, thickness)
 end
 
@@ -34398,7 +34577,7 @@ function MT.ImDrawList:AddCircle(center, radius, col, num_segments, thickness)
 
     if num_segments <= 0 then
         -- Use arc with automatic segment count
-        self:_PathArcToFastEx(center, radius - 0.5, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
+        _PathArcToFastExXY(self, center.x, center.y, radius - 0.5, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
         self._Path.Size = self._Path.Size - 1
     else
         -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
@@ -34425,7 +34604,7 @@ function MT.ImDrawList:AddCircleFilled(center, radius, col, num_segments)
 
     if num_segments <= 0 then
         -- Use arc with automatic segment count
-        self:_PathArcToFastEx(center, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
+        _PathArcToFastExXY(self, center.x, center.y, radius, 0, IM_DRAWLIST_ARCFAST_SAMPLE_MAX, 0)
         self._Path.Size = self._Path.Size - 1
     else
         -- Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
@@ -34448,6 +34627,8 @@ end
 --- @param text_end            int
 --- @param wrap_width          float
 --- @param cpu_fine_clip_rect? ImVec4
+local AddText_clip_rect = ImVec4()
+
 @native
 function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect)
     -- Overload: AddText(pos, col, text, text_end?)
@@ -34473,13 +34654,14 @@ function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text
         font_size = self._Data.FontSize
     end
 
-    local clip_rect = ImVec4() -- Don't modify the clip rect!
-    ImVec4_Copy(clip_rect, self._CmdHeader.ClipRect)
+    local clip_rect = AddText_clip_rect -- Don't modify the clip rect! -- [Luau] scratch: ImFont:RenderText() only reads it
+    local src = self._CmdHeader.ClipRect
+    clip_rect.x = src.x; clip_rect.y = src.y; clip_rect.z = src.z; clip_rect.w = src.w
     if (cpu_fine_clip_rect) then
-        clip_rect.x = ImMax(clip_rect.x, cpu_fine_clip_rect.x)
-        clip_rect.y = ImMax(clip_rect.y, cpu_fine_clip_rect.y)
-        clip_rect.z = ImMin(clip_rect.z, cpu_fine_clip_rect.z)
-        clip_rect.w = ImMin(clip_rect.w, cpu_fine_clip_rect.w)
+        clip_rect.x = math.max(clip_rect.x, cpu_fine_clip_rect.x)
+        clip_rect.y = math.max(clip_rect.y, cpu_fine_clip_rect.y)
+        clip_rect.z = math.min(clip_rect.z, cpu_fine_clip_rect.z)
+        clip_rect.w = math.min(clip_rect.w, cpu_fine_clip_rect.w)
     end
 
     font:RenderText(self, font_size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, (cpu_fine_clip_rect ~= nil) and ImDrawTextFlags.CpuFineClip or ImDrawTextFlags.None)
@@ -34577,20 +34759,25 @@ function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_
         if cr.w > current.w then cr.w = current.w end
     end
 
-    cr.z = ImMax(cr.x, cr.z)
-    cr.w = ImMax(cr.y, cr.w)
+    cr.z = math.max(cr.x, cr.z)
+    cr.w = math.max(cr.y, cr.w)
 
-    self._ClipRectStack:push_back(cr)
+    -- [Luau] inline self._ClipRectStack:push_back(cr)
+    local stack = self._ClipRectStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(cr) else stack.Data[n] = cr; stack.Size = n end
     ImVec4_Copy(self._CmdHeader.ClipRect, cr)
     self:_OnChangedClipRect()
 end
 
 function MT.ImDrawList:PopClipRect()
-    self._ClipRectStack:pop_back()
-    if (self._ClipRectStack.Size == 0) then -- LUA: No "Ternary Operator"
+    local stack = self._ClipRectStack
+    IM_ASSERT(stack.Size > 0)
+    stack.Size = stack.Size - 1 -- [Luau] inline pop_back()
+    if (stack.Size == 0) then -- LUA: No "Ternary Operator"
         ImVec4_Copy(self._CmdHeader.ClipRect, self._Data.ClipRectFullscreen)
     else
-        ImVec4_Copy(self._CmdHeader.ClipRect, self._ClipRectStack.Data[self._ClipRectStack.Size])
+        ImVec4_Copy(self._CmdHeader.ClipRect, stack.Data[stack.Size])
     end
     self:_OnChangedClipRect()
 end
@@ -34600,10 +34787,11 @@ end
 --- @param a_min_sample int
 --- @param a_max_sample int
 --- @param a_step       int
+-- [Luau] scalar center (cx, cy); assigned to the forward-declared local, _PathArcToFastEx() wraps it
 @native
-function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, a_step)
+function _PathArcToFastExXY(self, cx, cy, radius, a_min_sample, a_max_sample, a_step)
     if radius < 0.5 then
-        self._Path:push_back(center)
+        PathLineToXY(self, cx, cy)
         return
     end
 
@@ -34639,6 +34827,7 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
     self._Path:resize(self._Path.Size + samples)
     local out_ptr = self._Path.Size - samples + 1
 
+    local path_data, arc_fast_vtx = self._Path.Data, self._Data.ArcFastVtx -- [Luau] cache
     local sample_index = a_min_sample
     if sample_index < 0 or sample_index >= IM_DRAWLIST_ARCFAST_SAMPLE_MAX then
         sample_index = sample_index % IM_DRAWLIST_ARCFAST_SAMPLE_MAX
@@ -34655,8 +34844,9 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
                 sample_index = sample_index - IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
 
-            local s = self._Data.ArcFastVtx[sample_index + 1]
-            ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+            local s = arc_fast_vtx[sample_index + 1]
+            local d = path_data[out_ptr]
+            d.x = cx + s.x * radius; d.y = cy + s.y * radius
             out_ptr = out_ptr + 1
 
             a = a + a_step
@@ -34671,8 +34861,9 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
                 sample_index = sample_index + IM_DRAWLIST_ARCFAST_SAMPLE_MAX
             end
 
-            local s = self._Data.ArcFastVtx[sample_index + 1]
-            ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+            local s = arc_fast_vtx[sample_index + 1]
+            local d = path_data[out_ptr]
+            d.x = cx + s.x * radius; d.y = cy + s.y * radius
             out_ptr = out_ptr + 1
 
             a = a - a_step
@@ -34687,12 +34878,17 @@ function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_samp
             normalized_max_sample = normalized_max_sample + IM_DRAWLIST_ARCFAST_SAMPLE_MAX
         end
 
-        local s = self._Data.ArcFastVtx[normalized_max_sample + 1]
-        ImVec2_CopyV(self._Path.Data[out_ptr], center.x + s.x * radius, center.y + s.y * radius)
+        local s = arc_fast_vtx[normalized_max_sample + 1]
+        local d = path_data[out_ptr]
+        d.x = cx + s.x * radius; d.y = cy + s.y * radius
         out_ptr = out_ptr + 1
     end
 
     IM_ASSERT_PARANOID(self._Path.Size == out_ptr - 1)
+end
+
+function MT.ImDrawList:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, a_step)
+    _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, a_step)
 end
 
 -- 0: East, 3: South, 6: West, 9: North, 12: East
@@ -34703,7 +34899,7 @@ function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
         return
     end
 
-    self:_PathArcToFastEx(center, radius, a_min_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, a_max_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
+    _PathArcToFastExXY(self, center.x, center.y, radius, a_min_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, a_max_of_12 * IM_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0)
 end
 
 --- @param center       ImVec2
@@ -34719,11 +34915,17 @@ function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
 
     -- Note that we are adding a point at both a_min and a_max.
     -- If you are trying to draw a full closed circle you don't want the overlapping points!
-    self._Path:reserve(self._Path.Size + (num_segments + 1))
+    local path = self._Path
+    path:reserve(path.Size + (num_segments + 1))
+    -- [Luau] write into the reserved ImVec2 slots: no temporary ImVec2, no push_back() method lookups
+    local data, size = path.Data, path.Size
     for i = 0, num_segments do
         local a = a_min + (i / num_segments) * (a_max - a_min)
-        self._Path:push_back(ImVec2(center.x + ImCos(a) * radius, center.y + ImSin(a) * radius))
+        size = size + 1
+        local p = data[size]
+        p.x = center.x + ImCos(a) * radius; p.y = center.y + ImSin(a) * radius
     end
+    path.Size = size
 end
 
 --- @param center        ImVec2
@@ -34764,9 +34966,9 @@ function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
 
         self._Path:reserve(self._Path.Size + (a_mid_samples + 1 + (a_emit_start and 1 or 0) + (a_emit_end and 1 or 0)))
 
-        if a_emit_start      then self._Path:push_back(ImVec2(center.x + ImCos(a_min) * radius, center.y + ImSin(a_min) * radius)) end
-        if a_mid_samples > 0 then self:_PathArcToFastEx(center, radius, a_min_sample, a_max_sample, 0) end
-        if a_emit_end        then self._Path:push_back(ImVec2(center.x + ImCos(a_max) * radius, center.y + ImSin(a_max) * radius)) end
+        if a_emit_start      then PathLineToXY(self, center.x + ImCos(a_min) * radius, center.y + ImSin(a_min) * radius) end -- [Luau] no temporary ImVec2
+        if a_mid_samples > 0 then _PathArcToFastExXY(self, center.x, center.y, radius, a_min_sample, a_max_sample, 0) end
+        if a_emit_end        then PathLineToXY(self, center.x + ImCos(a_max) * radius, center.y + ImSin(a_max) * radius) end
     else
         local arc_length = ImAbs(a_max - a_min)
         local circle_segment_count = self:_CalcCircleAutoSegmentCount(radius)
@@ -34877,6 +35079,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
             -- Calculate how far we can render. Requires two passes on the string data but keeps the code simple and not intrusive for what's essentially an uncommon feature.
             if not word_wrap_eol then
                 word_wrap_eol = ImFontCalcWordWrapPositionEx(self, size, text, s, text_end, wrap_width - (x - origin_x), flags)
+                lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data -- [Luau] may have loaded glyphs
             end
 
             if s >= word_wrap_eol then
@@ -35076,18 +35279,24 @@ end
 --- @param pos       ImVec2
 --- @param col       ImU32
 --- @param sz        float
+local checkmark_p = ImVec2() -- [Luau] scratch: PathLineTo() copies the point
+
 function ImGui.RenderCheckMark(draw_list, pos, col, sz)
-    local thickness = ImMax(sz / 5.0, 1.0)
+    local thickness = math.max(sz / 5.0, 1.0)
     sz = sz - thickness * 0.5
-    pos = pos + ImVec2(thickness * 0.25, thickness * 0.25)
+    local pos_x, pos_y = pos.x + thickness * 0.25, pos.y + thickness * 0.25 -- [Luau] scalar pos
 
     local third = sz / 3.0
-    local bx = pos.x + third
-    local by = pos.y + sz - third * 0.5
+    local bx = pos_x + third
+    local by = pos_y + sz - third * 0.5
 
-    draw_list:PathLineTo(ImVec2(bx - third, by - third))
-    draw_list:PathLineTo(ImVec2(bx, by))
-    draw_list:PathLineTo(ImVec2(bx + third * 2.0, by - third * 2.0))
+    local p = checkmark_p
+    p.x = bx - third; p.y = by - third
+    draw_list:PathLineTo(p)
+    p.x = bx; p.y = by
+    draw_list:PathLineTo(p)
+    p.x = bx + third * 2.0; p.y = by - third * 2.0
+    draw_list:PathLineTo(p)
     draw_list:PathStroke(col, thickness)
 end
 
@@ -47054,14 +47263,21 @@ function IM_RECT:GetBR() return ImVec2(self.Max.x, self.Max.y) end -- Bottom-rig
 --- @param r ImRect
 @native
 function IM_RECT:ClipWith(r)
-    ImVec2_Copy(self.Min, ImMax(self.Min, r.Min)); ImVec2_Copy(self.Max, ImMin(self.Max, r.Max))
+    -- [Luau] scalar math, no temporary ImVec2 (= ImMax(Min, r.Min) / ImMin(Max, r.Max))
+    local smin, smax, rmin, rmax = self.Min, self.Max, r.Min, r.Max
+    smin.x = mathMax(smin.x, rmin.x); smin.y = mathMax(smin.y, rmin.y)
+    smax.x = mathMin(smax.x, rmax.x); smax.y = mathMin(smax.y, rmax.y)
 end
 
 -- Full version, ensure both points are fully clipped.
 --- @param r ImRect
 @native
 function IM_RECT:ClipWithFull(r)
-    ImVec2_Copy(self.Min, ImClamp(self.Min, r.Min, r.Max)); ImVec2_Copy(self.Max, ImClamp(self.Max, r.Min, r.Max))
+    -- [Luau] scalar math, no temporary ImVec2 (= ImClamp(Min/Max, r.Min, r.Max))
+    local smin, smax, rmin, rmax = self.Min, self.Max, r.Min, r.Max
+    local min_x, min_y, max_x, max_y = rmin.x, rmin.y, rmax.x, rmax.y
+    smin.x = mathMax(min_x, mathMin(smin.x, max_x)); smin.y = mathMax(min_y, mathMin(smin.y, max_y))
+    smax.x = mathMax(min_x, mathMin(smax.x, max_x)); smax.y = mathMax(min_y, mathMin(smax.y, max_y))
 end
 
 --- @param p ImRect|ImVec2
@@ -47200,7 +47416,15 @@ function MT.ImDrawList:PathClear() self._Path:clear() end
 
 --- @param pos ImVec2
 @native
-function MT.ImDrawList:PathLineTo(pos) self._Path:push_back(pos) end
+function MT.ImDrawList:PathLineTo(pos)
+    -- [Luau] inline self._Path:push_back(pos) (ImVec2_TCopy into the preallocated slot)
+    local path = self._Path
+    local n = path.Size + 1
+    if n > path.Capacity then path:push_back(pos) return end
+    local dest = path.Data[n]
+    dest.x = pos.x; dest.y = pos.y
+    path.Size = n
+end
 
 function MT.ImDrawList:PathLineToMergeDuplicate(pos)
     local path_size = self._Path.Size
@@ -49863,6 +50087,7 @@ end
 
 local bit32 = bit32
 local band, bor, bnot, lshift, rshift = bit32.band, bit32.bor, bit32.bnot, bit32.lshift, bit32.rshift
+local mathMax, mathMin = math.max, math.min -- [Luau] scalar ImMax()/ImMin() in table code are written as mathMax()/mathMin() (no call through the vector-aware helper)
 
 IM_COL32_DISABLE = IM_COL32(0, 0, 0, 1) -- Special sentinel code which cannot be used as a regular color.
 IMGUI_TABLE_MAX_COLUMNS = 512 -- Arbitrary "safety" maximum, may be lifted in the future if needed. Must fit in ImGuiTableColumnIdx/ImGuiTableDrawChannelIdx.
@@ -50145,7 +50370,7 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
     -- - always performing the GetOrAddByKey() O(log N) query in g.Tables.Map[].
     local use_child_window = band(flags, bor(ImGuiTableFlags.ScrollX, ImGuiTableFlags.ScrollY)) ~= 0
     local avail_size = ImGui.GetContentRegionAvail()
-    local actual_outer_size = ImTrunc(ImGui.CalcItemSize(outer_size, ImMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and ImMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0))
+    local actual_outer_size = ImTrunc(ImGui.CalcItemSize(outer_size, mathMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and mathMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0))
     local outer_rect = ImRect(outer_window.DC.CursorPos, outer_window.DC.CursorPos + actual_outer_size)
     local outer_window_is_measuring_size = (outer_window.AutoFitFramesX > 0) or (outer_window.AutoFitFramesY > 0) -- Doesn't apply to AlwaysAutoResize windows!
     if use_child_window and ImGui.IsClippedEx(outer_rect, 0) and not outer_window_is_measuring_size then
@@ -50301,15 +50526,15 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
         -- different x/y values to BeginChild().
         local border_size = TABLE_BORDER_SIZE
         if band(flags, ImGuiTableFlags.BordersOuterV) ~= 0 then
-            table_.HostClipRect.Min.x = ImMin(table_.HostClipRect.Min.x + border_size, table_.HostClipRect.Max.x)
+            table_.HostClipRect.Min.x = mathMin(table_.HostClipRect.Min.x + border_size, table_.HostClipRect.Max.x)
             if inner_window.DecoOuterSizeX2 == 0.0 then
-                table_.HostClipRect.Max.x = ImMax(table_.HostClipRect.Max.x - border_size, table_.HostClipRect.Min.x)
+                table_.HostClipRect.Max.x = mathMax(table_.HostClipRect.Max.x - border_size, table_.HostClipRect.Min.x)
             end
         end
         if band(flags, ImGuiTableFlags.BordersOuterH) ~= 0 then
-            table_.HostClipRect.Min.y = ImMin(table_.HostClipRect.Min.y + border_size, table_.HostClipRect.Max.y)
+            table_.HostClipRect.Min.y = mathMin(table_.HostClipRect.Min.y + border_size, table_.HostClipRect.Max.y)
             if inner_window.DecoOuterSizeY2 == 0.0 then
-                table_.HostClipRect.Max.y = ImMax(table_.HostClipRect.Max.y - border_size, table_.HostClipRect.Min.y)
+                table_.HostClipRect.Max.y = mathMax(table_.HostClipRect.Max.y - border_size, table_.HostClipRect.Min.y)
             end
         end
     end
@@ -50342,7 +50567,7 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
     ImRect_Copy(table_.InnerClipRect, (inner_window == outer_window) and table_.WorkRect or inner_window.ClipRect)
     table_.InnerClipRect:ClipWith(table_.WorkRect)     -- We need this to honor inner_width
     table_.InnerClipRect:ClipWithFull(table_.HostClipRect)
-    table_.InnerClipRect.Max.y = (band(flags, ImGuiTableFlags.NoHostExtendY) ~= 0) and ImMin(table_.InnerClipRect.Max.y, inner_window.WorkRect.Max.y) or table_.HostClipRect.Max.y
+    table_.InnerClipRect.Max.y = (band(flags, ImGuiTableFlags.NoHostExtendY) ~= 0) and mathMin(table_.InnerClipRect.Max.y, inner_window.WorkRect.Max.y) or table_.HostClipRect.Max.y
 
     table_.RowPosY1 = table_.WorkRect.Min.y -- This is needed somehow
     table_.RowPosY2 = table_.WorkRect.Min.y
@@ -50713,7 +50938,7 @@ function ImGui.TableUpdateLayout(table_)
     BitArrayClearAll(table_.EnabledMaskByIndex)
     BitArrayClearAll(table_.EnabledMaskByDisplayOrder)
     table_.LeftMostEnabledColumn = -1
-    table_.MinColumnWidth = ImMax(1.0, g.Style.FramePadding.x * 1.0) -- g.Style.ColumnsMinSpacing -- FIXME-TABLE
+    table_.MinColumnWidth = mathMax(1.0, g.Style.FramePadding.x * 1.0) -- g.Style.ColumnsMinSpacing -- FIXME-TABLE
 
     -- [Part 1] Apply/lock Enabled and Order states. Calculate auto/ideal width for columns. Count fixed/stretch columns.
     -- Process columns in their visible orders as we are building the Prev/Next indices.
@@ -50815,7 +51040,7 @@ function ImGui.TableUpdateLayout(table_)
                 stretch_sum_width_auto = stretch_sum_width_auto + column.WidthAuto
                 count_stretch = count_stretch + 1
             else
-                fixed_max_width_auto = ImMax(fixed_max_width_auto, column.WidthAuto)
+                fixed_max_width_auto = mathMax(fixed_max_width_auto, column.WidthAuto)
                 count_fixed = count_fixed + 1
             end
         end
@@ -50867,7 +51092,7 @@ function ImGui.TableUpdateLayout(table_)
                 -- FIXME: Move this to .WidthGiven to avoid temporary lossyness?
                 -- FIXME: This break IsPreserveWidthAuto from not flickering if the stored WidthAuto was smaller.
                 if column.AutoFitQueue > 0x01 and table_.IsInitializing and not column.IsPreserveWidthAuto then
-                    column.WidthRequest = ImMax(column.WidthRequest, table_.MinColumnWidth * 4.0) -- FIXME-TABLE: Another constant/scale?
+                    column.WidthRequest = mathMax(column.WidthRequest, table_.MinColumnWidth * 4.0) -- FIXME-TABLE: Another constant/scale?
                 end
                 sum_width_requests = sum_width_requests + column.WidthRequest
             else
@@ -50901,7 +51126,7 @@ function ImGui.TableUpdateLayout(table_)
     local work_rect = Rect(table_.WorkRect)
     local width_spacings = (table_.OuterPaddingX * 2.0) + (table_.CellSpacingX1 + table_.CellSpacingX2) * (table_.ColumnsEnabledCount - 1)
     local width_removed = (table_.HasScrollbarYPrev and not table_.InnerWindow.ScrollbarY) and g.Style.ScrollbarSize or 0.0 -- To synchronize decoration width of synced tables with mismatching scrollbar state (#5920)
-    local width_avail = ImMax(1.0, ((band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0 and table_.InnerWidth == 0.0) and table_.InnerClipRect:GetWidth() or work_rect:GetWidth()) - width_removed)
+    local width_avail = mathMax(1.0, ((band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0 and table_.InnerWidth == 0.0) and table_.InnerClipRect:GetWidth() or work_rect:GetWidth()) - width_removed)
     local width_avail_for_stretched_columns = width_avail - width_spacings - sum_width_requests
     local width_remaining_for_stretched_columns = width_avail_for_stretched_columns
     table_.ColumnsGivenWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount
@@ -50912,7 +51137,7 @@ function ImGui.TableUpdateLayout(table_)
             -- Allocate width for stretched/weighted columns (StretchWeight gets converted into WidthRequest)
             if band(column.Flags, ImGuiTableColumnFlags.WidthStretch) ~= 0 then
                 local weight_ratio = column.StretchWeight / stretch_sum_weights
-                column.WidthRequest = IM_TRUNC(ImMax(width_avail_for_stretched_columns * weight_ratio, table_.MinColumnWidth) + 0.01)
+                column.WidthRequest = IM_TRUNC(mathMax(width_avail_for_stretched_columns * weight_ratio, table_.MinColumnWidth) + 0.01)
                 width_remaining_for_stretched_columns = width_remaining_for_stretched_columns - column.WidthRequest
             end
 
@@ -50923,7 +51148,7 @@ function ImGui.TableUpdateLayout(table_)
             end
 
             -- Assign final width, record width in case we will need to shrink
-            column.WidthGiven = ImTrunc(ImMax(column.WidthRequest, table_.MinColumnWidth))
+            column.WidthGiven = ImTrunc(mathMax(column.WidthRequest, table_.MinColumnWidth))
             table_.ColumnsGivenWidth = table_.ColumnsGivenWidth + column.WidthGiven
         end
     end
@@ -50954,7 +51179,7 @@ function ImGui.TableUpdateLayout(table_)
     table_instance.HoveredRowLast = table_instance.HoveredRowNext
     table_instance.HoveredRowNext = -1
     table_.HoveredColumnBody = -1; table_.HoveredColumnBorder = -1
-    local mouse_hit_rect = ImRect(table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, ImMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight))
+    local mouse_hit_rect = ImRect(table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, mathMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight))
     local backup_active_id = g.ActiveId
     g.ActiveId = 0
     local is_hovering_table = ImGui.ItemHoverable(mouse_hit_rect, 0, ImGuiItemFlags.None)
@@ -51009,8 +51234,8 @@ function ImGui.TableUpdateLayout(table_)
 
             -- Lock width based on start position and minimum/maximum width for this position
             column.WidthMax = ImGui.TableCalcMaxColumnWidth(table_, column_n)
-            column.WidthGiven = ImMin(column.WidthGiven, column.WidthMax)
-            column.WidthGiven = ImMax(column.WidthGiven, ImMin(column.WidthRequest, table_.MinColumnWidth))
+            column.WidthGiven = mathMin(column.WidthGiven, column.WidthMax)
+            column.WidthGiven = mathMax(column.WidthGiven, mathMin(column.WidthRequest, table_.MinColumnWidth))
             column.MaxX = offset_x + column.WidthGiven + table_.CellSpacingX1 + table_.CellSpacingX2 + table_.CellPaddingX * 2.0
 
             -- Lock other positions
@@ -51118,7 +51343,7 @@ function ImGui.TableUpdateLayout(table_)
     -- [Part 7] Detect/store when we are hovering the unused space after the right-most column (so e.g. context menus can react on it)
     -- Clear Resizable flag if none of our column are actually resizable (either via an explicit _NoResize flag, either
     -- because of using _WidthAuto/_WidthStretch). This will hide the resizing option from the context menu.
-    local unused_x1 = ImMax(table_.WorkRect.Min.x, table_.Columns[table_.RightMostEnabledColumn].ClipRect.Max.x)
+    local unused_x1 = mathMax(table_.WorkRect.Min.x, table_.Columns[table_.RightMostEnabledColumn].ClipRect.Max.x)
     if is_hovering_table and table_.HoveredColumnBody == -1 then
         if mouse_skewed_x >= unused_x1 then
             table_.HoveredColumnBody = columns_count
@@ -51138,7 +51363,7 @@ function ImGui.TableUpdateLayout(table_)
     end
     if band(table_.Flags, ImGuiTableFlags.NoHostExtendX) ~= 0 then
         table_.OuterRect.Max.x = unused_x1; table_.WorkRect.Max.x = unused_x1
-        table_.InnerClipRect.Max.x = ImMin(table_.InnerClipRect.Max.x, unused_x1)
+        table_.InnerClipRect.Max.x = mathMin(table_.InnerClipRect.Max.x, unused_x1)
     end
     ImRect_Copy(table_.InnerWindow.ParentWorkRect, table_.WorkRect)
     table_.BorderX1 = table_.InnerClipRect.Min.x
@@ -51149,7 +51374,7 @@ function ImGui.TableUpdateLayout(table_)
     if band(table_.Flags, ImGuiTableFlags.NoHostExtendY) ~= 0 then
         window_content_max_y = table_.OuterRect.Max.y
     else
-        window_content_max_y = ImMax(table_.InnerWindow.ContentRegionRect.Max.y, (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and 0.0 or table_.OuterRect.Max.y)
+        window_content_max_y = mathMax(table_.InnerWindow.ContentRegionRect.Max.y, (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and 0.0 or table_.OuterRect.Max.y)
     end
     table_.InnerWindow.WorkRect.Max.y = ImClamp(window_content_max_y - g.Style.CellPadding.y, table_.InnerWindow.WorkRect.Min.y, table_.InnerWindow.WorkRect.Max.y)
 
@@ -51241,7 +51466,7 @@ function ImGui.TableUpdateBorders(table_)
     local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
     local hit_half_width = ImTrunc(TABLE_RESIZE_SEPARATOR_HALF_THICKNESS * g.CurrentDpiScale)
     local hit_y1 = ((table_.FreezeRowsCount >= 1) and table_.OuterRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight
-    local hit_y2_body = ImMax(table_.OuterRect.Max.y, hit_y1 + table_instance.LastOuterHeight - table_.AngledHeadersHeight)
+    local hit_y2_body = mathMax(table_.OuterRect.Max.y, hit_y1 + table_instance.LastOuterHeight - table_.AngledHeadersHeight)
     local hit_y2_head = hit_y1 + table_instance.LastTopHeadersRowHeight
 
     for order_n = 0, table_.ColumnsCount - 1 do
@@ -51335,10 +51560,10 @@ function ImGui.EndTable()
     if inner_window ~= outer_window then
         inner_window.DC.CursorMaxPos.y = inner_content_max_y
     elseif band(flags, ImGuiTableFlags.NoHostExtendY) == 0 then
-        local v = ImMax(table_.OuterRect.Max.y, inner_content_max_y) -- Patch OuterRect/InnerRect height
+        local v = mathMax(table_.OuterRect.Max.y, inner_content_max_y) -- Patch OuterRect/InnerRect height
         table_.OuterRect.Max.y = v; table_.InnerRect.Max.y = v
     end
-    table_.WorkRect.Max.y = ImMax(table_.WorkRect.Max.y, table_.OuterRect.Max.y)
+    table_.WorkRect.Max.y = mathMax(table_.WorkRect.Max.y, table_.OuterRect.Max.y)
     table_instance.LastOuterHeight = table_.OuterRect:GetHeight()
 
     -- Setup inner scrolling range
@@ -51348,10 +51573,10 @@ function ImGui.EndTable()
         local outer_padding_for_border = (band(table_.Flags, ImGuiTableFlags.BordersOuterV) ~= 0) and TABLE_BORDER_SIZE or 0.0
         local max_pos_x = inner_window.DC.CursorMaxPos.x
         if table_.RightMostEnabledColumn ~= -1 then
-            max_pos_x = ImMax(max_pos_x, table_.Columns[table_.RightMostEnabledColumn].WorkMaxX + table_.CellPaddingX + table_.OuterPaddingX - outer_padding_for_border)
+            max_pos_x = mathMax(max_pos_x, table_.Columns[table_.RightMostEnabledColumn].WorkMaxX + table_.CellPaddingX + table_.OuterPaddingX - outer_padding_for_border)
         end
         if table_.ResizedColumn ~= -1 then
-            max_pos_x = ImMax(max_pos_x, table_.ResizeLockMinContentsX2)
+            max_pos_x = mathMax(max_pos_x, table_.ResizeLockMinContentsX2)
         end
         inner_window.DC.CursorMaxPos.x = max_pos_x + table_.TempData.AngledHeadersExtraWidth
     end
@@ -51394,12 +51619,12 @@ function ImGui.EndTable()
                 auto_fit_width_for_stretched = auto_fit_width_for_stretched + column_width_request
             end
             if band(column.Flags, ImGuiTableColumnFlags.WidthStretch) ~= 0 and band(column.Flags, ImGuiTableColumnFlags.NoResize) ~= 0 then
-                auto_fit_width_for_stretched_min = ImMax(auto_fit_width_for_stretched_min, column_width_request / (column.StretchWeight / table_.ColumnsStretchSumWeights))
+                auto_fit_width_for_stretched_min = mathMax(auto_fit_width_for_stretched_min, column_width_request / (column.StretchWeight / table_.ColumnsStretchSumWeights))
             end
         end
     end
     local width_spacings = (table_.OuterPaddingX * 2.0) + (table_.CellSpacingX1 + table_.CellSpacingX2) * (table_.ColumnsEnabledCount - 1)
-    table_.ColumnsAutoFitWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount + auto_fit_width_for_fixed + ImMax(auto_fit_width_for_stretched, auto_fit_width_for_stretched_min)
+    table_.ColumnsAutoFitWidth = width_spacings + (table_.CellPaddingX * 2.0) * table_.ColumnsEnabledCount + auto_fit_width_for_fixed + mathMax(auto_fit_width_for_stretched, auto_fit_width_for_stretched_min)
 
     -- Update scroll
     if band(table_.Flags, ImGuiTableFlags.ScrollX) == 0 and inner_window ~= outer_window then
@@ -51464,27 +51689,27 @@ function ImGui.EndTable()
         -- FIXME-TABLE: Could we remove this section?
         -- ColumnsAutoFitWidth may be one frame ahead here since for Fixed+NoResize is calculated from latest contents
         IM_ASSERT(band(table_.Flags, ImGuiTableFlags.ScrollX) == 0)
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth)
     elseif temp_data.UserOuterSize.x <= 0.0 then
         -- Some references for this: #7651 + tests "table_reported_size", "table_reported_size_outer" equivalent Y block, #9352
         -- - FIXME-TABLE: Would make sense to pre-compute expected scrollbar visibility/sizes to generally save a frame of feedback? See broken test in 'table_reported_size_outer'
         local outer_content_max_x = table_.OuterRect.Min.x + table_.ColumnsAutoFitWidth
         local decoration_size = table_.TempData.AngledHeadersExtraWidth + ((inner_window ~= outer_window) and inner_window.ScrollbarSizes.x or 0.0)
-        outer_window.DC.IdealMaxPos.x = ImMax(outer_window.DC.IdealMaxPos.x, outer_content_max_x + decoration_size - temp_data.UserOuterSize.x)
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, ImMin(table_.OuterRect.Max.x, outer_content_max_x + decoration_size))
+        outer_window.DC.IdealMaxPos.x = mathMax(outer_window.DC.IdealMaxPos.x, outer_content_max_x + decoration_size - temp_data.UserOuterSize.x)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, mathMin(table_.OuterRect.Max.x, outer_content_max_x + decoration_size))
     else
-        outer_window.DC.CursorMaxPos.x = ImMax(backup_outer_max_pos.x, table_.OuterRect.Max.x)
+        outer_window.DC.CursorMaxPos.x = mathMax(backup_outer_max_pos.x, table_.OuterRect.Max.x)
     end
     if temp_data.UserOuterSize.y <= 0.0 then
         -- (same comment as above)
         local outer_content_size_y = (inner_window == outer_window) and (inner_content_max_y - table_.InnerRect.Min.y) or (inner_content_max_y - inner_window.DC.CursorStartPos.y)
         local outer_content_max_y = table_.OuterRect.Min.y + outer_content_size_y
         local decoration_size = (inner_window ~= outer_window) and inner_window.ScrollbarSizes.y or 0.0
-        outer_window.DC.IdealMaxPos.y = ImMax(outer_window.DC.IdealMaxPos.y, outer_content_max_y + decoration_size - temp_data.UserOuterSize.y)
-        outer_window.DC.CursorMaxPos.y = ImMax(backup_outer_max_pos.y, ImMin(table_.OuterRect.Max.y, outer_content_max_y + decoration_size))
+        outer_window.DC.IdealMaxPos.y = mathMax(outer_window.DC.IdealMaxPos.y, outer_content_max_y + decoration_size - temp_data.UserOuterSize.y)
+        outer_window.DC.CursorMaxPos.y = mathMax(backup_outer_max_pos.y, mathMin(table_.OuterRect.Max.y, outer_content_max_y + decoration_size))
     else
         -- OuterRect.Max.y may already have been pushed downward from the initial value (unless ImGuiTableFlags.NoHostExtendY is set)
-        outer_window.DC.CursorMaxPos.y = ImMax(backup_outer_max_pos.y, table_.OuterRect.Max.y)
+        outer_window.DC.CursorMaxPos.y = mathMax(backup_outer_max_pos.y, table_.OuterRect.Max.y)
     end
 
     -- Save settings
@@ -51702,7 +51927,7 @@ function ImGui.TableSetupScrollFreeze(columns, rows)
     IM_ASSERT(columns >= 0 and columns < IMGUI_TABLE_MAX_COLUMNS)
     IM_ASSERT(rows >= 0 and rows < 128) -- Arbitrary limit
 
-    table_.FreezeColumnsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0) and ImMin(columns, table_.ColumnsCount) or 0
+    table_.FreezeColumnsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0) and mathMin(columns, table_.ColumnsCount) or 0
     table_.FreezeColumnsCount = (table_.InnerWindow.Scroll.x ~= 0.0) and table_.FreezeColumnsRequest or 0
     table_.FreezeRowsRequest = (band(table_.Flags, ImGuiTableFlags.ScrollY) ~= 0) and rows or 0
     table_.FreezeRowsCount = (table_.InnerWindow.Scroll.y ~= 0.0) and table_.FreezeRowsRequest or 0
@@ -51728,11 +51953,23 @@ end
 -- they would meddle many times with the underlying ImDrawCmd.
 -- Instead, we do a preemptive overwrite of clipping rectangle _without_ altering the command-buffer and let
 -- the subsequent single call to SetCurrentChannel() does it things once.
+@native
 function ImGui.SetWindowClipRectBeforeSetChannel(window, clip_rect)
-    local clip_rect_vec4 = clip_rect:ToVec4()
-    ImRect_Copy(window.ClipRect, clip_rect)
-    ImVec4_Copy(window.DrawList._CmdHeader.ClipRect, clip_rect_vec4)
-    window.DrawList._ClipRectStack.Data[window.DrawList._ClipRectStack.Size] = clip_rect_vec4
+    -- [Luau] scalar copies, no temporary ImVec4: the clip rect stack top is a uniquely owned ImVec4 (PushClipRect always pushes a fresh one), so overwrite it in place
+    local min, max = clip_rect.Min, clip_rect.Max
+    local x1, y1, x2, y2 = min.x, min.y, max.x, max.y
+    local wcr = window.ClipRect
+    wcr.Min.x = x1; wcr.Min.y = y1; wcr.Max.x = x2; wcr.Max.y = y2
+    local draw_list = window.DrawList
+    local hcr = draw_list._CmdHeader.ClipRect
+    hcr.x = x1; hcr.y = y1; hcr.z = x2; hcr.w = y2
+    local stack = draw_list._ClipRectStack
+    local top = stack.Data[stack.Size]
+    if top ~= nil then
+        top.x = x1; top.y = y1; top.z = x2; top.w = y2
+    else
+        stack.Data[stack.Size] = ImVec4(x1, y1, x2, y2)
+    end
 end
 
 function ImGui.TableGetColumnCount()
@@ -51817,8 +52054,8 @@ function ImGui.TableGetCellBgRect(table_, column_n)
     --    x1 = x1 - table.OuterPaddingX
     --if column.NextEnabledColumn == -1 then
     --    x2 = x2 + table.OuterPaddingX
-    x1 = ImMax(x1, table_.WorkRect.Min.x)
-    x2 = ImMin(x2, table_.WorkRect.Max.x)
+    x1 = mathMax(x1, table_.WorkRect.Min.x)
+    x2 = mathMin(x2, table_.WorkRect.Max.x)
     return ImRect(x1, table_.RowPosY1, x2, table_.RowPosY2)
 end
 
@@ -51937,8 +52174,7 @@ function ImGui.TableNextRow(row_flags, row_min_height)
 
     -- We honor min_row_height requested by user, but cannot guarantee per-row maximum height,
     -- because that would essentially require a unique clipping rectangle per-cell.
-    table_.RowPosY2 = table_.RowPosY2 + table_.RowCellPaddingY * 2.0
-    table_.RowPosY2 = ImMax(table_.RowPosY2, table_.RowPosY1 + row_min_height)
+    table_.RowPosY2 = mathMax(table_.RowPosY2 + table_.RowCellPaddingY * 2.0, table_.RowPosY1 + row_min_height) -- [Luau] inline ImMax
 
     -- Disable output until user calls TableNextColumn()
     table_.InnerWindow.SkipItems = true
@@ -51965,15 +52201,16 @@ function ImGui.TableBeginRow(table_)
 
     table_.RowPosY1 = next_y1; table_.RowPosY2 = next_y1
     table_.RowTextBaseline = 0.0
-    table_.RowIndentOffsetX = window.DC.Indent.x - table_.HostIndentX -- Lock indent
+    local dc = window.DC -- [Luau] cache
+    table_.RowIndentOffsetX = dc.Indent.x - table_.HostIndentX -- Lock indent
 
-    window.DC.PrevLineTextBaseOffset = 0.0
-    window.DC.CursorPosPrevLine.x = window.DC.CursorPos.x
-    window.DC.CursorPosPrevLine.y = window.DC.CursorPos.y + table_.RowCellPaddingY -- This allows users to call SameLine() to share LineSize between columns.
-    window.DC.PrevLineSize.x = 0.0; window.DC.PrevLineSize.y = 0.0 -- This allows users to call SameLine() to share LineSize between columns, and to call it from first column too.
-    window.DC.CurrLineSize.x = 0.0; window.DC.CurrLineSize.y = 0.0
-    window.DC.IsSameLine = false; window.DC.IsSetPos = false
-    window.DC.CursorMaxPos.y = next_y1
+    dc.PrevLineTextBaseOffset = 0.0
+    dc.CursorPosPrevLine.x = dc.CursorPos.x
+    dc.CursorPosPrevLine.y = dc.CursorPos.y + table_.RowCellPaddingY -- This allows users to call SameLine() to share LineSize between columns.
+    dc.PrevLineSize.x = 0.0; dc.PrevLineSize.y = 0.0 -- This allows users to call SameLine() to share LineSize between columns, and to call it from first column too.
+    dc.CurrLineSize.x = 0.0; dc.CurrLineSize.y = 0.0
+    dc.IsSameLine = false; dc.IsSetPos = false
+    dc.CursorMaxPos.y = next_y1
 
     -- Making the header BG color non-transparent will allow us to overlay it multiple times when handling smooth dragging.
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 then
@@ -51983,6 +52220,9 @@ function ImGui.TableBeginRow(table_)
         end
     end
 end
+
+-- [Luau] scratch vectors for TableEndRow() row background (never escape)
+local TableEndRow_RowMin, TableEndRow_RowMax = ImVec2(), ImVec2()
 
 -- [Internal] Called by TableNextRow()
 function ImGui.TableEndRow(table_)
@@ -52010,7 +52250,7 @@ function ImGui.TableEndRow(table_)
     local bg_y2 = table_.RowPosY2
     local unfreeze_rows_actual = (table_.CurrentRow + 1 == table_.FreezeRowsCount)
     local unfreeze_rows_request = (table_.CurrentRow + 1 == table_.FreezeRowsRequest)
-    local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
+    local table_instance = (table_.InstanceCurrent == 0) and table_.InstanceDataFirst or ImGui.TableGetInstanceData(table_, table_.InstanceCurrent) -- [Luau] inline common case
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 and (table_.CurrentRow == 0 or band(table_.LastRowFlags, ImGuiTableRowFlags.Headers) ~= 0) then
         table_instance.LastTopHeadersRowHeight = table_instance.LastTopHeadersRowHeight + bg_y2 - bg_y1
     end
@@ -52047,7 +52287,9 @@ function ImGui.TableEndRow(table_)
             -- In theory we could call SetWindowClipRectBeforeSetChannel() but since we know TableEndRow() is
             -- always followed by a change of clipping rectangle we perform the smallest overwrite possible here.
             if band(table_.Flags, ImGuiTableFlags.NoClip) == 0 then
-                ImVec4_Copy(window.DrawList._CmdHeader.ClipRect, table_.Bg0ClipRectForDrawCmd:ToVec4())
+                -- [Luau] scalar copy, no temporary ImVec4
+                local src, dst = table_.Bg0ClipRectForDrawCmd, window.DrawList._CmdHeader.ClipRect
+                dst.x = src.Min.x; dst.y = src.Min.y; dst.z = src.Max.x; dst.w = src.Max.y
             end
             table_.DrawSplitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_BG0)
         end
@@ -52055,13 +52297,16 @@ function ImGui.TableEndRow(table_)
         -- Draw row background
         -- We soft/cpu clip this so all backgrounds and borders can share the same clipping rectangle
         if bg_col0 ~= 0 or bg_col1 ~= 0 then
-            local row_rect = ImRect(table_.WorkRect.Min.x, bg_y1, table_.WorkRect.Max.x, bg_y2)
-            row_rect:ClipWith(table_.BgClipRect)
-            if bg_col0 ~= 0 and row_rect.Min.y < row_rect.Max.y then
-                window.DrawList:AddRectFilled(row_rect.Min, row_rect.Max, bg_col0)
+            -- [Luau] row_rect = ImRect(WorkRect.Min.x, bg_y1, WorkRect.Max.x, bg_y2); row_rect:ClipWith(BgClipRect), in scratch vectors (only read by AddRectFilled)
+            local bg_clip_rect = table_.BgClipRect
+            local row_min, row_max = TableEndRow_RowMin, TableEndRow_RowMax
+            row_min.x = mathMax(table_.WorkRect.Min.x, bg_clip_rect.Min.x); row_min.y = mathMax(bg_y1, bg_clip_rect.Min.y)
+            row_max.x = mathMin(table_.WorkRect.Max.x, bg_clip_rect.Max.x); row_max.y = mathMin(bg_y2, bg_clip_rect.Max.y)
+            if bg_col0 ~= 0 and row_min.y < row_max.y then
+                window.DrawList:AddRectFilled(row_min, row_max, bg_col0)
             end
-            if bg_col1 ~= 0 and row_rect.Min.y < row_rect.Max.y then
-                window.DrawList:AddRectFilled(row_rect.Min, row_rect.Max, bg_col1)
+            if bg_col1 ~= 0 and row_min.y < row_max.y then
+                window.DrawList:AddRectFilled(row_min, row_max, bg_col1)
             end
         end
 
@@ -52074,8 +52319,8 @@ function ImGui.TableEndRow(table_)
                 local column = table_.Columns[cell_data.Column]
                 local cell_bg_rect = ImGui.TableGetCellBgRect(table_, cell_data.Column)
                 cell_bg_rect:ClipWith(table_.BgClipRect)
-                cell_bg_rect.Min.x = ImMax(cell_bg_rect.Min.x, column.ClipRect.Min.x) -- So that first column after frozen one gets clipped when scrolling
-                cell_bg_rect.Max.x = ImMin(cell_bg_rect.Max.x, column.MaxX)
+                cell_bg_rect.Min.x = mathMax(cell_bg_rect.Min.x, column.ClipRect.Min.x) -- So that first column after frozen one gets clipped when scrolling
+                cell_bg_rect.Max.x = mathMin(cell_bg_rect.Max.x, column.MaxX)
                 if cell_bg_rect.Min.y < cell_bg_rect.Max.y then
                     window.DrawList:AddRectFilled(cell_bg_rect.Min, cell_bg_rect.Max, cell_data.BgColor)
                 end
@@ -52101,7 +52346,7 @@ function ImGui.TableEndRow(table_)
         for column_n = 0, table_.ColumnsCount - 1 do
             table_.Columns[column_n].NavLayerCurrent = table_.NavLayer
         end
-        local y0 = ImMax(table_.RowPosY2 + 1, table_.InnerClipRect.Min.y)
+        local y0 = mathMax(table_.RowPosY2 + 1, table_.InnerClipRect.Min.y)
         table_instance.LastFrozenHeight = y0 - table_.OuterRect.Min.y
 
         if unfreeze_rows_actual then
@@ -52109,7 +52354,7 @@ function ImGui.TableEndRow(table_)
             table_.IsUnfrozenRows = true
 
             -- BgClipRect starts as table.InnerClipRect, reduce it now and make BgClipRectForDrawCmd == BgClipRect
-            local min_y = ImMin(y0, table_.InnerClipRect.Max.y)
+            local min_y = mathMin(y0, table_.InnerClipRect.Max.y)
             table_.BgClipRect.Min.y = min_y; table_.Bg2ClipRectForDrawCmd.Min.y = min_y
             table_.BgClipRect.Max.y = table_.InnerClipRect.Max.y; table_.Bg2ClipRectForDrawCmd.Max.y = table_.InnerClipRect.Max.y
             table_.Bg2DrawChannelCurrent = table_.Bg2DrawChannelUnfrozen
@@ -52181,6 +52426,7 @@ function ImGui.TableSetColumnIndex(column_n)
 end
 
 -- [Public] Append into the next column, wrap and create a new row when already on last column
+@native
 function ImGui.TableNextColumn()
     local g = GImGui
     local table_ = g.CurrentTable
@@ -52188,28 +52434,33 @@ function ImGui.TableNextColumn()
         return false
     end
 
-    if table_.IsInsideRow and table_.CurrentColumn + 1 < table_.ColumnsCount then
-        if table_.CurrentColumn ~= -1 then
+    local current_column = table_.CurrentColumn
+    local next_column
+    if table_.IsInsideRow and current_column + 1 < table_.ColumnsCount then
+        if current_column ~= -1 then
             ImGui.TableEndCell(table_)
         end
-        ImGui.TableBeginCell(table_, table_.CurrentColumn + 1)
+        next_column = current_column + 1
     else
         ImGui.TableNextRow()
-        ImGui.TableBeginCell(table_, 0)
+        next_column = 0
     end
+    ImGui.TableBeginCell(table_, next_column)
 
     -- Return whether the column is visible. User may choose to skip submitting items based on this return value,
     -- however they shouldn't skip submitting for columns that may have the tallest contribution to row height.
-    return table_.Columns[table_.CurrentColumn].IsRequestOutput
+    return table_.Columns[next_column].IsRequestOutput
 end
 
 -- [Internal] Called by TableSetColumnIndex()/TableNextColumn()
 -- This is called very frequently, so we need to be mindful of unnecessary overhead.
 -- FIXME-TABLE FIXME-OPT: Could probably shortcut some things for non-active or clipped columns.
+@native
 function ImGui.TableBeginCell(table_, column_n)
     local g = GImGui
     local column = table_.Columns[column_n]
     local window = table_.InnerWindow
+    local dc = window.DC -- [Luau] cache
     table_.CurrentColumn = column_n
 
     -- Start position is roughly ~~ CellRect.Min + CellPadding + Indent
@@ -52218,35 +52469,45 @@ function ImGui.TableBeginCell(table_, column_n)
         start_x = start_x + table_.RowIndentOffsetX -- ~~ += window.DC.Indent.x - table.HostIndentX, except we locked it for the row.
     end
 
-    window.DC.CursorPos.x = start_x
-    window.DC.CursorPos.y = table_.RowPosY1 + table_.RowCellPaddingY
-    window.DC.CursorMaxPos.x = window.DC.CursorPos.x
-    window.DC.ColumnsOffset.x = start_x - window.Pos.x - window.DC.Indent.x -- FIXME-WORKRECT
-    window.DC.CursorPosPrevLine.x = window.DC.CursorPos.x -- PrevLine.y is preserved. This allows users to call SameLine() to share LineSize between columns.
-    window.DC.CurrLineTextBaseOffset = table_.RowTextBaseline
-    window.DC.NavLayerCurrent = column.NavLayerCurrent
+    local start_y = table_.RowPosY1 + table_.RowCellPaddingY
+    dc.CursorPos.x = start_x
+    dc.CursorPos.y = start_y
+    dc.CursorMaxPos.x = start_x
+    dc.ColumnsOffset.x = start_x - window.Pos.x - dc.Indent.x -- FIXME-WORKRECT
+    dc.CursorPosPrevLine.x = start_x -- PrevLine.y is preserved. This allows users to call SameLine() to share LineSize between columns.
+    dc.CurrLineTextBaseOffset = table_.RowTextBaseline
+    dc.NavLayerCurrent = column.NavLayerCurrent
 
     -- Note how WorkRect.Max.y is only set once during layout
-    window.WorkRect.Min.y = window.DC.CursorPos.y
-    window.WorkRect.Min.x = column.WorkMinX
-    window.WorkRect.Max.x = column.WorkMaxX
-    window.DC.ItemWidth = column.ItemWidth
+    local work_rect = window.WorkRect
+    work_rect.Min.y = start_y
+    work_rect.Min.x = column.WorkMinX
+    work_rect.Max.x = column.WorkMaxX
+    dc.ItemWidth = column.ItemWidth
 
-    window.SkipItems = column.IsSkipItems
-    if column.IsSkipItems then
+    local skip_items = column.IsSkipItems
+    window.SkipItems = skip_items
+    if skip_items then
         g.LastItemData.ID = 0
         g.LastItemData.StatusFlags = 0
     end
 
     -- Also see TablePushColumnChannel()
+    -- [Luau] inline the SetCurrentChannel() early-out (same channel) to skip the method call
+    local splitter = table_.DrawSplitter
     if band(table_.Flags, ImGuiTableFlags.NoClip) ~= 0 then
         -- FIXME: if we end up drawing all borders/bg in EndTable, could remove this and just assert that channel hasn't changed.
-        table_.DrawSplitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_NOCLIP)
+        if splitter._Current ~= TABLE_DRAW_CHANNEL_NOCLIP then
+            splitter:SetCurrentChannel(window.DrawList, TABLE_DRAW_CHANNEL_NOCLIP)
+        end
         --IM_ASSERT(table.DrawSplitter._Current == TABLE_DRAW_CHANNEL_NOCLIP)
     else
         -- FIXME-TABLE: Could avoid this if draw channel is dummy channel?
         ImGui.SetWindowClipRectBeforeSetChannel(window, column.ClipRect)
-        table_.DrawSplitter:SetCurrentChannel(window.DrawList, column.DrawChannelCurrent)
+        local channel = column.DrawChannelCurrent
+        if splitter._Current ~= channel then
+            splitter:SetCurrentChannel(window.DrawList, channel)
+        end
     end
 
     -- Logging
@@ -52257,31 +52518,34 @@ function ImGui.TableBeginCell(table_, column_n)
 end
 
 -- [Internal] Called by TableNextRow()/TableSetColumnIndex()/TableNextColumn()
+@native
 function ImGui.TableEndCell(table_)
     local column = table_.Columns[table_.CurrentColumn]
     local window = table_.InnerWindow
+    local dc = window.DC -- [Luau] cache; mathMax() inlined as math.max below
 
-    if window.DC.IsSetPos then
+    if dc.IsSetPos then
         ImGui.ErrorCheckUsingSetCursorPosToExtendParentBoundaries()
     end
 
     -- Report maximum position so we can infer content size per column.
-    local x = window.DC.CursorMaxPos.x
+    local cursor_max_pos = dc.CursorMaxPos
+    local x = cursor_max_pos.x
     if band(table_.RowFlags, ImGuiTableRowFlags.Headers) ~= 0 then
-        column.ContentMaxXHeadersUsed = ImMax(column.ContentMaxXHeadersUsed, x) -- Useful in case user submit contents in header row that is not a TableHeader() call
+        column.ContentMaxXHeadersUsed = mathMax(column.ContentMaxXHeadersUsed, x) -- Useful in case user submit contents in header row that is not a TableHeader() call
     elseif table_.IsUnfrozenRows then
-        column.ContentMaxXUnfrozen = ImMax(column.ContentMaxXUnfrozen, x)
+        column.ContentMaxXUnfrozen = mathMax(column.ContentMaxXUnfrozen, x)
     else
-        column.ContentMaxXFrozen = ImMax(column.ContentMaxXFrozen, x)
+        column.ContentMaxXFrozen = mathMax(column.ContentMaxXFrozen, x)
     end
     if column.IsEnabled then
-        table_.RowPosY2 = ImMax(table_.RowPosY2, window.DC.CursorMaxPos.y + table_.RowCellPaddingY)
+        table_.RowPosY2 = mathMax(table_.RowPosY2, cursor_max_pos.y + table_.RowCellPaddingY)
     end
-    column.ItemWidth = window.DC.ItemWidth
+    column.ItemWidth = dc.ItemWidth
 
     -- Propagate text baseline for the entire row
     -- FIXME-TABLE: Here we propagate text baseline from the last line of the cell.. instead of the first one.
-    table_.RowTextBaseline = ImMax(table_.RowTextBaseline, window.DC.PrevLineTextBaseOffset)
+    table_.RowTextBaseline = mathMax(table_.RowTextBaseline, dc.PrevLineTextBaseOffset)
 end
 
 -------------------------------------------------------------------------------
@@ -52326,11 +52590,11 @@ end
 
 -- Note this is meant to be stored in column.WidthAuto, please generally use the WidthAuto field
 function ImGui.TableGetColumnWidthAuto(table_, column)
-    local content_width_body = ImMax(column.ContentMaxXFrozen, column.ContentMaxXUnfrozen) - column.WorkMinX
+    local content_width_body = mathMax(column.ContentMaxXFrozen, column.ContentMaxXUnfrozen) - column.WorkMinX
     local content_width_headers = column.ContentMaxXHeadersIdeal - column.WorkMinX
     local width_auto = content_width_body
     if band(column.Flags, ImGuiTableColumnFlags.NoHeaderWidth) == 0 then
-        width_auto = ImMax(width_auto, content_width_headers)
+        width_auto = mathMax(width_auto, content_width_headers)
     end
 
     -- Non-resizable fixed columns preserve their requested width
@@ -52340,7 +52604,7 @@ function ImGui.TableGetColumnWidthAuto(table_, column)
         end
     end
 
-    return ImMax(width_auto, table_.MinColumnWidth)
+    return mathMax(width_auto, table_.MinColumnWidth)
 end
 
 -- 'width' = inner column width, without padding
@@ -52356,7 +52620,7 @@ function ImGui.TableSetColumnWidth(column_n, width)
     -- Compare both requested and actual given width to avoid overwriting requested width when column is stuck (minimum size, bounded)
     IM_ASSERT(table_.MinColumnWidth > 0.0)
     local min_width = table_.MinColumnWidth
-    local max_width = ImMax(min_width, column_0.WidthMax) -- Don't use TableCalcMaxColumnWidth() here as it would rely on MinX from last instance (#7933)
+    local max_width = mathMax(min_width, column_0.WidthMax) -- Don't use TableCalcMaxColumnWidth() here as it would rely on MinX from last instance (#7933)
     column_0_width = ImClamp(column_0_width, min_width, max_width)
     if column_0.WidthGiven == column_0_width or column_0.WidthRequest == column_0_width then
         return
@@ -52417,7 +52681,7 @@ function ImGui.TableSetColumnWidth(column_n, width)
 
     -- Resizing from right-side of a Stretch column before a Fixed column forward sizing to left-side of fixed column.
     -- (old_a + old_b == new_a + new_b) --> (new_a == old_a + old_b - new_b)
-    local column_1_width = ImMax(column_1.WidthRequest - (column_0_width - column_0.WidthRequest), min_width)
+    local column_1_width = mathMax(column_1.WidthRequest - (column_0_width - column_0.WidthRequest), min_width)
     column_0_width = column_0.WidthRequest + column_1.WidthRequest - column_1_width
     IM_ASSERT(column_0_width > 0.0 and column_1_width > 0.0)
     column_0.WidthRequest = column_0_width
@@ -52633,6 +52897,12 @@ end
 --
 -- This function is particularly tricky to understand.. take a breath.
 -- (Lua: splitter channel n lives in splitter._Channels.Data[n + 1]; bit arrays are Lua sets)
+local TableMergeDrawChannels_MergeGroups = {}
+for n = 0, 3 do
+    TableMergeDrawChannels_MergeGroups[n] = { ClipRect = ImRect(), ChannelsCount = 0, ChannelsMask = {} }
+end
+local TableMergeDrawChannels_RemainingMask = {}
+local TableMergeDrawChannels_DstTmp = {}
 function ImGui.TableMergeDrawChannels(table_)
     local splitter = table_.DrawSplitter
     local channels = splitter._Channels.Data
@@ -52642,12 +52912,18 @@ function ImGui.TableMergeDrawChannels(table_)
 
     -- Track which groups we are going to attempt to merge, and which channels goes into each group.
     local merge_group_mask = 0x00
-    local merge_groups = {}
+    -- [Luau] reuse file-level scratch storage (function is not re-entrant, nothing escapes)
+    local merge_groups = TableMergeDrawChannels_MergeGroups
     for n = 0, 3 do
-        merge_groups[n] = { ClipRect = ImRect(), ChannelsCount = 0, ChannelsMask = {} }
+        local merge_group = merge_groups[n]
+        local cr = merge_group.ClipRect
+        cr.Min.x = 0.0; cr.Min.y = 0.0; cr.Max.x = 0.0; cr.Max.y = 0.0
+        merge_group.ChannelsCount = 0
+        table.clear(merge_group.ChannelsMask)
     end
     local max_draw_channels = (4 + table_.ColumnsCount * 2)
-    local remaining_mask = {}
+    local remaining_mask = TableMergeDrawChannels_RemainingMask
+    table.clear(remaining_mask)
 
     -- 1. Scan channels and take note of those which can be merged
     for column_n = 0, table_.ColumnsCount - 1 do
@@ -52674,9 +52950,9 @@ function ImGui.TableMergeDrawChannels(table_)
                     if band(column.Flags, ImGuiTableColumnFlags.NoClip) == 0 then
                         local content_max_x
                         if not has_freeze_v then
-                            content_max_x = ImMax(column.ContentMaxXUnfrozen, column.ContentMaxXHeadersUsed) -- No row freeze
+                            content_max_x = mathMax(column.ContentMaxXUnfrozen, column.ContentMaxXHeadersUsed) -- No row freeze
                         elseif merge_group_sub_n == 0 then
-                            content_max_x = ImMax(column.ContentMaxXFrozen, column.ContentMaxXHeadersUsed)   -- Row freeze: use width before freeze
+                            content_max_x = mathMax(column.ContentMaxXFrozen, column.ContentMaxXHeadersUsed)   -- Row freeze: use width before freeze
                         else
                             content_max_x = column.ContentMaxXUnfrozen                                        -- Row freeze: use width after freeze
                         end
@@ -52689,12 +52965,18 @@ function ImGui.TableMergeDrawChannels(table_)
                     IM_ASSERT(channel_no < max_draw_channels)
                     local merge_group = merge_groups[merge_group_n]
                     if merge_group.ChannelsCount == 0 then
-                        merge_group.ClipRect = ImRect(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX)
+                        local gcr = merge_group.ClipRect -- [Luau] in place (merge_groups are local to this call)
+                        gcr.Min.x = FLT_MAX; gcr.Min.y = FLT_MAX; gcr.Max.x = -FLT_MAX; gcr.Max.y = -FLT_MAX
                     end
                     merge_group.ChannelsMask[channel_no] = true
                     merge_group.ChannelsCount = merge_group.ChannelsCount + 1
                     local cr = cmds.Data[1].ClipRect
-                    merge_group.ClipRect:Add(ImRect(cr.x, cr.y, cr.z, cr.w))
+                    -- [Luau] scalar version of merge_group.ClipRect:Add(ImRect(cr.x, cr.y, cr.z, cr.w))
+                    local gmin, gmax = merge_group.ClipRect.Min, merge_group.ClipRect.Max
+                    if gmin.x > cr.x then gmin.x = cr.x end
+                    if gmin.y > cr.y then gmin.y = cr.y end
+                    if gmax.x < cr.z then gmax.x = cr.z end
+                    if gmax.y < cr.w then gmax.y = cr.w end
                     merge_group_mask = bor(merge_group_mask, lshift(1, merge_group_n))
                 until true
             end
@@ -52709,7 +52991,8 @@ function ImGui.TableMergeDrawChannels(table_)
     if merge_group_mask ~= 0 then
         -- We skip channel 0 (Bg0/Bg1) and 1 (Bg2 frozen) from the shuffling since they won't move - see channels allocation in TableSetupDrawChannels().
         local LEADING_DRAW_CHANNELS = 2
-        local dst_tmp = {}
+        local dst_tmp = TableMergeDrawChannels_DstTmp -- [Luau] scratch
+        table.clear(dst_tmp)
         for n = LEADING_DRAW_CHANNELS, splitter._Count - 1 do
             remaining_mask[n] = true
         end
@@ -52732,16 +53015,16 @@ function ImGui.TableMergeDrawChannels(table_)
                 -- FIXME-TABLE FIXME-WORKRECT: We are wasting a merge opportunity on tables without scrolling if column doesn't fit
                 -- within host clip rect, solely because of the half-padding difference between window.WorkRect and window.InnerClipRect.
                 if band(merge_group_n, 1) == 0 or not has_freeze_h then
-                    merge_clip_rect.Min.x = ImMin(merge_clip_rect.Min.x, host_rect.Min.x)
+                    merge_clip_rect.Min.x = mathMin(merge_clip_rect.Min.x, host_rect.Min.x)
                 end
                 if band(merge_group_n, 2) == 0 or not has_freeze_v then
-                    merge_clip_rect.Min.y = ImMin(merge_clip_rect.Min.y, host_rect.Min.y)
+                    merge_clip_rect.Min.y = mathMin(merge_clip_rect.Min.y, host_rect.Min.y)
                 end
                 if band(merge_group_n, 1) ~= 0 then
-                    merge_clip_rect.Max.x = ImMax(merge_clip_rect.Max.x, host_rect.Max.x)
+                    merge_clip_rect.Max.x = mathMax(merge_clip_rect.Max.x, host_rect.Max.x)
                 end
                 if band(merge_group_n, 2) ~= 0 and band(table_.Flags, ImGuiTableFlags.NoHostExtendY) == 0 then
-                    merge_clip_rect.Max.y = ImMax(merge_clip_rect.Max.y, host_rect.Max.y)
+                    merge_clip_rect.Max.y = mathMax(merge_clip_rect.Max.y, host_rect.Max.y)
                 end
                 --ImGui.GetForegroundDrawList():AddRect(merge_group.ClipRect.Min, merge_group.ClipRect.Max, IM_COL32(255, 0, 0, 200), 0.0, 0, 1.0) -- [DEBUG]
                 --ImGui.GetForegroundDrawList():AddLine(merge_group.ClipRect.Min, merge_clip_rect.Min, IM_COL32(255, 100, 0, 200))
@@ -52759,7 +53042,8 @@ function ImGui.TableMergeDrawChannels(table_)
 
                         local channel = channels[n + 1]
                         IM_ASSERT(channel._CmdBuffer.Size == 1)
-                        ImVec4_Copy(channel._CmdBuffer.Data[1].ClipRect, merge_clip_rect:ToVec4())
+                        local dst = channel._CmdBuffer.Data[1].ClipRect -- [Luau] scalar copy, no temporary ImVec4
+                        dst.x = merge_clip_rect.Min.x; dst.y = merge_clip_rect.Min.y; dst.z = merge_clip_rect.Max.x; dst.w = merge_clip_rect.Max.y
                         dst_tmp[#dst_tmp + 1] = channel
                     end
                     n = n + 1
@@ -52785,6 +53069,7 @@ function ImGui.TableMergeDrawChannels(table_)
         for i = 1, #dst_tmp do
             channels[LEADING_DRAW_CHANNELS + i] = dst_tmp[i]
         end
+        table.clear(dst_tmp) -- [Luau] don't keep channel references alive in the scratch
     end
 end
 
@@ -52815,9 +53100,9 @@ function ImGui.TableDrawBorders(table_)
     -- Draw inner border and resizing feedback
     local table_instance = ImGui.TableGetInstanceData(table_, table_.InstanceCurrent)
     local border_size = TABLE_BORDER_SIZE
-    local draw_y1 = ImMax(table_.InnerRect.Min.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight) + ((band(table_.Flags, ImGuiTableFlags.BordersOuterH) ~= 0) and border_size or 0.0)
+    local draw_y1 = mathMax(table_.InnerRect.Min.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_.AngledHeadersHeight) + ((band(table_.Flags, ImGuiTableFlags.BordersOuterH) ~= 0) and border_size or 0.0)
     local draw_y2_body = table_.InnerRect.Max.y
-    local draw_y2_head = table_.IsUsingHeaders and ImMin(table_.InnerRect.Max.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_instance.LastTopHeadersRowHeight) or draw_y1
+    local draw_y2_head = table_.IsUsingHeaders and mathMin(table_.InnerRect.Max.y, ((table_.FreezeRowsCount >= 1) and table_.InnerRect.Min.y or table_.WorkRect.Min.y) + table_instance.LastTopHeadersRowHeight) or draw_y1
     if band(table_.Flags, ImGuiTableFlags.BordersInnerV) ~= 0 then
         for order_n = 0, table_.ColumnsCount - 1 do
             repeat
@@ -52973,7 +53258,7 @@ function ImGui.TableSetColumnSortDirection(column_n, sort_direction, append_to_s
     local sort_order_max = 0
     if append_to_sort_specs then
         for other_column_n = 0, table_.ColumnsCount - 1 do
-            sort_order_max = ImMax(sort_order_max, table_.Columns[other_column_n].SortOrder)
+            sort_order_max = mathMax(sort_order_max, table_.Columns[other_column_n].SortOrder)
         end
     end
 
@@ -53131,7 +53416,7 @@ function ImGui.TableGetHeaderRowHeight()
     for column_n = 0, table_.ColumnsCount - 1 do
         if BitTest(table_.EnabledMaskByIndex, column_n) then
             if band(table_.Columns[column_n].Flags, ImGuiTableColumnFlags.NoHeaderLabel) == 0 then
-                row_height = ImMax(row_height, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n)).y)
+                row_height = mathMax(row_height, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n)).y)
             end
         end
     end
@@ -53145,7 +53430,7 @@ function ImGui.TableGetHeaderAngledMaxLabelWidth()
     for column_n = 0, table_.ColumnsCount - 1 do
         if BitTest(table_.EnabledMaskByIndex, column_n) then
             if band(table_.Columns[column_n].Flags, ImGuiTableColumnFlags.AngledHeader) ~= 0 then
-                width = ImMax(width, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n), nil, true).x)
+                width = mathMax(width, ImGui.CalcTextSize(ImGui.TableGetColumnName(table_, column_n), nil, true).x)
             end
         end
     end
@@ -53224,8 +53509,11 @@ function ImGui.TableHeader(label)
 
     -- If we already got a row height, there's use that.
     -- FIXME-TABLE: Padding problem if the correct outer-padding CellBgRect strays off our ClipRect?
-    local cell_r = ImGui.TableGetCellBgRect(table_, column_n)
-    local label_height = ImMax(label_size.y, table_.RowMinHeight - table_.RowCellPaddingY * 2.0)
+    -- [Luau] scalar version of: cell_r = TableGetCellBgRect(table_, column_n) (Min.x/Min.y/Max.x/Max.y -> cell_x1/cell_y1/cell_x2/cell_y2)
+    local cell_x1 = mathMax(column.MinX, table_.WorkRect.Min.x)
+    local cell_x2 = mathMin(column.MaxX, table_.WorkRect.Max.x)
+    local cell_y1, cell_y2 = table_.RowPosY1, table_.RowPosY2
+    local label_height = mathMax(label_size.y, table_.RowMinHeight - table_.RowCellPaddingY * 2.0)
 
     -- Calculate ideal size for sort order arrow
     local w_arrow = 0.0
@@ -53246,12 +53534,12 @@ function ImGui.TableHeader(label)
 
     -- We feed our unclipped width to the column without writing on CursorMaxPos, so that column is still considered for merging.
     local max_pos_x = label_pos.x + label_size.x + w_sort_text + w_arrow
-    column.ContentMaxXHeadersUsed = ImMax(column.ContentMaxXHeadersUsed, sort_arrow and cell_r.Max.x or ImMin(max_pos_x, cell_r.Max.x))
-    column.ContentMaxXHeadersIdeal = ImMax(column.ContentMaxXHeadersIdeal, max_pos_x)
+    column.ContentMaxXHeadersUsed = mathMax(column.ContentMaxXHeadersUsed, sort_arrow and cell_x2 or mathMin(max_pos_x, cell_x2))
+    column.ContentMaxXHeadersIdeal = mathMax(column.ContentMaxXHeadersIdeal, max_pos_x)
 
     -- Keep header highlighted when context menu is open.
     local id = window:GetID(label)
-    local bb = ImRect(cell_r.Min.x, cell_r.Min.y, cell_r.Max.x, ImMax(cell_r.Max.y, cell_r.Min.y + label_height + g.Style.CellPadding.y * 2.0))
+    local bb = ImRect(cell_x1, cell_y1, cell_x2, mathMax(cell_y2, cell_y1 + label_height + g.Style.CellPadding.y * 2.0))
     ImGui.ItemSize(ImVec2(0.0, label_height)) -- Don't declare unclipped width, it'll be fed ContentMaxPosHeadersIdeal
     if not ImGui.ItemAdd(bb, id) then
         return
@@ -53289,13 +53577,13 @@ function ImGui.TableHeader(label)
         --      ... 2  3  4        ...  2  3  4   (Display order)
         -- - The other constraints are enforced by TableQueueSetColumnDisplayOrder() which might early out.
         table_.InstanceInteracted = table_.InstanceCurrent
-        if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < cell_r.Min.x then
+        if g.IO.MouseDelta.x < 0.0 and g.IO.MousePos.x < cell_x1 then
             local prev_column = (column.PrevEnabledColumn ~= -1) and table_.Columns[column.PrevEnabledColumn] or nil
             if prev_column then
                 ImGui.TableQueueSetColumnDisplayOrder(table_, column_n, prev_column.DisplayOrder)
             end
         end
-        if g.IO.MouseDelta.x > 0.0 and g.IO.MousePos.x > cell_r.Max.x then
+        if g.IO.MouseDelta.x > 0.0 and g.IO.MousePos.x > cell_x2 then
             local next_column = (column.NextEnabledColumn ~= -1) and table_.Columns[column.NextEnabledColumn] or nil
             if next_column then
                 ImGui.TableQueueSetColumnDisplayOrder(table_, column_n, next_column.DisplayOrder)
@@ -53306,10 +53594,10 @@ function ImGui.TableHeader(label)
     -- Sort order arrow
     -- - Only clip label for a visible arrow. Auto-fit still accounts for a possible arrow, but when
     --   manually sized smaller we don't clip the label for the sake of an arrow that isn't displayed.
-    local ellipsis_max = ImMax(cell_r.Max.x - (sort_arrow and (w_arrow + w_sort_text) or 0.0), label_pos.x)
+    local ellipsis_max = mathMax(cell_x2 - (sort_arrow and (w_arrow + w_sort_text) or 0.0), label_pos.x)
     if band(table_.Flags, ImGuiTableFlags.Sortable) ~= 0 and band(column.Flags, ImGuiTableColumnFlags.NoSort) == 0 then
         if column.SortOrder ~= -1 then
-            local x = ImMax(cell_r.Min.x, cell_r.Max.x - w_arrow - w_sort_text)
+            local x = mathMax(cell_x1, cell_x2 - w_arrow - w_sort_text)
             local y = label_pos.y
             if column.SortOrder > 0 then
                 ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.Text, 0.70))
@@ -54731,6 +55019,8 @@ local IM_U32_MAX = UINT_MAX -- (0xFFFFFFFF)
 --- @param text      string
 --- @param text_end? int
 --- @param flags?    ImGuiTextFlags
+local TextEx_bb = ImRect() -- [Luau] scratch, never escapes TextEx()
+
 @native
 function ImGui.TextEx(text, text_end, flags)
     if not flags then flags = 0 end
@@ -54752,23 +55042,29 @@ function ImGui.TextEx(text, text_end, flags)
         text_end = #text + 1
     end
 
-    local text_pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset)
-    local wrap_pos_x = window.DC.TextWrapPos
+    local dc = window.DC
+    local wrap_pos_x = dc.TextWrapPos
     local wrap_enabled = (wrap_pos_x >= 0.0)
     if (text_end - 1 <= 2000) or wrap_enabled then
         -- Common case
-        local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(window.DC.CursorPos, wrap_pos_x) or 0.0
-        local text_size = ImGui.CalcTextSize(text, text_end, false, wrap_width)
+        -- [Luau] scalar text_pos, scratch bb (ItemAdd() copies it, RenderTextWrapped() only reads it)
+        local text_pos_x, text_pos_y = dc.CursorPos.x, dc.CursorPos.y + dc.CurrLineTextBaseOffset
+        local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(dc.CursorPos, wrap_pos_x) or 0.0
+        local text_size = ImGui.CalcTextSizeEx(text, 1, text_end, false, wrap_width)
 
-        local bb = ImRect(text_pos, text_pos + text_size)
+        local bb = TextEx_bb
+        local bb_min, bb_max = bb.Min, bb.Max
+        bb_min.x = text_pos_x; bb_min.y = text_pos_y
+        bb_max.x = text_pos_x + text_size.x; bb_max.y = text_pos_y + text_size.y
         ImGui.ItemSize(text_size, 0.0)
         if not ImGui.ItemAdd(bb, 0) then
             return
         end
 
         -- Render (we don't hide text after ## in this end-user function)
-        ImGui.RenderTextWrapped(bb.Min, text, text_end, wrap_width)
+        ImGui.RenderTextWrapped(bb_min, text, text_end, wrap_width)
     else
+        local text_pos = ImVec2(dc.CursorPos.x, dc.CursorPos.y + dc.CurrLineTextBaseOffset)
         -- Long text!
         -- Perform manual coarse clipping to optimize for long multi-line text
         -- - From this point we will only compute the width of lines that are visible. Optimization only available when word-wrapping is disabled.
@@ -54855,7 +55151,8 @@ end
 --- @param ... any
 @native
 function ImGui.TextV(fmt, ...)
-    local window = ImGui.GetCurrentWindow()
+    local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+    window.WriteAccessed = true
     if window.SkipItems then
         return
     end
@@ -54998,19 +55295,18 @@ function ImGui.BulletText(fmt, ...)
     local text_end = #text + 1
     local label_size = ImGui.CalcTextSize(text, text_end, false)
     local total_size = ImVec2(g.FontSize + ((label_size.x > 0.0) and (label_size.x + style.FramePadding.x * 2) or 0.0), label_size.y) -- Empty text doesn't add padding
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
-    pos.y = pos.y + window.DC.CurrLineTextBaseOffset
+    -- [Luau] scalar pos, no temporary ImVec2
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset
     ImGui.ItemSize(total_size, 0.0)
-    local bb = ImRect(pos, pos + total_size)
+    local bb = ImRect(pos_x, pos_y, pos_x + total_size.x, pos_y + total_size.y)
     if not ImGui.ItemAdd(bb, 0) then
         return
     end
 
     -- Render
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
-    ImGui.RenderBullet(window.DrawList, bb.Min + ImVec2(style.FramePadding.x + g.FontSize * 0.5, g.FontSize * 0.5), text_col)
-    ImGui.RenderText(bb.Min + ImVec2(g.FontSize + style.FramePadding.x * 2, 0.0), text, 1, text_end, false)
+    ImGui.RenderBullet(window.DrawList, ImVec2(bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + g.FontSize * 0.5), text_col)
+    ImGui.RenderText(ImVec2(bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0), text, 1, text_end, false)
 end
 
 -- va_list variants: identical to the varargs versions in Lua
@@ -55388,6 +55684,8 @@ end
 --- @param size_arg? ImVec2
 --- @param flags?    ImGuiButtonFlags
 --- @return bool
+local ButtonEx_text_min, ButtonEx_text_max = ImVec2(), ImVec2()
+
 @native
 function ImGui.ButtonEx(label, size_arg, flags)
     if size_arg == nil then size_arg = ImVec2(0, 0) end
@@ -55404,15 +55702,16 @@ function ImGui.ButtonEx(label, size_arg, flags)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
-    local pos = ImVec2() -- Don't modify the cursor!
-    ImVec2_Copy(pos, window.DC.CursorPos)
-    if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and style.FramePadding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
-        pos.y = pos.y + window.DC.CurrLineTextBaseOffset - style.FramePadding.y
+    -- [Luau] scalar pos, no temporary ImVec2
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- Don't modify the cursor!
+    local frame_padding = style.FramePadding
+    if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and frame_padding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
+        pos_y = pos_y + window.DC.CurrLineTextBaseOffset - frame_padding.y
     end
-    local size = ImGui.CalcItemSize(size_arg, label_size.x + style.FramePadding.x * 2.0, label_size.y + style.FramePadding.y * 2.0)
+    local size = ImGui.CalcItemSize(size_arg, label_size.x + frame_padding.x * 2.0, label_size.y + frame_padding.y * 2.0)
 
-    local bb = ImRect(pos, pos + size)
-    ImGui.ItemSize(size, style.FramePadding.y)
+    local bb = ImRect(pos_x, pos_y, pos_x + size.x, pos_y + size.y)
+    ImGui.ItemSize(size, frame_padding.y)
     if not ImGui.ItemAdd(bb, id) then
         return false
     end
@@ -55434,7 +55733,10 @@ function ImGui.ButtonEx(label, size_arg, flags)
 
     -- if (g.LogEnabled)
     --     LogSetNextTextDecoration("[", "]");
-    ImGui.RenderTextClipped(bb.Min + style.FramePadding, bb.Max - style.FramePadding, label, label_end, label_size, style.ButtonTextAlign, bb)
+    local text_min, text_max = ButtonEx_text_min, ButtonEx_text_max -- [Luau] scratch: RenderTextClipped() only reads them
+    text_min.x = bb.Min.x + frame_padding.x; text_min.y = bb.Min.y + frame_padding.y
+    text_max.x = bb.Max.x - frame_padding.x; text_max.y = bb.Max.y - frame_padding.y
+    ImGui.RenderTextClipped(text_min, text_max, label, label_end, label_size, style.ButtonTextAlign, bb)
 
     -- Automatically close popups
     --if (pressed && !(flags & ImGuiButtonFlags.DontClosePopups) && (window->Flags & ImGuiWindowFlags.Popup))
@@ -55837,12 +56139,13 @@ function ImGui.Scrollbar(axis)
     -- Calculate scrollbar bounding box
     local bb = ImGui.GetWindowScrollbarRect(window, axis)
     local rounding_corners = ImGui.CalcRoundingFlagsForRectInRect(bb, window:Rect(), g.Style.WindowBorderSize)
-    local size_visible = window.InnerRect.Max[axis] - window.InnerRect.Min[axis]
-    local size_contents = window.ContentSize[axis] + window.WindowPadding[axis] * 2.0
-    local scroll = window.Scroll[axis]
+    local k = (axis == ImGuiAxis.X) and "x" or "y" -- [Luau] named key: ImVec2[axis] goes through IM_VEC2.__index
+    local size_visible = window.InnerRect.Max[k] - window.InnerRect.Min[k]
+    local size_contents = window.ContentSize[k] + window.WindowPadding[k] * 2.0
+    local scroll = window.Scroll[k]
     local held
     held, scroll = ImGui.ScrollbarEx(bb, id, axis, scroll, size_visible, size_contents, rounding_corners)
-    window.Scroll[axis] = scroll
+    window.Scroll[k] = scroll
 end
 
 -- - Read about ImTextureID/ImTextureRef here: https://github.com/ocornut/imgui/wiki/Image-Loading-and-Displaying-Examples
@@ -55974,9 +56277,8 @@ function ImGui.Checkbox(label, v)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
-    local square_sz = ImGui.GetFrameHeight()
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
+    local square_sz = g.FontSize + style.FramePadding.y * 2.0 -- [Luau] inline GetFrameHeight()
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos, no temporary ImVec2
 
     local total_width
     if label_size.x > 0.0 then
@@ -55984,7 +56286,7 @@ function ImGui.Checkbox(label, v)
     else
         total_width = square_sz
     end
-    local total_bb = ImRect(pos, pos + ImVec2(total_width, label_size.y + style.FramePadding.y * 2.0))
+    local total_bb = ImRect(pos_x, pos_y, pos_x + total_width, pos_y + (label_size.y + style.FramePadding.y * 2.0))
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     local is_visible = ImGui.ItemAdd(total_bb, id)
     local is_multi_select = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0)
@@ -56016,7 +56318,7 @@ function ImGui.Checkbox(label, v)
         ImGui.MarkItemEdited(id)
     end
 
-    local check_bb = ImRect(pos, pos + ImVec2(square_sz, square_sz))
+    local check_bb = ImRect(pos_x, pos_y, pos_x + square_sz, pos_y + square_sz)
     local mixed_value = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0)
     if is_visible then
         ImGui.RenderNavCursor(total_bb, id)
@@ -56037,12 +56339,12 @@ function ImGui.Checkbox(label, v)
         end
     end
 
-    local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y)
     if g.LogEnabled then
         -- ImGui.LogRenderedText(label_pos, mixed_value and "[~]" or (v and "[x]" or "[ ]"))
     end
 
     if is_visible and label_size.x > 0.0 then
+        local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y) -- [Luau] only built when used
         ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
@@ -56093,11 +56395,10 @@ function ImGui.RadioButtonEx(label, active)
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
-    local square_sz = ImGui.GetFrameHeight()
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
-    local check_bb = ImRect(pos, pos + ImVec2(square_sz, square_sz))
-    local total_bb = ImRect(pos, pos + ImVec2(square_sz + (label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0), label_size.y + style.FramePadding.y * 2.0))
+    local square_sz = g.FontSize + style.FramePadding.y * 2.0 -- [Luau] inline GetFrameHeight()
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos, no temporary ImVec2
+    local check_bb = ImRect(pos_x, pos_y, pos_x + square_sz, pos_y + square_sz)
+    local total_bb = ImRect(pos_x, pos_y, pos_x + (square_sz + (label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0)), pos_y + (label_size.y + style.FramePadding.y * 2.0))
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, id) then
         return false
@@ -56341,12 +56642,15 @@ end
 -- - Separator()
 -------------------------------------------------------------------------------
 
+local LAYOUT_ZERO_SIZE = ImVec2(0, 0) -- [Luau] shared read-only: ItemSize() only reads it
+local LayoutHelpers_size = ImVec2()   -- [Luau] scratch for ItemSize() arguments
+
 function ImGui.Spacing()
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
         return
     end
-    ImGui.ItemSize(ImVec2(0, 0))
+    ImGui.ItemSize(LAYOUT_ZERO_SIZE)
 end
 
 --- @param size ImVec2
@@ -56356,7 +56660,8 @@ function ImGui.Dummy(size)
         return
     end
 
-    local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + size)
+    local cursor = window.DC.CursorPos
+    local bb = ImRect(cursor.x, cursor.y, cursor.x + size.x, cursor.y + size.y) -- [Luau] no temporary ImVec2
     ImGui.ItemSize(size)
     ImGui.ItemAdd(bb, 0)
 end
@@ -56413,8 +56718,9 @@ function ImGui.SeparatorEx(flags, thickness)
         -- Vertical separator, for menu bars (use current line height).
         local y1 = window.DC.CursorPos.y
         local y2 = window.DC.CursorPos.y + window.DC.CurrLineSize.y
-        local bb = ImRect(ImVec2(window.DC.CursorPos.x, y1), ImVec2(window.DC.CursorPos.x + thickness, y2))
-        ImGui.ItemSize(ImVec2(thickness, 0.0))
+        local bb = ImRect(window.DC.CursorPos.x, y1, window.DC.CursorPos.x + thickness, y2) -- [Luau] no temporary ImVec2
+        local item_size = LayoutHelpers_size; item_size.x = thickness; item_size.y = 0.0
+        ImGui.ItemSize(item_size)
         if not ImGui.ItemAdd(bb, 0) then
             return
         end
@@ -56446,8 +56752,9 @@ function ImGui.SeparatorEx(flags, thickness)
         -- This was mostly chosen to allow backward compatibility with user's code assuming zero-height when calculating height for layout (e.g. bottom alignment of a status bar).
         -- In order to handle scaling we need to scale separator thickness and it would not makes sense to have a disparity depending on height.
         ----float thickness_for_layout = (thickness == 1.0f) ? 0.0f : thickness; // FIXME: See 1.70/1.71 Separator() change: makes legacy 1-px separator not affect layout yet. Should change.
-        local bb = ImRect(ImVec2(x1, window.DC.CursorPos.y), ImVec2(x2, window.DC.CursorPos.y + thickness))
-        ImGui.ItemSize(ImVec2(0.0, thickness))
+        local bb = ImRect(x1, window.DC.CursorPos.y, x2, window.DC.CursorPos.y + thickness) -- [Luau] no temporary ImVec2
+        local item_size = LayoutHelpers_size; item_size.x = 0.0; item_size.y = thickness
+        ImGui.ItemSize(item_size)
 
         if ImGui.ItemAdd(bb, 0) then
             -- Draw
@@ -58038,6 +58345,7 @@ end
 -- [Luau] memo of string.format(format, value) for drag/slider value text (same values are redrawn every frame).
 -- ponytail: whole-memo reset at 4096 entries, LRU if values churn
 local fmt_memo, fmt_memo_n = {}, 0
+local SliderScalar_total_bb, SliderScalar_grab_bb = ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
 local DRAG_TEXT_ALIGN = ImVec2(0.5, 0.5)
 function FormatCached(format, v)
     local m = fmt_memo[format]
@@ -58069,8 +58377,11 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
 
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
-    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + ImVec2(w, label_size.y + style.FramePadding.y * 2.0))
-    local total_bb = ImRect(frame_bb.Min, frame_bb.Max + ImVec2((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0, 0.0))
+    local cursor = window.DC.CursorPos
+    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
+    local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
+    total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y
+    total_bb.Max.x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0); total_bb.Max.y = frame_bb.Max.y + 0.0
 
     local temp_input_allowed = (bit32.band(flags, ImGuiSliderFlags.NoInput) == 0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
@@ -58498,21 +58809,22 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
     local style = g.Style
 
     local axis = (bit32.band(flags, ImGuiSliderFlags.Vertical) ~= 0) and ImGuiAxis.Y or ImGuiAxis.X
+    local axis_k = (axis == ImGuiAxis.X) and "x" or "y" -- [Luau] named key: ImVec2[axis] goes through IM_VEC2.__index
     local is_logarithmic = bit32.band(flags, ImGuiSliderFlags.Logarithmic) ~= 0
     local is_floating_point = (data_type == ImGuiDataType.Float) or (data_type == ImGuiDataType.Double)
     local v_range_f = (v_min < v_max) and (v_max - v_min) or (v_min - v_max) -- We don't need high precision for what we do with it.
 
     -- Calculate bounds
     local grab_padding = 2.0 -- FIXME: Should be part of style.
-    local slider_sz = (bb.Max[axis] - bb.Min[axis]) - grab_padding * 2.0
+    local slider_sz = (bb.Max[axis_k] - bb.Min[axis_k]) - grab_padding * 2.0
     local grab_sz = style.GrabMinSize
     if not is_floating_point and v_range_f >= 0.0 then -- v_range_f < 0 may happen on integer overflows
         grab_sz = ImMax(slider_sz / (v_range_f + 1), style.GrabMinSize) -- For integer sliders: if possible have the grab size represent 1 unit
     end
     grab_sz = ImMin(grab_sz, slider_sz)
     local slider_usable_sz = slider_sz - grab_sz
-    local slider_usable_pos_min = bb.Min[axis] + grab_padding + grab_sz * 0.5
-    local slider_usable_pos_max = bb.Max[axis] - grab_padding - grab_sz * 0.5
+    local slider_usable_pos_min = bb.Min[axis_k] + grab_padding + grab_sz * 0.5
+    local slider_usable_pos_max = bb.Max[axis_k] - grab_padding - grab_sz * 0.5
 
     local logarithmic_zero_epsilon = 0.0 -- Only valid when is_logarithmic is true
     local zero_deadzone_halfsize = 0.0 -- Only valid when is_logarithmic is true
@@ -58532,7 +58844,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
             if not g.IO.MouseDown[0] then
                 ImGui.ClearActiveID()
             else
-                local mouse_abs_pos = g.IO.MousePos[axis]
+                local mouse_abs_pos = g.IO.MousePos[axis_k]
                 if g.ActiveIdIsJustActivated then
                     local grab_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
                     if axis == ImGuiAxis.Y then
@@ -58635,8 +58947,10 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
         end
     end
 
+    -- [Luau] write out_grab_bb fields directly, no temporary ImRect
+    local og_min, og_max = out_grab_bb.Min, out_grab_bb.Max
     if slider_sz < 1.0 then
-        ImRect_Copy(out_grab_bb, ImRect(bb.Min, bb.Min))
+        og_min.x = bb.Min.x; og_min.y = bb.Min.y; og_max.x = bb.Min.x; og_max.y = bb.Min.y
     else
         -- Output grab position so it can be displayed by the caller
         local grab_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
@@ -58645,9 +58959,9 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
         end
         local grab_pos = ImLerp(slider_usable_pos_min, slider_usable_pos_max, grab_t)
         if axis == ImGuiAxis.X then
-            ImRect_Copy(out_grab_bb, ImRect(grab_pos - grab_sz * 0.5, bb.Min.y + grab_padding, grab_pos + grab_sz * 0.5, bb.Max.y - grab_padding))
+            og_min.x = grab_pos - grab_sz * 0.5; og_min.y = bb.Min.y + grab_padding; og_max.x = grab_pos + grab_sz * 0.5; og_max.y = bb.Max.y - grab_padding
         else
-            ImRect_Copy(out_grab_bb, ImRect(bb.Min.x + grab_padding, grab_pos - grab_sz * 0.5, bb.Max.x - grab_padding, grab_pos + grab_sz * 0.5))
+            og_min.x = bb.Min.x + grab_padding; og_min.y = grab_pos - grab_sz * 0.5; og_max.x = bb.Max.x - grab_padding; og_max.y = grab_pos + grab_sz * 0.5
         end
     end
 
@@ -58738,9 +59052,11 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
 
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
-    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + ImVec2(w, label_size.y + style.FramePadding.y * 2.0))
+    local cursor = window.DC.CursorPos
+    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
     local total_bb_x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0)
-    local total_bb = ImRect(frame_bb.Min, ImVec2(total_bb_x, frame_bb.Max.y))
+    local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
+    total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y; total_bb.Max.x = total_bb_x; total_bb.Max.y = frame_bb.Max.y
 
     local temp_input_allowed = bit32.band(flags, ImGuiSliderFlags.NoInput) == 0
     ImGui.ItemSize(total_bb, style.FramePadding.y)
@@ -58798,7 +59114,7 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     ImGui.RenderFrameBorder(frame_bb.Min, frame_bb.Max, g.Style.FrameRounding)
 
     -- Slider behavior
-    local grab_bb = ImRect()
+    local grab_bb = SliderScalar_grab_bb -- [Luau] scratch: fully written by SliderBehavior(), only read below
     local value_changed
     data, value_changed = ImGui.SliderBehavior(frame_bb, id, data_type, data, min, max, format, flags, grab_bb)
     if value_changed then
@@ -62212,11 +62528,12 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     -- When not framed, we vertically increase height up to typical framed widget height
     local display_frame = bit32.band(flags, ImGuiTreeNodeFlags.Framed) ~= 0
     local use_frame_padding = display_frame or (bit32.band(flags, ImGuiTreeNodeFlags.FramePadding) ~= 0)
-    local padding
+    -- [Luau] scalar padding, no temporary ImVec2
+    local padding_x, padding_y
     if use_frame_padding then
-        padding = style.FramePadding
+        padding_x, padding_y = style.FramePadding.x, style.FramePadding.y
     else
-        padding = ImVec2(style.FramePadding.x, ImMin(window.DC.CurrLineTextBaseOffset, style.FramePadding.y))
+        padding_x, padding_y = style.FramePadding.x, math.min(window.DC.CurrLineTextBaseOffset, style.FramePadding.y)
     end
 
     if label_end == nil then
@@ -62224,18 +62541,18 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     end
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
-    local text_offset_x = g.FontSize + (display_frame and (padding.x * 3) or (padding.x * 2)) -- Collapsing arrow width + Spacing
+    local text_offset_x = g.FontSize + (display_frame and (padding_x * 3) or (padding_x * 2)) -- Collapsing arrow width + Spacing
     local text_offset_y = use_frame_padding and ImMax(style.FramePadding.y, window.DC.CurrLineTextBaseOffset) or window.DC.CurrLineTextBaseOffset -- Latch before ItemSize changes it
-    local text_width = g.FontSize + label_size.x + padding.x * 2 -- Include collapsing arrow
+    local text_width = g.FontSize + label_size.x + padding_x * 2 -- Include collapsing arrow
 
-    local frame_height = label_size.y + padding.y * 2
+    local frame_height = label_size.y + padding_y * 2
     local span_all_columns = bit32.band(flags, ImGuiTreeNodeFlags.SpanAllColumns) ~= 0 and (g.CurrentTable ~= nil)
     local span_all_columns_label = bit32.band(flags, ImGuiTreeNodeFlags.LabelSpanAllColumns) ~= 0 and (g.CurrentTable ~= nil)
     local frame_bb = ImRect()
     frame_bb.Min.x = span_all_columns and window.ParentWorkRect.Min.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanFullWidth) ~= 0 and window.WorkRect.Min.x or window.DC.CursorPos.x)
-    frame_bb.Min.y = window.DC.CursorPos.y + (text_offset_y - padding.y)
-    frame_bb.Max.x = span_all_columns and window.ParentWorkRect.Max.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanLabelWidth) ~= 0 and window.DC.CursorPos.x + text_width + padding.x or window.WorkRect.Max.x)
-    frame_bb.Max.y = window.DC.CursorPos.y + (text_offset_y - padding.y) + frame_height
+    frame_bb.Min.y = window.DC.CursorPos.y + (text_offset_y - padding_y)
+    frame_bb.Max.x = span_all_columns and window.ParentWorkRect.Max.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanLabelWidth) ~= 0 and window.DC.CursorPos.x + text_width + padding_x or window.WorkRect.Max.x)
+    frame_bb.Max.y = window.DC.CursorPos.y + (text_offset_y - padding_y) + frame_height
     if display_frame then
         local outer_extend = IM_TRUNC(window.WindowPadding.x * 0.5) -- Framed header expand a little outside of current limits
         frame_bb.Min.x = frame_bb.Min.x - outer_extend
@@ -62243,7 +62560,8 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     end
 
     local text_pos = ImVec2(window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y)
-    ImGui.ItemSize(ImVec2(text_width, frame_height), padding.y)
+    local item_size = LayoutHelpers_size; item_size.x = text_width; item_size.y = frame_height -- [Luau] scratch, ItemSize() only reads it
+    ImGui.ItemSize(item_size, padding_y)
 
     -- For regular tree nodes, we arbitrary allow to click past 2 worth of ItemSpacing
     local interact_bb = ImRect()
@@ -62327,7 +62645,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     -- allow browsing a tree while preserving selection with code implementing multi-selection patterns.
     -- When clicking on the rest of the tree node we always disallow keyboard modifiers.
     local arrow_hit_x1 = (text_pos.x - text_offset_x) - style.TouchExtraPadding.x
-    local arrow_hit_x2 = (text_pos.x - text_offset_x) + (g.FontSize + padding.x * 2.0) + style.TouchExtraPadding.x
+    local arrow_hit_x2 = (text_pos.x - text_offset_x) + (g.FontSize + padding_x * 2.0) + style.TouchExtraPadding.x
     local is_mouse_x_over_arrow = (g.IO.MousePos.x >= arrow_hit_x1 and g.IO.MousePos.x < arrow_hit_x2)
 
     local is_multi_select = bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0
@@ -62442,9 +62760,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             if bit32.band(flags, ImGuiTreeNodeFlags.Bullet) ~= 0 then
                 ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding.x, text_pos.y), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 1.0)
+                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 1.0)
             else -- Leaf without bullet, left-adjusted text
-                text_pos.x = text_pos.x - (text_offset_x - padding.x)
+                text_pos.x = text_pos.x - (text_offset_x - padding_x)
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.ClipLabelForTrailingButton) ~= 0 then
                 frame_bb.Max.x = frame_bb.Max.x - (g.FontSize + style.FramePadding.x)
@@ -62465,7 +62783,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
             if bit32.band(flags, ImGuiTreeNodeFlags.Bullet) ~= 0 then
                 ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.5, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding.x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 0.70)
+                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 0.70)
             end
             -- if g.LogEnabled then
             --     ImGui.LogSetNextTextDecoration(">", nil)
@@ -62473,7 +62791,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         end
 
         if draw_tree_lines then
-            ImGui.TreeNodeDrawLineToChildNode(ImVec2(text_pos.x - text_offset_x + padding.x, text_pos.y + g.FontSize * 0.5))
+            ImGui.TreeNodeDrawLineToChildNode(ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.5))
         end
 
         -- Label
@@ -62716,7 +63034,7 @@ end
 function ImGui.Selectable(label, selected, flags, size_arg)
     if selected == nil then selected = false        end
     if flags    == nil then flags    = 0            end
-    if size_arg == nil then size_arg = ImVec2(0, 0) end
+    if size_arg == nil then size_arg = LAYOUT_ZERO_SIZE end -- [Luau] shared read-only default (only read below)
 
     local window = ImGui.GetCurrentWindow()
     if (window.SkipItems) then
@@ -70720,6 +71038,7 @@ return {
     ImFontBaked_BuildLoadGlyphAdvanceX = ImFontBaked_BuildLoadGlyphAdvanceX,
     ImFontCalcTextSizeEx = ImFontCalcTextSizeEx,
     ImFontCalcWordWrapPositionEx = ImFontCalcWordWrapPositionEx,
+    ImFontCalcWordWrapPositionEx_Uncached = ImFontCalcWordWrapPositionEx_Uncached,
     ImFontConfig = ImFontConfig,
     ImFontFlags = ImFontFlags,
     ImFontGlyph = ImFontGlyph,
@@ -70988,6 +71307,7 @@ return {
     TILE_SIZE = TILE_SIZE,
     UINT_MAX = UINT_MAX,
     VTX_STRIDE = VTX_STRIDE,
+    _PathArcToFastExXY = _PathArcToFastExXY,
     stb_text_locate_coord = stb_text_locate_coord,
     stb_text_makeundo_delete = stb_text_makeundo_delete,
     stb_text_makeundo_insert = stb_text_makeundo_insert,

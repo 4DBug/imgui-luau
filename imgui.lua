@@ -6373,18 +6373,26 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
 
     local g = GImGui
     local window = g.CurrentWindow
+    local last_item_data, next_item_data = g.LastItemData, g.NextItemData -- [Luau] cached field reads
 
     -- Set item data
     -- (DisplayRect is left untouched, made valid when ImGuiItemStatusFlags.HasDisplayRect is set)
-    g.LastItemData.ID = id
-    ImRect_Copy(g.LastItemData.Rect, bb)
-    ImRect_Copy(g.LastItemData.NavRect, nav_bb_arg and nav_bb_arg or bb)
-    g.LastItemData.ItemFlags = bit32.bor(g.CurrentItemFlags, g.NextItemData.ItemFlagsSet, extra_flags)
-    g.LastItemData.StatusFlags = ImGuiItemStatusFlags.None
+    last_item_data.ID = id
+    -- [Luau] inline ImRect_Copy(g.LastItemData.Rect, bb); ImRect_Copy(g.LastItemData.NavRect, nav_bb_arg or bb)
+    local bb_min, bb_max = bb.Min, bb.Max
+    local r = last_item_data.Rect
+    r.Min.x = bb_min.x; r.Min.y = bb_min.y; r.Max.x = bb_max.x; r.Max.y = bb_max.y
+    local nav_bb = nav_bb_arg and nav_bb_arg or bb
+    r = last_item_data.NavRect
+    r.Min.x = nav_bb.Min.x; r.Min.y = nav_bb.Min.y; r.Max.x = nav_bb.Max.x; r.Max.y = nav_bb.Max.y
+    last_item_data.ItemFlags = bit32.bor(g.CurrentItemFlags, next_item_data.ItemFlagsSet, extra_flags)
+    last_item_data.StatusFlags = ImGuiItemStatusFlags.None
     -- Note: we don't copy 'g.NextItemData.SelectionUserData' to an hypothetical g.LastItemData.SelectionUserData: since the former is not cleared.
 
     if id ~= 0 then
-        ImGui.KeepAliveID(id)
+        -- [Luau] inline ImGui.KeepAliveID(id)
+        if g.ActiveId == id then g.ActiveIdIsAlive = id end
+        if g.DeactivatedItemData.ID == id then g.DeactivatedItemData.IsAlive = true end
 
         -- Directional navigation processing
         -- Runs prior to clipping early-out
@@ -6396,7 +6404,7 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
         --      to reach unclipped widgets. This would work if user had explicit scrolling control (e.g. mapped on a stick).
         -- We intentionally don't check if g.NavWindow ~= nil because g.NavAnyRequest should only be set when it is non nil.
         -- If we crash on a nil g.NavWindow we need to fix the bug elsewhere.
-        if bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.NoNav) == 0 then
+        if bit32.band(last_item_data.ItemFlags, ImGuiItemFlags.NoNav) == 0 then
             -- FIXME-NAV: investigate changing the window tests into a simple 'if (g.NavFocusScopeId == g.CurrentFocusScopeId)' test.
             window.DC.NavLayersActiveMaskNext = bit32.bor(window.DC.NavLayersActiveMaskNext, bit32.lshift(1, window.DC.NavLayerCurrent))
 
@@ -6409,14 +6417,14 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
             end
         end
 
-        if bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasShortcut) ~= 0 then
+        if bit32.band(next_item_data.HasFlags, ImGuiNextItemDataFlags.HasShortcut) ~= 0 then
             ImGui.ItemHandleShortcut(id)
         end
     end
 
     -- Lightweight clear of SetNextItemXXX data.
-    g.NextItemData.HasFlags = ImGuiNextItemDataFlags.None
-    g.NextItemData.ItemFlagsSet = ImGuiItemFlags.None
+    next_item_data.HasFlags = ImGuiNextItemDataFlags.None
+    next_item_data.ItemFlagsSet = ImGuiItemFlags.None
 
     -- Clipping test
     -- (this is an inline copy of IsClippedEx() so we can reuse the is_rect_visible value, otherwise we'd do 'if (IsClippedEx(bb, id)) return false')
@@ -6435,11 +6443,11 @@ function ImGui.ItemAdd(bb, id, nav_bb_arg, extra_flags)
 
     -- We need to calculate this now to take account of the current clipping rectangle (as items like Selectable may change them)
     if is_rect_visible then
-        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible)
+        last_item_data.StatusFlags = bit32.bor(last_item_data.StatusFlags, ImGuiItemStatusFlags.Visible)
     end
 
     if ImGui.IsMouseHoveringRect(bb.Min, bb.Max) then
-        g.LastItemData.StatusFlags = bit32.bor(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect)
+        last_item_data.StatusFlags = bit32.bor(last_item_data.StatusFlags, ImGuiItemStatusFlags.HoveredRect)
     end
 
     return true
@@ -6485,7 +6493,7 @@ function ImGui.ItemSize(size_or_bb, text_baseline_y)
     if text_baseline_y == nil then text_baseline_y = -1.0 end
 
     local size_x, size_y
-    local bb_min = size_or_bb.Min
+    local bb_min = rawget(size_or_bb, "Min") -- [Luau] rawget: `.Min` on an ImVec2 would go through IM_VEC2.__index
     if bb_min then
         --- @cast size_or_bb ImRect
         size_x = size_or_bb.Max.x - bb_min.x; size_y = size_or_bb.Max.y - bb_min.y
@@ -6566,18 +6574,19 @@ function ImGui.SameLine(offset_from_start_x, spacing_w)
         return
     end
 
+    local dc = window.DC -- [Luau] cached field read
     if offset_from_start_x ~= 0.0 then
         if spacing_w < 0.0 then spacing_w = 0.0 end
-        window.DC.CursorPos.x = window.Pos.x - window.Scroll.x + offset_from_start_x + spacing_w + window.DC.GroupOffset.x + window.DC.ColumnsOffset.x
-        window.DC.CursorPos.y = window.DC.CursorPosPrevLine.y
+        dc.CursorPos.x = window.Pos.x - window.Scroll.x + offset_from_start_x + spacing_w + dc.GroupOffset.x + dc.ColumnsOffset.x
+        dc.CursorPos.y = dc.CursorPosPrevLine.y
     else
         if spacing_w < 0.0 then spacing_w = g.Style.ItemSpacing.x end
-        window.DC.CursorPos.x = window.DC.CursorPosPrevLine.x + spacing_w
-        window.DC.CursorPos.y = window.DC.CursorPosPrevLine.y
+        dc.CursorPos.x = dc.CursorPosPrevLine.x + spacing_w
+        dc.CursorPos.y = dc.CursorPosPrevLine.y
     end
-    ImVec2_Copy(window.DC.CurrLineSize, window.DC.PrevLineSize)
-    window.DC.CurrLineTextBaseOffset = window.DC.PrevLineTextBaseOffset
-    window.DC.IsSameLine = true
+    dc.CurrLineSize.x = dc.PrevLineSize.x; dc.CurrLineSize.y = dc.PrevLineSize.y -- [Luau] inline ImVec2_Copy()
+    dc.CurrLineTextBaseOffset = dc.PrevLineTextBaseOffset
+    dc.IsSameLine = true
 end
 
 --- @param indent_w? float
@@ -6625,7 +6634,10 @@ end
 function ImGui.PushItemWidth(item_width)
     local g = GImGui
     local window = g.CurrentWindow
-    window.DC.ItemWidthStack:push_back(window.DC.ItemWidth) -- Backup current width
+    -- [Luau] inline window.DC.ItemWidthStack:push_back(window.DC.ItemWidth) -- Backup current width
+    local stack = window.DC.ItemWidthStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(window.DC.ItemWidth) else stack.Data[n] = window.DC.ItemWidth; stack.Size = n end
     window.DC.ItemWidth = (item_width == 0.0) and window.DC.ItemWidthDefault or item_width
     g.NextItemData.HasFlags = bit32.band(g.NextItemData.HasFlags, bit32.bnot(ImGuiNextItemDataFlags.HasWidth))
 end
@@ -6637,8 +6649,9 @@ function ImGui.PopItemWidth()
         IM_ASSERT_USER_ERROR(false, "Calling PopItemWidth() too many times!")
         return
     end
-    window.DC.ItemWidth = window.DC.ItemWidthStack:back()
-    window.DC.ItemWidthStack:pop_back()
+    local stack = window.DC.ItemWidthStack
+    window.DC.ItemWidth = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
+    stack.Size = stack.Size - 1
 end
 
 --- @param components int
@@ -6909,8 +6922,10 @@ function ImGui.CalcItemWidth()
     end
 
     if w < 0.0 then
-        local region_avail_x = ImGui.GetContentRegionAvail().x
-        w = ImMax(1.0, region_avail_x + w)
+        -- [Luau] scalar GetContentRegionAvail().x, no temporary ImVec2
+        local mx = (window.DC.CurrentColumns or g.CurrentTable) and window.WorkRect.Max or window.ContentRegionRect.Max
+        local region_avail_x = mx.x - window.DC.CursorPos.x
+        w = math.max(1.0, region_avail_x + w)
     end
 
     w = IM_TRUNC(w)
@@ -6926,21 +6941,25 @@ end
 --- @param default_h float
 --- @return ImVec2
 function ImGui.CalcItemSize(size, default_w, default_h)
-    local avail
+    local avail_x, avail_y
     if size.x < 0.0 or size.y < 0.0 then
-        avail = ImGui.GetContentRegionAvail()
+        -- [Luau] scalar GetContentRegionAvail(), no temporary ImVec2
+        local g = GImGui
+        local window = g.CurrentWindow
+        local mx = (window.DC.CurrentColumns or g.CurrentTable) and window.WorkRect.Max or window.ContentRegionRect.Max
+        avail_x = mx.x - window.DC.CursorPos.x; avail_y = mx.y - window.DC.CursorPos.y
     end
 
     if size.x == 0.0 then
         size.x = default_w
     elseif size.x < 0.0 then
-        size.x = ImMax(4.0, avail.x + size.x)  -- <-- size.x is negative here so we are subtracting
+        size.x = math.max(4.0, avail_x + size.x)  -- <-- size.x is negative here so we are subtracting
     end
 
     if size.y == 0.0 then
         size.y = default_h
     elseif size.y < 0.0 then
-        size.y = ImMax(4.0, avail.y + size.y)  -- <-- size.y is negative here so we are subtracting
+        size.y = math.max(4.0, avail_y + size.y)  -- <-- size.y is negative here so we are subtracting
     end
 
     return size
@@ -7481,7 +7500,10 @@ function ImGui.PushID(str_id)
     local g = GImGui
     local window = g.CurrentWindow
     local id = window:GetID(str_id)
-    window.IDStack:push_back(id)
+    -- [Luau] inline window.IDStack:push_back(id)
+    local stack = window.IDStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(id) else stack.Data[n] = id; stack.Size = n end
 end
 
 -- Push a given id value ignoring the ID stack as a seed.
@@ -7492,14 +7514,18 @@ function ImGui.PushOverrideID(id)
     if g.DebugHookIdInfoId == id and id ~= 0 then
         ImGui.DebugHookIdInfo(id, ImGuiDataType.ID, nil)
     end
-    window.IDStack:push_back(id)
+    -- [Luau] inline window.IDStack:push_back(id)
+    local stack = window.IDStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(id) else stack.Data[n] = id; stack.Size = n end
 end
 
 @native
 function ImGui.PopID()
     local window = GImGui.CurrentWindow
-    IM_ASSERT_USER_ERROR_RET(window.IDStack.Size > 1, "Calling PopID() too many times!")
-    window.IDStack:pop_back()
+    local stack = window.IDStack
+    IM_ASSERT_USER_ERROR_RET(stack.Size > 1, "Calling PopID() too many times!")
+    stack.Size = stack.Size - 1 -- [Luau] inline stack:pop_back()
 end
 
 -- This is one of the very rare legacy case where we use ImGuiWindow methods,
@@ -7508,7 +7534,8 @@ end
 --- @return ImGuiID
 @native
 function MT.ImGuiWindow:GetID(id)
-    local seed = self.IDStack:back()
+    local stack = self.IDStack
+    local seed = stack.Data[stack.Size] -- [Luau] inline self.IDStack:back()
 
     local h
     if type(id) == "string" then
@@ -7904,7 +7931,9 @@ end
 function ImGui.IsClippedEx(bb, id)
     local g = GImGui
     local window = g.CurrentWindow
-    if not bb:Overlaps(window.ClipRect) then
+    -- [Luau] inline bb:Overlaps(window.ClipRect)
+    local bmin, bmax, cr = bb.Min, bb.Max, window.ClipRect
+    if not (bmin.x <= cr.Max.x and bmax.x >= cr.Min.x and bmin.y <= cr.Max.y and bmax.y >= cr.Min.y) then
         if id == 0 or (id ~= g.ActiveId and id ~= g.ActiveIdPreviousFrame and id ~= g.NavId and id ~= g.NavActivateId) then
             if not g.ItemUnclipByLog then
                 return true
@@ -10011,7 +10040,7 @@ function ImGui.CalcWrapWidthForPos(pos, wrap_pos_x)
         wrap_pos_x = wrap_pos_x + window.Pos.x - window.Scroll.x -- wrap_pos_x is provided is window local space
     end
 
-    return ImMax(wrap_pos_x - pos.x, 1.0)
+    return math.max(wrap_pos_x - pos.x, 1.0)
 end
 
 -------------------------------------------------------------------------------
@@ -10033,7 +10062,7 @@ function ImGui.FindRenderedTextEnd(text, text_end)
     end
 
     text_display_end = ImMemchr(text, "##", 1) or text_end
-    text_display_end = ImMin(text_display_end, text_end)
+    text_display_end = math.min(text_display_end, text_end) -- [Luau] scalar ImMin()
 
     return text_display_end
 end
@@ -10104,13 +10133,17 @@ end
 --- @param text_size_if_known? ImVec2
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
+local RenderTextClipped_align0 = ImVec2(0, 0) -- [Luau] shared read-only default
+local RenderTextClippedEx_pos = ImVec2()      -- [Luau] scratch: AddText() only reads pos
+local RenderTextClippedEx_fine_clip = ImVec4() -- [Luau] scratch: AddText() only reads it
+
 @native
 function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin, text_display_end, text_size_if_known, align, clip_rect)
-    if not align then align = ImVec2(0, 0) end
+    if not align then align = RenderTextClipped_align0 end
 
     -- Perform CPU side clipping for single clipped element to avoid using scissor state
-    local pos = ImVec2()
-    ImVec2_Copy(pos, pos_min)
+    local pos = RenderTextClippedEx_pos
+    pos.x = pos_min.x; pos.y = pos_min.y
 
     local text_size = text_size_if_known or ImGui.CalcTextSize(text, text_display_end, false, 0.0)
 
@@ -10122,13 +10155,13 @@ function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin
     end
 
     -- Align whole block. We should defer that to the better rendering function when we'll have support for individual line alignment.
-    if (align.x > 0.0) then pos.x = ImMax(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
-    if (align.y > 0.0) then pos.y = ImMax(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
+    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
+    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
 
     -- Render
-    local g = GImGui
     if (need_clipping) then
-        local fine_clip_rect = ImVec4(clip_min.x, clip_min.y, clip_max.x, clip_max.y)
+        local fine_clip_rect = RenderTextClippedEx_fine_clip
+        fine_clip_rect.x = clip_min.x; fine_clip_rect.y = clip_min.y; fine_clip_rect.z = clip_max.x; fine_clip_rect.w = clip_max.y
         draw_list:AddText(nil, 0.0, pos, ImGui.GetColorU32(ImGuiCol.Text), text, text_begin, text_display_end, 0.0, fine_clip_rect)
     else
         draw_list:AddText(nil, 0.0, pos, ImGui.GetColorU32(ImGuiCol.Text), text, text_begin, text_display_end, 0.0, nil)
@@ -10143,7 +10176,7 @@ end
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
 function ImGui.RenderTextClipped(pos_min, pos_max, text, text_end, text_size_if_known, align, clip_rect)
-    if not align then align = ImVec2(0, 0) end
+    if not align then align = RenderTextClipped_align0 end
 
     -- Hide anything after a '##' string
     local text_display_end = ImGui.FindRenderedTextEnd(text, text_end)
@@ -13548,15 +13581,21 @@ end
 --- @param intersect_with_current_clip_rect? bool
 @native
 function ImGui.PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
-    local window = ImGui.GetCurrentWindow()
-    window.DrawList:PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
-    ImRect_CopyFromV4(window.ClipRect, window.DrawList._ClipRectStack:back())
+    local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+    window.WriteAccessed = true
+    local draw_list = window.DrawList
+    draw_list:PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect)
+    local stack = draw_list._ClipRectStack
+    ImRect_CopyFromV4(window.ClipRect, stack.Data[stack.Size]) -- [Luau] inline back()
 end
 
 function ImGui.PopClipRect()
-    local window = ImGui.GetCurrentWindow()
-    window.DrawList:PopClipRect()
-    ImRect_CopyFromV4(window.ClipRect, window.DrawList._ClipRectStack:back())
+    local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+    window.WriteAccessed = true
+    local draw_list = window.DrawList
+    draw_list:PopClipRect()
+    local stack = draw_list._ClipRectStack
+    ImRect_CopyFromV4(window.ClipRect, stack.Data[stack.Size]) -- [Luau] inline back()
 end
 
 --- @param viewport      ImGuiViewportP
@@ -14201,12 +14240,12 @@ function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double
     if text == "" or (text_end and text_end <= text_begin) then
         return ImVec2(0.0, font_size)
     end
-    local text_size = font:CalcTextSizeA(font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, nil)
+    local text_size = ImFontCalcTextSizeEx(font, font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, text_display_end, nil, ImDrawTextFlags.None) -- [Luau] inline font:CalcTextSizeA()
 
     -- Round
     -- (see 7b0bf230, 4622fa4b6, #791 for details about this.)
     -- FIXME: Add a way to disable this.
-    text_size.x = ImCeilFast(text_size.x)
+    text_size.x = math.ceil(text_size.x) -- [Luau] == ImCeilFast() for all finite values, builtin
 
     return text_size
 end
@@ -14442,7 +14481,13 @@ function ImGui.GetColorU32(col, alpha_mul, col_is_u32)
         else --- @cast col ImVec4
             w = col.w * style.Alpha
         end
-        return bit32.bor(F32ToU8Sat(col.x), bit32.lshift(F32ToU8Sat(col.y), 8), bit32.lshift(F32ToU8Sat(col.z), 16), bit32.lshift(F32ToU8Sat(w), 24))
+        -- [Luau] inline F32ToU8Sat() x4
+        local x, y, z = col.x, col.y, col.z
+        if x < 0.0 then x = 0.0 elseif x > 1.0 then x = 1.0 end
+        if y < 0.0 then y = 0.0 elseif y > 1.0 then y = 1.0 end
+        if z < 0.0 then z = 0.0 elseif z > 1.0 then z = 1.0 end
+        if w < 0.0 then w = 0.0 elseif w > 1.0 then w = 1.0 end
+        return bit32.bor(math.floor(x * 255.0 + 0.5), bit32.lshift(math.floor(y * 255.0 + 0.5), 8), bit32.lshift(math.floor(z * 255.0 + 0.5), 16), bit32.lshift(math.floor(w * 255.0 + 0.5), 24))
     else
         --- @cast col ImU32
         alpha_mul = alpha_mul * style.Alpha
@@ -14463,7 +14508,10 @@ end
 function ImGui.PushStyleColor(idx, col)
     local g = GImGui
     local backup = ImGuiColorMod(idx, g.Style.Colors[idx])
-    g.ColorStack:push_back(backup)
+    -- [Luau] inline g.ColorStack:push_back(backup)
+    local stack = g.ColorStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(backup) else stack.Data[n] = backup; stack.Size = n end
     if g.DebugFlashStyleColorIdx ~= idx then
         if type(col) == "number" then
             ImGui.ColorConvertU32ToFloat4(col, g.Style.Colors[idx])
@@ -14483,10 +14531,11 @@ function ImGui.PopStyleColor(count)
         count = g.ColorStack.Size
     end
 
+    local stack = g.ColorStack
     while count > 0 do
-        local backup = g.ColorStack:back()
+        local backup = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
         ImVec4_Copy(g.Style.Colors[backup.Col], backup.BackupValue)
-        g.ColorStack:pop_back()
+        stack.Size = stack.Size - 1
         count = count - 1
     end
 end
@@ -14596,8 +14645,9 @@ function ImGui.PopStyleVar(count)
         IM_ASSERT_USER_ERROR(0, "Calling PopStyleVar() too many times!")
         count = g.StyleVarStack.Size
     end
+    local stack = g.StyleVarStack
     while count > 0 do
-        local backup = g.StyleVarStack:back()
+        local backup = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
         local var_info = ImGui.GetStyleVarInfo(backup.VarIdx)
         local data = g.Style[var_info.Key]
         if (var_info.DataType == ImGuiDataType.Float and var_info.Count == 1) then
@@ -14605,7 +14655,7 @@ function ImGui.PopStyleVar(count)
         elseif (var_info.DataType == ImGuiDataType.Float and var_info.Count == 2) then
             data.x = backup.BackupVal[1]; data.y = backup.BackupVal[2]
         end
-        g.StyleVarStack:pop_back()
+        stack.Size = stack.Size - 1
         count = count - 1
     end
 end
@@ -14615,16 +14665,21 @@ end
 function ImGui.PushTextWrapPos(wrap_local_pos_x)
     local g = GImGui
     local window = g.CurrentWindow
-    window.DC.TextWrapPosStack:push_back(window.DC.TextWrapPos)
-    window.DC.TextWrapPos = wrap_local_pos_x
+    -- [Luau] inline window.DC.TextWrapPosStack:push_back(window.DC.TextWrapPos)
+    local dc = window.DC
+    local stack = dc.TextWrapPosStack
+    local n = stack.Size + 1
+    if n > stack.Capacity then stack:push_back(dc.TextWrapPos) else stack.Data[n] = dc.TextWrapPos; stack.Size = n end
+    dc.TextWrapPos = wrap_local_pos_x
 end
 
 function ImGui.PopTextWrapPos()
     local g = GImGui
     local window = g.CurrentWindow
-    IM_ASSERT_USER_ERROR_RET(window.DC.TextWrapPosStack.Size > 0, "Calling PopTextWrapPos() too many times!")
-    window.DC.TextWrapPos = window.DC.TextWrapPosStack:back()
-    window.DC.TextWrapPosStack:pop_back()
+    local stack = window.DC.TextWrapPosStack
+    IM_ASSERT_USER_ERROR_RET(stack.Size > 0, "Calling PopTextWrapPos() too many times!")
+    window.DC.TextWrapPos = stack.Data[stack.Size] -- [Luau] inline back()/pop_back()
+    stack.Size = stack.Size - 1
 end
 
 --- @param window          ImGuiWindow
@@ -14865,7 +14920,8 @@ function CalcNextScrollFromScrollTargetAndClamp(window)
     ImVec2_Copy(scroll, window.Scroll)
     local decoration_size = ImVec2(window.DecoOuterSizeX1 + window.DecoInnerSizeX1 + window.DecoOuterSizeX2, window.DecoOuterSizeY1 + window.DecoInnerSizeY1 + window.DecoOuterSizeY2)
 
-    for axis = ImGuiAxis.X, ImGuiAxis.Y do
+    for axis_n = ImGuiAxis.X, ImGuiAxis.Y do
+        local axis = (axis_n == ImGuiAxis.X) and "x" or "y" -- [Luau] named key: ImVec2[1]/[2] go through IM_VEC2.__index
         if window.ScrollTarget[axis] < FLT_MAX then
             local center_ratio = window.ScrollTargetCenterRatio[axis]
             local scroll_target = window.ScrollTarget[axis]
@@ -17568,7 +17624,7 @@ end
 function ImGui.GetMainViewport()
     local g = GImGui
 
-    return g.Viewports[1]
+    return g.Viewports.Data[1] -- [Luau] .Data[]: no IM_VECTOR.__index
 end
 
 -- FIXME: This leaks access to viewports not listed in PlatformIO.Viewports[]. Problematic? (#4236)
@@ -20026,23 +20082,34 @@ function ImGui.DebugNodeFontGlyphsForSrcMask(font, baked, src_mask)
     local base = 0
     while base <= max_c do
         local count = 0
+        -- [Luau] inline IsGlyphLoaded() + FindGlyphNoFallback() (a loaded glyph never needs loading): 0xFFFF = IM_FONTGLYPH_INDEX_UNUSED, 0xFFFE = IM_FONTGLYPH_INDEX_NOT_FOUND
+        local lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
         for n = 0, 255 do
             local c = base + n
-            if baked:IsGlyphLoaded(c) then
-                local glyph = baked:FindGlyphNoFallback(c)
-                if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then count = count + 1 end
+            if c < lookup_n then
+                local i = lookup[c + 1]
+                if i ~= 0xFFFF and i ~= 0xFFFE then
+                    local glyph = glyphs[i]
+                    if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then count = count + 1 end
+                end
             end
         end
         if count > 0 and ImGui.TreeNode(base, "U+%04X..U+%04X (%d %s)", base, base + 255, count, (count > 1) and "glyphs" or "glyph") then
             -- Draw a 16x16 grid of glyphs
             local base_pos = ImGui.GetCursorScreenPos()
+            local cell_p1, cell_p2 = ImVec2(), ImVec2()
             for n = 0, 255 do
                 local c = base + n
                 -- We use ImFont:RenderChar as a shortcut because we don't have UTF-8 conversion functions
                 -- available here and thus cannot easily generate a zero-terminated UTF-8 encoded string.
-                local cell_p1 = ImVec2(base_pos.x + (n % 16) * (cell_size + cell_spacing), base_pos.y + math.floor(n / 16) * (cell_size + cell_spacing))
-                local cell_p2 = ImVec2(cell_p1.x + cell_size, cell_p1.y + cell_size)
-                local glyph = baked:IsGlyphLoaded(c) and baked:FindGlyphNoFallback(c) or nil
+                -- [Luau] reused per cell: AddRect()/RenderChar()/IsMouseHoveringRect() only read them
+                cell_p1.x = base_pos.x + (n % 16) * (cell_size + cell_spacing); cell_p1.y = base_pos.y + math.floor(n / 16) * (cell_size + cell_spacing)
+                cell_p2.x = cell_p1.x + cell_size; cell_p2.y = cell_p1.y + cell_size
+                local glyph = nil -- [Luau] inline IsGlyphLoaded() + FindGlyphNoFallback(), see above
+                if c < baked.IndexLookup.Size then
+                    local i = baked.IndexLookup.Data[c + 1]
+                    if i ~= 0xFFFF and i ~= 0xFFFE then glyph = baked.Glyphs.Data[i] end
+                end
                 draw_list:AddRect(cell_p1, cell_p2, glyph and IM_COL32(255, 255, 255, 100) or IM_COL32(255, 255, 255, 50))
                 if glyph and bit32.band(src_mask, bit32.lshift(1, glyph.SourceIdx)) ~= 0 then
                     font:RenderChar(draw_list, cell_size, cell_p1, glyph_col, c)
