@@ -16,6 +16,8 @@ local w = {}
 for _, it in items do w[it.Index] = it.Width end
 check(w[3] == 100 and w[2] == 100 and w[1] == 99 and w[0] == 99, ("ShrinkWidths widths %s %s %s %s"):format(w[0], w[1], w[2], w[3]))
 
+check(G.ImFloor(-1.5) == -2 and G.ImFloor(-0.2) == -1 and G.ImFloor(2.7) == 2, "ImFloor negative")
+
 local function edit_text()
     local st = ImGui.GetCurrentContext().InputTextState
     return G.ImGui._ByteArrayToString(st.TextA.Data, 1, st.TextLen + 1)

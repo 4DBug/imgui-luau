@@ -16,16 +16,16 @@ imgui.cpp                    786     87.4%     93.5%       75.0%         2
 imgui_widgets.cpp            308     93.8%     98.7%       78.1%         1
 imgui_draw.cpp               258     75.2%     75.5%       63.1%         2
 imgui_tables.cpp             113     96.5%     99.0%       74.0%         0
-imgui_demo.cpp                56     82.1%     98.2%       50.8%         0
+imgui_demo.cpp                56     82.1%     98.2%       55.4%         0
 imgui.h                      110     53.6%     37.4%       56.7%         0
-imgui_internal.h             269     61.3%     64.9%       68.3%         0
-TOTAL                       1900     81.5%     92.8%       69.9%         5
+imgui_internal.h             269     61.3%     64.9%       68.0%         1
+TOTAL                       1900     81.5%     92.8%       70.7%         6
 
-upstream code reproduced (similarity x ported size / all upstream size):  64.8%
+upstream code reproduced (similarity x ported size / all upstream size):  65.6%
 Public API (imgui.h, namespace ImGui)                 368 /  376   97.9%
 Internal API (imgui_internal.h, namespace ImGui)      417 /  443   94.1%
 Enum values (imgui.h + imgui_internal.h)             1005 / 1078   93.2%
-Struct fields (imgui.h + imgui_internal.h)           1820 / 1926   94.5%
+Struct fields (imgui.h + imgui_internal.h)           1822 / 1926   94.6%
 
 Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)
 
@@ -1812,48 +1812,48 @@ imgui_demo.cpp
   [ ]        ExampleDualListBox::CompareItemsByValue                                                     
   [ ]        ExampleDualListBox::SortItems                                                               
   [ ]        ExampleDualListBox::Show                                                                    
-  [x]    1%  DemoWindowWidgetsSelectionAndMultiSelect                   imgui_demo.lua:2754              
+  [x]   71%  DemoWindowWidgetsSelectionAndMultiSelect                   imgui_demo.lua:3130              
 
   -- DemoWindowWidgetsTabs()
-  [x]   58%  EditTabBarFittingPolicyFlags                               imgui_demo.lua:2768              
-  [x]   70%  DemoWindowWidgetsTabs                                      imgui_demo.lua:2798              
+  [x]   58%  EditTabBarFittingPolicyFlags                               imgui_demo.lua:3755              
+  [x]   70%  DemoWindowWidgetsTabs                                      imgui_demo.lua:3785              
 
   -- DemoWindowWidgetsText()
-  [x]   89%  DemoWindowWidgetsText                                      imgui_demo.lua:2954              
+  [x]   89%  DemoWindowWidgetsText                                      imgui_demo.lua:3941              
 
   -- DemoWindowWidgetsTextFilter()
-  [x]   84%  DemoWindowWidgetsTextFilter                                imgui_demo.lua:3068              
+  [x]   84%  DemoWindowWidgetsTextFilter                                imgui_demo.lua:4055              
 
   -- DemoWindowWidgetsTextInput()
-  [x]   75%  DemoWindowWidgetsTextInput                                 imgui_demo.lua:3143              
+  [x]   75%  DemoWindowWidgetsTextInput                                 imgui_demo.lua:4130              
 
   -- DemoWindowWidgetsTooltips()
-  [x]   84%  DemoWindowWidgetsTooltips                                  imgui_demo.lua:3327              
+  [x]   84%  DemoWindowWidgetsTooltips                                  imgui_demo.lua:4314              
 
   -- DemoWindowWidgetsTreeNodes()
-  [x]   75%  DemoWindowWidgetsTreeNodes                                 imgui_demo.lua:3434              
+  [x]   75%  DemoWindowWidgetsTreeNodes                                 imgui_demo.lua:4421              
 
   -- DemoWindowWidgetsVerticalSliders()
-  [x]   83%  DemoWindowWidgetsVerticalSliders                           imgui_demo.lua:3615              
+  [x]   83%  DemoWindowWidgetsVerticalSliders                           imgui_demo.lua:4602              
 
   -- DemoWindowWidgets()
-  [x]   97%  DemoWindowWidgets                                          imgui_demo.lua:3683              
+  [x]   97%  DemoWindowWidgets                                          imgui_demo.lua:4670              
 
   -- DemoWindowLayout()
-  [x]   81%  DemoWindowLayout                                           imgui_demo.lua:3790              
+  [x]   81%  DemoWindowLayout                                           imgui_demo.lua:4777              
 
   -- DemoWindowPopups()
-  [x]   59%  DemoWindowPopups                                           imgui_demo.lua:4634              
+  [x]   59%  DemoWindowPopups                                           imgui_demo.lua:5621              
   [ ]        MyItem::SortWithSortSpecs                                                                   
   [ ]        MyItem::CompareWithSortSpecs                                                                
-  [x]   96%  PushStyleCompact                                           imgui_demo.lua:4996              
-  [x]  100%  PopStyleCompact                                            imgui_demo.lua:5002              
-  [x]   69%  EditTableSizingFlags                                       imgui_demo.lua:5009              
-  [x]   74%  EditTableColumnsFlags                                      imgui_demo.lua:5061              
-  [x]  100%  ShowTableColumnsStatusFlags                                imgui_demo.lua:5091              
+  [x]   96%  PushStyleCompact                                           imgui_demo.lua:5983              
+  [x]  100%  PopStyleCompact                                            imgui_demo.lua:5989              
+  [x]   69%  EditTableSizingFlags                                       imgui_demo.lua:5996              
+  [x]   74%  EditTableColumnsFlags                                      imgui_demo.lua:6048              
+  [x]  100%  ShowTableColumnsStatusFlags                                imgui_demo.lua:6078              
 
   -- DemoWindowTables()
-  [x]   41%  DemoWindowTables                                           imgui_demo.lua:5237              
+  [x]   41%  DemoWindowTables                                           imgui_demo.lua:6224              
 
 ====================================================================================================
 imgui.h
@@ -2065,7 +2065,7 @@ imgui_internal.h
   [x]   67%  ImLengthSqr                                                imgui_internal.lua:434           
   [ ]        ImInvLength                                                                                 
   [x]   24%  ImTrunc                                                    imgui_internal.lua:242           
-  [x]   69%  ImFloor                                                    imgui_internal.lua:266           
+  [~]   25%  ImFloor                                                    imgui_internal.lua:266           stub
   [x]   15%  ImTrunc64                                                  imgui_internal.lua:248           = _Trunc
   [ ]        ImRoundPositive64                                                                           
   [ ]        ImRoundSigned64                                                                             
@@ -2496,7 +2496,7 @@ Enums (values ported / total; missing listed)
 ====================================================================================================
 Struct fields (name found in the port / total; missing listed). Field names are matched globally, so common names may over-count.
 ====================================================================================================
-  ExampleDualListBox                          1 /    3   missing: Selections, OptKeepSorted
+  ExampleDualListBox                          3 /    3
   ExampleImageViewerData                      8 /    8
   ExampleMemberInfo                           4 /    4
   ExampleTreeNode                             9 /    9

@@ -138,7 +138,7 @@ if not utf8 then
 end
 
 
-local ImGui, ImVec2, ImVec4, ImRect, HelpMarker, ImVec2_Copy, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImGuiInputFlags, ImRect_Copy, ImVec2_CopyV, ImGuiDataType, ImStb, IM_TRUNC, ImGuiStyleVarInfo, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImFormatString, ImHashStr, ImS32, IM_ASSERT_USER_ERROR_RET, ImGuiColorEditFlags, ImDrawFlags, ImIsPowerOfTwo, ImVec4_Copy, ExampleAppConsoleMT, IM_ROUND, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, ImAbs, ImU16, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiLocKey, ImU32, ImColor, ImCos, ImS16, ImGuiTabBarFlags, ImSin, ImUpperPowerOfTwo, ImVec2_MulVX, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, DockSettingsRenameNodeReferences, IM_ASSERT_PARANOID, ImCeil, ImGuiCol, ImGuiListClipper, ImLengthSqr, ImS8, ImU8, _PathArcToFastExXY, ExampleAppPropertyEditorMT, ImFabs, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ImLog, ImPow, CustomConstraints, ExampleAppLogMT, ImFontAtlasBuildInit, ImGuiComboFlags, ImGuiMultiSelectFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, ImVec2_AddVA, ImVec2_SubVA, MyDocument, ShowExampleMenuFile, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleMemberInfo, ExampleTree_CreateNode, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroyOutput, ImFontAtlasFontSourceAddToFont, ImFontAtlasFontSourceInit, ImFontAtlasTextureAdd, ImFontAtlasTextureBlockQueueUpload, ImGuiTableColumn, MyItem_s_current_sort_specs, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, EditTableSizingFlags, IM_FREE, ImDrawListSplitter, MyItemColumnID_ID, MyItemColumnID_Name, MyItemColumnID_Quantity, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, EditTabBarFittingPolicyFlags, ExampleImageViewerData, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumnFlags, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND
+local ImGui, ImVec2, ImVec4, ImRect, HelpMarker, ImVec2_Copy, IMGUI_DEMO_MARKER, ImGuiTableFlags, ImStd, ImVector, ImGuiKey, ImGuiInputFlags, ImRect_Copy, ImVec2_CopyV, ImGuiDataType, ImStb, IM_TRUNC, ImGuiStyleVarInfo, IM_ASSERT_USER_ERROR, ImGuiHoveredFlags, ImFormatString, ImHashStr, ImS32, IM_ASSERT_USER_ERROR_RET, ImGuiColorEditFlags, ImDrawFlags, ImIsPowerOfTwo, ImVec4_Copy, ExampleAppConsoleMT, IM_ROUND, ImGuiTableColumnFlags, ImGuiTreeNodeFlags, PopStyleCompact, PushStyleCompact, ImAbs, ImU16, ExampleNames, ImGuiWindowFlags, ImGuiItemFlags, stbte, ImColor, ImGuiButtonFlags, ImGuiDebugLogFlags, ImGuiLocKey, ImU32, ExampleTreeFuncs, ImCos, ImGuiListClipper, ImS16, ImGuiMultiSelectFlags, ImGuiTabBarFlags, ImSin, ImUpperPowerOfTwo, ImVec2_MulVX, IM_F32_TO_INT8_SAT, ImFontAtlasPackGetRect, ImGuiMouseCursor, DockSettingsRenameNodeReferences, ExampleDualListBoxMT, IM_ASSERT_PARANOID, ImCeil, ImGuiCol, ImGuiSelectionBasicStorage, ImLengthSqr, ImS8, ImU8, _PathArcToFastExXY, ExampleAppPropertyEditorMT, ImFabs, ImGuiScrollFlags, ImGui_ImplLOVE_GetBackendData, ImLog, ExampleSelectionWithDeletionMT, CustomConstraints, ExampleAppLogMT, IMGUI_DEBUG_LOG_FONT, ImFontAtlasBuildInit, ImGuiComboFlags, ImGuiPopupFlags, ImGuiSliderFlags, ImTextClassifierSetCharClass, ImVec2_AddVA, ImVec2_SubVA, MyDocument, ShowExampleMenuFile, ImFontAtlasBakedAddFontGlyph, ImFontAtlasPackAddRect, ImFontBaked_BuildLoadGlyph, ImGuiInputTextFlags, ImGuiStyle_Copy, ExampleAsset_s_current_sort_specs, ExampleMemberInfo, ExampleTree_CreateNode, ImFontAtlasBuildRenderBitmapFromString, ImFontAtlasFontDestroyOutput, ImFontAtlasFontSourceAddToFont, ImFontAtlasFontSourceInit, ImFontAtlasTextureAdd, ImGuiTableColumn, stb_textedit_key, stbtt_GetGlyphBitmapBoxSubpixel, IM_FREE, ImDrawListSplitter, stb_text_locate_coord, stb_text_makeundo_insert, stb_text_makeundo_replace, stb_textedit_find_charpos, stbtt_GetGlyphShape, ImGuiTableColumnSortSpecs, ImGuiTableInstanceData, ImGuiTableSettings, stb_text_makeundo_delete, stb_text_redo, stb_text_undo, stb_textedit_click, stb_textedit_drag, stbtt_FindGlyphIndex, stbtt_GetFontOffsetForIndex, stbtt_GetFontVMetrics, stbtt_GetGlyphBitmapBox, stbtt_GetGlyphHMetrics, stbtt_InitFont, stbtt_MakeGlyphBitmapSubpixelPrefilter, stbtt_ScaleForPixelHeight, stbtt__GetGlyphInfoT2, stbtt__GetGlyphShapeT2, stbtt_fontinfo, ImGuiOldColumnData, ImGuiOldColumnFlags, ImGuiOldColumns, ImGuiTable, ImGuiTableColumnSettings, ImGuiTableSortSpecs, ImGuiTableTempData, ImGui_ImplLOVE_CreateTexture, ImGui_ImplLOVE_DestroyTexture, ImGui_ImplLOVE_Init, ImGui_ImplLOVE_NewFrame, ImGui_ImplLOVE_RenderDrawData, ImGui_ImplLOVE_Shutdown, ImGui_ImplLOVE_UpdateTexture, stbrp_init_target, IMGUI_TABLE_MAX_COLUMNS, IMSTB_TEXTEDIT_UNDOSTATECOUNT, IM_COL32_DISABLE, ImGui_ImplLove, STB_TEXTEDIT_K_BACKSPACE, STB_TEXTEDIT_K_DELETE, STB_TEXTEDIT_K_DOWN, STB_TEXTEDIT_K_LEFT, STB_TEXTEDIT_K_LINEEND, STB_TEXTEDIT_K_LINESTART, STB_TEXTEDIT_K_PGDOWN, STB_TEXTEDIT_K_PGUP, STB_TEXTEDIT_K_REDO, STB_TEXTEDIT_K_RIGHT, STB_TEXTEDIT_K_SHIFT, STB_TEXTEDIT_K_TEXTEND, STB_TEXTEDIT_K_TEXTSTART, STB_TEXTEDIT_K_UNDO
 local type, mathMin, mathMax, mathFloor, mathCeil, bitOr, bitLShift = type, math.min, math.max, math.floor, math.ceil, bit32.bor, bit32.lshift
 local function IM_COL32(R, G, B, A) return (bitOr(bitLShift(A, 24 --[[IM_COL32_A_SHIFT]]), bitLShift(B, 16 --[[IM_COL32_B_SHIFT]]), bitLShift(G, 8 --[[IM_COL32_G_SHIFT]]), bitLShift(R, 0 --[[IM_COL32_R_SHIFT]]))) end
 
@@ -170,7 +170,7 @@ local function ImTrunc(v)
     elseif type(v) == "table"  then return ImVec2(_Trunc(v.x), _Trunc(v.y))
     end
 end
-local function ImFloor(f) if f >= 0 or math.floor(f) == f then return math.floor(f) else return math.floor(f) - 1 end end
+local function ImFloor(f) return math.floor(f) end
 local function ImSaturate(f) return ((f < 0.0 and 0.0) or (f > 1.0 and 1.0) or f) end
 local __FILES, __LOADED = {}, {}
 function IM_INCLUDE(name)
@@ -24324,11 +24324,998 @@ ExampleNames =
     "Cauliflower", "Celery", "Celery Root", "Celcuce", "Chayote", "Chinese Broccoli", "Corn", "Cucumber"
 }
 
+-- Extra functions to add deletion support to ImGuiSelectionBasicStorage
+-- [Port] "struct ExampleSelectionWithDeletion : ImGuiSelectionBasicStorage": an ImGuiSelectionBasicStorage() object whose
+-- metatable chains to the library's ImGuiSelectionBasicStorage methods.
+ExampleSelectionWithDeletionMT = {}
+ExampleSelectionWithDeletionMT.__index = ExampleSelectionWithDeletionMT
+function ExampleSelectionWithDeletion()
+    local self = ImGuiSelectionBasicStorage()
+    if getmetatable(ExampleSelectionWithDeletionMT) == nil then
+        setmetatable(ExampleSelectionWithDeletionMT, { __index = getmetatable(self) }) -- [Port] inherit ImGuiSelectionBasicStorage methods
+    end
+    return setmetatable(self, ExampleSelectionWithDeletionMT)
+end
+
+-- Find which item should be Focused after deletion.
+-- Call _before_ item submission. Return an index in the before-deletion item list, your item loop should call SetKeyboardFocusHere() on it.
+-- The subsequent ApplyDeletionPostLoop() code will use it to apply Selection.
+-- - We cannot provide this logic in core Dear ImGui because we don't have access to selection data.
+-- - We don't actually manipulate the ImVector<> here, only in ApplyDeletionPostLoop(), but using similar API for consistency and flexibility.
+-- - Important: Deletion only works if the underlying ImGuiID for your items are stable: aka not depend on their index, but on e.g. item id/ptr.
+-- FIXME-MULTISELECT: Doesn't take account of the possibility focus target will be moved during deletion. Need refocus or scroll offset.
+function ExampleSelectionWithDeletionMT:ApplyDeletionPreLoop(ms_io, items_count)
+    if self.Size == 0 then
+        return -1
+    end
+
+    -- If focused item is not selected...
+    local focused_idx = ms_io.NavIdItem  -- Index of currently focused item
+    if ms_io.NavIdSelected == false then  -- This is merely a shortcut, == Contains(adapter->IndexToStorage(items, focused_idx))
+        ms_io.RangeSrcReset = true    -- Request to recover RangeSrc from NavId next frame. Would be ok to reset even when NavIdSelected==true, but it would take an extra frame to recover RangeSrc when deleting a selected item.
+        return focused_idx            -- Request to focus same item after deletion.
+    end
+
+    -- If focused item is selected: land on first unselected item after focused item.
+    for idx = focused_idx + 1, items_count - 1 do
+        if not self:Contains(self:GetStorageIdFromIndex(idx)) then
+            return idx
+        end
+    end
+
+    -- If focused item is selected: otherwise return last unselected item before focused item.
+    for idx = ImMin(focused_idx, items_count) - 1, 0, -1 do
+        if not self:Contains(self:GetStorageIdFromIndex(idx)) then
+            return idx
+        end
+    end
+
+    return -1
+end
+
+-- Rewrite item list (delete items) + update selection.
+-- - Call after EndMultiSelect()
+-- - We cannot provide this logic in core Dear ImGui because we don't have access to your items, nor to selection data.
+-- [Port] items: ImVector (1-based .Data), swapped in place with the rebuilt list.
+function ExampleSelectionWithDeletionMT:ApplyDeletionPostLoop(ms_io, items, item_curr_idx_to_select)
+    -- Rewrite item list (delete items) + convert old selection index (before deletion) to new selection index (after selection).
+    -- If NavId was not part of selection, we will stay on same item.
+    local new_items = ImVector()
+    new_items:reserve(items.Size - self.Size)
+    local item_next_idx_to_select = -1
+    for idx = 0, items.Size - 1 do
+        if not self:Contains(self:GetStorageIdFromIndex(idx)) then
+            new_items:push_back(items.Data[idx + 1])
+        end
+        if item_curr_idx_to_select == idx then
+            item_next_idx_to_select = new_items.Size - 1
+        end
+    end
+    items:swap(new_items)
+
+    -- Update selection
+    self:Clear()
+    if item_next_idx_to_select ~= -1 and ms_io.NavIdSelected then
+        self:SetItemSelected(self:GetStorageIdFromIndex(item_next_idx_to_select), true)
+    end
+end
+
+-- Example: Implement dual list box storage and interface
+ExampleDualListBoxMT = {}
+ExampleDualListBoxMT.__index = ExampleDualListBoxMT
+function ExampleDualListBox()
+    local self = setmetatable({}, ExampleDualListBoxMT)
+    self.Items = { ImVector(), ImVector() }                                           -- ID is index into ExampleName[] -- [Port] 1-based: Items[side + 1]
+    self.Selections = { ImGuiSelectionBasicStorage(), ImGuiSelectionBasicStorage() }  -- Store ExampleItemId into selection -- [Port] 1-based: Selections[side + 1]
+    self.OptKeepSorted = true
+    return self
+end
+
+function ExampleDualListBoxMT:MoveAll(src, dst)
+    assert((src == 0 and dst == 1) or (src == 1 and dst == 0))
+    for _, item_id in self.Items[src + 1]:iter() do
+        self.Items[dst + 1]:push_back(item_id)
+    end
+    self.Items[src + 1]:clear()
+    self:SortItems(dst)
+    self.Selections[src + 1]:Swap(self.Selections[dst + 1])
+    self.Selections[src + 1]:Clear()
+end
+function ExampleDualListBoxMT:MoveSelected(src, dst)
+    local src_n = 0 -- [Port] while loop: the C++ for loop decrements src_n
+    while src_n < self.Items[src + 1].Size do
+        repeat
+            local item_id = self.Items[src + 1].Data[src_n + 1]
+            if not self.Selections[src + 1]:Contains(item_id) then
+                break -- continue
+            end
+            self.Items[src + 1]:erase(src_n + 1) -- FIXME-OPT: Could be implemented more optimally (rebuild src items and swap)
+            self.Items[dst + 1]:push_back(item_id)
+            src_n = src_n - 1
+        until true
+        src_n = src_n + 1
+    end
+    if self.OptKeepSorted then
+        self:SortItems(dst)
+    end
+    self.Selections[src + 1]:Swap(self.Selections[dst + 1])
+    self.Selections[src + 1]:Clear()
+end
+function ExampleDualListBoxMT:ApplySelectionRequests(ms_io, side)
+    -- In this example we store item id in selection (instead of item index)
+    self.Selections[side + 1].UserData = self.Items[side + 1].Data
+    self.Selections[side + 1].AdapterIndexToStorageId = function(self_, idx) local items = self_.UserData; return items[idx + 1] end
+    self.Selections[side + 1]:ApplyRequests(ms_io)
+end
+-- [Port] table.sort() comparator: returns 'lhs < rhs' instead of '*a - *b'
+function ExampleDualListBoxMT.CompareItemsByValue(lhs, rhs)
+    return lhs < rhs
+end
+function ExampleDualListBoxMT:SortItems(n)
+    if self.Items[n + 1].Size > 0 then -- [Port] .Data is nil for an empty ImVector
+        table.sort(self.Items[n + 1].Data, ExampleDualListBoxMT.CompareItemsByValue) -- [Port] .Data holds exactly .Size items here (only push_back/erase/clear are used)
+    end
+end
+function ExampleDualListBoxMT:Show()
+    --if (ImGui::Checkbox("Sorted", &OptKeepSorted) && OptKeepSorted) { SortItems(0); SortItems(1); }
+    if ImGui.BeginTable("split", 3, 0 --[[ImGuiTableFlags.None]]) then
+        ImGui.TableSetupColumn("", 8 --[[ImGuiTableColumnFlags.WidthStretch]])    -- Left side
+        ImGui.TableSetupColumn("", 16 --[[ImGuiTableColumnFlags.WidthFixed]])      -- Buttons
+        ImGui.TableSetupColumn("", 8 --[[ImGuiTableColumnFlags.WidthStretch]])    -- Right side
+        ImGui.TableNextRow()
+
+        local request_move_selected = -1
+        local request_move_all = -1
+        local child_height_0 = 0.0
+        for side = 0, 1 do
+            -- FIXME-MULTISELECT: Dual List Box: Add context menus
+            -- FIXME-NAV: Using ImGuiWindowFlags_NavFlattened exhibit many issues.
+            local items = self.Items[side + 1]
+            local selection = self.Selections[side + 1]
+
+            ImGui.TableSetColumnIndex((side == 0) and 0 or 2)
+            ImGui.Text("%s (%d)", (side == 0) and "Available" or "Basket", items.Size)
+
+            -- Submit scrolling range to avoid glitches on moving/deletion
+            local items_height = ImGui.GetTextLineHeightWithSpacing()
+            ImGui.SetNextWindowContentSize(ImVec2(0.0, items.Size * items_height))
+
+            local child_visible
+            if side == 0 then
+                -- Left child is resizable
+                ImGui.SetNextWindowSizeConstraints(ImVec2(0.0, ImGui.GetFrameHeightWithSpacing() * 4), ImVec2(3.4028234663853e+38 --[[FLT_MAX]], 3.4028234663853e+38 --[[FLT_MAX]]))
+                child_visible = ImGui.BeginChild("0", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]]))
+                child_height_0 = ImGui.GetWindowSize().y
+            else
+                -- Right child use same height as left one
+                child_visible = ImGui.BeginChild("1", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], child_height_0), 128 --[[ImGuiChildFlags.FrameStyle]])
+            end
+            if child_visible then
+                local flags = 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]]
+                local ms_io = ImGui.BeginMultiSelect(flags, selection.Size, items.Size)
+                self:ApplySelectionRequests(ms_io, side)
+
+                for item_n = 0, items.Size - 1 do
+                    local item_id = items.Data[item_n + 1]
+                    local item_is_selected = selection:Contains(item_id)
+                    ImGui.SetNextItemSelectionUserData(item_n)
+                    ImGui.Selectable(ExampleNames[item_id + 1], item_is_selected, 4 --[[ImGuiSelectableFlags.AllowDoubleClick]])
+                    if ImGui.IsItemFocused() then
+                        -- FIXME-MULTISELECT: Dual List Box: Transfer focus
+                        if ImGui.IsKeyPressed(525 --[[ImGuiKey.Enter]]) or ImGui.IsKeyPressed(627 --[[ImGuiKey.KeypadEnter]]) then
+                            request_move_selected = side
+                        end
+                        if ImGui.IsMouseDoubleClicked(0) then -- FIXME-MULTISELECT: Double-click on multi-selection?
+                            request_move_selected = side
+                        end
+                    end
+                end
+
+                ms_io = ImGui.EndMultiSelect()
+                self:ApplySelectionRequests(ms_io, side)
+            end
+            ImGui.EndChild()
+        end
+
+        -- Buttons columns
+        ImGui.TableSetColumnIndex(1)
+        ImGui.NewLine()
+        --ImVec2 button_sz = { ImGui::CalcTextSize(">>").x + ImGui::GetStyle().FramePadding.x * 2.0f, ImGui::GetFrameHeight() + padding.y * 2.0f };
+        local button_sz = ImVec2(ImGui.GetFrameHeight(), ImGui.GetFrameHeight())
+
+        -- (Using BeginDisabled()/EndDisabled() works but feels distracting given how it is currently visualized)
+        if ImGui.Button(">>", button_sz) then
+            request_move_all = 0
+        end
+        if ImGui.Button(">", button_sz) then
+            request_move_selected = 0
+        end
+        if ImGui.Button("<", button_sz) then
+            request_move_selected = 1
+        end
+        if ImGui.Button("<<", button_sz) then
+            request_move_all = 1
+        end
+
+        -- Process requests
+        if request_move_all ~= -1 then
+            self:MoveAll(request_move_all, bit32.bxor(request_move_all, 1))
+        end
+        if request_move_selected ~= -1 then
+            self:MoveSelected(request_move_selected, bit32.bxor(request_move_selected, 1))
+        end
+
+        -- FIXME-MULTISELECT: Support action from outside
+        --[[
+        if (OptKeepSorted == false)
+        {
+            ImGui::NewLine();
+            if (ImGui::ArrowButton("MoveUp", ImGuiDir_Up)) {}
+            if (ImGui::ArrowButton("MoveDown", ImGuiDir_Down)) {}
+        }
+        ]]
+
+        ImGui.EndTable()
+    end
+end
+
+-- [Port] struct ExampleTreeFuncs is local to DemoWindowWidgetsSelectionAndMultiSelect() upstream ("Multi-Select (trees)"):
+-- hoisted to file level (global table) so its functions are not re-created every frame.
+ExampleTreeFuncs = {}
+
+function ExampleTreeFuncs.DrawNode(node, selection)
+    local tree_node_flags = bit32.bor(2048 --[[ImGuiTreeNodeFlags.SpanAvailWidth]], 128 --[[ImGuiTreeNodeFlags.OpenOnArrow]], 64 --[[ImGuiTreeNodeFlags.OpenOnDoubleClick]])
+    tree_node_flags = bit32.bor(tree_node_flags, 131072 --[[ImGuiTreeNodeFlags.NavLeftJumpsToParent]]) -- Enable pressing left to jump to parent
+    if #node.Childs == 0 then
+        tree_node_flags = bit32.bor(tree_node_flags, 512 --[[ImGuiTreeNodeFlags.Bullet]], 256 --[[ImGuiTreeNodeFlags.Leaf]])
+    end
+    if selection:Contains(node.UID) then
+        tree_node_flags = bit32.bor(tree_node_flags, 1 --[[ImGuiTreeNodeFlags.Selected]])
+    end
+
+    -- Using SetNextItemStorageID() to specify storage id, so we can easily peek into
+    -- the storage holding open/close stage, using our TreeNodeGetOpen/TreeNodeSetOpen() functions.
+    ImGui.SetNextItemSelectionUserData(node) -- [Port] the node table itself is the selection user data (C++ casts the pointer)
+    ImGui.SetNextItemStorageID(node.UID)
+    if ImGui.TreeNodeEx(node.Name, tree_node_flags) then
+        for _, child in ipairs(node.Childs) do
+            ExampleTreeFuncs.DrawNode(child, selection)
+        end
+        ImGui.TreePop()
+    elseif ImGui.IsItemToggledOpen() then
+        ExampleTreeFuncs.TreeCloseAndUnselectChildNodes(node, selection)
+    end
+end
+
+-- When closing a node: 1) close and unselect all child nodes, 2) select parent if any child was selected.
+-- FIXME: This is currently handled by user logic but I'm hoping to eventually provide tree node
+-- features to do this automatically, e.g. a ImGuiTreeNodeFlags_AutoCloseChildNodes etc.
+function ExampleTreeFuncs.TreeCloseAndUnselectChildNodes(node, selection, depth)
+    if depth == nil then depth = 0 end
+    -- Recursive close (the test for depth == 0 is because we call this on a node that was just closed!)
+    local unselected_count = selection:Contains(node.UID) and 1 or 0
+    if depth == 0 or ImGui.TreeNodeGetOpen(node.UID) then
+        for _, child in ipairs(node.Childs) do
+            unselected_count = unselected_count + ExampleTreeFuncs.TreeCloseAndUnselectChildNodes(child, selection, depth + 1)
+        end
+        ImGui.TreeNodeSetOpen(node.UID, false)
+    end
+
+    -- Select root node if any of its child was selected, otherwise unselect
+    selection:SetItemSelected(node.UID, (depth == 0 and unselected_count > 0))
+    return unselected_count
+end
+
+-- Apply multi-selection requests
+function ExampleTreeFuncs.ApplySelectionRequests(ms_io, tree, selection)
+    for _, req in ms_io.Requests:iter() do
+        if req.Type == 1 --[[ImGuiSelectionRequestType.SetAll]] then
+            if req.Selected then
+                ExampleTreeFuncs.TreeSetAllInOpenNodes(tree, selection, req.Selected)
+            else
+                selection:Clear()
+            end
+        elseif req.Type == 2 --[[ImGuiSelectionRequestType.SetRange]] then
+            local first_node = req.RangeFirstItem
+            local last_node = req.RangeLastItem
+            local node = first_node
+            while node ~= nil do
+                selection:SetItemSelected(node.UID, req.Selected)
+                node = ExampleTreeFuncs.TreeGetNextNodeInVisibleOrder(node, last_node)
+            end
+        end
+    end
+end
+
+function ExampleTreeFuncs.TreeSetAllInOpenNodes(node, selection, selected)
+    if node.Parent ~= nil then -- Root node isn't visible nor selectable in our scheme
+        selection:SetItemSelected(node.UID, selected)
+    end
+    if node.Parent == nil or ImGui.TreeNodeGetOpen(node.UID) then
+        for _, child in ipairs(node.Childs) do
+            ExampleTreeFuncs.TreeSetAllInOpenNodes(child, selection, selected)
+        end
+    end
+end
+
+-- Interpolate in *user-visible order* AND only *over opened nodes*.
+-- If you have a sequential mapping tables (e.g. generated after a filter/search pass) this would be simpler.
+-- Here the tricks are that:
+-- - we store/maintain ExampleTreeNode::IndexInParent which allows implementing a linear iterator easily, without searches, without recursion.
+--   this could be replaced by a search in parent, aka 'int index_in_parent = curr_node->Parent->Childs.find_index(curr_node)'
+--   which would only be called when crossing from child to a parent, aka not too much.
+-- - we call SetNextItemStorageID() before our TreeNode() calls with an ID which doesn't relate to UI stack,
+--   making it easier to call TreeNodeGetOpen()/TreeNodeSetOpen() from any location.
+function ExampleTreeFuncs.TreeGetNextNodeInVisibleOrder(curr_node, last_node)
+    -- Reached last node
+    if curr_node == last_node then
+        return nil
+    end
+
+    -- Recurse into childs. Query storage to tell if the node is open.
+    if #curr_node.Childs > 0 and ImGui.TreeNodeGetOpen(curr_node.UID) then
+        return curr_node.Childs[1]
+    end
+
+    -- Next sibling, then into our own parent
+    while curr_node.Parent ~= nil do
+        if curr_node.IndexInParent + 1 < #curr_node.Parent.Childs then
+            return curr_node.Parent.Childs[curr_node.IndexInParent + 1 + 1] -- [Port] Childs is 1-based, IndexInParent 0-based
+        end
+        curr_node = curr_node.Parent
+    end
+    return nil
+end
+
+S.DemoWindowWidgetsSelectionAndMultiSelect = {
+    single_select = { selected = -1 },
+    manual = { selection = { false, false, false, false, false } },
+    multi_select = { selection = ImGuiSelectionBasicStorage() },
+    with_clipper = { selection = ImGuiSelectionBasicStorage() },
+    with_deletion = { items = ImVector(), selection = ExampleSelectionWithDeletion(), items_next_id = 0 },
+    dual_list_box = { dlb = ExampleDualListBox() },
+    in_a_table = { selection = ImGuiSelectionBasicStorage() },
+    checkboxes = {
+        items = { false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false },
+        flags = bit32.bor(ImGuiMultiSelectFlags.NoAutoSelect, ImGuiMultiSelectFlags.NoAutoClear, ImGuiMultiSelectFlags.ClearOnEscape),
+    },
+    multiple_scopes = {
+        selections_data = { ImGuiSelectionBasicStorage(), ImGuiSelectionBasicStorage(), ImGuiSelectionBasicStorage() }, -- [Port] 1-based
+        flags = bit32.bor(ImGuiMultiSelectFlags.ScopeRect, ImGuiMultiSelectFlags.ClearOnEscape), -- | ImGuiMultiSelectFlags_ClearOnClickVoid;
+    },
+    trees = { selection = ImGuiSelectionBasicStorage() },
+    advanced = {
+        use_clipper = true,
+        use_deletion = true,
+        use_drag_drop = true,
+        show_in_table = false,
+        show_color_button = true,
+        flags = bit32.bor(ImGuiMultiSelectFlags.ClearOnEscape, ImGuiMultiSelectFlags.BoxSelect1d),
+        widget_type = 0, -- WidgetType_Selectable
+        items = ImVector(),
+        items_next_id = 0,
+        selection = ExampleSelectionWithDeletion(),
+        request_deletion_from_menu = false, -- Queue deletion triggered from context menu
+        item_category_bufs = {}, -- [Port] read-only InputText() byte buffers, per ExampleNames[] entry
+    },
+}
+
 function DemoWindowWidgetsSelectionAndMultiSelect(demo_data)
+    local s = S.DemoWindowWidgetsSelectionAndMultiSelect
     if ImGui.TreeNode("Selection State & Multi-Select") then
         IMGUI_DEMO_MARKER("Widgets/Selection State & Multi-Select")
         HelpMarker("Selections can be built using Selectable(), TreeNode() or other widgets. Selection state is owned by application code/data.")
-        ImGui.TextDisabled("(multi-select API not ported yet)") -- [Port] TODO: BeginMultiSelect()/EndMultiSelect()
+
+        ImGui.BulletText("Wiki page:")
+        ImGui.SameLine()
+        ImGui.TextLinkOpenURL("imgui/wiki/Multi-Select", "https://github.com/ocornut/imgui/wiki/Multi-Select")
+
+        -- Without any fancy API: manage single-selection yourself.
+        if ImGui.TreeNode("Single-Select") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Single-Select")
+            local st = s.single_select
+            for n = 0, 4 do
+                local buf = string.format("Object %d", n)
+                if ImGui.Selectable(buf, st.selected == n) then
+                    st.selected = n
+                end
+            end
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate implementation a most-basic form of multi-selection manually
+        -- This doesn't support the Shift modifier which requires BeginMultiSelect()!
+        if ImGui.TreeNode("Multi-Select (manual/simplified, without BeginMultiSelect)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (manual/simplified, without BeginMultiSelect)")
+            HelpMarker("Hold Ctrl and Click to select multiple items.")
+            local selection = s.manual.selection
+            for n = 0, 4 do
+                local buf = string.format("Object %d", n)
+                if ImGui.Selectable(buf, selection[n + 1]) then
+                    if not ImGui.GetIO().KeyCtrl then -- Clear selection when Ctrl is not held
+                        for i = 1, 5 do selection[i] = false end
+                    end
+                    selection[n + 1] = not selection[n + 1] -- Toggle current item
+                end
+            end
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate handling proper multi-selection using the BeginMultiSelect/EndMultiSelect API.
+        -- Shift+Click w/ Ctrl and other standard features are supported.
+        -- We use the ImGuiSelectionBasicStorage helper which you may freely reimplement.
+        if ImGui.TreeNode("Multi-Select") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select")
+            ImGui.Text("Supported features:")
+            ImGui.BulletText("Keyboard navigation (arrows, page up/down, home/end, space).")
+            ImGui.BulletText("Ctrl modifier to preserve and toggle selection.")
+            ImGui.BulletText("Shift modifier for range selection.")
+            ImGui.BulletText("Ctrl+A to select all.")
+            ImGui.BulletText("Escape to clear selection.")
+            ImGui.BulletText("Click and drag to box-select.")
+            ImGui.Text("Tip: Use 'Demo->Tools->Debug Log->Selection' to see selection requests as they happen.")
+
+            -- Use default selection.Adapter: Pass index to SetNextItemSelectionUserData(), store index in Selection
+            local ITEMS_COUNT = 50
+            local selection = s.multi_select.selection
+            ImGui.Text("Selection: %d/%d", selection.Size, ITEMS_COUNT)
+
+            -- The BeginChild() has no purpose for selection logic, other that offering a scrolling region.
+            if ImGui.BeginChild("##Basket", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+                local ms_io = ImGui.BeginMultiSelect(flags, selection.Size, ITEMS_COUNT)
+                selection:ApplyRequests(ms_io)
+
+                for n = 0, ITEMS_COUNT - 1 do
+                    local label = string.format("Object %05d: %s", n, ExampleNames[n % #ExampleNames + 1])
+                    local item_is_selected = selection:Contains(n)
+                    ImGui.SetNextItemSelectionUserData(n)
+                    ImGui.Selectable(label, item_is_selected)
+                end
+
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+            end
+            ImGui.EndChild()
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate using the clipper with BeginMultiSelect()/EndMultiSelect()
+        if ImGui.TreeNode("Multi-Select (with clipper)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (with clipper)")
+            -- Use default selection.Adapter: Pass index to SetNextItemSelectionUserData(), store index in Selection
+            local selection = s.with_clipper.selection
+
+            ImGui.Text("Added features:")
+            ImGui.BulletText("Using ImGuiListClipper.")
+
+            local ITEMS_COUNT = 10000
+            ImGui.Text("Selection: %d/%d", selection.Size, ITEMS_COUNT)
+            if ImGui.BeginChild("##Basket", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+                local ms_io = ImGui.BeginMultiSelect(flags, selection.Size, ITEMS_COUNT)
+                selection:ApplyRequests(ms_io)
+
+                local clipper = ImGuiListClipper()
+                clipper:Begin(ITEMS_COUNT)
+                if ms_io.RangeSrcItem ~= -1 then
+                    clipper:IncludeItemByIndex(ms_io.RangeSrcItem) -- Ensure RangeSrc item is not clipped.
+                end
+                while clipper:Step() do
+                    for n = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                        local label = string.format("Object %05d: %s", n, ExampleNames[n % #ExampleNames + 1])
+                        local item_is_selected = selection:Contains(n)
+                        ImGui.SetNextItemSelectionUserData(n)
+                        ImGui.Selectable(label, item_is_selected)
+                    end
+                end
+
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+            end
+            ImGui.EndChild()
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate dynamic item list + deletion support using the BeginMultiSelect/EndMultiSelect API.
+        -- In order to support Deletion without any glitches you need to:
+        -- - (1) If items are submitted in their own scrolling area, submit contents size SetNextWindowContentSize() ahead of time to prevent one-frame readjustment of scrolling.
+        -- - (2) Items needs to have persistent ID Stack identifier = ID needs to not depends on their index. PushID(index) = KO. PushID(item_id) = OK. This is in order to focus items reliably after a selection.
+        -- - (3) BeginXXXX process
+        -- - (4) Focus process
+        -- - (5) EndXXXX process
+        if ImGui.TreeNode("Multi-Select (with deletion)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (with deletion)")
+            -- Storing items data separately from selection data.
+            -- (you may decide to store selection data inside your item (aka intrusive storage) if you don't need multiple views over same items)
+            -- Use a custom selection.Adapter: store item identifier in Selection (instead of index)
+            local st = s.with_deletion
+            local items = st.items
+            local selection = st.selection
+            selection.UserData = items
+            selection.AdapterIndexToStorageId = function(self, idx) local p_items = self.UserData; return p_items.Data[idx + 1] end -- Index -> ID
+
+            ImGui.Text("Added features:")
+            ImGui.BulletText("Dynamic list with Delete key support.")
+            ImGui.Text("Selection size: %d/%d", selection.Size, items.Size)
+
+            -- Initialize default list with 50 items + button to add/remove items.
+            if st.items_next_id == 0 then
+                for _ = 0, 49 do
+                    items:push_back(st.items_next_id); st.items_next_id = st.items_next_id + 1
+                end
+            end
+            if ImGui.SmallButton("Add 20 items") then for _ = 0, 19 do items:push_back(st.items_next_id); st.items_next_id = st.items_next_id + 1 end end
+            ImGui.SameLine()
+            if ImGui.SmallButton("Remove 20 items") then for _ = ImMin(20, items.Size), 1, -1 do selection:SetItemSelected(items:back(), false); items:pop_back() end end
+
+            -- (1) Extra to support deletion: Submit scrolling range to avoid glitches on deletion
+            local items_height = ImGui.GetTextLineHeightWithSpacing()
+            ImGui.SetNextWindowContentSize(ImVec2(0.0, items.Size * items_height))
+
+            if ImGui.BeginChild("##Basket", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+                local ms_io = ImGui.BeginMultiSelect(flags, selection.Size, items.Size)
+                selection:ApplyRequests(ms_io)
+
+                local want_delete = ImGui.Shortcut(522 --[[ImGuiKey.Delete]], 1 --[[ImGuiInputFlags.Repeat]]) and (selection.Size > 0)
+                local item_curr_idx_to_focus = -1
+                if want_delete then item_curr_idx_to_focus = selection:ApplyDeletionPreLoop(ms_io, items.Size) end
+
+                for n = 0, items.Size - 1 do
+                    local item_id = items.Data[n + 1]
+                    local label = string.format("Object %05d: %s", item_id, ExampleNames[item_id % #ExampleNames + 1]) -- [Port] %05u -> %05d
+
+                    local item_is_selected = selection:Contains(item_id)
+                    ImGui.SetNextItemSelectionUserData(n)
+                    ImGui.Selectable(label, item_is_selected)
+                    if item_curr_idx_to_focus == n then
+                        ImGui.SetKeyboardFocusHere(-1)
+                    end
+                end
+
+                -- Apply multi-select requests
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+                if want_delete then
+                    selection:ApplyDeletionPostLoop(ms_io, items, item_curr_idx_to_focus)
+                end
+            end
+            ImGui.EndChild()
+            ImGui.TreePop()
+        end
+
+        -- Implement a Dual List Box (#6648)
+        if ImGui.TreeNode("Multi-Select (dual list box)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (dual list box)")
+            -- Init default state
+            local dlb = s.dual_list_box.dlb
+            if dlb.Items[1].Size == 0 and dlb.Items[2].Size == 0 then
+                for item_id = 0, #ExampleNames - 1 do
+                    dlb.Items[1]:push_back(item_id)
+                end
+            end
+
+            -- Show
+            dlb:Show()
+
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate using the clipper with BeginMultiSelect()/EndMultiSelect()
+        if ImGui.TreeNode("Multi-Select (in a table)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (in a table)")
+            local selection = s.in_a_table.selection
+
+            local ITEMS_COUNT = 10000
+            ImGui.Text("Selection: %d/%d", selection.Size, ITEMS_COUNT)
+            if ImGui.BeginTable("##Basket", 2, bit32.bor(33554432 --[[ImGuiTableFlags.ScrollY]], 64 --[[ImGuiTableFlags.RowBg]], 1280 --[[ImGuiTableFlags.BordersOuter]]), ImVec2(0.0, ImGui.GetFontSize() * 20)) then
+                ImGui.TableSetupColumn("Object")
+                ImGui.TableSetupColumn("Action")
+                ImGui.TableSetupScrollFreeze(0, 1)
+                ImGui.TableHeadersRow()
+
+                local flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+                local ms_io = ImGui.BeginMultiSelect(flags, selection.Size, ITEMS_COUNT)
+                selection:ApplyRequests(ms_io)
+
+                local clipper = ImGuiListClipper()
+                clipper:Begin(ITEMS_COUNT)
+                if ms_io.RangeSrcItem ~= -1 then
+                    clipper:IncludeItemByIndex(ms_io.RangeSrcItem) -- Ensure RangeSrc item is not clipped.
+                end
+                while clipper:Step() do
+                    for n = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                        ImGui.TableNextRow()
+                        ImGui.TableNextColumn()
+                        ImGui.PushID(n)
+                        local label = string.format("Object %05d: %s", n, ExampleNames[n % #ExampleNames + 1])
+                        local item_is_selected = selection:Contains(n)
+                        ImGui.SetNextItemSelectionUserData(n)
+                        ImGui.Selectable(label, item_is_selected, bit32.bor(2 --[[ImGuiSelectableFlags.SpanAllColumns]], 16 --[[ImGuiSelectableFlags.AllowOverlap]]))
+                        ImGui.TableNextColumn()
+                        ImGui.SmallButton("hello")
+                        ImGui.PopID()
+                    end
+                end
+
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+                ImGui.EndTable()
+            end
+            ImGui.TreePop()
+        end
+
+        if ImGui.TreeNode("Multi-Select (checkboxes)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (checkboxes)")
+            ImGui.Text("In a list of checkboxes (not selectable):")
+            ImGui.BulletText("Using _NoAutoSelect + _NoAutoClear flags.")
+            ImGui.BulletText("Shift+Click to check multiple boxes.")
+            ImGui.BulletText("Shift+Keyboard to copy current value to other boxes.")
+
+            -- If you have an array of checkboxes, you may want to use NoAutoSelect + NoAutoClear and the ImGuiSelectionExternalStorage helper.
+            local st = s.checkboxes
+            local items = st.items
+            _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoAutoSelect", st.flags, 8 --[[ImGuiMultiSelectFlags.NoAutoSelect]])
+            _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoAutoClear", st.flags, 16 --[[ImGuiMultiSelectFlags.NoAutoClear]])
+            _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_BoxSelect2d", st.flags, 128 --[[ImGuiMultiSelectFlags.BoxSelect2d]]) -- Cannot use ImGuiMultiSelectFlags_BoxSelect1d as checkboxes are varying width.
+
+            if ImGui.BeginChild("##Basket", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(1 --[[ImGuiChildFlags.Borders]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local ms_io = ImGui.BeginMultiSelect(st.flags, -1, #items)
+                local storage_wrapper = ImGuiSelectionExternalStorage()
+                storage_wrapper.UserData = items
+                storage_wrapper.AdapterSetItemSelected = function(self, n, selected) local array = self.UserData; array[n + 1] = selected end
+                storage_wrapper:ApplyRequests(ms_io)
+                for n = 0, 19 do
+                    local label = string.format("Item %d", n)
+                    ImGui.SetNextItemSelectionUserData(n)
+                    _, items[n + 1] = ImGui.Checkbox(label, items[n + 1])
+                end
+                ms_io = ImGui.EndMultiSelect()
+                storage_wrapper:ApplyRequests(ms_io)
+            end
+            ImGui.EndChild()
+
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate individual selection scopes in same window
+        if ImGui.TreeNode("Multi-Select (multiple scopes)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (multiple scopes)")
+            -- Use default select: Pass index to SetNextItemSelectionUserData(), store index in Selection
+            local SCOPES_COUNT = 3
+            local ITEMS_COUNT = 8 -- Per scope
+            local st = s.multiple_scopes
+            local selections_data = st.selections_data
+
+            -- Use ImGuiMultiSelectFlags_ScopeRect to not affect other selections in same window.
+            local pressed
+            pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ScopeWindow", st.flags, 2048 --[[ImGuiMultiSelectFlags.ScopeWindow]])
+            if pressed and bit32.band(st.flags, 2048 --[[ImGuiMultiSelectFlags.ScopeWindow]]) ~= 0 then
+                st.flags = bit32.band(st.flags, bit32.bnot(4096 --[[ImGuiMultiSelectFlags.ScopeRect]]))
+            end
+            pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ScopeRect", st.flags, 4096 --[[ImGuiMultiSelectFlags.ScopeRect]])
+            if pressed and bit32.band(st.flags, 4096 --[[ImGuiMultiSelectFlags.ScopeRect]]) ~= 0 then
+                st.flags = bit32.band(st.flags, bit32.bnot(2048 --[[ImGuiMultiSelectFlags.ScopeWindow]]))
+            end
+            _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ClearOnClickVoid", st.flags, 1024 --[[ImGuiMultiSelectFlags.ClearOnClickVoid]])
+            _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_BoxSelect1d", st.flags, 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+
+            for selection_scope_n = 0, SCOPES_COUNT - 1 do
+                ImGui.PushID(selection_scope_n)
+                local selection = selections_data[selection_scope_n + 1]
+                local ms_io = ImGui.BeginMultiSelect(st.flags, selection.Size, ITEMS_COUNT)
+                selection:ApplyRequests(ms_io)
+
+                ImGui.SeparatorText("Selection scope")
+                ImGui.Text("Selection size: %d/%d", selection.Size, ITEMS_COUNT)
+
+                for n = 0, ITEMS_COUNT - 1 do
+                    local label = string.format("Object %05d: %s", n, ExampleNames[n % #ExampleNames + 1])
+                    local item_is_selected = selection:Contains(n)
+                    ImGui.SetNextItemSelectionUserData(n)
+                    ImGui.Selectable(label, item_is_selected)
+                end
+
+                -- Apply multi-select requests
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+                ImGui.PopID()
+            end
+            ImGui.TreePop()
+        end
+
+        -- See ShowExampleAppAssetsBrowser()
+        if ImGui.TreeNode("Multi-Select (tiled assets browser)") then
+            _, demo_data.ShowAppAssetsBrowser = ImGui.Checkbox("Assets Browser", demo_data.ShowAppAssetsBrowser)
+            ImGui.Text("(also access from 'Examples->Assets Browser' in menu)")
+            ImGui.TreePop()
+        end
+
+        -- Demonstrate supporting multiple-selection in a tree.
+        -- - We don't use linear indices for selection user data, but our ExampleTreeNode* pointer directly!
+        --   This showcase how SetNextItemSelectionUserData() never assume indices!
+        -- - The difficulty here is to "interpolate" from RangeSrcItem to RangeDstItem in the SetAll/SetRange request.
+        --   We want this interpolation to match what the user sees: in visible order, skipping closed nodes.
+        --   This is implemented by our TreeGetNextNodeInVisibleOrder() user-space helper.
+        -- - Important: In a real codebase aiming to implement full-featured selectable tree with custom filtering, you
+        --   are more likely to build an array mapping sequential indices to visible tree nodes, since your
+        --   filtering/search + clipping process will benefit from it. Having this will make this interpolation much easier.
+        -- - Consider this a prototype: we are working toward simplifying some of it.
+        if ImGui.TreeNode("Multi-Select (trees)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (trees)")
+            HelpMarker(
+                "This is rather advanced and experimental. If you are getting started with multi-select, " ..
+                "please don't start by looking at how to use it for a tree!\n\n" ..
+                "Future versions will try to simplify and formalize some of this.")
+
+            -- struct ExampleTreeFuncs { ... }; -- [Port] defined at file level above S.DemoWindowWidgetsSelectionAndMultiSelect
+
+            local selection = s.trees.selection
+            if demo_data.DemoTree == nil then
+                demo_data.DemoTree = ExampleTree_CreateDemoTree() -- Create tree once
+            end
+            ImGui.Text("Selection size: %d", selection.Size)
+
+            if ImGui.BeginChild("##Tree", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local tree = demo_data.DemoTree
+                local ms_flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 128 --[[ImGuiMultiSelectFlags.BoxSelect2d]])
+                local ms_io = ImGui.BeginMultiSelect(ms_flags, selection.Size, -1)
+                ExampleTreeFuncs.ApplySelectionRequests(ms_io, tree, selection)
+                for _, node in ipairs(tree.Childs) do
+                    ExampleTreeFuncs.DrawNode(node, selection)
+                end
+                ms_io = ImGui.EndMultiSelect()
+                ExampleTreeFuncs.ApplySelectionRequests(ms_io, tree, selection)
+            end
+            ImGui.EndChild()
+
+            ImGui.TreePop()
+        end
+
+        -- Advanced demonstration of BeginMultiSelect()
+        -- - Showcase clipping.
+        -- - Showcase deletion.
+        -- - Showcase basic drag and drop.
+        -- - Showcase TreeNode variant (note that tree node don't expand in the demo: supporting expanding tree nodes + clipping a separate thing).
+        -- - Showcase using inside a table.
+        --ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+        if ImGui.TreeNode("Multi-Select (advanced)") then
+            IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (advanced)")
+            -- Options
+            local WidgetType_Selectable, WidgetType_TreeNode = 0, 1 -- enum WidgetType
+            local st = s.advanced
+
+            if ImGui.TreeNode("Options") then
+                if ImGui.RadioButtonEx("Selectables", st.widget_type == WidgetType_Selectable) then st.widget_type = WidgetType_Selectable end -- [Port] RadioButton(label, bool) -> RadioButtonEx
+                ImGui.SameLine()
+                if ImGui.RadioButtonEx("Tree nodes", st.widget_type == WidgetType_TreeNode) then st.widget_type = WidgetType_TreeNode end
+                ImGui.SameLine()
+                HelpMarker("TreeNode() is technically supported but... using this correctly is more complicated (you need some sort of linear/random access to your tree, which is suited to advanced trees setups already implementing filters and clipper. We will work toward simplifying and demoing this.\n\nFor now the tree demo is actually a little bit meaningless because it is an empty tree with only root nodes.")
+                _, st.use_clipper = ImGui.Checkbox("Enable clipper", st.use_clipper)
+                _, st.use_deletion = ImGui.Checkbox("Enable deletion", st.use_deletion)
+                _, st.use_drag_drop = ImGui.Checkbox("Enable drag & drop", st.use_drag_drop)
+                _, st.show_in_table = ImGui.Checkbox("Show in a table", st.show_in_table)
+                _, st.show_color_button = ImGui.Checkbox("Show color button", st.show_color_button)
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_SingleSelect", st.flags, 1 --[[ImGuiMultiSelectFlags.SingleSelect]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoSelectAll", st.flags, 2 --[[ImGuiMultiSelectFlags.NoSelectAll]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoRangeSelect", st.flags, 4 --[[ImGuiMultiSelectFlags.NoRangeSelect]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoAutoSelect", st.flags, 8 --[[ImGuiMultiSelectFlags.NoAutoSelect]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoAutoClear", st.flags, 16 --[[ImGuiMultiSelectFlags.NoAutoClear]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoAutoClearOnReselect", st.flags, 32 --[[ImGuiMultiSelectFlags.NoAutoClearOnReselect]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_NoSelectOnRightClick", st.flags, 131072 --[[ImGuiMultiSelectFlags.NoSelectOnRightClick]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_BoxSelect1d", st.flags, 64 --[[ImGuiMultiSelectFlags.BoxSelect1d]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_BoxSelect2d", st.flags, 128 --[[ImGuiMultiSelectFlags.BoxSelect2d]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_BoxSelectNoScroll", st.flags, 256 --[[ImGuiMultiSelectFlags.BoxSelectNoScroll]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ClearOnEscape", st.flags, 512 --[[ImGuiMultiSelectFlags.ClearOnEscape]])
+                _, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ClearOnClickVoid", st.flags, 1024 --[[ImGuiMultiSelectFlags.ClearOnClickVoid]])
+                local pressed
+                pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ScopeWindow", st.flags, 2048 --[[ImGuiMultiSelectFlags.ScopeWindow]])
+                if pressed and bit32.band(st.flags, 2048 --[[ImGuiMultiSelectFlags.ScopeWindow]]) ~= 0 then
+                    st.flags = bit32.band(st.flags, bit32.bnot(4096 --[[ImGuiMultiSelectFlags.ScopeRect]]))
+                end
+                pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_ScopeRect", st.flags, 4096 --[[ImGuiMultiSelectFlags.ScopeRect]])
+                if pressed and bit32.band(st.flags, 4096 --[[ImGuiMultiSelectFlags.ScopeRect]]) ~= 0 then
+                    st.flags = bit32.band(st.flags, bit32.bnot(2048 --[[ImGuiMultiSelectFlags.ScopeWindow]]))
+                end
+                pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_SelectOnAuto", st.flags, 8192 --[[ImGuiMultiSelectFlags.SelectOnAuto]])
+                if pressed then
+                    st.flags = bit32.band(st.flags, bit32.bnot(bit32.bxor(57344 --[[ImGuiMultiSelectFlags.SelectOnMask_]], 8192 --[[ImGuiMultiSelectFlags.SelectOnAuto]])))
+                end
+                ImGui.SameLine(); HelpMarker("Apply selection on mouse down when clicking on unselected item, on mouse up when clicking on selected item. (Default)")
+                pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_SelectOnClickAlways", st.flags, 16384 --[[ImGuiMultiSelectFlags.SelectOnClickAlways]])
+                if pressed then
+                    st.flags = bit32.band(st.flags, bit32.bnot(bit32.bxor(57344 --[[ImGuiMultiSelectFlags.SelectOnMask_]], 16384 --[[ImGuiMultiSelectFlags.SelectOnClickAlways]])))
+                end
+                ImGui.SameLine(); HelpMarker("Prevents Drag and Drop from being used on multi-selection, but allows e.g. BoxSelect to always reselect even when clicking inside an existing selection. (Excel style behavior)")
+                pressed, st.flags = ImGui.CheckboxFlags("ImGuiMultiSelectFlags_SelectOnClickRelease", st.flags, 32768 --[[ImGuiMultiSelectFlags.SelectOnClickRelease]])
+                if pressed then
+                    st.flags = bit32.band(st.flags, bit32.bnot(bit32.bxor(57344 --[[ImGuiMultiSelectFlags.SelectOnMask_]], 32768 --[[ImGuiMultiSelectFlags.SelectOnClickRelease]])))
+                end
+                ImGui.SameLine(); HelpMarker("Allow dragging an unselected item without altering selection.")
+                ImGui.TreePop()
+            end
+
+            -- Initialize default list with 1000 items.
+            -- Use default selection.Adapter: Pass index to SetNextItemSelectionUserData(), store index in Selection
+            local items = st.items
+            if st.items_next_id == 0 then for _ = 0, 999 do items:push_back(st.items_next_id); st.items_next_id = st.items_next_id + 1 end end
+            local selection = st.selection
+
+            ImGui.Text("Selection size: %d/%d", selection.Size, items.Size)
+
+            local items_height = (st.widget_type == WidgetType_TreeNode) and ImGui.GetTextLineHeight() or ImGui.GetTextLineHeightWithSpacing()
+            ImGui.SetNextWindowContentSize(ImVec2(0.0, items.Size * items_height))
+            if ImGui.BeginChild("##Basket", ImVec2(-1.1754943508223e-38 --[[FLT_MIN]], ImGui.GetFontSize() * 20), bit32.bor(128 --[[ImGuiChildFlags.FrameStyle]], 8 --[[ImGuiChildFlags.ResizeY]])) then
+                local color_button_sz = ImVec2(ImGui.GetFontSize(), ImGui.GetFontSize())
+                if st.widget_type == WidgetType_TreeNode then
+                    ImGui.PushStyleVarY(14 --[[ImGuiStyleVar.ItemSpacing]], 0.0)
+                end
+
+                local ms_io = ImGui.BeginMultiSelect(st.flags, selection.Size, items.Size)
+                selection:ApplyRequests(ms_io)
+
+                local want_delete = (ImGui.Shortcut(522 --[[ImGuiKey.Delete]], 1 --[[ImGuiInputFlags.Repeat]]) and (selection.Size > 0)) or st.request_deletion_from_menu
+                local item_curr_idx_to_focus = -1
+                if want_delete then item_curr_idx_to_focus = selection:ApplyDeletionPreLoop(ms_io, items.Size) end
+                st.request_deletion_from_menu = false
+
+                if st.show_in_table then
+                    if st.widget_type == WidgetType_TreeNode then
+                        ImGui.PushStyleVar(17 --[[ImGuiStyleVar.CellPadding]], ImVec2(0.0, 0.0))
+                    end
+                    ImGui.BeginTable("##Split", 2, bit32.bor(1 --[[ImGuiTableFlags.Resizable]], 16 --[[ImGuiTableFlags.NoSavedSettings]], 4194304 --[[ImGuiTableFlags.NoPadOuterX]]))
+                    ImGui.TableSetupColumn("", 8 --[[ImGuiTableColumnFlags.WidthStretch]], 0.70)
+                    ImGui.TableSetupColumn("", 8 --[[ImGuiTableColumnFlags.WidthStretch]], 0.30)
+                    --ImGui::PushStyleVarY(ImGuiStyleVar_ItemSpacing, 0.0f);
+                end
+
+                local clipper = ImGuiListClipper()
+                if st.use_clipper then
+                    clipper:Begin(items.Size)
+                    if item_curr_idx_to_focus ~= -1 then
+                        clipper:IncludeItemByIndex(item_curr_idx_to_focus) -- Ensure focused item is not clipped.
+                    end
+                    if ms_io.RangeSrcItem ~= -1 then
+                        clipper:IncludeItemByIndex(ms_io.RangeSrcItem) -- Ensure RangeSrc item is not clipped.
+                    end
+                end
+
+                while not st.use_clipper or clipper:Step() do
+                    local item_begin = st.use_clipper and clipper.DisplayStart or 0
+                    local item_end = st.use_clipper and clipper.DisplayEnd or items.Size
+                    for n = item_begin, item_end - 1 do
+                        if st.show_in_table then
+                            ImGui.TableNextColumn()
+                        end
+
+                        local item_id = items.Data[n + 1]
+                        local item_category = ExampleNames[item_id % #ExampleNames + 1]
+                        local label = string.format("Object %05d: %s", item_id, item_category)
+
+                        -- IMPORTANT: for deletion refocus to work we need object ID to be stable,
+                        -- aka not depend on their index in the list. Here we use our persistent item_id
+                        -- instead of index to build a unique ID that will persist.
+                        -- (If we used PushID(index) instead, focus wouldn't be restored correctly after deletion).
+                        ImGui.PushID(item_id)
+
+                        -- Emit a color button, to test that Shift+LeftArrow landing on an item that is not part
+                        -- of the selection scope doesn't erroneously alter our selection.
+                        if st.show_color_button then
+                            local dummy_col = bit32.bor((n * 0xC250B74B) % 4294967296, 4278190080 --[[IM_COL32_A_MASK]]) -- [Port] unsigned 32-bit wrap-around
+                            ImGui.ColorButton("##", ImColor(dummy_col).Value, 64 --[[ImGuiColorEditFlags.NoTooltip]], color_button_sz)
+                            ImGui.SameLine()
+                        end
+
+                        -- Submit item
+                        local item_is_selected = selection:Contains(n)
+                        local item_is_open = false
+                        ImGui.SetNextItemSelectionUserData(n)
+                        if st.widget_type == WidgetType_Selectable then
+                            ImGui.Selectable(label, item_is_selected, 0 --[[ImGuiSelectableFlags.None]])
+                        elseif st.widget_type == WidgetType_TreeNode then
+                            local tree_node_flags = bit32.bor(2048 --[[ImGuiTreeNodeFlags.SpanAvailWidth]], 128 --[[ImGuiTreeNodeFlags.OpenOnArrow]], 64 --[[ImGuiTreeNodeFlags.OpenOnDoubleClick]])
+                            if item_is_selected then
+                                tree_node_flags = bit32.bor(tree_node_flags, 1 --[[ImGuiTreeNodeFlags.Selected]])
+                            end
+                            item_is_open = ImGui.TreeNodeEx(label, tree_node_flags)
+                        end
+
+                        -- Focus (for after deletion)
+                        if item_curr_idx_to_focus == n then
+                            ImGui.SetKeyboardFocusHere(-1)
+                        end
+
+                        -- Drag and Drop
+                        if st.use_drag_drop and ImGui.BeginDragDropSource() then
+                            -- Create payload with full selection OR single unselected item.
+                            -- (the later is only possible when using ImGuiMultiSelectFlags_SelectOnClickRelease)
+                            if ImGui.GetDragDropPayload() == nil then
+                                local payload_items = ImVector()
+                                local it = nil
+                                local id = 0
+                                if not item_is_selected then
+                                    payload_items:push_back(item_id)
+                                else
+                                    local has_more
+                                    while true do
+                                        has_more, it, id = selection:GetNextSelectedItem(it)
+                                        if not has_more then break end
+                                        payload_items:push_back(id)
+                                    end
+                                end
+                                ImGui.SetDragDropPayload("MULTISELECT_DEMO_ITEMS", payload_items.Data, payload_items.Size * 4) -- [Port] size_in_bytes() = Size * sizeof(int), payload carries the Lua array
+                            end
+
+                            -- Display payload content in tooltip
+                            local payload = ImGui.GetDragDropPayload()
+                            local payload_items = payload.Data
+                            local payload_count = math.floor(payload.DataSize / 4) -- [Port] sizeof(int) = 4
+                            if payload_count == 1 then
+                                ImGui.Text("Object %05d: %s", payload_items[1], ExampleNames[payload_items[1] % #ExampleNames + 1])
+                            else
+                                ImGui.Text("Dragging %d objects", payload_count)
+                            end
+
+                            ImGui.EndDragDropSource()
+                        end
+
+                        if st.widget_type == WidgetType_TreeNode and item_is_open then
+                            ImGui.TreePop()
+                        end
+
+                        -- Right-click: context menu
+                        if ImGui.BeginPopupContextItem() then
+                            ImGui.BeginDisabled(not st.use_deletion or selection.Size == 0)
+                            label = string.format("Delete %d item(s)###DeleteSelected", selection.Size)
+                            if ImGui.Selectable(label) then
+                                st.request_deletion_from_menu = true
+                            end
+                            ImGui.EndDisabled()
+                            ImGui.Selectable("Close")
+                            ImGui.EndPopup()
+                        end
+
+                        -- Demo content within a table
+                        if st.show_in_table then
+                            ImGui.TableNextColumn()
+                            ImGui.SetNextItemWidth(-1.1754943508223e-38 --[[FLT_MIN]])
+                            ImGui.PushStyleVar(11 --[[ImGuiStyleVar.FramePadding]], ImVec2(0, 0))
+                            -- [Port] InputText() needs a byte buffer: one cached read-only buffer per category (buf_size includes the terminator)
+                            local category_buf = st.item_category_bufs[item_category]
+                            if category_buf == nil then category_buf = ImGui.NewTextBuffer(item_category, #item_category + 1); st.item_category_bufs[item_category] = category_buf end
+                            ImGui.InputText("##NoLabel", category_buf, #item_category + 1, 512 --[[ImGuiInputTextFlags.ReadOnly]])
+                            ImGui.PopStyleVar()
+                        end
+
+                        ImGui.PopID()
+                    end
+                    if not st.use_clipper then
+                        break
+                    end
+                end
+
+                if st.show_in_table then
+                    ImGui.EndTable()
+                    if st.widget_type == WidgetType_TreeNode then
+                        ImGui.PopStyleVar()
+                    end
+                end
+
+                -- Apply multi-select requests
+                ms_io = ImGui.EndMultiSelect()
+                selection:ApplyRequests(ms_io)
+                if want_delete then
+                    selection:ApplyDeletionPostLoop(ms_io, items, item_curr_idx_to_focus)
+                end
+
+                if st.widget_type == WidgetType_TreeNode then
+                    ImGui.PopStyleVar()
+                end
+            end
+            ImGui.EndChild()
+            ImGui.TreePop()
+        end
         ImGui.TreePop()
     end
 end
@@ -31986,13 +32973,440 @@ end
 -- [SECTION] Example App: Assets Browser / ShowExampleAppAssetsBrowser()
 -------------------------------------------------------------------------------
 
+--#include "imgui_internal.h" -- NavMoveRequestTryWrapping()
+
+function ExampleAsset(id, type_)
+    local self = {}
+    self.ID = id   -- ImGuiID
+    self.Type = type_ -- int
+    return self
+end
+
+ExampleAsset_s_current_sort_specs = nil
+
+-- [Port] items: 1-based Lua array (ImVector .Data), sorted in place over [1, items_count].
+local function ExampleAsset_Less(a, b) return ExampleAsset_CompareWithSortSpecs(a, b) < 0 end -- [Port] table.sort wants a "less than" predicate
+function ExampleAsset_SortWithSortSpecs(sort_specs, items, items_count)
+    ExampleAsset_s_current_sort_specs = sort_specs -- Store in variable accessible by the sort function.
+    if items_count > 1 then
+        if items_count == #items then
+            table.sort(items, ExampleAsset_Less)
+        else -- [Port] sort only the used range
+            local tmp = {}
+            for i = 1, items_count do tmp[i] = items[i] end
+            table.sort(tmp, ExampleAsset_Less)
+            for i = 1, items_count do items[i] = tmp[i] end
+        end
+    end
+    ExampleAsset_s_current_sort_specs = nil
+end
+
+-- Compare function to be used by qsort()
+function ExampleAsset_CompareWithSortSpecs(a, b)
+    for n = 0, ExampleAsset_s_current_sort_specs.SpecsCount - 1 do
+        local sort_spec = ExampleAsset_s_current_sort_specs.Specs[n + 1] -- [Port] Specs is a 1-based array
+        local delta = 0
+        if sort_spec.ColumnIndex == 0 then
+            delta = (a.ID - b.ID)
+        elseif sort_spec.ColumnIndex == 1 then
+            delta = (a.Type - b.Type)
+        end
+        if delta > 0 then
+            return (sort_spec.SortDirection == 1 --[[ImGuiSortDirection.Ascending]]) and 1 or -1
+        end
+        if delta < 0 then
+            return (sort_spec.SortDirection == 1 --[[ImGuiSortDirection.Ascending]]) and -1 or 1
+        end
+    end
+    return a.ID - b.ID
+end
+
+local ExampleAssetsBrowserMT = {}
+ExampleAssetsBrowserMT.__index = ExampleAssetsBrowserMT
+function ExampleAssetsBrowser()
+    local self = setmetatable({}, ExampleAssetsBrowserMT)
+    -- Options
+    self.ShowTypeOverlay = true
+    self.AllowSorting = true
+    self.AllowBoxSelect = true                  -- Will set ImGuiMultiSelectFlags.BoxSelect2d
+    self.AllowBoxSelectInsideSelection = false  -- Will set ImGuiMultiSelectFlags.SelectOnClickAlways
+    self.AllowDragUnselected = false            -- Will set ImGuiMultiSelectFlags.SelectOnClickRelease
+    self.IconSize = 0
+    self.IconSpacing = 10
+    self.IconHitSpacing = 4                     -- Increase hit-spacing if you want to make it possible to clear or box-select from gaps. Some spacing is required to able to amend with Shift+box-select. Value is small in Explorer.
+    self.StretchSpacing = true
+    self.UseScrollX = false                     -- Debug: submit twice the number of items per line (overflow horizontally to exercise ScrollX + box-select)
+
+    -- State
+    self.Items = ImVector()                     -- Our items
+    self.Selection = ExampleSelectionWithDeletion() -- Our selection (ImGuiSelectionBasicStorage + helper funcs to handle deletion)
+    self.NextItemId = 0                         -- Unique identifier when creating new items
+    self.RequestDelete = false                  -- Deferred deletion request
+    self.RequestSort = false                    -- Deferred sort request
+    self.ZoomWheelAccum = 0.0                   -- Mouse wheel accumulator to handle smooth wheels better
+
+    -- Calculated sizes for layout, output of UpdateLayoutSizes(). Could be locals but our code is simpler this way.
+    self.LayoutItemSize = ImVec2()
+    self.LayoutItemStep = ImVec2()              -- == LayoutItemSize + LayoutItemSpacing
+    self.LayoutItemSpacing = 0.0
+    self.LayoutSelectableSpacing = 0.0
+    self.LayoutOuterPadding = 0.0
+    self.LayoutColumnCount = 0
+    self.LayoutLineCount = 0
+
+    -- Functions
+    self:AddItems(10000)
+    return self
+end
+function ExampleAssetsBrowserMT:AddItems(count)
+    if self.Items.Size == 0 then
+        self.NextItemId = 0
+    end
+    self.Items:reserve(self.Items.Size + count)
+    for n = 0, count - 1 do
+        self.Items:push_back(ExampleAsset(self.NextItemId, (self.NextItemId % 20) < 15 and 0 or ((self.NextItemId % 20) < 18 and 1 or 2)))
+        self.NextItemId = self.NextItemId + 1
+    end
+    self.RequestSort = true
+end
+function ExampleAssetsBrowserMT:ClearItems()
+    self.Items:clear()
+    self.Selection:Clear()
+end
+
+-- Logic would be written in the main code BeginChild() and outputting to local variables.
+-- We extracted it into a function so we can call it easily from multiple places.
+function ExampleAssetsBrowserMT:UpdateLayoutSizes(avail_width)
+    -- Layout: when not stretching: allow extending into right-most spacing.
+    self.LayoutItemSpacing = self.IconSpacing
+    if self.StretchSpacing == false then
+        avail_width = avail_width + math.floor(self.LayoutItemSpacing * 0.5)
+    end
+
+    -- Layout: calculate number of icon per line and number of lines
+    self.LayoutItemSize = ImVec2(math.floor(self.IconSize), math.floor(self.IconSize))
+    self.LayoutColumnCount = ImMax(ImTrunc(avail_width / (self.LayoutItemSize.x + self.LayoutItemSpacing)), 1)
+
+    -- Layout: when stretching: allocate remaining space to more spacing. Round before division, so item_spacing may be non-integer.
+    if self.StretchSpacing and self.LayoutColumnCount > 1 then
+        self.LayoutItemSpacing = math.floor(avail_width - self.LayoutItemSize.x * self.LayoutColumnCount) / self.LayoutColumnCount
+    end
+
+    if self.UseScrollX then
+        self.LayoutColumnCount = self.LayoutColumnCount * 2
+    end
+    self.LayoutLineCount = math.floor((self.Items.Size + self.LayoutColumnCount - 1) / self.LayoutColumnCount)
+
+    self.LayoutItemStep = ImVec2(self.LayoutItemSize.x + self.LayoutItemSpacing, self.LayoutItemSize.y + self.LayoutItemSpacing)
+    self.LayoutSelectableSpacing = ImMax(math.floor(self.LayoutItemSpacing) - self.IconHitSpacing, 0.0)
+    self.LayoutOuterPadding = math.floor(self.LayoutItemSpacing * 0.5)
+end
+
+-- [Port] the non-capturing C++ lambda assigned every frame, hoisted to a single function (no per-frame closure)
+local function ExampleAssetsBrowser_AdapterIndexToStorageId(self_, idx) local self = self_.UserData; return self.Items.Data[idx + 1].ID end
+
+-- [Port] returns the new p_open
+function ExampleAssetsBrowserMT:Draw(title, p_open)
+    if self.IconSize <= 0.0 then
+        self.IconSize = ImGui.CalcTextSize("99999").x
+    end
+
+    ImGui.SetNextWindowSize(ImVec2(self.IconSize * 25, self.IconSize * 15), 4 --[[ImGuiCond.FirstUseEver]])
+    local visible
+    p_open, visible = ImGui.Begin(title, p_open, 1024 --[[ImGuiWindowFlags.MenuBar]])
+    if not visible then
+        ImGui.End()
+        return p_open
+    end
+    IMGUI_DEMO_MARKER("Examples/Assets Browser")
+
+    local Selection = self.Selection
+    -- Menu bar
+    if ImGui.BeginMenuBar() then
+        if ImGui.BeginMenu("File") then
+            if ImGui.MenuItem("Add 10000 items") then
+                self:AddItems(10000)
+            end
+            if ImGui.MenuItem("Clear items") then
+                self:ClearItems()
+            end
+            ImGui.Separator()
+            if ImGui.MenuItem("Close", nil, false, p_open ~= nil) then
+                p_open = false
+            end
+            ImGui.EndMenu()
+        end
+        if ImGui.BeginMenu("Edit") then
+            if ImGui.MenuItem("Delete", "Del", false, Selection.Size > 0) then
+                self.RequestDelete = true
+            end
+            ImGui.EndMenu()
+        end
+        if ImGui.BeginMenu("Options") then
+            ImGui.PushItemWidth(ImGui.GetFontSize() * 10)
+
+            ImGui.SeparatorText("Contents")
+            _, self.ShowTypeOverlay = ImGui.Checkbox("Show Type Overlay", self.ShowTypeOverlay)
+            _, self.AllowSorting = ImGui.Checkbox("Allow Sorting", self.AllowSorting)
+
+            ImGui.SeparatorText("Selection Behavior")
+            _, self.AllowBoxSelect = ImGui.Checkbox("Allow box-selection", self.AllowBoxSelect)
+            local pressed
+            pressed, self.AllowBoxSelectInsideSelection = ImGui.Checkbox("Allow box-selection from selected items", self.AllowBoxSelectInsideSelection)
+            if pressed and self.AllowBoxSelectInsideSelection then
+                self.AllowDragUnselected = false
+            end
+            pressed, self.AllowDragUnselected = ImGui.Checkbox("Allow dragging unselected item", self.AllowDragUnselected)
+            if pressed and self.AllowDragUnselected then
+                self.AllowBoxSelectInsideSelection = false
+            end
+
+            ImGui.SeparatorText("Layout")
+            self.IconSize = ImGui.SliderFloat("Icon Size", self.IconSize, 16.0, 128.0, "%.0f")
+            ImGui.SameLine(); HelpMarker("Use Ctrl+Wheel to zoom")
+            self.IconSpacing = ImGui.SliderInt("Icon Spacing", self.IconSpacing, 0, 32)
+            self.IconHitSpacing = ImGui.SliderInt("Icon Hit Spacing", self.IconHitSpacing, 0, 32)
+            _, self.StretchSpacing = ImGui.Checkbox("Stretch Spacing", self.StretchSpacing)
+            _, self.UseScrollX = ImGui.Checkbox("Use ScrollX", self.UseScrollX)
+            ImGui.PopItemWidth()
+            ImGui.EndMenu()
+        end
+        ImGui.EndMenuBar()
+    end
+
+    -- Show a table with ONLY one header row to showcase the idea/possibility of using this to provide a sorting UI
+    if self.AllowSorting then
+        ImGui.PushStyleVar(14 --[[ImGuiStyleVar.ItemSpacing]], ImVec2(0, 0))
+        local table_flags_for_sort_specs = bit32.bor(8 --[[ImGuiTableFlags.Sortable]], 67108864 --[[ImGuiTableFlags.SortMulti]], 8192 --[[ImGuiTableFlags.SizingFixedFit]], 1920 --[[ImGuiTableFlags.Borders]])
+        if ImGui.BeginTable("for_sort_specs_only", 2, table_flags_for_sort_specs, ImVec2(0.0, ImGui.GetFrameHeight())) then
+            ImGui.TableSetupColumn("Index")
+            ImGui.TableSetupColumn("Type")
+            ImGui.TableHeadersRow()
+            local sort_specs = ImGui.TableGetSortSpecs()
+            if sort_specs then
+                if sort_specs.SpecsDirty or self.RequestSort then
+                    ExampleAsset_SortWithSortSpecs(sort_specs, self.Items.Data, self.Items.Size)
+                    sort_specs.SpecsDirty = false; self.RequestSort = false
+                end
+            end
+            ImGui.EndTable()
+        end
+        ImGui.PopStyleVar()
+    end
+
+    local io = ImGui.GetIO()
+    ImGui.SetNextWindowContentSize(ImVec2(0.0, self.LayoutOuterPadding + self.LayoutLineCount * (self.LayoutItemSize.y + self.LayoutItemSpacing)))
+    if ImGui.BeginChild("Assets", ImVec2(0.0, -ImGui.GetTextLineHeightWithSpacing()), 1 --[[ImGuiChildFlags.Borders]], bit32.bor(4 --[[ImGuiWindowFlags.NoMove]], 2048 --[[ImGuiWindowFlags.HorizontalScrollbar]])) then
+        local draw_list = ImGui.GetWindowDrawList()
+
+        local avail_width = ImGui.GetContentRegionAvail().x
+        self:UpdateLayoutSizes(avail_width)
+
+        -- Calculate and store start position.
+        local start_pos = ImGui.GetCursorScreenPos()
+        start_pos = ImVec2(start_pos.x + self.LayoutOuterPadding, start_pos.y + self.LayoutOuterPadding)
+        ImGui.SetCursorScreenPos(start_pos)
+
+        -- Multi-select
+        local ms_flags = bit32.bor(512 --[[ImGuiMultiSelectFlags.ClearOnEscape]], 1024 --[[ImGuiMultiSelectFlags.ClearOnClickVoid]])
+
+        -- - Enable box-select (in 2D mode, so that changing box-select rectangle X1/X2 boundaries will affect clipped items)
+        if self.AllowBoxSelect then
+            ms_flags = bit32.bor(ms_flags, 128 --[[ImGuiMultiSelectFlags.BoxSelect2d]])
+        end
+
+        -- - Selection mode
+        if self.AllowDragUnselected then
+            ms_flags = bit32.bor(ms_flags, 32768 --[[ImGuiMultiSelectFlags.SelectOnClickRelease]]) -- Rarely used: Allows dragging an unselected item without selecting it(rarely used)
+        elseif self.AllowBoxSelectInsideSelection then
+            ms_flags = bit32.bor(ms_flags, 16384 --[[ImGuiMultiSelectFlags.SelectOnClickAlways]]) -- Rarely used: Prevents Drag and Drop from being used on multiple-selection, but allows e.g. BoxSelect to always reselect even when clicking inside an existing selection.
+        end
+
+        -- - Enable keyboard wrapping on X axis
+        -- (FIXME-MULTISELECT: We haven't designed/exposed a general nav wrapping api yet, so this flag is provided as a courtesy to avoid doing:
+        --    ImGui.NavMoveRequestTryWrapping(ImGui.GetCurrentWindow(), ImGuiNavMoveFlags.WrapX);
+        -- When we finish implementing a more general API for this, we will obsolete this flag in favor of the new system)
+        ms_flags = bit32.bor(ms_flags, 65536 --[[ImGuiMultiSelectFlags.NavWrapX]])
+
+        local ms_io = ImGui.BeginMultiSelect(ms_flags, Selection.Size, self.Items.Size)
+
+        -- Use custom selection adapter: store ID in selection (recommended)
+        Selection.UserData = self
+        Selection.AdapterIndexToStorageId = ExampleAssetsBrowser_AdapterIndexToStorageId
+        Selection:ApplyRequests(ms_io)
+
+        local want_delete = (ImGui.Shortcut(522 --[[ImGuiKey.Delete]], 1 --[[ImGuiInputFlags.Repeat]]) and (Selection.Size > 0)) or self.RequestDelete
+        local item_curr_idx_to_focus = want_delete and Selection:ApplyDeletionPreLoop(ms_io, self.Items.Size) or -1
+        self.RequestDelete = false
+
+        -- Push LayoutSelectableSpacing (which is LayoutItemSpacing minus hit-spacing, if we decide to have hit gaps between items)
+        -- Altering style ItemSpacing may seem unnecessary as we position every items using SetCursorScreenPos()...
+        -- But it is necessary for two reasons:
+        -- - Selectables uses it by default to visually fill the space between two items.
+        -- - The vertical spacing would be measured by Clipper to calculate line height if we didn't provide it explicitly (here we do).
+        ImGui.PushStyleVar(14 --[[ImGuiStyleVar.ItemSpacing]], ImVec2(self.LayoutSelectableSpacing, self.LayoutSelectableSpacing))
+
+        -- Rendering parameters
+        local icon_type_overlay_colors = { 0, IM_COL32(200, 70, 70, 255), IM_COL32(70, 170, 70, 255) }
+        local icon_bg_color = ImGui.GetColorU32(IM_COL32(35, 35, 35, 220), nil, true) -- [Port] ImU32 overload selected explicitly
+        local icon_type_overlay_size = ImVec2(4.0, 4.0)
+        local display_label = (self.LayoutItemSize.x >= ImGui.CalcTextSize("999").x)
+
+        local column_count = self.LayoutColumnCount
+        local clipper = ImGuiListClipper()
+        clipper:Begin(self.LayoutLineCount, self.LayoutItemStep.y)
+        if item_curr_idx_to_focus ~= -1 then
+            clipper:IncludeItemByIndex(math.floor(item_curr_idx_to_focus / column_count)) -- Ensure focused item line is not clipped.
+        end
+        if ms_io.RangeSrcItem ~= -1 then
+            clipper:IncludeItemByIndex(math.floor(ms_io.RangeSrcItem / column_count)) -- Ensure RangeSrc item line is not clipped.
+        end
+        while clipper:Step() do
+            for line_idx = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+                local item_min_idx_for_current_line = line_idx * column_count
+                local item_max_idx_for_current_line = ImMin((line_idx + 1) * column_count, self.Items.Size)
+                for item_idx = item_min_idx_for_current_line, item_max_idx_for_current_line - 1 do
+                    local item_data = self.Items.Data[item_idx + 1]
+                    ImGui.PushID(item_data.ID)
+
+                    -- Position item
+                    local pos = ImVec2(start_pos.x + (item_idx % column_count) * self.LayoutItemStep.x, start_pos.y + line_idx * self.LayoutItemStep.y)
+                    ImGui.SetCursorScreenPos(pos)
+
+                    ImGui.SetNextItemSelectionUserData(item_idx)
+                    local item_is_selected = Selection:Contains(item_data.ID)
+                    local item_is_visible = ImGui.IsRectVisible(self.LayoutItemSize)
+                    ImGui.Selectable("", item_is_selected, 0 --[[ImGuiSelectableFlags.None]], self.LayoutItemSize)
+
+                    -- Update our selection state immediately (without waiting for EndMultiSelect() requests)
+                    -- because we use this to alter the color of our text/icon.
+                    if ImGui.IsItemToggledSelection() then
+                        item_is_selected = not item_is_selected
+                    end
+
+                    -- Focus (for after deletion)
+                    if item_curr_idx_to_focus == item_idx then
+                        ImGui.SetKeyboardFocusHere(-1)
+                    end
+
+                    -- Drag and drop
+                    if ImGui.BeginDragDropSource() then
+                        -- Create payload with full selection OR single unselected item.
+                        -- (the later is only possible when using ImGuiMultiSelectFlags.SelectOnClickRelease)
+                        if ImGui.GetDragDropPayload() == nil then
+                            local payload_items = ImVector()
+                            local it = nil
+                            local id = 0
+                            if not item_is_selected then
+                                payload_items:push_back(item_data.ID)
+                            else
+                                while true do
+                                    local has_more
+                                    has_more, it, id = Selection:GetNextSelectedItem(it)
+                                    if not has_more then break end
+                                    payload_items:push_back(id)
+                                end
+                            end
+                            ImGui.SetDragDropPayload("ASSETS_BROWSER_ITEMS", payload_items.Data, payload_items.Size * 4) -- [Port] size_in_bytes() with sizeof(ImGuiID) == 4, payload carries the Lua array
+                        end
+
+                        -- Display payload content in tooltip, by extracting it from the payload data
+                        -- (we could read from selection, but it is more correct and reusable to read from payload)
+                        local payload = ImGui.GetDragDropPayload()
+                        local payload_count = math.floor(payload.DataSize / 4) -- [Port] sizeof(ImGuiID) == 4
+                        ImGui.Text("%d assets", payload_count)
+
+                        ImGui.EndDragDropSource()
+                    end
+
+                    -- Render icon (a real app would likely display an image/thumbnail here)
+                    -- Because we use ImGuiMultiSelectFlags.BoxSelect2d, clipping vertical may occasionally be larger, so we coarse-clip our rendering as well.
+                    if item_is_visible then
+                        local box_min = ImVec2(pos.x - 1, pos.y - 1)
+                        local box_max = ImVec2(box_min.x + self.LayoutItemSize.x + 2, box_min.y + self.LayoutItemSize.y + 2) -- Dubious
+                        draw_list:AddRectFilled(box_min, box_max, icon_bg_color) -- Background color
+                        if self.ShowTypeOverlay and item_data.Type ~= 0 then
+                            local type_col = icon_type_overlay_colors[(item_data.Type % #icon_type_overlay_colors) + 1]
+                            draw_list:AddRectFilled(ImVec2(box_max.x - 2 - icon_type_overlay_size.x, box_min.y + 2), ImVec2(box_max.x - 2, box_min.y + 2 + icon_type_overlay_size.y), type_col)
+                        end
+                        if display_label then
+                            local label_col = ImGui.GetColorU32(item_is_selected and 0 --[[ImGuiCol.Text]] or 1 --[[ImGuiCol.TextDisabled]])
+                            local label = string.format("%d", item_data.ID)
+                            draw_list:AddText(ImVec2(box_min.x, box_max.y - ImGui.GetFontSize()), label_col, label)
+                        end
+                    end
+
+                    ImGui.PopID()
+                end
+            end
+        end
+        clipper:End()
+        if self.Items.Size == 0 then
+            ImGui.Dummy(ImVec2(0, 0))
+        end
+        ImGui.PopStyleVar() -- ImGuiStyleVar.ItemSpacing
+
+        -- Context menu
+        if ImGui.BeginPopupContextWindow() then
+            ImGui.Text("Selection: %d items", Selection.Size)
+            ImGui.Separator()
+            if ImGui.MenuItem("Delete", "Del", false, Selection.Size > 0) then
+                self.RequestDelete = true
+            end
+            ImGui.EndPopup()
+        end
+
+        ms_io = ImGui.EndMultiSelect()
+        Selection:ApplyRequests(ms_io)
+        if want_delete then
+            Selection:ApplyDeletionPostLoop(ms_io, self.Items, item_curr_idx_to_focus)
+        end
+
+        -- Zooming with Ctrl+Wheel
+        if ImGui.IsWindowAppearing() then
+            self.ZoomWheelAccum = 0.0
+        end
+        if ImGui.IsWindowHovered() and io.MouseWheel ~= 0.0 and ImGui.IsKeyDown(4096 --[[ImGuiMod_Ctrl]]) and ImGui.IsAnyItemActive() == false then
+            self.ZoomWheelAccum = self.ZoomWheelAccum + io.MouseWheel
+            if math.abs(self.ZoomWheelAccum) >= 1.0 then
+                -- Calculate hovered item index from mouse location
+                -- FIXME: Locking aiming on 'hovered_item_idx' (with a cool-down timer) would ensure zoom keeps on it.
+                local hovered_item_nx = (io.MousePos.x - start_pos.x + self.LayoutItemSpacing * 0.5) / self.LayoutItemStep.x
+                local hovered_item_ny = (io.MousePos.y - start_pos.y + self.LayoutItemSpacing * 0.5) / self.LayoutItemStep.y
+                local hovered_item_idx = (ImTrunc(hovered_item_ny) * self.LayoutColumnCount) + ImTrunc(hovered_item_nx)
+                --ImGui.SetTooltip("%f,%f -> item %d", hovered_item_nx, hovered_item_ny, hovered_item_idx); -- Move those 4 lines in block above for easy debugging
+
+                -- Zoom
+                self.IconSize = self.IconSize * (1.1 ^ ImTrunc(self.ZoomWheelAccum))
+                self.IconSize = ImClamp(self.IconSize, 16.0, 128.0)
+                self.ZoomWheelAccum = self.ZoomWheelAccum - ImTrunc(self.ZoomWheelAccum)
+                self:UpdateLayoutSizes(avail_width)
+
+                -- Manipulate scroll to that we will land at the same Y location of currently hovered item.
+                -- - Calculate next frame position of item under mouse
+                -- - Set new scroll position to be used in next ImGui.BeginChild() call.
+                local hovered_item_rel_pos_y = (ImTrunc(hovered_item_idx / self.LayoutColumnCount) + math.fmod(hovered_item_ny, 1.0)) * self.LayoutItemStep.y
+                hovered_item_rel_pos_y = hovered_item_rel_pos_y + ImGui.GetStyle().WindowPadding.y
+                local mouse_local_y = io.MousePos.y - ImGui.GetWindowPos().y
+                ImGui.SetScrollY(hovered_item_rel_pos_y - mouse_local_y)
+            end
+        end
+    end
+    ImGui.EndChild()
+
+    ImGui.Text("Selected: %d/%d items", Selection.Size, self.Items.Size)
+    ImGui.End()
+    return p_open
+end
+
+S.ShowExampleAppAssetsBrowser = {
+    assets_browser = nil, -- static ExampleAssetsBrowser assets_browser; -- [Port] created lazily on first call (10000 items)
+}
 function ShowExampleAppAssetsBrowser(p_open)
     IMGUI_DEMO_MARKER("Examples/Assets Browser")
-    -- [Port] TODO: ExampleAssetsBrowser needs BeginMultiSelect()/box-select
-    local open, visible = ImGui.Begin("Example: Assets Browser", p_open)
-    if visible then ImGui.TextDisabled("(multi-select API not ported yet)") end
-    ImGui.End()
-    return open
+    local s = S.ShowExampleAppAssetsBrowser
+    if s.assets_browser == nil then s.assets_browser = ExampleAssetsBrowser() end
+    return s.assets_browser:Draw("Example: Assets Browser", p_open)
 end
 
 return true
@@ -41590,7 +43004,7 @@ function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
 
 
- -- Decent replacement for floorf()
+ -- Decent replacement for floorf() -- [Luau] upstream: (int)f truncates, -1 for negatives == math.floor
 
 -- Helpers: Bit manipulation
 --- @param v int
@@ -67318,11 +68732,21 @@ return {
     ExampleAppLogMT = ExampleAppLogMT,
     ExampleAppPropertyEditor = ExampleAppPropertyEditor,
     ExampleAppPropertyEditorMT = ExampleAppPropertyEditorMT,
+    ExampleAsset = ExampleAsset,
+    ExampleAsset_CompareWithSortSpecs = ExampleAsset_CompareWithSortSpecs,
+    ExampleAsset_SortWithSortSpecs = ExampleAsset_SortWithSortSpecs,
+    ExampleAsset_s_current_sort_specs = ExampleAsset_s_current_sort_specs,
+    ExampleAssetsBrowser = ExampleAssetsBrowser,
+    ExampleDualListBox = ExampleDualListBox,
+    ExampleDualListBoxMT = ExampleDualListBoxMT,
     ExampleImageViewerData = ExampleImageViewerData,
     ExampleImageViewer_DrawCanvas = ExampleImageViewer_DrawCanvas,
     ExampleImageViewer_DrawOptions = ExampleImageViewer_DrawOptions,
     ExampleMemberInfo = ExampleMemberInfo,
     ExampleNames = ExampleNames,
+    ExampleSelectionWithDeletion = ExampleSelectionWithDeletion,
+    ExampleSelectionWithDeletionMT = ExampleSelectionWithDeletionMT,
+    ExampleTreeFuncs = ExampleTreeFuncs,
     ExampleTreeNode = ExampleTreeNode,
     ExampleTreeNodeMemberInfos = ExampleTreeNodeMemberInfos,
     ExampleTree_CreateDemoTree = ExampleTree_CreateDemoTree,

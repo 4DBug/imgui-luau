@@ -263,7 +263,7 @@ function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
 
 --@hoist
-function ImFloor(f) if f >= 0 or math.floor(f) == f then return math.floor(f) else return math.floor(f) - 1 end end -- Decent replacement for floorf()
+function ImFloor(f) return math.floor(f) end -- Decent replacement for floorf() -- [Luau] upstream: (int)f truncates, -1 for negatives == math.floor
 
 -- Helpers: Bit manipulation
 --- @param v int
