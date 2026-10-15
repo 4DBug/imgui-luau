@@ -2598,12 +2598,14 @@ function ImGui.RoundScalarWithFormatT(format, data_type, v)
         return v -- Don't apply if the value is not visible in the format string
     end
 
-    -- TODO: Sanitize format
+    -- Sanitize format
+    local fmt_sanitized = ImParseFormatSanitizeForPrinting(string.sub(format, fmt_start), nil, 32)
 
     -- Format value with our rounding, and read back
-    local str = ImFormatString(format, v)
+    local v_str = ImFormatString(fmt_sanitized, v)
+    -- [Luau] leading spaces: ImAtof() skips them
 
-    v = ImAtof(str) or v
+    v = ImAtof(v_str) or v
     return v
 end
 
@@ -2687,6 +2689,30 @@ local function ImParseFormatTrimDecorations(fmt)
         return string.sub(fmt, fmt_start)
     end
     return string.sub(fmt, fmt_start, fmt_end - 1)
+end
+
+-- Sanitize format
+-- - Zero terminate so extra characters after format (e.g. "%f123") don't confuse atof/atoi
+-- - stb_sprintf.h supports several new modifiers which format numbers in a way that also makes them incompatible atof/atoi.
+-- [Luau] fmt_out is a byte table (may be nil); returns the sanitized format as a string
+--- @param fmt_in       string
+--- @param fmt_out      char[]?
+--- @param fmt_out_size size_t
+function ImParseFormatSanitizeForPrinting(fmt_in, fmt_out, fmt_out_size)
+    local fmt_end = ImParseFormatFindEnd(fmt_in, 1)
+    -- IM_UNUSED(fmt_out_size)
+    IM_ASSERT(fmt_end < fmt_out_size) -- Format is too long, let us know if this happens to you!
+    fmt_out = fmt_out or {}
+    local n = 0
+    for i = 1, fmt_end - 1 do
+        local c = string.byte(fmt_in, i)
+        if c ~= 39 and c ~= 36 and c ~= 95 then -- Custom flags provided by stb_sprintf.h. POSIX 2008 also supports '.
+            n = n + 1
+            fmt_out[n] = c
+        end
+    end
+    fmt_out[n + 1] = 0 -- Zero-terminate
+    return string.char(unpack(fmt_out, 1, n))
 end
 
 -- - For scanning we need to remove all width and precision fields and flags "%+3.7f" -> "%f". BUT don't strip types like "%I64d" which includes digits. ! "%07I64d" -> "%I64d"
@@ -3290,6 +3316,18 @@ function ImGui.DragBehaviorT(TYPE, SIGNEDTYPE, data_type, v, v_speed, v_min, v_m
     return v, true
 end
 
+local function ShortcutsForCancel(id)
+    local g = GImGui
+    local is_cancel_with_keyboard = ImGui.Shortcut(ImGuiKey.Escape, ImGuiInputFlags.None, id)
+    -- [Luau] ImGuiKey_NavGamepadCancel macro inlined (io.ConfigNavSwapGamepadButtons is not ported: always FaceRight)
+    local is_cancel_with_gamepad = bit32.band(g.IO.ConfigFlags, ImGuiConfigFlags.NavEnableGamepad) ~= 0 and bit32.band(g.IO.BackendFlags, ImGuiBackendFlags.HasGamepad) ~= 0 and ImGui.Shortcut(ImGuiKey.GamepadFaceRight, ImGuiInputFlags.None, id)
+    local is_cancel_with_mouse = ImGui.IsMouseReleased(ImGuiMouseButton.Right, id)
+    if is_cancel_with_mouse then
+        ImGui.SetKeyOwner(ImGuiKey.MouseRight, id)
+    end
+    return is_cancel_with_keyboard or is_cancel_with_gamepad or is_cancel_with_mouse
+end
+
 --- @param id        ImGuiID
 --- @param data_type ImGuiDataType
 --- @param v         number
@@ -3310,6 +3348,13 @@ function ImGui.DragBehavior(id, data_type, v, v_speed, min, max, format, flags)
             ImGui.ClearActiveID()
         elseif (g.ActiveIdSource == ImGuiInputSource.Keyboard or g.ActiveIdSource == ImGuiInputSource.Gamepad) and g.NavActivatePressedId == id and not g.ActiveIdIsJustActivated then
             ImGui.ClearActiveID()
+        end
+        if ShortcutsForCancel(id) and g.ActiveId == id then
+            -- Canceling action reverts to initial value
+            local value_changed = (v ~= g.ActiveIdValueOnActivation)
+            v = g.ActiveIdValueOnActivation
+            ImGui.ClearActiveID()
+            return v, value_changed
         end
     end
     if g.ActiveId ~= id then
@@ -3869,9 +3914,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
         local set_new_value = false
         local clicked_t = 0.0
         if g.ActiveIdSource == ImGuiInputSource.Mouse then
-            if not g.IO.MouseDown[0] then
-                ImGui.ClearActiveID()
-            else
+            do
                 local mouse_abs_pos = g.IO.MousePos[axis_k]
                 if g.ActiveIdIsJustActivated then
                     local grab_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
@@ -3891,11 +3934,6 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
                 set_new_value = true
             end
         elseif g.ActiveIdSource == ImGuiInputSource.Keyboard or g.ActiveIdSource == ImGuiInputSource.Gamepad then
-            if g.ActiveIdIsJustActivated then
-                g.SliderCurrentAccum = 0.0 -- Reset any stored nav delta upon activation
-                g.SliderCurrentAccumDirty = false
-            end
-
             local input_delta = (axis == ImGuiAxis.X) and ImGui.GetNavTweakPressedAmount(axis) or -ImGui.GetNavTweakPressedAmount(axis)
             if input_delta ~= 0.0 then
                 local tweak_slow = ImGui.IsKeyDown((g.NavInputSource == ImGuiInputSource.Gamepad) and ImGuiKey.NavGamepadTweakSlow or ImGuiKey.NavKeyboardTweakSlow)
@@ -3922,9 +3960,7 @@ function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_
             end
 
             local delta = g.SliderCurrentAccum
-            if g.NavActivatePressedId == id and not g.ActiveIdIsJustActivated then
-                ImGui.ClearActiveID()
-            elseif g.SliderCurrentAccumDirty then
+            if g.SliderCurrentAccumDirty then
                 clicked_t = ImGui.ScaleRatioFromValueT(data_type, v, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize)
 
                 if (clicked_t >= 1.0 and delta > 0.0) or (clicked_t <= 0.0 and delta < 0.0) then -- This is to avoid applying the saturation when already past the limits
@@ -4015,6 +4051,30 @@ function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out
     -- Read imgui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this assert.
     IM_ASSERT((flags == 1 or bit32.band(flags, ImGuiSliderFlags.InvalidMask_) == 0), "Invalid ImGuiSliderFlags flags! Has the legacy 'float power' argument been mistakenly cast to flags? Call function with ImGuiSliderFlags_Logarithmic flags instead.")
     IM_ASSERT(bit32.band(flags, ImGuiSliderFlags.WrapAround) == 0) -- Not supported by SliderXXX(), only by DragXXX()
+
+    -- Things we can do easily outside the SliderBehaviorT<> template, saves code generation.
+    local g = GImGui
+    if g.ActiveId == id then
+        if g.ActiveIdSource == ImGuiInputSource.Mouse and not g.IO.MouseDown[0] then
+            ImGui.ClearActiveID()
+        end
+        if g.ActiveIdSource == ImGuiInputSource.Keyboard or g.ActiveIdSource == ImGuiInputSource.Gamepad then
+            if g.ActiveIdIsJustActivated then
+                g.SliderCurrentAccum = 0.0 -- Reset any stored nav delta upon activation
+                g.SliderCurrentAccumDirty = false
+            end
+            if g.NavActivatePressedId == id and not g.ActiveIdIsJustActivated then
+                ImGui.ClearActiveID()
+            end
+        end
+        if ShortcutsForCancel(id) and g.ActiveId == id then
+            -- Canceling action reverts to initial value
+            local value_changed = (v ~= g.ActiveIdValueOnActivation)
+            v = g.ActiveIdValueOnActivation
+            ImGui.ClearActiveID()
+            return v, value_changed
+        end
+    end
 
     if     data_type == ImGuiDataType.S8 then
         local v32 = (ImS32)((ImS8)(v)); local r
@@ -4602,7 +4662,7 @@ end
 
 --- @param obj ImGuiInputTextState
 --- @param idx int
-local function STB_TEXTEDIT_MOVEWORDRIGHT_MAC(obj, idx)
+function ImStb.TEXTEDIT_MOVEWORDRIGHT_MAC(obj, idx)
     local len = obj.TextLen
     idx = ImStb.TEXTEDIT_GETNEXTCHARINDEX(obj, idx)
     while idx <= len and not ImStb.is_word_boundary_from_left(obj, idx) do
@@ -4613,7 +4673,7 @@ end
 
 --- @param obj ImGuiInputTextState
 --- @param idx int
-local function STB_TEXTEDIT_MOVEWORDRIGHT_WIN(obj, idx)
+function ImStb.TEXTEDIT_MOVEWORDRIGHT_WIN(obj, idx)
     idx = ImStb.TEXTEDIT_GETNEXTCHARINDEX(obj, idx)
     local len = obj.TextLen
     while idx <= len and not ImStb.is_word_boundary_from_right(obj, idx) do
@@ -4627,9 +4687,9 @@ end
 function ImStb.TEXTEDIT_MOVEWORDRIGHT(obj, idx)
     local g = obj.Ctx
     if g.IO.ConfigMacOSXBehaviors then
-        return STB_TEXTEDIT_MOVEWORDRIGHT_MAC(obj, idx)
+        return ImStb.TEXTEDIT_MOVEWORDRIGHT_MAC(obj, idx)
     else
-        return STB_TEXTEDIT_MOVEWORDRIGHT_WIN(obj, idx)
+        return ImStb.TEXTEDIT_MOVEWORDRIGHT_WIN(obj, idx)
     end
 end
 
@@ -4830,6 +4890,13 @@ function MT.ImGuiInputTextState:CursorClamp()
 end
 
 function MT.ImGuiInputTextState:HasSelection() return self.Stb.select_start ~= self.Stb.select_end end
+function MT.ImGuiInputTextState:ClearSelection() self.Stb.select_start = self.Stb.cursor; self.Stb.select_end = self.Stb.cursor end
+-- [Luau] positions are 1-based byte indices (upstream: 0-based)
+function MT.ImGuiInputTextState:GetCursorPos() return self.Stb.cursor end
+function MT.ImGuiInputTextState:GetSelectionStart() return self.Stb.select_start end
+function MT.ImGuiInputTextState:GetSelectionEnd() return self.Stb.select_end end
+function MT.ImGuiInputTextState:SetSelection(start, _end) self.Stb.select_start = start; self.Stb.cursor = _end; self.Stb.select_end = _end end
+function MT.ImGuiInputTextState:GetPreferredOffsetX() if self.Stb.has_preferred_x then return self.Stb.preferred_x else return -1 end end
 
 function MT.ImGuiInputTextState:SelectAll()
     self.Stb.select_start = 1
@@ -4837,6 +4904,10 @@ function MT.ImGuiInputTextState:SelectAll()
     self.Stb.select_end = self.TextLen + 1
     self.Stb.has_preferred_x = false
 end
+
+function MT.ImGuiInputTextState:ReloadUserBufAndSelectAll() self.WantReloadUserBuf = true; self.ReloadSelectionStart = 1; self.ReloadSelectionEnd = INT_MAX end
+function MT.ImGuiInputTextState:ReloadUserBufAndKeepSelection() self.WantReloadUserBuf = true; self.ReloadSelectionStart = self.Stb.select_start; self.ReloadSelectionEnd = self.Stb.select_end end
+function MT.ImGuiInputTextState:ReloadUserBufAndMoveToEnd() self.WantReloadUserBuf = true; self.ReloadSelectionStart = INT_MAX; self.ReloadSelectionEnd = INT_MAX end
 
 end
 
@@ -4989,9 +5060,9 @@ local function InputTextFilterCharacter(ctx, state, char, callback, user_data, i
         callback_data.EventFlag = ImGuiInputTextFlags.CallbackCharFilter
         callback_data.EventChar = c
         callback_data.EventActivated = (state ~= nil and g.ActiveId == state.ID and g.ActiveIdIsJustActivated)
-        callback_data.CursorPos = state.Stb.cursor
-        callback_data.SelectionStart = state.Stb.select_start
-        callback_data.SelectionEnd = state.Stb.select_end
+        callback_data.CursorPos = state.Stb.cursor - 1 -- [Luau] callback positions are 0-based
+        callback_data.SelectionStart = state.Stb.select_start - 1
+        callback_data.SelectionEnd = state.Stb.select_end - 1
         callback_data.UserData = user_data
         if callback(callback_data) ~= 0 then
             return char, false
@@ -5573,7 +5644,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 if not stbte.HAS_SELECTION(state.Stb) then
                     stbte.prep_selection_at_cursor(state.Stb)
                 end
-                state.Stb.cursor = STB_TEXTEDIT_MOVEWORDRIGHT_MAC(state, state.Stb.cursor)
+                state.Stb.cursor = ImStb.TEXTEDIT_MOVEWORDRIGHT_MAC(state, state.Stb.cursor)
                 state.Stb.select_end = state.Stb.cursor
                 stbte.clamp(state, state.Stb)
             else
@@ -5902,9 +5973,9 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 callback_data.BufTextLen = state.TextLen
                 callback_data.BufSize = state.BufCapacity
                 callback_data.BufDirty = false
-                callback_data.CursorPos = state.Stb.cursor
-                callback_data.SelectionStart = state.Stb.select_start
-                callback_data.SelectionEnd = state.Stb.select_end
+                callback_data.CursorPos = state.Stb.cursor - 1 -- [Luau] callback positions are 0-based, stb ones 1-based
+                callback_data.SelectionStart = state.Stb.select_start - 1
+                callback_data.SelectionEnd = state.Stb.select_end - 1
 
                 -- Call user code
                 callback(callback_data)
@@ -5914,12 +5985,12 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 IM_ASSERT(callback_data.Buf == callback_buf) -- Invalid to modify those fields
                 IM_ASSERT(callback_data.BufSize == state.BufCapacity)
                 IM_ASSERT(callback_data.Flags == flags)
-                if callback_data.BufDirty or callback_data.CursorPos ~= state.Stb.cursor then
+                if callback_data.BufDirty or callback_data.CursorPos ~= state.Stb.cursor - 1 then
                     state.CursorFollow = true
                 end
-                state.Stb.cursor = ImClamp(callback_data.CursorPos, 0, callback_data.BufTextLen)
-                state.Stb.select_start = ImClamp(callback_data.SelectionStart, 0, callback_data.BufTextLen)
-                state.Stb.select_end = ImClamp(callback_data.SelectionEnd, 0, callback_data.BufTextLen)
+                state.Stb.cursor = ImClamp(callback_data.CursorPos, 0, callback_data.BufTextLen) + 1
+                state.Stb.select_start = ImClamp(callback_data.SelectionStart, 0, callback_data.BufTextLen) + 1
+                state.Stb.select_end = ImClamp(callback_data.SelectionEnd, 0, callback_data.BufTextLen) + 1
                 if callback_data.BufDirty then
                     -- Callback may update buffer and thus set buf_dirty even in read-only mode.
                     IM_ASSERT(callback_data.BufTextLen == ImStd.ImStrlen(callback_data.Buf)) -- You need to maintain BufTextLen if you change the text!
@@ -6281,6 +6352,47 @@ function ImGui.InputTextWithHint(label, hint, buf, buf_size, flags, callback, us
 
     IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0) -- call InputTextMultiline() or  InputTextEx() manually if you need multi-line + hint.
     return ImGui.InputTextEx(label, hint, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
+end
+
+-- [Luau] stb positions/undo indices are 1-based in this port (displayed as-is)
+--- @param state ImGuiInputTextState
+function ImGui.DebugNodeInputTextState(state)
+    local g = GImGui
+    local stb_state = state.Stb
+    local undo_state = stb_state.undostate
+    ImGui.Text("ID: 0x%08X, ActiveID: 0x%08X", state.ID, g.ActiveId)
+    if ImGui.DebugLocateItemOnHover then ImGui.DebugLocateItemOnHover(state.ID) end -- [Luau] not ported yet
+    local wrap_dir = ""
+    if bit32.band(state.Flags, ImGuiInputTextFlags.WordWrap) ~= 0 then
+        if state.LastMoveDirectionLR == ImGuiDir.Left then wrap_dir = " (L)" else wrap_dir = " (R)" end
+    end
+    ImGui.Text("TextLen: %d, Cursor: %d%s, Selection: %d..%d", state.TextLen, stb_state.cursor, wrap_dir, stb_state.select_start, stb_state.select_end)
+    ImGui.Text("BufCapacity: %d, LineCount: %d", state.BufCapacity, state.LineCount)
+    ImGui.Text("(Internal Buffer: TextA Size: %d, Capacity: %d)", state.TextA.Size, state.TextA.Capacity)
+    ImGui.Text("has_preferred_x: %d (%.2f)", stb_state.has_preferred_x and 1 or 0, stb_state.preferred_x)
+    ImGui.Text("undo_point: %d, redo_point: %d, undo_char_point: %d, redo_char_point: %d", undo_state.undo_point, undo_state.redo_point, undo_state.undo_char_point, undo_state.redo_char_point)
+    if ImGui.BeginChild("undopoints", ImVec2(0.0, ImGui.GetTextLineHeight() * 10), bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeY)) then -- Visualize undo state
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(0, 0))
+        for n = 1, IMSTB_TEXTEDIT_UNDOSTATECOUNT do
+            local undo_rec = undo_state.undo_rec[n]
+            local undo_rec_type = (n < undo_state.undo_point) and "u" or ((n >= undo_state.redo_point) and "r" or " ")
+            if undo_rec_type == " " then
+                ImGui.BeginDisabled()
+            end
+            local buf_preview_len = (undo_rec_type ~= " " and undo_rec.char_storage ~= -1) and undo_rec.insert_length or 0
+            local buf_preview_str = ""
+            if buf_preview_len > 0 then
+                buf_preview_str = string.char(unpack(undo_state.undo_char, undo_rec.char_storage, undo_rec.char_storage + buf_preview_len - 1))
+            end
+            ImGui.Text("%s [%02d] where %03d, insert %03d, delete %03d, char_storage %03d \"%s\"",
+                undo_rec_type, n, undo_rec.where, undo_rec.insert_length, undo_rec.delete_length, undo_rec.char_storage, buf_preview_str)
+            if undo_rec_type == " " then
+                ImGui.EndDisabled()
+            end
+        end
+        ImGui.PopStyleVar()
+    end
+    ImGui.EndChild()
 end
 
 -------------------------------------------------------------------------------
@@ -10648,14 +10760,37 @@ local function TabItemGetSectionIdx(tab)
     return 1
 end
 
+-- [Luau] comparers return a boolean "less than" for table.sort (upstream: ImQsort int comparers)
+local function TabItemComparerBySection(a, b)
+    if a == nil or b == nil then return false end
+    local a_section = TabItemGetSectionIdx(a)
+    local b_section = TabItemGetSectionIdx(b)
+    if a_section ~= b_section then
+        return a_section < b_section
+    end
+    return a.IndexDuringLayout < b.IndexDuringLayout
+end
+
+local function TabItemComparerByBeginOrder(a, b)
+    return a.BeginOrder < b.BeginOrder
+end
+
+local function GetTabBarFromTabBarRef(ref)
+    local g = GImGui
+    if ref.Ptr then return ref.Ptr else return g.TabBars:GetByIndex(ref.Index) end
+end
+
+local function GetTabBarRefFromTabBar(tab_bar)
+    local g = GImGui
+    if g.TabBars:Contains(tab_bar) then
+        return ImGuiPtrOrIndex(g.TabBars:GetIndex(tab_bar))
+    end
+    return ImGuiPtrOrIndex(tab_bar)
+end
+
 -- Stable sorts (C++ ImQsort is not stable, but the comparers are total orders in practice)
 local function SortTabsBySection(tab_bar)
-    table.sort(tab_bar.Tabs.Data, function(a, b)
-        if a == nil or b == nil then return false end
-        local sa, sb = TabItemGetSectionIdx(a), TabItemGetSectionIdx(b)
-        if sa ~= sb then return sa < sb end
-        return a.IndexDuringLayout < b.IndexDuringLayout
-    end)
+    table.sort(tab_bar.Tabs.Data, TabItemComparerBySection)
 end
 
 local function SortTabsByBeginOrder(tab_bar)
@@ -10663,7 +10798,7 @@ local function SortTabsByBeginOrder(tab_bar)
     if not data then return end
     local arr = {}
     for i = 1, tab_bar.Tabs.Size do arr[i] = data[i] end
-    table.sort(arr, function(a, b) return a.BeginOrder < b.BeginOrder end)
+    table.sort(arr, TabItemComparerByBeginOrder)
     for i = 1, tab_bar.Tabs.Size do data[i] = arr[i] end
 end
 
@@ -10676,6 +10811,12 @@ end
 -- Width: Sum of width of tabs in this section (after shrinking down)
 -- Spacing: Horizontal spacing at the end of the section.
 local function ImGuiTabBarSection() return { TabCount = 0, Width = 0.0, WidthAfterShrinkMinWidth = 0.0, Spacing = 0.0 } end
+
+-- [Luau] boolean "less than" for table.sort. Width compared exactly: upstream's (int) truncation isn't a strict weak order, which table.sort rejects
+local function ShrinkWidthItemComparer(a, b)
+    if a.Width ~= b.Width then return a.Width > b.Width end
+    return a.Index > b.Index -- b->Index - a->Index
+end
 
 -- Shrink excess width from a set of item, by removing width from the larger items first.
 -- Set items Width to -1.0f to disable shrinking this item.
@@ -10690,10 +10831,7 @@ function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
     -- Sort largest first, smallest last.
     local slice = {}
     for n = 1, count do slice[n] = items[first + n - 1] end
-    table.sort(slice, function(a, b)
-        if a.Width ~= b.Width then return a.Width > b.Width end
-        return a.Index > b.Index -- ShrinkWidthItemComparer: b->Index - a->Index (Width compared exactly: upstream's (int) truncation isn't a strict weak order, which table.sort rejects)
-    end)
+    table.sort(slice, ShrinkWidthItemComparer)
     for n = 1, count do items[first + n - 1] = slice[n] end
     local it = slice
     local count_same_width = 1
@@ -10804,7 +10942,7 @@ function ImGui.BeginTabBarEx(tab_bar, tab_bar_bb, flags)
     end
 
     -- Add to stack
-    g.CurrentTabBarStack:push_back(tab_bar)
+    g.CurrentTabBarStack:push_back(GetTabBarRefFromTabBar(tab_bar))
     g.CurrentTabBar = tab_bar
     tab_bar.Window = window
 
@@ -10886,7 +11024,7 @@ function ImGui.EndTabBar()
     end
 
     g.CurrentTabBarStack:pop_back()
-    if g.CurrentTabBarStack.Size == 0 then g.CurrentTabBar = nil else g.CurrentTabBar = g.CurrentTabBarStack.Data[g.CurrentTabBarStack.Size] end
+    if g.CurrentTabBarStack.Size == 0 then g.CurrentTabBar = nil else g.CurrentTabBar = GetTabBarFromTabBarRef(g.CurrentTabBarStack:back()) end
 end
 
 -- This is called only once a frame before by the first call to ItemTab()

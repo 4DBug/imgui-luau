@@ -706,6 +706,27 @@ function ImCharIsBlankA(c) return c == 32 or c == 9 end
 --- @param c char
 function ImCharIsBlankW(c) return c == 32 or c == 9 or c == 0x3000 end
 
+--- @param c char
+function ImCharIsXdigitA(c) return (c >= 48 and c <= 57) or (c >= 65 and c <= 70) or (c >= 97 and c <= 102) end
+
+--- @param lhs        ImVec2
+--- @param fail_value float
+function ImInvLength(lhs, fail_value) local d = (lhs.x * lhs.x) + (lhs.y * lhs.y); if d > 0.0 then return ImRsqrt(d) end; return fail_value end
+function ImRoundPositive64(f) return _Trunc(f + 0.5) end -- Positive values only.
+function ImRoundSigned64(f) if f >= 0.0 then return _Trunc(f + 0.5) else return _Trunc(f - 0.5) end end
+-- [Luau] C '%' truncates toward zero; math.fmod matches it
+function ImModPositive(a, b) return math.fmod(a + b, b) end
+function ImIsFloatAboveGuaranteedIntegerPrecision(f) return f <= -16777216 or f >= 16777216 end
+
+-- Helper: ImVec2i (2D vector, integer) / ImVec2ih (2D vector, half-size integer, for long-term packed storage)
+-- [Luau] both are plain ImVec2 holding whole numbers
+function ImVec2i(x, y) return ImVec2(x or 0, y or 0) end
+--- @overload fun(rhs: ImVec2): ImVec2
+function ImVec2ih(x, y)
+    if type(x) == "table" then return ImVec2(_Trunc(x.x), _Trunc(x.y)) end
+    return ImVec2(x or 0, y or 0)
+end
+
 --- @enum ImGuiNavMoveFlags
 ImGuiNavMoveFlags =
 {
@@ -1004,6 +1025,28 @@ function ImBitArraySetBit(arr, n)
     arr[idx] = bitOr(arr[idx], mask)
 end
 
+-- [Luau] bit arrays are ImU32[] tables with 1-based word indices; bit indices 'n' are 1-based like the functions above
+--- @param bitcount int
+function ImBitArrayGetStorageSizeInBytes(bitcount) return bitLShift(bitRShift(bitcount + 31, 5), 2) end
+--- @param arr      ImU32[]
+--- @param bitcount int
+function ImBitArrayClearAllBits(arr, bitcount) for i = 1, bitRShift(bitcount + 31, 5) do arr[i] = 0 end end
+function ImBitArrayTestBit(arr, n) local mask = bitLShift(1, bitAnd(n - 1, 31)); return bitAnd(arr[bitRShift(n - 1, 5) + 1], mask) ~= 0 end
+function ImBitArrayClearBit(arr, n) local mask = bitLShift(1, bitAnd(n - 1, 31)); local idx = bitRShift(n - 1, 5) + 1; arr[idx] = bitAnd(arr[idx], bitNot(mask)) end
+-- Works on range [n..n2)
+function ImBitArraySetBitRange(arr, n, n2)
+    n = n - 1; n2 = n2 - 1 -- [Luau] to 0-based
+    n2 = n2 - 1
+    while n <= n2 do
+        local a_mod = bitAnd(n, 31)
+        local b_mod = ((n2 > bitOr(n, 31)) and 31 or bitAnd(n2, 31)) + 1
+        local mask = bitAnd(2 ^ b_mod - 1, bitNot(2 ^ a_mod - 1))
+        local idx = bitRShift(n, 5) + 1
+        arr[idx] = bitOr(arr[idx], mask)
+        n = bitAnd(n + 32, bitNot(31))
+    end
+end
+
 -- Bit array for named keys
 --- @alias ImBitArrayForNamedKeys ImBitArray
 
@@ -1030,10 +1073,29 @@ function ImBitArray(BITCOUNT, OFFSET)
     --- @param n int # 1-based
     this.SetBit  = function(self, n) n = n + OFFSET; IM_ASSERT(n >= 1 and n <= BITCOUNT); ImBitArraySetBit(self.Data, n); end
 
+    --- @param n int # 1-based
+    this.ClearBit = function(self, n) n = n + OFFSET; IM_ASSERT(n >= 1 and n <= BITCOUNT); ImBitArrayClearBit(self.Data, n); end
+    --- @param n int # 1-based, range [n..n2)
+    this.SetBitRange = function(self, n, n2) n = n + OFFSET; n2 = n2 + OFFSET; IM_ASSERT(n >= 1 and n <= BITCOUNT and n2 > n and n2 <= BITCOUNT + 1); ImBitArraySetBitRange(self.Data, n, n2); end
+
     this:ClearAllBits()
 
     return this
 end
+
+-- Helper: ImBitVector
+-- Store 1-bit per value.
+--- @class ImBitVector
+--- @field Storage ImVector<ImU32>
+MT.ImBitVector = {}
+MT.ImBitVector.__index = MT.ImBitVector
+function ImBitVector() return setmetatable({ Storage = ImVector() }, MT.ImBitVector) end
+function MT.ImBitVector:Create(sz) self.Storage:resize(bitRShift(sz + 31, 5)); for i = 1, self.Storage.Size do self.Storage.Data[i] = 0 end end
+function MT.ImBitVector:Clear() self.Storage:clear() end
+--- @param n int # 1-based
+function MT.ImBitVector:TestBit(n) IM_ASSERT(n <= bitLShift(self.Storage.Size, 5)); return IM_BITARRAY_TESTBIT(self.Storage.Data, n) end
+function MT.ImBitVector:SetBit(n) IM_ASSERT(n <= bitLShift(self.Storage.Size, 5)); ImBitArraySetBit(self.Storage.Data, n) end
+function MT.ImBitVector:ClearBit(n) IM_ASSERT(n <= bitLShift(self.Storage.Size, 5)); ImBitArrayClearBit(self.Storage.Data, n) end
 
 -- Stateful path API, add points then finish with PathFillConvex() or PathStroke()
 -- - Important: filled shapes must always use clockwise winding order! The anti-aliasing fringe depends on it. Counter-clockwise shapes will have "inward" anti-aliasing.
@@ -1266,9 +1328,13 @@ end
 --- @param key       string
 --- @return ImGuiStyleVarInfo
 --- @nodiscard
+MT.ImGuiStyleVarInfo = {}
+MT.ImGuiStyleVarInfo.__index = MT.ImGuiStyleVarInfo
 function ImGuiStyleVarInfo(count, data_type, key)
-    return { Count = count, DataType = data_type, Key = key }
+    return setmetatable({ Count = count, DataType = data_type, Key = key }, MT.ImGuiStyleVarInfo)
 end
+-- [Luau] no pointers: returns the field value (number, or the live ImVec2 table) of 'parent' (e.g. ImGuiStyle)
+function MT.ImGuiStyleVarInfo:GetVarPtr(parent) return parent[self.Key] end
 
 -- Stacked style modifier, backup of modified data so we can restore it. Data type inferred from the variable.
 --- @class ImGuiStyleMod
@@ -1383,11 +1449,11 @@ end
 --- @field RefVal            any
 --- @field StorageId         ImGuiID
 --- @field ColorMarker       ImU32
-local IMGUI_NEXT_ITEM_DATA = {}
-IMGUI_NEXT_ITEM_DATA.__index = IMGUI_NEXT_ITEM_DATA
+MT.ImGuiNextItemData = {}
+MT.ImGuiNextItemData.__index = MT.ImGuiNextItemData
 
 -- Also cleared manually by ItemAdd()!
-function IMGUI_NEXT_ITEM_DATA:ClearFlags()
+function MT.ImGuiNextItemData:ClearFlags()
     self.HasFlags = ImGuiNextItemDataFlags.None
     self.ItemFlagsSet = ImGuiItemFlags.None
 end
@@ -1410,7 +1476,7 @@ function ImGuiNextItemData()
         RefVal            = 0,     -- Not exposed yet, for ImGuiInputTextFlags.ParseEmptyAsRefVal
         StorageId         = 0,     -- Set by SetNextItemStorageID()
         ColorMarker       = 0      -- Set by SetNextItemColorMarker(). Not exposed yet, supported by DragScalar,SliderScalar and for ImGuiSliderFlags.ColorMarkers.
-    }, IMGUI_NEXT_ITEM_DATA)
+    }, MT.ImGuiNextItemData)
 end
 
 -- Storage for SetNexWindow** functions
@@ -1433,10 +1499,10 @@ end
 --- @field BgAlphaVal           number?
 --- @field MenuBarOffsetMinVal  ImVec2?
 --- @field RefreshFlagsVal      int?
-local IMGUI_NEXT_WINDOW_DATA = {}
-IMGUI_NEXT_WINDOW_DATA.__index = IMGUI_NEXT_WINDOW_DATA
+MT.ImGuiNextWindowData = {}
+MT.ImGuiNextWindowData.__index = MT.ImGuiNextWindowData
 
-function IMGUI_NEXT_WINDOW_DATA:ClearFlags()
+function MT.ImGuiNextWindowData:ClearFlags()
     self.HasFlags = ImGuiNextWindowDataFlags.None
 end
 
@@ -1475,7 +1541,7 @@ function ImGuiNextWindowData()
         RefreshFlagsVal      = nil,
         CacheKeySet          = false, -- [Port] SetNextWindowCached()
         CacheKeyVal          = nil
-    }, IMGUI_NEXT_WINDOW_DATA)
+    }, MT.ImGuiNextWindowData)
 end
 
 --- @enum ImGuiWindowBgClickFlags
@@ -1738,10 +1804,18 @@ local function ImGuiInputTextState()
         SelectedAllMouseLock = false, -- after a double-click to select all, we ignore further mouse drags to update selection
         EditedBefore = false,    -- edited since activated
         EditedThisFrame = false, -- edited this frame
+        WantReloadUserBuf = false, -- force a reload of user buf so it may be modified externally. may be automatic in future version.
+        LastMoveDirectionLR = ImGuiDir.Left, -- ImGuiDir_Left or ImGuiDir_Right. track last movement direction so when cursor cross over a word-wrapping boundaries we can display it on either line depending on last move.s
+        ReloadSelectionStart = 0,
+        ReloadSelectionEnd = 0,
     }
 
     return setmetatable(this, MT.ImGuiInputTextState)
 end
+
+function MT.ImGuiInputTextState:ClearText() self.TextLen = 0; self.TextA.Data[1] = 0; self:CursorClamp() end
+function MT.ImGuiInputTextState:ClearFreeMemory() self.TextA:clear(); self.TextToRevertTo:clear() end
+function MT.ImGuiInputTextState:GetText() if self.TextA.Data then return self.TextA.Data else return { 0 } end end -- [Luau] byte table (char[])
 
 -- Internal temporary state for deactivating InputText() instances.
 -- Store as part of ImGuiDeactivatedItemData?
@@ -1749,10 +1823,10 @@ end
 --- @field ID          ImGuiID        # widget id owning the text state (which just got deactivated)
 --- @field ElapseFrame int
 --- @field TextA       ImVector<char> # text buffer
-local IMGUI_INPUT_TEXT_DEACTIVATED_STATE = {}
-IMGUI_INPUT_TEXT_DEACTIVATED_STATE.__index = IMGUI_INPUT_TEXT_DEACTIVATED_STATE
+MT.ImGuiInputTextDeactivatedState = {}
+MT.ImGuiInputTextDeactivatedState.__index = MT.ImGuiInputTextDeactivatedState
 
-function IMGUI_INPUT_TEXT_DEACTIVATED_STATE:ClearFreeMemory()
+function MT.ImGuiInputTextDeactivatedState:ClearFreeMemory()
     self.ID = 0
     self.ElapseFrame = 0
     self.TextA:clear()
@@ -1765,7 +1839,7 @@ local function ImGuiInputTextDeactivatedState()
         ID          = 0,         -- widget id owning the text state (which just got deactivated)
         ElapseFrame = 0,
         TextA       = ImVector() -- text buffer
-    }, IMGUI_INPUT_TEXT_DEACTIVATED_STATE)
+    }, MT.ImGuiInputTextDeactivatedState)
 end
 
 --- @alias ImGuiKeyRoutingIndex ImS16
@@ -1798,10 +1872,10 @@ end
 --- @field Index       ImGuiKeyRoutingIndex[] # Index of first entry in Entries[]
 --- @field Entries     ImVector<ImGuiKeyRoutingData>
 --- @field EntriesNext ImVector<ImGuiKeyRoutingData> # Double-buffer to avoid reallocation (could use a shared buffer)
-local _ImGuiKeyRoutingTable = {}
-_ImGuiKeyRoutingTable.__index = _ImGuiKeyRoutingTable
+MT.ImGuiKeyRoutingTable = {}
+MT.ImGuiKeyRoutingTable.__index = MT.ImGuiKeyRoutingTable
 
-function _ImGuiKeyRoutingTable:Clear()
+function MT.ImGuiKeyRoutingTable:Clear()
     for n = 1, ImGuiKey.NamedKey_COUNT do self.Index[n] = -1 end
     self.Entries:clear()
     self.EntriesNext:clear()
@@ -1813,7 +1887,7 @@ local function ImGuiKeyRoutingTable()
         Index       = {}, -- Index of first entry in Entries[]
         Entries     = ImVector(),
         EntriesNext = ImVector() -- Double-buffer to avoid reallocation (could use a shared buffer)
-    }, _ImGuiKeyRoutingTable)
+    }, MT.ImGuiKeyRoutingTable)
 
     this:Clear()
 
@@ -1899,10 +1973,10 @@ end
 --- @field DistBox            float                  # Move -- Best candidate box distance to current NavId
 --- @field DistCenter         float                  # Move -- Best candidate center distance to current NavId
 --- @field DistAxial          float                  # Move -- Best candidate axial distance to current NavId
-local IMGUI_NAV_ITEM_DATA = {}
-IMGUI_NAV_ITEM_DATA.__index = IMGUI_NAV_ITEM_DATA
+MT.ImGuiNavItemData = {}
+MT.ImGuiNavItemData.__index = MT.ImGuiNavItemData
 
-function IMGUI_NAV_ITEM_DATA:Clear()
+function MT.ImGuiNavItemData:Clear()
     self.Window             = nil
     self.ID                 = 0
     self.FocusScopeId       = 0
@@ -1915,7 +1989,7 @@ end
 
 --- @return ImGuiNavItemData
 local function ImGuiNavItemData()
-    local this = setmetatable({ }, IMGUI_NAV_ITEM_DATA)
+    local this = setmetatable({ }, MT.ImGuiNavItemData)
     this.RectRel = ImRect()
     this:Clear()
     return this
@@ -2488,7 +2562,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         DockContext = ImGuiDockContext(),
         DockNodeWindowMenuHandler = nil,
         DebugHoveredDockNode = nil, -- Hovered dock node.
-        CurrentTabBarStack = ImVector(), -- holds ImGuiTabBar references directly (no ImGuiPtrOrIndex needed in Lua)
+        CurrentTabBarStack = ImVector(), -- ImVector<ImGuiPtrOrIndex>
         ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
 
         -- Multi-Select state
@@ -2652,10 +2726,10 @@ end
 --- @field WantApply    bool    # Set when loaded from .ini data
 --- @field WantDelete   bool    # Set to invalidate/delete the settings entry
 --- @field Name         string  # Window name
-local IMGUI_WINDOW_SETTINGS = {}
-IMGUI_WINDOW_SETTINGS.__index = IMGUI_WINDOW_SETTINGS
+MT.ImGuiWindowSettings = {}
+MT.ImGuiWindowSettings.__index = MT.ImGuiWindowSettings
 
-function IMGUI_WINDOW_SETTINGS:GetName()
+function MT.ImGuiWindowSettings:GetName()
     return self.Name
 end
 
@@ -2675,7 +2749,7 @@ function ImGuiWindowSettings()
         DockOrder    = -1, -- Order of the last time the window was visible within its DockNode. This is used to reorder windows that are reappearing on the same frame. Same value between windows that were active and windows that were none are possible.
         ClassId      = 0, -- ID of window class if specified
         LastUsedDate = 0,
-    }, IMGUI_WINDOW_SETTINGS)
+    }, MT.ImGuiWindowSettings)
 end
 
 -- Simple column measurement, currently used for MenuItem() only.. This is very short-sighted/throw-away code and NOT a generic helper.
@@ -3391,6 +3465,8 @@ function ImGuiInputEvent()
 end
 
 -- [Internal] Key ranges
+ImGuiKey_LegacyNativeKey_BEGIN = 0
+ImGuiKey_LegacyNativeKey_END = 512
 ImGuiKey_Keyboard_BEGIN = ImGuiKey.NamedKey_BEGIN
 ImGuiKey_Keyboard_END   = ImGuiKey.GamepadStart
 ImGuiKey_Gamepad_BEGIN  = ImGuiKey.GamepadStart
@@ -3714,6 +3790,87 @@ end
 --- @return ImGuiFocusScopeData
 --- @nodiscard
 function ImGuiFocusScopeData() return { ID = nil, WindowID = nil } end
+
+-------------------------------------------------------------------------------
+-- [Luau] Inline struct helpers / constructors from imgui.h + imgui_internal.h
+-------------------------------------------------------------------------------
+
+-- Helper for running a block of code not more than once a frame
+-- [Luau] no operator bool(): call the object, e.g. 'if once() then ... end'
+MT.ImGuiOnceUponAFrame = {}
+MT.ImGuiOnceUponAFrame.__index = MT.ImGuiOnceUponAFrame
+MT.ImGuiOnceUponAFrame.__call = function(self) local current_frame = ImGui.GetFrameCount(); if self.RefFrame == current_frame then return false end; self.RefFrame = current_frame; return true end
+function ImGuiOnceUponAFrame() return setmetatable({ RefFrame = -1 }, MT.ImGuiOnceUponAFrame) end
+
+-- [Internal] ImGuiTextFilter item
+-- [Luau] stores the item text as a Lua string (upstream: Begin pointer + Len)
+--- @param buf string
+--- @param b   int # 1-based
+--- @param e   int # exclusive
+function ImGuiTextFilterItem(buf, b, e) IM_ASSERT(e > b); return { Text = string.sub(buf, b, e - 1), CountInclude = 0, MatchIncludesMask = 0 } end
+
+-- A date in YYYYMMDD format packed into 16-bits
+--- @class ImGuiPackedDate
+MT.ImGuiPackedDate = {}
+MT.ImGuiPackedDate.__index = MT.ImGuiPackedDate
+--- @param yyyymmdd? int
+function ImGuiPackedDate(yyyymmdd)
+    local this = setmetatable({ Year = 0, Month = 0, Day = 0 }, MT.ImGuiPackedDate)
+    if yyyymmdd ~= nil then -- Pack
+        this.Year = bitAnd(math.floor(yyyymmdd / 10000) - 2000, 0x7F) -- Year since 2000 (7 bits)
+        this.Month = bitAnd(math.floor(yyyymmdd / 100) % 100, 0x0F) -- Month (1-12) (4 bits)
+        this.Day = bitAnd(yyyymmdd % 100, 0x1F) -- Day (1-31) (5 bits)
+    end
+    return this
+end
+function MT.ImGuiPackedDate:IsValid() return self.Year ~= 0 and self.Month ~= 0 and self.Day ~= 0 end
+function MT.ImGuiPackedDate:Unpack() if self.Year ~= 0 and self.Month ~= 0 and self.Day ~= 0 then return ((self.Year + 2000) * 10000) + (self.Month * 100) + self.Day end; return 0 end -- Unpack
+function MT.ImGuiPackedDate:SubtractMonths(m) while m > 0 do if self.Month == 1 then self.Year = bitAnd(self.Year - 1, 0x7F) end; self.Month = (self.Month == 1) and 12 or self.Month - 1; m = m - 1 end end -- FIXME-OPT: Stupid but enough for what we do with it.
+
+-- Pointer or index, e.g. g.CurrentTabBarStack[]
+-- [Luau] overload by argument type: number = index, otherwise pointer
+function ImGuiPtrOrIndex(ptr_or_index)
+    if type(ptr_or_index) == "number" then return { Ptr = nil, Index = ptr_or_index } end
+    return { Ptr = ptr_or_index, Index = -1 }
+end
+
+-- Note that Max is exclusive, so perhaps should be using a Begin/End convention.
+--- @class ImGuiListClipperRange
+MT.ImGuiListClipperRange = {}
+function MT.ImGuiListClipperRange.FromIndices(min, max) return { Min = min, Max = max, PosToIndexConvert = false, PosToIndexOffsetMin = 0, PosToIndexOffsetMax = 0 } end
+function MT.ImGuiListClipperRange.FromPositions(y1, y2, off_min, off_max) return { Min = _Trunc(y1), Max = _Trunc(y2), PosToIndexConvert = true, PosToIndexOffsetMin = off_min, PosToIndexOffsetMax = off_max } end
+
+-- Temporary clipper data, buffers shared/reused between instances
+--- @class ImGuiListClipperData
+MT.ImGuiListClipperData = {}
+MT.ImGuiListClipperData.__index = MT.ImGuiListClipperData
+function ImGuiListClipperData() return setmetatable({ ListClipper = nil, LossynessOffset = 0.0, StepNo = 0, ItemsFrozen = 0, Ranges = ImVector() }, MT.ImGuiListClipperData) end
+function MT.ImGuiListClipperData:Reset(clipper) self.ListClipper = clipper; self.StepNo = 0; self.ItemsFrozen = 0; self.Ranges:resize(0) end
+
+function ImGuiStackLevelInfo() return { ID = 0, QueryFrameCount = 0, QuerySuccess = false, DataType = -1, DescOffset = -1 } end
+function ImGuiDebugItemPathQuery() return { MainID = 0, Active = false, Complete = false, Step = 0, Results = ImVector(), ResultsDescBuf = ImGuiTextBuffer(), ResultPathBuf = ImGuiTextBuffer() } end
+function ImGuiIDStackTool() return { OptHexEncodeNonAsciiChars = true, OptCopyToClipboardOnCtrlC = false, LastActiveFrame = -1, CopyToClipboardLastTime = -FLT_MAX } end
+function ImGuiContextHook() return { HookId = 0, Type = 0, Owner = 0, Callback = nil, UserData = nil } end
+
+-------------------------------------------------------------------------------
+-- [Luau] ImGui:: inline helpers from imgui_internal.h
+-------------------------------------------------------------------------------
+
+function ImGui.GetCurrentTable() local g = GImGui; return g.CurrentTable end
+--- @param window        ImGuiWindow
+--- @param parent_window ImGuiWindow?
+function ImGui.SetWindowParentWindowForFocusRoute(window, parent_window) window.ParentWindowForFocusRoute = parent_window end -- You may also use SetNextWindowClass()'s FocusRouteParentWindowId field.
+function ImGui.GetPixelDensity() return GImGui.FontRasterizerDensity end -- [Luau] g.FontRasterizerDensity == upstream g.CurrentPixelDensity
+function ImGui.ScrollToBringRectIntoView(window, rect) ImGui.ScrollToRect(window, rect, ImGuiScrollFlags.KeepVisibleEdgeY) end
+function ImGui.GetItemStatusFlags() local g = GImGui; return g.LastItemData.StatusFlags end
+function ImGui.GetActiveID() local g = GImGui; return g.ActiveId end
+function ImGui.GetFocusID() local g = GImGui; return g.NavId end
+function ImGui.IsLegacyKey(key) return key >= ImGuiKey_LegacyNativeKey_BEGIN and key < ImGuiKey_LegacyNativeKey_END end
+function ImGui.GetWindowDockNode() local g = GImGui; return g.CurrentWindow.DockNode end
+function ImGui.GetCurrentFocusScope() local g = GImGui; return g.CurrentFocusScopeId end -- Focus scope we are outputting into, set by PushFocusScope()
+function ImGui.GetCurrentTabBar() local g = GImGui; return g.CurrentTabBar end
+-- This may be useful to apply workaround that a based on distinguish whenever an item is active as a text input field.
+function ImGui.IsItemActiveAsInputText() local g = GImGui; return g.ActiveId ~= 0 and g.ActiveId == g.LastItemData.ID and g.InputTextState.ID == g.LastItemData.ID end
 
 
 return true -- [Roblox] ModuleScripts must return exactly one value

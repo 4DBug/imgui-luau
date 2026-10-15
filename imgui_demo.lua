@@ -214,7 +214,7 @@ function ShowDockingDisabledMessage()
 end
 
 -- Helper to wire demo markers located in code to an interactive browser (e.g. https://pthom.github.io/imgui_explorer)
-function IMGUI_DEMO_MARKER(section) end -- [Port] no ImGui.DemoMarker() hook in this port: no-op
+function IMGUI_DEMO_MARKER(section) ImGui.DemoMarker("imgui_demo.lua", 0, section) end -- [Port] no __LINE__ in Lua: line is 0
 
 -- Sneakily forward declare functions which aren't worth putting in public API yet
 -- [Port] ImGui.ShowFontAtlas(atlas) and ImGui.TreeNodeSetOpen(storage_id, is_open) are already public here.
@@ -698,8 +698,7 @@ function DemoWindowMenuBar(demo_data)
             _, demo_data.ShowDebugLog = ImGui.MenuItem("Debug Log", nil, demo_data.ShowDebugLog, has_debug_tools)
             _, demo_data.ShowIDStackTool = ImGui.MenuItem("ID Stack Tool", nil, demo_data.ShowIDStackTool, has_debug_tools)
             local is_debugger_present = io.ConfigDebugIsDebuggerPresent
-            local has_item_picker = ImGui.DebugStartItemPicker ~= nil -- [Port] ImGui.DebugStartItemPicker() is not ported yet: menu item disabled until it is
-            if ImGui.MenuItem("Item Picker", nil, false, has_debug_tools and has_item_picker) then -- and is_debugger_present
+            if ImGui.MenuItem("Item Picker", nil, false, has_debug_tools) then -- and is_debugger_present
                 ImGui.DebugStartItemPicker()
             end
             if not is_debugger_present then
@@ -8904,7 +8903,7 @@ function ImGui.ShowStyleEditor(ref)
                 end
                 ImGui.PushID(i)
                 if ImGui.Button("?") then
-                    if ImGui.DebugFlashStyleColor then ImGui.DebugFlashStyleColor(i) end -- [Port] DebugFlashStyleColor() is not in the library yet
+                    ImGui.DebugFlashStyleColor(i)
                 end
                 ImGui.SetItemTooltip("Flash given color to identify places where it is used.")
                 ImGui.SameLine()

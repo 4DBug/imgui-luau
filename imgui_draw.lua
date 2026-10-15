@@ -4155,6 +4155,42 @@ function MT.ImDrawData:AddDrawList(draw_list)
     ImGui.AddDrawListToDrawDataEx(self, self.CmdLists, draw_list)
 end
 
+-- For backward compatibility: convert all buffers from indexed to de-indexed, in case you cannot render indexed. Note: this is slow and most likely a waste of resources. Always prefer indexed rendering!
+-- [Luau] IdxBuffer values are 1-based vertex indices
+function MT.ImDrawData:DeIndexAllBuffers()
+    local new_vtx_buffer = ImDrawVtxBuffer()
+    self.TotalVtxCount = 0; self.TotalIdxCount = 0
+    for i = 1, self.CmdLists.Size do
+        repeat
+        local draw_list = self.CmdLists.Data[i]
+        if draw_list.IdxBuffer.Size == 0 then
+            break -- continue
+        end
+        new_vtx_buffer:resize(draw_list.IdxBuffer.Size)
+        local src, dst, idx = draw_list.VtxBuffer.Buf, new_vtx_buffer.Buf, draw_list.IdxBuffer.Data
+        for j = 1, draw_list.IdxBuffer.Size do
+            buffer.copy(dst, (j - 1) * VTX_STRIDE, src, (idx[j] - 1) * VTX_STRIDE, VTX_STRIDE)
+        end
+        draw_list.VtxBuffer, new_vtx_buffer = new_vtx_buffer, draw_list.VtxBuffer -- swap()
+        draw_list.IdxBuffer:resize(0)
+        self.TotalVtxCount = self.TotalVtxCount + draw_list.VtxBuffer.Size
+        until true
+    end
+end
+
+-- Helper to scale the ClipRect field of each ImDrawCmd.
+-- Use if your final output buffer is at a different scale than draw_data->DisplaySize,
+-- or if there is a difference between your window resolution and framebuffer resolution.
+function MT.ImDrawData:ScaleClipRects(fb_scale)
+    for i = 1, self.CmdLists.Size do
+        local draw_list = self.CmdLists.Data[i]
+        for j = 1, draw_list.CmdBuffer.Size do
+            local cmd = draw_list.CmdBuffer.Data[j]
+            cmd.ClipRect = ImVec4(cmd.ClipRect.x * fb_scale.x, cmd.ClipRect.y * fb_scale.y, cmd.ClipRect.z * fb_scale.x, cmd.ClipRect.w * fb_scale.y)
+        end
+    end
+end
+
 local IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MIN = 4
 local IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX = 512
 
@@ -4260,6 +4296,29 @@ function MT.ImDrawList:_ClearFreeMemory()
     self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:clear()
     self._Splitter:ClearFreeMemory()
+end
+
+-- Note: For multi-threaded rendering, consider using `imgui_threaded_rendering` from https://github.com/ocornut/imgui_club
+-- [Luau] C++ copies the vectors by value: copy the ImDrawCmd structs and the vertex buffer bytes
+--- @return ImDrawList
+function MT.ImDrawList:CloneOutput()
+    local dst = ImDrawList(nil)
+    for i = 1, self.CmdBuffer.Size do
+        local src_cmd = self.CmdBuffer.Data[i]
+        local cmd = ImDrawCmd()
+        for k, v in pairs(src_cmd) do cmd[k] = v end
+        cmd.ClipRect = ImVec4(src_cmd.ClipRect.x, src_cmd.ClipRect.y, src_cmd.ClipRect.z, src_cmd.ClipRect.w)
+        if src_cmd.TexRef then cmd.TexRef = ImTextureRef(src_cmd.TexRef._TexID); cmd.TexRef._TexData = src_cmd.TexRef._TexData end
+        dst.CmdBuffer:push_back(cmd)
+    end
+    if self.IdxBuffer.Size > 0 then
+        dst.IdxBuffer:resize(self.IdxBuffer.Size)
+        table.move(self.IdxBuffer.Data, 1, self.IdxBuffer.Size, 1, dst.IdxBuffer.Data)
+    end
+    dst.VtxBuffer:resize(self.VtxBuffer.Size)
+    buffer.copy(dst.VtxBuffer.Buf, 0, self.VtxBuffer.Buf, 0, self.VtxBuffer.Size * VTX_STRIDE)
+    dst.Flags = self.Flags
+    return dst
 end
 
 function MT.ImDrawList:AddDrawCmd()
@@ -4817,6 +4876,22 @@ function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     self._VtxWritePtr   = vtx_write_ptr + 4
     self._VtxCurrentIdx = idx + 4
     self._IdxWritePtr   = idx_write_ptr + 6
+end
+
+function MT.ImDrawList:PrimQuadUV(a, b, c, d, uv_a, uv_b, uv_c, uv_d, col)
+    local idx = self._VtxCurrentIdx
+    local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
+    local idx_write_ptr = self._IdxWritePtr
+    idx_data[idx_write_ptr + 0] = idx; idx_data[idx_write_ptr + 1] = idx + 1; idx_data[idx_write_ptr + 2] = idx + 2
+    idx_data[idx_write_ptr + 3] = idx; idx_data[idx_write_ptr + 4] = idx + 2; idx_data[idx_write_ptr + 5] = idx + 3
+    local vtx_write_ptr = self._VtxWritePtr
+    WV(vtx_data, vtx_write_ptr + 0, a.x, a.y, uv_a.x, uv_a.y, col)
+    WV(vtx_data, vtx_write_ptr + 1, b.x, b.y, uv_b.x, uv_b.y, col)
+    WV(vtx_data, vtx_write_ptr + 2, c.x, c.y, uv_c.x, uv_c.y, col)
+    WV(vtx_data, vtx_write_ptr + 3, d.x, d.y, uv_d.x, uv_d.y, col)
+    self._VtxWritePtr = vtx_write_ptr + 4
+    self._VtxCurrentIdx = idx + 4
+    self._IdxWritePtr = idx_write_ptr + 6
 end
 
 --- @param thickness float
@@ -6808,6 +6883,30 @@ function MT.ImDrawList:AddImage(tex_ref, p_min, p_max, uv_min, uv_max, col)
     end
 end
 
+function MT.ImDrawList:AddImageQuad(tex_ref, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col)
+    if uv1 == nil then uv1 = ImVec2(0, 0) end
+    if uv2 == nil then uv2 = ImVec2(1, 0) end
+    if uv3 == nil then uv3 = ImVec2(1, 1) end
+    if uv4 == nil then uv4 = ImVec2(0, 1) end
+    if col == nil then col = IM_COL32_WHITE end
+
+    if bit32.band(col, IM_COL32_A_MASK) == 0 then
+        return
+    end
+
+    local push_texture_id = tex_ref ~= self._CmdHeader.TexRef
+    if push_texture_id then
+        self:PushTexture(tex_ref)
+    end
+
+    self:PrimReserve(6, 4)
+    self:PrimQuadUV(p1, p2, p3, p4, uv1, uv2, uv3, uv4, col)
+
+    if push_texture_id then
+        self:PopTexture()
+    end
+end
+
 --- @param tex_ref  ImTextureRef
 --- @param p_min    ImVec2
 --- @param p_max    ImVec2
@@ -6900,6 +6999,9 @@ function MT.ImDrawList:PopClipRect()
     end
     self:_OnChangedClipRect()
 end
+
+function MT.ImDrawList:GetClipRectMin() local cr = self._ClipRectStack:back(); return ImVec2(cr.x, cr.y) end
+function MT.ImDrawList:GetClipRectMax() local cr = self._ClipRectStack:back(); return ImVec2(cr.z, cr.w) end
 
 --- @param center       ImVec2
 --- @param radius       float
