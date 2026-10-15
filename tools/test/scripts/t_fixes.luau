@@ -1,9 +1,12 @@
 -- Regressions vs upstream: clipboard paste filter (InputTextEx), ImParseFormatTrimDecorations (Ctrl+click temp input), ShrinkWidths tie order,
--- CalcItemSize by value, PushClipRectFullScreen (drop target outside clip rect), InputTextMultiline line index (render/scroll/edit), Shortcut() default
+-- CalcItemSize by value, PushClipRectFullScreen (drop target outside clip rect), long TextUnformatted, PushFont/PopFont, InputTextMultiline line index (render/scroll/edit), Shortcut() default
 -- args, IsWindowAppearing() on frame 1 (FrameCount starts at 0), ColorButton -> ColorEdit4 drag and drop
 local G = require(game:GetService("ReplicatedStorage"):WaitForChild("ImGui"))
 local ImGui, ImVec2 = G.ImGui, G.ImVec2
-ImGui.CreateContext(); G.ImGui_ImplRoblox.Init()
+ImGui.CreateContext()
+ImGui.GetIO().Fonts:AddFontDefault()
+local font2 = ImGui.GetIO().Fonts:AddFontDefault() -- second font for the PushFont/PopFont check
+G.ImGui_ImplRoblox.Init()
 local io = ImGui.GetIO()
 local failed = {}
 local function check(ok, msg) if not ok then table.insert(failed, msg); print("FAIL " .. msg) end end
@@ -17,6 +20,10 @@ for _, it in items do w[it.Index] = it.Width end
 check(w[3] == 100 and w[2] == 100 and w[1] == 99 and w[0] == 99, ("ShrinkWidths widths %s %s %s %s"):format(w[0], w[1], w[2], w[3]))
 
 check(G.ImFloor(-1.5) == -2 and G.ImFloor(-0.2) == -1 and G.ImFloor(2.7) == 2, "ImFloor negative")
+
+local long_text = {}
+for i = 1, 300 do long_text[i] = string.format("line %04d", i) end
+long_text = table.concat(long_text, "\n") -- 2999 bytes
 
 local function edit_text()
     local st = ImGui.GetCurrentContext().InputTextState
@@ -109,6 +116,19 @@ game:GetService("RunService").Stepped:Connect(function()
     ImGui.Begin("D")
     ImGui.ColorButton("cb", cb_col); rects.cb = rect()
     ImGui.ColorEdit4("##ce", ce_col); rects.ce = rect()
+    ImGui.End()
+    -- TextUnformatted() > 2000 bytes (coarse-clipped long text path): each visible line renders only up to its '\n'
+    ImGui.SetNextWindowPos(ImVec2(320, 220)); ImGui.SetNextWindowSize(ImVec2(300, 150))
+    ImGui.Begin("L")
+    local dl = ImGui.GetWindowDrawList()
+    local v0 = dl.VtxBuffer.Size
+    ImGui.TextUnformatted(long_text)
+    local nv = dl.VtxBuffer.Size - v0
+    if f == 3 then check(nv > 0 and nv <= 14 * 9 * 4, "long TextUnformatted vertices " .. nv) end
+    -- PushFont() saves the CURRENT font: PopFont() must restore it
+    local font1 = ImGui.GetFont()
+    check(font2 ~= font1, "font2 is the default font"); ImGui.PushFont(font2, 0.0); ImGui.PopFont()
+    if f == 3 then check(ImGui.GetFont() == font1, "PopFont() did not restore the previous font") end
     ImGui.End()
     ImGui.Render(); G.ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData())
     if f == 8 then check(edit_text() == "abc\u{e9}", "paste: '" .. edit_text() .. "'") end
