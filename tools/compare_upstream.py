@@ -268,6 +268,10 @@ def parse_lua():
                 j += 1
             name = chain[-1]
             cls = LUA_CLASS_ALIAS.get(chain[-2], chain[-2]) if len(chain) > 1 else None
+            if cls and cls.endswith("MT") and len(cls) > 2: cls = cls[:-2]  # method tables: function ExampleAppLogMT:AddLog()
+            if cls is None and re.match(r"[A-Z]\w*_[A-Z]\w*$", name) and "__" not in name:  # Class_Method globals (C++ static members)
+                c, _, m = name.partition("_")
+                defs.append(PortFunc(f, c, m, line, toks[body_start:j - 1]))
             pf = PortFunc(f, cls, name, line, toks[body_start:j - 1])
             bt = [x[1] for x in pf.body]
             if len(bt) >= 5 and bt[0] == "return" and bt[-3:] == ["(", "...", ")"] and all(x[0] == "name" or x[1] in (".", ":") for x in pf.body[1:-3]):

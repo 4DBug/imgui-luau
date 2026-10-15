@@ -16,12 +16,12 @@ imgui.cpp                    786     87.4%     93.5%       75.0%         2
 imgui_widgets.cpp            308     93.8%     98.7%       78.1%         1
 imgui_draw.cpp               258     75.2%     75.5%       63.1%         2
 imgui_tables.cpp             113     96.5%     99.0%       74.0%         0
-imgui_demo.cpp                56     82.1%     98.2%       55.4%         0
+imgui_demo.cpp                56    100.0%    100.0%       55.8%         0
 imgui.h                      110     53.6%     37.4%       56.7%         0
 imgui_internal.h             269     61.3%     64.9%       68.0%         1
-TOTAL                       1900     81.5%     92.8%       70.7%         6
+TOTAL                       1900     82.1%     93.1%       70.7%         6
 
-upstream code reproduced (similarity x ported size / all upstream size):  65.6%
+upstream code reproduced (similarity x ported size / all upstream size):  65.8%
 Public API (imgui.h, namespace ImGui)                 368 /  376   97.9%
 Internal API (imgui_internal.h, namespace ImGui)      417 /  443   94.1%
 Enum values (imgui.h + imgui_internal.h)             1005 / 1078   93.2%
@@ -1804,14 +1804,14 @@ imgui_demo.cpp
   [x]   66%  DemoWindowWidgetsSelectables                               imgui_demo.lua:2584              
 
   -- DemoWindowWidgetsSelectionAndMultiSelect()
-  [ ]        ExampleSelectionWithDeletion::ApplyDeletionPreLoop                                          
-  [ ]        ExampleSelectionWithDeletion::ApplyDeletionPostLoop                                         
-  [ ]        ExampleDualListBox::MoveAll                                                                 
-  [ ]        ExampleDualListBox::MoveSelected                                                            
-  [ ]        ExampleDualListBox::ApplySelectionRequests                                                  
-  [ ]        ExampleDualListBox::CompareItemsByValue                                                     
-  [ ]        ExampleDualListBox::SortItems                                                               
-  [ ]        ExampleDualListBox::Show                                                                    
+  [x]   87%  ExampleSelectionWithDeletion::ApplyDeletionPreLoop         imgui_demo.lua:2774              
+  [x]   84%  ExampleSelectionWithDeletion::ApplyDeletionPostLoop        imgui_demo.lua:2807              
+  [x]   74%  ExampleDualListBox::MoveAll                                imgui_demo.lua:2841              
+  [x]   59%  ExampleDualListBox::MoveSelected                           imgui_demo.lua:2851              
+  [x]   74%  ExampleDualListBox::ApplySelectionRequests                 imgui_demo.lua:2871              
+  [x]   29%  ExampleDualListBox::CompareItemsByValue                    imgui_demo.lua:2878              
+  [x]   36%  ExampleDualListBox::SortItems                              imgui_demo.lua:2881              
+  [x]   90%  ExampleDualListBox::Show                                   imgui_demo.lua:2886              
   [x]   71%  DemoWindowWidgetsSelectionAndMultiSelect                   imgui_demo.lua:3130              
 
   -- DemoWindowWidgetsTabs()
@@ -1844,8 +1844,8 @@ imgui_demo.cpp
 
   -- DemoWindowPopups()
   [x]   59%  DemoWindowPopups                                           imgui_demo.lua:5621              
-  [ ]        MyItem::SortWithSortSpecs                                                                   
-  [ ]        MyItem::CompareWithSortSpecs                                                                
+  [x]   36%  MyItem::SortWithSortSpecs                                  imgui_demo.lua:5939              
+  [x]   68%  MyItem::CompareWithSortSpecs                               imgui_demo.lua:5956              
   [x]   96%  PushStyleCompact                                           imgui_demo.lua:5983              
   [x]  100%  PopStyleCompact                                            imgui_demo.lua:5989              
   [x]   69%  EditTableSizingFlags                                       imgui_demo.lua:5996              
