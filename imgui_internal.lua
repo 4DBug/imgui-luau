@@ -30,7 +30,7 @@
 
 --- @meta
 
-local type   = ImGui._GetTypeFunc()
+local type   = type -- [Luau] builtin (FASTCALL); ImGui._GetTypeFunc() kept for compatibility
 local rawget = rawget
 
 local mathMin   = math.min; local mathMax    = math.max
@@ -189,6 +189,7 @@ end
 -- - ImMin/ImMax/ImClamp/ImLerp/ImSwap are used by widgets which support variety of types: signed/unsigned int/long long float/double
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
+--@hoist
 @native
 function ImMin(lhs, rhs)
     if type(lhs) == "number" then return mathMin(lhs, rhs) end
@@ -197,6 +198,7 @@ end
 
 --- @overload fun(lhs: number, rhs: number): number
 --- @overload fun(lhs: ImVec2, rhs: ImVec2): ImVec2
+--@hoist
 @native
 function ImMax(lhs, rhs)
     if type(lhs) == "number" then return mathMax(lhs, rhs) end
@@ -211,6 +213,7 @@ ImStd.ImQsort = function(base, count, cmp_func) if count > 0 then t_sort(base, c
 
 --- @overload fun(v: number, mn: number, mx: number): number
 --- @overload fun(v: ImVec2, mn: ImVec2, mx: ImVec2): ImVec2
+--@hoist
 @native
 function ImClamp(v, mn, mx)
     if     type(v) == "number" and type(mn) == "number" and type(mx) == "number" then return mathMin(mathMax(v, mn), mx)
@@ -221,6 +224,7 @@ end
 --- @overload fun(a: number, b: number, t: number): number
 --- @overload fun(a: ImVec2, b: ImVec2, t: number): ImVec2
 --- @overload fun(a: ImVec2, b: ImVec2, t: ImVec2): ImVec2
+--@hoist
 @native
 function ImLerp(a, b, t)
     if     type(a) == "number" and type(b) == "number" and type(t) == "number" then return ((a) + ((b) - (a)) * (t))
@@ -229,10 +233,12 @@ function ImLerp(a, b, t)
     end
 end
 
+--@hoist
 local function _Trunc(val) if val >= 0 then return mathFloor(val) else return mathCeil(val) end end
 
 --- @overload fun(v: float): float
 --- @overload fun(v: ImVec2): ImVec2
+--@hoist
 function ImTrunc(v)
     if     type(v) == "number" then return _Trunc(v)
     elseif type(v) == "table"  then return ImVec2(_Trunc(v.x), _Trunc(v.y))
@@ -256,6 +262,7 @@ function ImRsqrt(x)            return (1 / ImSqrt(x))       end
 function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
 
+--@hoist
 function ImFloor(f) if f >= 0 or math.floor(f) == f then return math.floor(f) else return math.floor(f) - 1 end end -- Decent replacement for floorf()
 
 -- Helpers: Bit manipulation
@@ -376,6 +383,7 @@ function ImStd.strncmp(str1, str2, max_count)
     return 0
 end
 
+--@hoist
 function ImSaturate(f) return ((f < 0.0 and 0.0) or (f > 1.0 and 1.0) or f) end
 
 IM_F32_TO_INT8_UNBOUND = function(val) return math.floor(val * 255.0 + (val >= 0 and 0.5 or -0.5)) end -- Unsaturated, for display purpose
