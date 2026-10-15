@@ -30,7 +30,7 @@
 
 --- @meta
 
-local type   = ImGui._GetTypeFunc()
+local type   = type -- [Luau] builtin (FASTCALL); ImGui._GetTypeFunc() kept for compatibility
 local rawget = rawget; local rawset = rawset
 
 -- [LuaBitOp](https://bitop.luajit.org/semantics.html)
@@ -2130,7 +2130,8 @@ IM_COL32_A_MASK  = 0xFF000000
 --- @param G ImU32
 --- @param B ImU32
 --- @param A ImU32
-IM_COL32             = function(R, G, B, A) return (bitOr(bitLShift(A, IM_COL32_A_SHIFT), bitLShift(B, IM_COL32_B_SHIFT), bitLShift(G, IM_COL32_G_SHIFT), bitLShift(R, IM_COL32_R_SHIFT))) end
+--@hoist
+function IM_COL32(R, G, B, A) return (bitOr(bitLShift(A, IM_COL32_A_SHIFT), bitLShift(B, IM_COL32_B_SHIFT), bitLShift(G, IM_COL32_G_SHIFT), bitLShift(R, IM_COL32_R_SHIFT))) end
 IM_COL32_WHITE       = IM_COL32(255, 255, 255, 255)
 IM_COL32_BLACK       = IM_COL32(0, 0, 0, 255)
 IM_COL32_BLACK_TRANS = IM_COL32(0, 0, 0, 0)

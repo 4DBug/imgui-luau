@@ -30,6 +30,8 @@ jobs:
           unzip -q luau.zip -d luau && chmod +x luau/* && echo "$PWD/luau" >> "$GITHUB_PATH"
 
       - name: Build
+        env:
+          IMGUI_BUNDLE_STRICT: "1" # fail if enum folding (needs the luau CLI above) can't run
         run: |
           mkdir -p dist
           python3 tools/bundle.py dist/roblox                       # ImGui.luau (library + demo)
