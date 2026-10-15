@@ -148,7 +148,8 @@ Backend options:
 | --- | --- |
 | `ImGui_ImplRoblox.Init(parent, render_scale)` | `render_scale` = your OS display scale renders at physical-pixel resolution (crisper, same size as desktop imgui). |
 | `ImGui_ImplRoblox.SetRenderScale(scale)` | Change it at runtime. |
-| `ImGui_ImplRoblox.SetRenderRate(hz)` | Max tile redraws per second (default 60, `0` = every frame). Your code still runs every frame. |
+| `ImGui_ImplRoblox.SetRenderRate(hz)` | Max tile redraws per second (default `0` = every frame). Your code still runs every frame. |
+| `ImGui_ImplRoblox.SetRedrawBudget(ms)` | Max milliseconds per frame spent redrawing changed tiles (default 1.5, `0` = no limit). Tiles over the budget keep their old pixels for a few frames, so big changes are spread over frames instead of one long frame. |
 | `ImGui_ImplRoblox.SetBusyRenderRate(hz)` | Optional lower redraw rate while scrolling, resizing or moving windows (default off). |
 | `ImGui_ImplRoblox.SetProfiling(true)` | MicroProfiler (Ctrl+F6) labels for every backend stage. |
 | `ImGui_ImplRoblox.AddFile(path, bytes)` | Register a file (e.g. a `.ttf`) so `io.Fonts:AddFontFromFileTTF(path, size)` can load it. |
@@ -175,7 +176,7 @@ The cost is CPU time in Luau, so the backend is built around **not drawing**:
 3. **Scrolling reuses pixels.** Window content is a separate layer inside a `ClipsDescendants` frame sized to the window's visible area, positioned at the scroll offset. Scrolling moves it like dragging moves a window; only rows entering view are drawn. Decorations (title bar, borders, scrollbar) stay in their own layers.
 4. **Skipping unchanged windows.** Vertices are stored in a flat Luau `buffer` (36 bytes each) instead of tables. Before any per-tile work, a window's raw vertex/index bytes are compared with last frame's; if identical, its layers are just restacked.
 5. **Fast rasterizer.** `@native` functions; axis-aligned quads (most rects and every glyph) take a span-fill path, flat rows are copied instead of re-blended, gradient rects (color pickers) are filled per row, and only real triangles (anti-aliased edges, curves) use the generic edge-function rasterizer.
-6. **Render rate.** Tiles update at most `SetRenderRate(hz)` times per second (default 60), optionally lower while scrolling/resizing (`SetBusyRenderRate`). Your UI code and Dear ImGui's logic still run every frame, so input is never dropped.
+6. **Redraw budget.** Changed tiles are redrawn every frame within `SetRedrawBudget(ms)` (default 1.5 ms); the rest keep their old pixels and follow on the next frames. Optionally capped with `SetRenderRate(hz)` / `SetBusyRenderRate(hz)`. Your UI code and Dear ImGui's logic still run every frame, so input is never dropped.
 
 **Input.** Mouse and keys come from `UserInputService`. While the mouse is over Dear ImGui (`io.WantCaptureMouse`), the tiles are `Active`, so clicks and the wheel don't reach the game (camera zoom). Typing comes from key codes by default (printable ASCII). Call `ImGui_ImplRoblox.SetTextProxy(true)` to opt in to a hidden `TextBox` that holds focus while a text field is active: the OS then delivers typing (any layout), paste and copy/cut through it, and its text mirrors Dear ImGui's current selection. Fonts are TTFs rasterized by the ported stb_truetype into the font atlas, which becomes a backend texture like any image (`CreateTexture` works for your own pixels too).
 
