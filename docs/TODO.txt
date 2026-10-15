@@ -1,40 +1,33 @@
 Dear ImGui for Roblox - not yet ported / known gaps
 ====================================================
 Upstream reference: tools/test/upstream/ (ocornut/imgui docking branch, 1.93 WIP).
-Re-check with: python3 tools/test/missing.py [imgui|widgets|tables|draw]  and  python3 tools/test/undefined.py --no-demo
-(missing.py also lists names the port defines differently, e.g. the *V printf variants and DragFloat2..4 / DragInt2..4,
-which exist as ImGui.DragFloat2 = DragFloatN(2) etc. Those are NOT gaps.)
+Re-check with: python3 tools/compare_upstream.py (writes docs/PORT_STATUS.txt: [ ] = not ported, [=] = replaced by a
+Lua equivalent, "missing:" = enum values / struct fields) and python3 tools/test/undefined.py --no-demo
 
 
-FEATURES NOT PORTED / PARTIAL
------------------------------
-- ImFont::AddRemapCodepointToGlyphIndex / FontSrcGetGlyphIndexFromCodepoint (needs the 1.93 font loader split).
-- Default compressed font data (GetDefaultCompressedFontDataTTF / ProggyClean/ProggyForever embedded data):
-  AddFontFromMemoryCompressedTTF works, but the default font comes from fonts/ instead.
-- DebugLogSkippedErrors / DebugDrawIdConflicts* (Metrics error-recovery and ID-conflict debug tools).
-- ImGuiDataType.S64/U64: supported, but values are Luau doubles: exact only within +-2^53 (LLONG_MAX/ULLONG_MAX
-  round up to 2^63/2^64; U64 max prints as 18446744073709551615 via a special case).
-- ImDrawList::AddCallback(userdata_size > 0): "copy" = shallow copy of a table userdata (no raw bytes in Lua).
-- stb_truetype: cmap format 2 (high-byte mapping) asserts -- same as upstream stb_truetype ("@TODO").
-- GetAllocatorFunctions (n/a in Luau).
+NOT PORTED / PARTIAL
+--------------------
+- ImFont::AddRemapCodepointToGlyphIndex / ImGui_ImplStbTrueType_FontSrcGetGlyphIndexFromCodepoint (the port's font
+  loader still checks glyphs by codepoint; 1.93 split this into codepoint -> glyph index -> glyph).
+- ImGui_GetDefaultCompressedFontDataProggyClean/ProggyForever: AddFontFromMemoryCompressedTTF works, but the default
+  fonts are loaded from fonts/ instead of embedded compressed data.
+- ImFontAtlasDebugLogTextureRequests, ImHashSkipUncontributingPrefix.
+- DebugLogSkippedErrors / DebugDrawIdConflicts* (error-recovery and ID-conflict debug tools).
+
+LUA LIMITATIONS
+---------------
+- ImGuiDataType.S64/U64: values are Luau doubles, exact only within +-2^53 (LLONG_MAX/ULLONG_MAX round up).
+- ImDrawList::AddCallback(userdata_size > 0): the "copy" is a shallow copy of a table userdata (no raw bytes).
 
 WON'T DO (platform)
 -------------------
-- Multi-viewports / platform windows: Roblox has one window. Viewport API exists for the main viewport only.
+- Multi-viewports / platform windows: Roblox has one window. The viewport API covers the main viewport only.
 - Gamepad navigation via a real gamepad backend (keyboard navigation works).
 - IME / non-ASCII keyboard text input (backend sends printable ASCII only).
-
-NOT VERIFIED LINE BY LINE AGAINST UPSTREAM
-------------------------------------------
-- Demo: Layout & Scrolling, Popups & Modal windows, Inputs & Focus.
 
 KNOWN ISSUES
 ------------
 - Tables > "Columns flags": disabling every column asserts in TableUpdateLayout (upstream asserts too).
-- ImTriangulator ([Luau] deviation, imgui_draw.lua ImTriangulator_IsReflex): only strictly counter-clockwise corners are
-  reflex (upstream: also collinear/duplicate points), so polygons with duplicate points triangulate differently (no
-  overlapping-triangle fallback).
-
-PLANNED EXTENSIONS
-------------------
-- ImGuizmo, ImNodes, ImGuiColorTextEdit, ImPlot, ImPlot3D (as separate extensions/, built with a --with flag).
+- stb_truetype: cmap format 2 (high-byte mapping) asserts (same "@TODO" as upstream stb_truetype).
+- ImTriangulator differs from upstream (imgui_draw.lua, [Luau]): CCW input is reversed first and only strictly
+  counter-clockwise corners are reflex, so CCW and duplicate-point polygons triangulate differently from upstream.
