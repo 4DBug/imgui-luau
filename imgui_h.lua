@@ -499,8 +499,8 @@ end
 --- @field UserCallbackData       any
 --- @field UserCallbackDataSize   int
 --- @field UserCallbackDataOffset int
-local IM_DRAWCMD = {}
-IM_DRAWCMD.__index = IM_DRAWCMD
+MT.ImDrawCmd = {}
+MT.ImDrawCmd.__index = MT.ImDrawCmd
 
 --- @return ImDrawCmd
 --- @nodiscard
@@ -515,11 +515,11 @@ function ImDrawCmd()
         UserCallbackData       = nil, -- 4-8  -- Callback user data (when UserCallback != nil). If called AddCallback() with size == 0, this is a copy of the AddCallback() argument. If called AddCallback() with size > 0, this is pointing to a buffer where data is stored.
         UserCallbackDataSize   = 0, -- 4 -- Size of callback user data when using storage, otherwise 0.
         UserCallbackDataOffset = 0 -- 4 -- [Internal] Offset of callback user data when using storage, otherwise -1.
-    }, IM_DRAWCMD)
+    }, MT.ImDrawCmd)
 end
 
 --- @return ImTextureID
-function IM_DRAWCMD:GetTexID()
+function MT.ImDrawCmd:GetTexID()
     local tex_id = (self.TexRef._TexData) and self.TexRef._TexData.TexID or self.TexRef._TexID
     if self.TexRef._TexData ~= nil then
         IM_ASSERT(tex_id ~= ImTextureID_Invalid, "ImDrawCmd is referring to ImTextureData that wasn't uploaded to graphics system. Backend must call ImTextureData::SetTexID() after handling ImTextureStatus_WantCreate request!")
@@ -775,11 +775,14 @@ end
 
 --- @param x int
 --- @param y int
+function MT.ImTextureData:GetPixels() IM_ASSERT(self.Pixels ~= nil); return self.Pixels end
 function MT.ImTextureData:GetPixelsAt(x, y)
     return self.Pixels, (x + y * self.Width) * self.BytesPerPixel + 1
 end
 
+function MT.ImTextureData:GetSizeInBytes() return self.Width * self.Height * self.BytesPerPixel end
 function MT.ImTextureData:GetPitch() return self.Width * self.BytesPerPixel end
+function MT.ImTextureData:GetTexRef() local tex_ref = ImTextureRef(); tex_ref._TexData = self; tex_ref._TexID = ImTextureID_Invalid; return tex_ref end
 function MT.ImTextureData:GetTexID() return self.TexID end
 
 --- @param tex_id ImTextureID
@@ -799,8 +802,8 @@ function MT.ImTextureData:SetStatus(status) self.Status = status if (status == I
 --- @class ImTextureRef
 --- @field _TexData? ImTextureData
 --- @field _TexID    ImTextureID
-local IM_TEXTURE_REF = {}
-IM_TEXTURE_REF.__index = IM_TEXTURE_REF
+MT.ImTextureRef = {}
+MT.ImTextureRef.__index = MT.ImTextureRef
 
 --- @return ImTextureRef
 --- @nodiscard
@@ -809,7 +812,14 @@ function ImTextureRef(tex_id)
         -- Members (either are set, never both!)
         _TexData = nil, -- A texture, generally owned by a ImFontAtlas. Will convert to ImTextureID during render loop, after texture has been uploaded.
         _TexID   = tex_id or ImTextureID_Invalid -- _OR_ Low-level backend texture identifier, if already uploaded or created by user/app. Generally provided to e.g. ImGui.Image() calls.
-    }, IM_TEXTURE_REF)
+    }, MT.ImTextureRef)
+end
+
+-- This is provided for consistency (but we don't actually use this)
+--- @return ImTextureID
+function MT.ImTextureRef:GetTexID()
+    IM_ASSERT(not (self._TexData ~= nil and self._TexID ~= ImTextureID_Invalid))
+    if self._TexData then return self._TexData.TexID else return self._TexID end
 end
 
 -------------------------------------------------------------------------------
@@ -2543,7 +2553,8 @@ function MT.ImGuiInputTextCallbackData:InsertChars(pos, new_text)
     self.SelectionStart = self.CursorPos; self.SelectionEnd = self.CursorPos
 end
 
-function MT.ImGuiInputTextCallbackData:SelectAll() self.SelectionStart = 0; self.SelectionEnd = self.BufTextLen end
+function MT.ImGuiInputTextCallbackData:SelectAll() self.SelectionStart = 0; self.CursorPos = self.BufTextLen; self.SelectionEnd = self.BufTextLen end
+function MT.ImGuiInputTextCallbackData:SetSelection(s, e) IM_ASSERT(s >= 0 and s <= self.BufTextLen); IM_ASSERT(e >= 0 and e <= self.BufTextLen); self.SelectionStart = s; self.CursorPos = e; self.SelectionEnd = e end
 function MT.ImGuiInputTextCallbackData:ClearSelection() self.SelectionStart = self.BufTextLen; self.SelectionEnd = self.BufTextLen end
 function MT.ImGuiInputTextCallbackData:HasSelection() return self.SelectionStart ~= self.SelectionEnd end
 

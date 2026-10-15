@@ -331,9 +331,13 @@ end
 
 -- Storage for a table .ini settings
 --- @class ImGuiTableSettings
+MT.ImGuiTableSettings = {}
+MT.ImGuiTableSettings.__index = MT.ImGuiTableSettings
 function ImGuiTableSettings()
-    return { ID = 0, SaveFlags = 0, RefScale = 0.0, ColumnsCount = 0, ColumnsCountMax = 0, LastUsedDate = 0, WantApply = false, Columns = {} }
+    return setmetatable({ ID = 0, SaveFlags = 0, RefScale = 0.0, ColumnsCount = 0, ColumnsCountMax = 0, LastUsedDate = 0, WantApply = false, Columns = {} }, MT.ImGuiTableSettings)
 end
+-- [Luau] column settings are stored in a 0-based .Columns table (upstream: allocated right after the struct)
+function MT.ImGuiTableSettings:GetColumnSettings() return self.Columns end
 
 -- Storage data for a single column for legacy Columns() api
 --- @class ImGuiOldColumnData
@@ -4394,6 +4398,17 @@ function ImGui.TableLoadSettingsForColumn(column, column_settings, load_flags)
     column.SortDirection = column_settings.SortDirection
 end
 
+-- [Luau] boolean "less than" for table.sort; takes (table, lhs column idx, rhs column idx) instead of ImGuiTableFixDisplayOrderColumnData
+local function TableFixDisplayOrderComparer(table_, lhs_idx, rhs_idx)
+    -- Assume ImGuiTableColumnIdx == signed short, to turn -1 into a large value so that it always sort after.
+    local lhs_order, rhs_order = table_.Columns[lhs_idx].DisplayOrder, table_.Columns[rhs_idx].DisplayOrder
+    if lhs_order < 0 then lhs_order = lhs_order + 0x10000 end
+    if rhs_order < 0 then rhs_order = rhs_order + 0x10000 end
+    local order_delta = lhs_order - rhs_order
+    if order_delta ~= 0 then return order_delta < 0 end
+    return lhs_idx < rhs_idx
+end
+
 -- Fix invalid display order data: compact values (0,1,3 -> 0,1,2); preserve relative order (0,3,1 -> 0,2,1); deduplicate (0,4,1,1 -> 0,3,1,2)
 function ImGui.TableFixDisplayOrder(table_)
     if band(table_.Flags, ImGuiTableFlags.Reorderable) == 0 then
@@ -4408,22 +4423,33 @@ function ImGui.TableFixDisplayOrder(table_)
         fdo_columns[n + 1] = n
     end
     -- Sort by DisplayOrder and then Index
-    -- Assume ImGuiTableColumnIdx == signed short, to turn -1 into a large value so that it always sort after.
-    local function key(idx)
-        local o = table_.Columns[idx].DisplayOrder
-        if o < 0 then o = o + 0x10000 end
-        return o
-    end
-    table.sort(fdo_columns, function(lhs_idx, rhs_idx)
-        local a, b = key(lhs_idx), key(rhs_idx)
-        if a ~= b then return a < b end
-        return lhs_idx < rhs_idx
-    end)
+    table.sort(fdo_columns, function(lhs_idx, rhs_idx) return TableFixDisplayOrderComparer(table_, lhs_idx, rhs_idx) end)
     for n = 0, table_.ColumnsCount - 1 do
         table_.Columns[fdo_columns[n + 1]].DisplayOrder = n
     end
     for n = 0, table_.ColumnsCount - 1 do
         table_.DisplayOrderToIndex[table_.Columns[n].DisplayOrder] = n
+    end
+end
+
+local function TableSettingsHandler_Cleanup(ctx, handler, args)
+    local g = ctx
+    for i = 0, g.Tables:GetMapSize() - 1 do
+        local table_ = g.Tables:GetByIndex(i)
+        if table_ then
+            table_.SettingsOffset = -1
+        end
+    end
+    -- [Luau] settings.LastUsedDate is stored unpacked (YYYYMMDD int, 0 = none); g.SessionDate is an ImGuiPackedDate when set
+    for _, settings in g.SettingsTables:iter() do
+        local is_valid = ImGuiPackedDate(settings.LastUsedDate):IsValid()
+        if args._DiscardOlderThanDate ~= 0 and settings.LastUsedDate < args._DiscardOlderThanDate then
+            settings.ID = 0
+        elseif args.DiscardWhenMissingDate and not is_valid then
+            settings.ID = 0
+        elseif args.SetCurrentSessionDateToAll or (args.SetCurrentSessionDateWhenMissingDate and not is_valid) then
+            settings.LastUsedDate = g.SessionDate and g.SessionDate:Unpack() or 0
+        end
     end
 end
 
@@ -4552,6 +4578,7 @@ function ImGui.TableSettingsAddSettingsHandler()
     ini_handler.ReadLineFn = TableSettingsHandler_ReadLine
     ini_handler.ApplyAllFn = TableSettingsHandler_ApplyAll
     ini_handler.WriteAllFn = TableSettingsHandler_WriteAll
+    ini_handler.CleanupFn  = TableSettingsHandler_Cleanup
     ImGui.AddSettingsHandler(ini_handler)
 end
 
@@ -4613,6 +4640,20 @@ function ImGui.TableGcCompactSettings()
     end
     g.SettingsTables = new_list
     ForEachTable(g, function(t) t.SettingsOffset = -1 end)
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Tables: Debugging
+-------------------------------------------------------------------------------
+-- [Luau] global (upstream: static) so ImGui.DebugNodeTable() in imgui.lua can use it
+
+function DebugNodeTableGetSizingPolicyDesc(sizing_policy)
+    sizing_policy = band(sizing_policy, ImGuiTableFlags.SizingMask_)
+    if sizing_policy == ImGuiTableFlags.SizingFixedFit then return "FixedFit" end
+    if sizing_policy == ImGuiTableFlags.SizingFixedSame then return "FixedSame" end
+    if sizing_policy == ImGuiTableFlags.SizingStretchProp then return "StretchProp" end
+    if sizing_policy == ImGuiTableFlags.SizingStretchSame then return "StretchSame" end
+    return "N/A"
 end
 
 -------------------------------------------------------------------------------
