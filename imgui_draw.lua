@@ -7157,7 +7157,7 @@ function ImGui.RenderCheckMark(draw_list, pos, col, sz)
     draw_list:PathLineTo(p)
     p.x = bx + third * 2.0; p.y = by - third * 2.0
     draw_list:PathLineTo(p)
-    draw_list:PathStroke(col, thickness)
+    draw_list:PathStroke(col, thickness, ImDrawFlags.AALineEnds)
 end
 
 -- Render an arrow. 'pos' is position of the arrow tip. half_sz.x is length from base to tip. half_sz.y is length on each side.
@@ -7243,7 +7243,7 @@ function ImGui.RenderRectFilledInRangeH(draw_list, rect, col, fill_x0, fill_x1, 
         end
     end
 
-    draw_list:PathFillConvex(col)
+    draw_list:PathFillConvex(col, ImDrawFlags.JoinMiter)
 end
 
 --- @param r_in      ImRect
@@ -7277,16 +7277,16 @@ end
 -- Helper for ColorPicker4()
 -- NB: This is rather brittle and will show artifact when rounding this enabled if rounded corners overlap multiple cells. Caller currently responsible for avoiding that.
 -- Spent a non reasonable amount of time trying to getting this right for ColorButton with rounding+anti-aliasing+ImGuiColorEditFlags_HalfAlphaPreview flag + various grid sizes and offsets, and eventually gave up... probably more reasonable to disable rounding altogether.
--- FIXME: uses ImGui.GetColorU32
 --- @param draw_list ImDrawList
 --- @param p_min     ImVec2
 --- @param p_max     ImVec2
 --- @param col       ImU32
+--- @param alpha     float
 --- @param grid_step float
 --- @param grid_off  ImVec2
 --- @param rounding? float
 --- @param flags?    ImDrawFlags
-function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col, grid_step, grid_off, rounding, flags)
+function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col, alpha, grid_step, grid_off, rounding, flags)
     if rounding == nil then rounding = 0.0 end
     if flags    == nil then flags    = 0   end
 
@@ -7295,60 +7295,53 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
     end
 
     if bit32.rshift(bit32.band(col, IM_COL32_A_MASK), IM_COL32_A_SHIFT) < 0xFF then
-        local col_bg1 = ImGui.GetColorU32(ImStd.ImAlphaBlendColors(IM_COL32(128, 128, 128, 255), col), nil, true)
-        local col_bg2 = ImGui.GetColorU32(ImStd.ImAlphaBlendColors(IM_COL32(204, 204, 204, 255), col), nil, true)
-        draw_list:AddRectFilled(p_min, p_max, col_bg1, rounding, flags)
+        IM_ASSERT(alpha >= 0.0 and alpha <= 1.0)
+        local a_mask = bit32.lshift(ImTrunc(alpha * 255.0), IM_COL32_A_SHIFT)
+        local col_bg1 = bit32.bor(bit32.band(ImStd.ImAlphaBlendColors(IM_COL32(128, 128, 128, 255), col), bit32.bnot(IM_COL32_A_MASK)), a_mask)
+        local col_bg2 = bit32.bor(bit32.band(ImStd.ImAlphaBlendColors(IM_COL32(204, 204, 204, 255), col), bit32.bnot(IM_COL32_A_MASK)), a_mask)
+        local dual_layer = (alpha == 1.0) -- Dual layer is faster but incorrect if blending.
+        if dual_layer then
+            draw_list:AddRectFilled(p_min, p_max, col_bg1, rounding, flags)
+        end
 
         local yi = 0
         local y = p_min.y + grid_off.y
-        local x_start
-        local x
-        local cell_flags
         while y < p_max.y do
-            repeat
-            local y1 = ImClamp(y, p_min.y, p_max.y)
-            local y2 = ImMin(y + grid_step, p_max.y)
+            local y1 = ImClamp(ImTrunc(y), p_min.y, p_max.y)
+            local y2 = ImMin(ImTrunc(y + grid_step), p_max.y)
+            if y2 > y1 then
+                local x_start_off = dual_layer and (((yi + 1) % 2) * grid_step) or 0.0
+                local x_step = dual_layer and (grid_step * 2.0) or grid_step
+                local xi = 0
+                local x = p_min.x + grid_off.x + x_start_off
+                while x < p_max.x do
+                    local x1 = ImClamp(ImTrunc(x), p_min.x, p_max.x)
+                    local x2 = ImMin(ImTrunc(x + grid_step), p_max.x)
+                    if x2 > x1 then
+                        local cell_flags = ImDrawFlags.RoundNone -- FIXME: Could use CalcRoundingFlagsForRectInRect()
+                        if y1 <= p_min.y then
+                            if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundTopLeft) end
+                            if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundTopRight) end
+                        end
+                        if y2 >= p_max.y then
+                            if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundBottomLeft) end
+                            if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundBottomRight) end
+                        end
 
-            if y2 <= y1 then
-                break
+                        -- Combine flags
+                        if flags == ImDrawFlags.RoundNone or cell_flags == ImDrawFlags.RoundNone then
+                            cell_flags = ImDrawFlags.RoundNone
+                        else
+                            cell_flags = bit32.band(cell_flags, flags)
+                        end
+                        local col_bg
+                        if dual_layer then col_bg = col_bg2 elseif (yi + xi) % 2 == 1 then col_bg = col_bg2 else col_bg = col_bg1 end
+                        draw_list:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col_bg, rounding, cell_flags)
+                    end
+                    x = x + x_step
+                    xi = xi + 1
+                end
             end
-
-            x_start = p_min.x + grid_off.x + ((yi + 1) % 2) * grid_step
-            x = x_start
-            while x < p_max.x do
-                repeat
-                local x1 = ImClamp(x, p_min.x, p_max.x)
-                local x2 = ImMin(x + grid_step, p_max.x)
-
-                if x2 <= x1 then
-                    break
-                end
-
-                cell_flags = ImDrawFlags.RoundNone -- FIXME: Could use CalcRoundingFlagsForRectInRect()
-                if y1 <= p_min.y then
-                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundTopLeft) end
-                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundTopRight) end
-                end
-                if y2 >= p_max.y then
-                    if x1 <= p_min.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundBottomLeft) end
-                    if x2 >= p_max.x then cell_flags = bit32.bor(cell_flags, ImDrawFlags.RoundBottomRight) end
-                end
-
-                -- Combine flags
-                if flags == ImDrawFlags.RoundNone or cell_flags == ImDrawFlags.RoundNone then
-                    cell_flags = ImDrawFlags.RoundNone
-                else
-                    cell_flags = bit32.band(cell_flags, flags)
-                end
-                draw_list:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col_bg2, rounding, cell_flags)
-
-                until true
-
-                x = x + grid_step * 2.0
-            end
-
-            until true
-
             y = y + grid_step
             yi = yi + 1
         end

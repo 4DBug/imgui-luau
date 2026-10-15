@@ -2508,6 +2508,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
 
         DisabledAlphaBackup = 0.0, -- Backup for style.Alpha for BeginDisabled()
         DisabledStackSize = 0,
+        MixedValueLabel = "-", -- Value replacement when displaying a mixed value.
 
         ItemFlagsStack = ImVector(), -- Stack for PushItemFlag()/PopItemFlag() - inherited by Begin()
         GroupStack = ImVector(), -- Stack for BeginGroup()/EndGroup() - not inherited by Begin()
