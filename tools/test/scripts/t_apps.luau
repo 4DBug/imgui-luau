@@ -7,7 +7,7 @@ io.ConfigFlags = bit32.bor(io.ConfigFlags, G.ImGuiConfigFlags.DockingEnable)
 G.ImGui_ImplRoblox.Init()
 local names = { "ShowExampleAppConsole", "ShowExampleAppLog", "ShowExampleAppLayout", "ShowExampleAppPropertyEditor", "ShowExampleAppLongText",
     "ShowExampleAppAutoResize", "ShowExampleAppConstrainedResize", "ShowExampleAppSimpleOverlay", "ShowExampleAppWindowTitles",
-    "ShowExampleAppCustomRendering", "ShowExampleAppDocuments", "ShowExampleAppDockSpace", "ShowExampleAppFullscreen", "ShowExampleAppAssetsBrowser", "ShowExampleAppMainMenuBar" }
+    "ShowExampleAppCustomRendering", "ShowExampleAppDocuments", "ShowExampleAppDockSpace", "ShowExampleAppFullscreen", "ShowExampleAppAssetsBrowser", "ShowExampleAppMainMenuBar", "ShowExampleAppImageViewer" }
 local tools = { "ShowMetricsWindow", "ShowDebugLogWindow", "ShowIDStackToolWindow", "ShowAboutWindow" }
 local open = {}
 local frame = 0
