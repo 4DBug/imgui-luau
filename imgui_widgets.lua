@@ -1355,14 +1355,14 @@ function ImGui.Checkbox(label, v)
     -- Range-Selection/Multi-selection support (header)
     local checked = v
     if is_multi_select then
-        -- TODO: MultiSelectItemHeader()
+        checked = ImGui.MultiSelectItemHeader(id, checked, nil)
     end
 
     local pressed, hovered, held = ImGui.ButtonBehavior(total_bb, id)
 
     -- Range-Selection/Multi-selection support (footer)
     if is_multi_select then
-        -- TODO: MultiSelectItemFooter()
+        checked, pressed = ImGui.MultiSelectItemFooter(id, checked, pressed, ImGuiMultiSelectFlags.CheckboxMode_)
     elseif pressed then
         checked = not checked
     end
@@ -8219,7 +8219,7 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     local was_selected = selected
     if is_multi_select then
         -- Handle multi-select + alter button flags for it
-        -- TODO: selected, button_flags = ImGui.MultiSelectItemHeader(id, selected, button_flags)
+        selected, button_flags = ImGui.MultiSelectItemHeader(id, selected, button_flags)
     end
 
     local pressed, hovered, held = ImGui.ButtonBehavior(bb, id, button_flags)
@@ -8227,7 +8227,7 @@ function ImGui.Selectable(label, selected, flags, size_arg)
 
     -- Multi-selection support (footer)
     if is_multi_select then
-        -- TODO: selected, pressed = ImGui.MultiSelectItemFooter(id, selected, pressed)
+        selected, pressed = ImGui.MultiSelectItemFooter(id, selected, pressed)
     else
         -- Auto-select when moved into
         -- - This will be more fully fleshed in the range-select branch
@@ -8319,6 +8319,1331 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     -- selection toggle, only useful if you need that state updated (e.g. for rendering purpose) before reaching EndMultiSelect().
     return pressed, selected
 end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Typing-Select support
+-------------------------------------------------------------------------------
+
+do -- [Port] Typing-Select, Box-Select, Multi-Select sections: locals kept private
+
+local MT = ImGui.GetMetatables()
+
+local TypingSelectCharBuf = { 0, 0, 0, 0, 0 } -- [Luau] scratch for ImTextCharToUtf8() (C++: char w_buf[5])
+
+-- [Experimental] Currently not exposed in public API.
+-- Consume character inputs and return search request, if any.
+-- This would typically only be called on the focused window or location you want to grab inputs for, e.g.
+--   if ImGui.IsWindowFocused(...) then
+--       local req = ImGui.GetTypingSelectRequest()
+--       if req then focus_idx = ImGui.TypingSelectFindMatch(req, #my_items, function(user_data, n) return my_items[n + 1].Name end, my_items, -1) end
+-- However the code is written in a way where calling it from multiple locations is safe (e.g. to obtain buffer).
+-- [Port] Item indices passed to get_item_name_func(user_data, idx) and returned by TypingSelectFind*() are 0-based like upstream (-1 = none).
+--- @param flags? ImGuiTypingSelectFlags
+--- @return ImGuiTypingSelectRequest?
+function ImGui.GetTypingSelectRequest(flags)
+    if flags == nil then flags = ImGuiTypingSelectFlags.None end
+    local g = GImGui
+    local data = g.TypingSelectState
+    local out_request = data.Request
+
+    -- Clear buffer
+    local TYPING_SELECT_RESET_TIMER = 1.80           -- FIXME: Potentially move to IO config.
+    local TYPING_SELECT_SINGLE_CHAR_COUNT_FOR_LOCK = 4 -- Lock single char matching when repeating same char 4 times
+    if #data.SearchBuffer ~= 0 then
+        local clear_buffer = false
+        clear_buffer = clear_buffer or (g.NavFocusScopeId ~= data.FocusScope)
+        clear_buffer = clear_buffer or (data.LastRequestTime + TYPING_SELECT_RESET_TIMER < g.Time)
+        clear_buffer = clear_buffer or g.NavAnyRequest
+        clear_buffer = clear_buffer or (g.ActiveId ~= 0 and g.NavActivateId == 0) -- Allow temporary SPACE activation to not interfere
+        clear_buffer = clear_buffer or ImGui.IsKeyPressed(ImGuiKey.Escape) or ImGui.IsKeyPressed(ImGuiKey.Enter)
+        clear_buffer = clear_buffer or (ImGui.IsKeyPressed(ImGuiKey.Backspace) and bit32.band(flags, ImGuiTypingSelectFlags.AllowBackspace) == 0)
+        --if clear_buffer then IMGUI_DEBUG_LOG("GetTypingSelectRequest(): Clear SearchBuffer.\n") end
+        if clear_buffer then
+            data:Clear()
+        end
+    end
+
+    -- Append to buffer
+    local buffer_max_len = 64 - 1 -- [Port] IM_COUNTOF(data->SearchBuffer) - 1
+    local buffer_len = #data.SearchBuffer
+    local select_request = false
+    local input_queue = g.IO.InputQueueCharacters
+    for n = 1, input_queue.Size do
+        repeat
+            local w = input_queue.Data[n]
+            local w_buf = TypingSelectCharBuf
+            local w_len = ImStd.ImTextCharToUtf8(w_buf, w) -- [Port] also gives ImTextCountUtf8BytesFromStr(&w, &w + 1)
+            if w < 32 or (buffer_len == 0 and ImCharIsBlankW(w)) or (buffer_len + w_len > buffer_max_len) then -- Ignore leading blanks
+                break -- continue
+            end
+            local w_str = string.char(table.unpack(w_buf, 1, w_len))
+            if data.SingleCharModeLock and w_len == out_request.SingleCharSize and string.sub(data.SearchBuffer, 1, w_len) == w_str then
+                select_request = true -- Same character: don't need to append to buffer.
+                break -- continue
+            end
+            if data.SingleCharModeLock then
+                data:Clear() -- Different character: clear
+                buffer_len = 0
+            end
+            data.SearchBuffer = string.sub(data.SearchBuffer, 1, buffer_len) .. w_str -- Append
+            buffer_len = buffer_len + w_len
+            select_request = true
+        until true
+    end
+    input_queue:resize(0)
+
+    -- Handle backspace
+    if bit32.band(flags, ImGuiTypingSelectFlags.AllowBackspace) ~= 0 and ImGui.IsKeyPressedEx(ImGuiKey.Backspace, ImGuiInputFlags.Repeat) then
+        local p = ImStd.ImTextFindPreviousUtf8Codepoint(data.SearchBuffer, 1, buffer_len + 1) -- 1-based byte position
+        data.SearchBuffer = string.sub(data.SearchBuffer, 1, p - 1)
+        buffer_len = p - 1
+    end
+
+    -- Return request if any
+    if buffer_len == 0 then
+        return nil
+    end
+    if select_request then
+        data.FocusScope = g.NavFocusScopeId
+        data.LastRequestFrame = g.FrameCount
+        data.LastRequestTime = g.Time
+    end
+    out_request.Flags = flags
+    out_request.SearchBufferLen = buffer_len
+    out_request.SearchBuffer = data.SearchBuffer
+    out_request.SelectRequest = (data.LastRequestFrame == g.FrameCount)
+    out_request.SingleCharMode = false
+    out_request.SingleCharSize = 0
+
+    -- Calculate if buffer contains the same character repeated.
+    -- - This can be used to implement a special search mode on first character.
+    -- - Performed on UTF-8 codepoint for correctness.
+    -- - SingleCharMode is always set for first input character, because it usually leads to a "next".
+    if bit32.band(flags, ImGuiTypingSelectFlags.AllowSingleCharMode) ~= 0 then
+        local buf = out_request.SearchBuffer
+        local buf_begin = 1
+        local buf_end = buf_begin + out_request.SearchBufferLen
+        local c0_len = ImStd.ImTextCountUtf8BytesFromChar(buf, buf_begin, buf_end)
+        local c0 = string.sub(buf, buf_begin, buf_begin + c0_len - 1)
+        local p = buf_begin + c0_len
+        while p < buf_end do
+            if string.sub(buf, p, p + c0_len - 1) ~= c0 then -- memcmp(buf_begin, p, c0_len) != 0
+                break
+            end
+            p = p + c0_len
+        end
+        local single_char_count = (p == buf_end) and math.floor(out_request.SearchBufferLen / c0_len) or 0
+        out_request.SingleCharMode = (single_char_count > 0 or data.SingleCharModeLock)
+        out_request.SingleCharSize = c0_len
+        data.SingleCharModeLock = data.SingleCharModeLock or (single_char_count >= TYPING_SELECT_SINGLE_CHAR_COUNT_FOR_LOCK) -- From now on we stop search matching to lock to single char mode.
+    end
+
+    return out_request
+end
+
+-- [Port] s1 is the byte range [s1_begin, s1_end) of string s1, s2 is a whole string (out of range bytes read as 0 like a C terminator).
+local function ImStrimatchlen(s1, s1_begin, s1_end, s2)
+    local match_len = 0
+    local s2_p = 1
+    while s1_begin < s1_end and ImToUpper(string.byte(s1, s1_begin)) == ImToUpper(string.byte(s2, s2_p) or 0) do
+        s1_begin = s1_begin + 1
+        s2_p = s2_p + 1
+        match_len = match_len + 1
+    end
+    return match_len
+end
+
+-- Default handler for finding a result for typing-select. You may implement your own.
+-- You might want to display a tooltip to visualize the current request SearchBuffer
+-- When SingleCharMode is set:
+-- - it is better to NOT display a tooltip of other on-screen display indicator.
+-- - the index of the currently focused item is required.
+--   if your SetNextItemSelectionUserData() values are indices, you can obtain it from ImGuiMultiSelectIO.NavIdItem, otherwise from g.NavLastValidSelectionUserData.
+--- @param req                ImGuiTypingSelectRequest?
+--- @param items_count        int
+--- @param get_item_name_func fun(user_data: any, idx: int): string # idx is 0-based
+--- @param user_data          any
+--- @param nav_item_idx       int # 0-based, -1 if unknown
+--- @return int # 0-based, -1 if none
+function ImGui.TypingSelectFindMatch(req, items_count, get_item_name_func, user_data, nav_item_idx)
+    if req == nil or req.SelectRequest == false then -- Support NULL parameter so both calls can be done from same spot.
+        return -1
+    end
+    local idx = -1
+    if req.SingleCharMode and bit32.band(req.Flags, ImGuiTypingSelectFlags.AllowSingleCharMode) ~= 0 then
+        idx = ImGui.TypingSelectFindNextSingleCharMatch(req, items_count, get_item_name_func, user_data, nav_item_idx)
+    else
+        idx = ImGui.TypingSelectFindBestLeadingMatch(req, items_count, get_item_name_func, user_data)
+    end
+    if idx ~= -1 then
+        ImGui.SetNavCursorVisibleAfterMove()
+    end
+    return idx
+end
+
+-- Special handling when a single character is repeated: perform search on a single letter and goes to next.
+function ImGui.TypingSelectFindNextSingleCharMatch(req, items_count, get_item_name_func, user_data, nav_item_idx)
+    -- FIXME: Assume selection user data is index. Would be extremely practical.
+    --if nav_item_idx == -1 then
+    --    nav_item_idx = g.NavLastValidSelectionUserData
+    --end
+
+    local first_match_idx = -1
+    local return_next_match = false
+    for idx = 0, items_count - 1 do
+        repeat
+            local item_name = get_item_name_func(user_data, idx)
+            if ImStrimatchlen(req.SearchBuffer, 1, 1 + req.SingleCharSize, item_name) < req.SingleCharSize then
+                break -- continue
+            end
+            if return_next_match then                           -- Return next matching item after current item.
+                return idx
+            end
+            if first_match_idx == -1 and nav_item_idx == -1 then -- Return first match immediately if we don't have a nav_item_idx value.
+                return idx
+            end
+            if first_match_idx == -1 then                       -- Record first match for wrapping.
+                first_match_idx = idx
+            end
+            if nav_item_idx == idx then                         -- Record that we encountering nav_item so we can return next match.
+                return_next_match = true
+            end
+        until true
+    end
+    return first_match_idx -- First result
+end
+
+function ImGui.TypingSelectFindBestLeadingMatch(req, items_count, get_item_name_func, user_data)
+    local longest_match_idx = -1
+    local longest_match_len = 0
+    for idx = 0, items_count - 1 do
+        local item_name = get_item_name_func(user_data, idx)
+        local match_len = ImStrimatchlen(req.SearchBuffer, 1, 1 + req.SearchBufferLen, item_name)
+        if match_len > longest_match_len then -- [Port] inverted 'if (match_len <= longest_match_len) continue;'
+            longest_match_idx = idx
+            longest_match_len = match_len
+            if match_len == req.SearchBufferLen then
+                break
+            end
+        end
+    end
+    return longest_match_idx
+end
+
+--- @param data ImGuiTypingSelectState
+function ImGui.DebugNodeTypingSelectState(data)
+    ImGui.Text("SearchBuffer = \"%s\"", data.SearchBuffer)
+    ImGui.Text("SingleCharMode = %d, Size = %d, Lock = %d", data.Request.SingleCharMode and 1 or 0, data.Request.SingleCharSize, data.SingleCharModeLock and 1 or 0)
+    ImGui.Text("LastRequest = time: %.2f, frame: %d", data.LastRequestTime, data.LastRequestFrame)
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Box-Select support
+-- This has been extracted away from Multi-Select logic in the hope that it could eventually be used elsewhere, but hasn't been yet.
+-------------------------------------------------------------------------------
+-- Extra logic in MultiSelectItemFooter() and ImGuiListClipper:Step()
+-------------------------------------------------------------------------------
+-- - BoxSelectPreStartDrag() [Internal]
+-- - BoxSelectActivateDrag() [Internal]
+-- - BoxSelectDeactivateDrag() [Internal]
+-- - BoxSelectScrollWithMouseDrag() [Internal]
+-- - BeginBoxSelect() [Internal]
+-- - EndBoxSelect() [Internal]
+-------------------------------------------------------------------------------
+
+-- Call on the initial click.
+local function BoxSelectPreStartDrag(id, clicked_item)
+    local g = GImGui
+    local bs = g.BoxSelectState
+    bs.ID = id
+    bs.IsStarting = true -- Consider starting box-select.
+    bs.IsStartedFromVoid = (clicked_item == ImGuiSelectionUserData_Invalid)
+    bs.IsStartedSetNavIdOnce = bs.IsStartedFromVoid
+    bs.KeyMods = g.IO.KeyMods
+    local off = g.CurrentWindow.DC.CursorStartPos -- [Luau] inline WindowPosAbsToRel(g.CurrentWindow, g.IO.MousePos)
+    ImVec2_CopyV(bs.StartPosRel, g.IO.MousePos.x - off.x, g.IO.MousePos.y - off.y)
+    ImVec2_Copy(bs.EndPosRel, bs.StartPosRel)
+    ImVec2_CopyV(bs.ScrollAccum, 0.0, 0.0)
+end
+
+local function BoxSelectActivateDrag(bs, window)
+    local g = GImGui
+    IMGUI_DEBUG_LOG_SELECTION("[selection] BeginBoxSelect() 0X%08X: Activate\n", bs.ID)
+    bs.IsActive = true
+    bs.Window = window
+    bs.IsStarting = false
+    ImGui.SetActiveID(bs.ID, window)
+    ImGui.SetActiveIdUsingAllKeyboardKeys()
+    if bs.IsStartedFromVoid and bit32.band(bs.KeyMods, bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift)) == 0 then
+        bs.RequestClear = true
+    end
+end
+
+local function BoxSelectDeactivateDrag(bs)
+    local g = GImGui
+    bs.IsActive = false; bs.IsStarting = false
+    if g.ActiveId == bs.ID then
+        IMGUI_DEBUG_LOG_SELECTION("[selection] BeginBoxSelect() 0X%08X: Deactivate\n", bs.ID)
+        ImGui.ClearActiveID()
+    end
+    bs.ID = 0
+end
+
+local function BoxSelectScrollWithMouseDrag(bs, window, inner_r)
+    local g = GImGui
+    IM_ASSERT(bs.Window == window)
+    for n = 1, 2 do -- each axis -- [Port] 1 = X, 2 = Y
+        repeat
+            local k = (n == 1) and "x" or "y"
+            local mouse_pos = g.IO.MousePos[k]
+            local dist = (mouse_pos > inner_r.Max[k]) and mouse_pos - inner_r.Max[k] or (mouse_pos < inner_r.Min[k]) and mouse_pos - inner_r.Min[k] or 0.0
+            local scroll_curr = window.Scroll[k]
+            if dist == 0.0 or (dist < 0.0 and scroll_curr < 0.0) or (dist > 0.0 and scroll_curr >= window.ScrollMax[k]) then
+                break -- continue
+            end
+
+            local speed_multiplier = ImLinearRemapClamp(g.FontSize, g.FontSize * 5.0, 1.0, 4.0, ImAbs(dist)) -- x1 to x4 depending on distance
+            local scroll_step = g.FontSize * 35.0 * speed_multiplier * ImSign(dist) * g.IO.DeltaTime
+            bs.ScrollAccum[k] = bs.ScrollAccum[k] + scroll_step
+
+            -- Accumulate into a stored value so we can handle high-framerate
+            local scroll_step_i = ImFloor(bs.ScrollAccum[k])
+            if scroll_step_i == 0.0 then
+                break -- continue
+            end
+            if n == 1 then
+                ImGui.SetScrollX(window, scroll_curr + scroll_step_i)
+            else
+                ImGui.SetScrollY(window, scroll_curr + scroll_step_i)
+            end
+            bs.ScrollAccum[k] = bs.ScrollAccum[k] - scroll_step_i
+        until true
+    end
+end
+
+--- @param scope_rect    ImRect
+--- @param window        ImGuiWindow
+--- @param box_select_id ImGuiID
+--- @param ms_flags      ImGuiMultiSelectFlags
+--- @return bool
+function ImGui.BeginBoxSelect(scope_rect, window, box_select_id, ms_flags)
+    local g = GImGui
+    local bs = g.BoxSelectState
+    ImGui.KeepAliveID(box_select_id)
+    if bs.ID ~= box_select_id then
+        return false
+    end
+
+    -- IsStarting is set by MultiSelectItemFooter() when considering a possible box-select. We validate it here and lock geometry.
+    bs.UnclipMode = false
+    bs.RequestClear = false
+    if bs.IsStarting and ImGui.IsMouseDragPastThreshold(0) then
+        BoxSelectActivateDrag(bs, window)
+    elseif (bs.IsStarting or bs.IsActive) and g.IO.MouseDown[0] == false then
+        BoxSelectDeactivateDrag(bs)
+    end
+    if not bs.IsActive then
+        return false
+    end
+
+    -- Current frame absolute prev/current rectangles are used to toggle selection.
+    -- They are derived from positions relative to scrolling space, so "previous" rectangle is reprojected for current frame coordinates.
+    -- [Luau] scalar versions of WindowPosRelToAbs()/ImClamp()/ImMin()/ImMax() (no temporary ImVec2)
+    local off = window.DC.CursorStartPos
+    local start_pos_abs_x, start_pos_abs_y = bs.StartPosRel.x + off.x, bs.StartPosRel.y + off.y
+    local prev_end_pos_abs_x, prev_end_pos_abs_y = bs.EndPosRel.x + off.x, bs.EndPosRel.y + off.y -- Clamped already
+    local curr_end_pos_abs_x, curr_end_pos_abs_y = g.IO.MousePos.x, g.IO.MousePos.y
+    if bit32.band(ms_flags, ImGuiMultiSelectFlags.ScopeWindow) ~= 0 then -- Box-select scrolling only happens with ScopeWindow
+        curr_end_pos_abs_x = ImClamp(curr_end_pos_abs_x, scope_rect.Min.x, scope_rect.Max.x)
+        curr_end_pos_abs_y = ImClamp(curr_end_pos_abs_y, scope_rect.Min.y, scope_rect.Max.y)
+    end
+    ImVec2_CopyV(bs.BoxSelectRectPrev.Min, ImMin(start_pos_abs_x, prev_end_pos_abs_x), ImMin(start_pos_abs_y, prev_end_pos_abs_y))
+    ImVec2_CopyV(bs.BoxSelectRectPrev.Max, ImMax(start_pos_abs_x, prev_end_pos_abs_x), ImMax(start_pos_abs_y, prev_end_pos_abs_y))
+    ImVec2_CopyV(bs.BoxSelectRectCurr.Min, ImMin(start_pos_abs_x, curr_end_pos_abs_x), ImMin(start_pos_abs_y, curr_end_pos_abs_y))
+    ImVec2_CopyV(bs.BoxSelectRectCurr.Max, ImMax(start_pos_abs_x, curr_end_pos_abs_x), ImMax(start_pos_abs_y, curr_end_pos_abs_y))
+    --IMGUI_DEBUG_LOG("StartPosRel (%.2f,%.2f) EndPosRel (%.2f,%.2f) -> (%.2f,%.2f)\n", bs.StartPosRel.x, bs.StartPosRel.y, bs.EndPosRel.x, bs.EndPosRel.y, WindowPosAbsToRel(window, g.IO.MousePos).x, WindowPosAbsToRel(window, g.IO.MousePos).y)
+
+    -- Box-select 2D mode detects change of the rectangle.
+    -- Storing unclip rects which will be tested by widgets supporting box-select. Always update rectangles when active (even if we don't use them).
+    -- To facilitate understanding this: enable IMGUI_DEBUG_BOXSELECT and visualize all geometry.
+    if bit32.band(ms_flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 then
+        -- For both sides, compute the area differing between Prev and Curr rectangles.
+        local unclip_x, unclip_y = bs.UnclipRects[1], bs.UnclipRects[2] -- [Port] UnclipRects[0], UnclipRects[1]
+        ImVec2_CopyV(unclip_x.Min, FLT_MAX, FLT_MAX); ImVec2_CopyV(unclip_x.Max, -FLT_MAX, -FLT_MAX)
+        ImVec2_CopyV(unclip_y.Min, FLT_MAX, FLT_MAX); ImVec2_CopyV(unclip_y.Max, -FLT_MAX, -FLT_MAX)
+        local curr, prev = bs.BoxSelectRectCurr, bs.BoxSelectRectPrev
+        for side = 0, 1 do
+            local a = (side == 0) and curr.Min or curr.Max
+            local b = (side == 0) and prev.Min or prev.Max
+            local d_min_x, d_min_y = ImMin(a.x, b.x), ImMin(a.y, b.y)
+            local d_max_x, d_max_y = ImMax(a.x, b.x), ImMax(a.y, b.y)
+            if d_min_x ~= d_max_x then
+                unclip_x:AddX(d_min_x)
+                unclip_x:AddX(d_max_x)
+            end
+            if d_min_y ~= d_max_y then
+                unclip_y:AddY(d_min_y)
+                unclip_y:AddY(d_max_y)
+            end
+        end
+
+        -- box_select_intersection = BoxSelectRectPrev + BoxSelectRectCurr
+        local box_select_intersection_min_x, box_select_intersection_min_y = ImMin(prev.Min.x, curr.Min.x), ImMin(prev.Min.y, curr.Min.y)
+        local box_select_intersection_max_x, box_select_intersection_max_y = ImMax(prev.Max.x, curr.Max.x), ImMax(prev.Max.y, curr.Max.y)
+        if bit32.band(ms_flags, ImGuiMultiSelectFlags.BoxSelect2d) ~= 0 then
+            if prev.Min.x ~= curr.Min.x or prev.Max.x ~= curr.Max.x then
+                unclip_x:AddY(box_select_intersection_min_y)
+                unclip_x:AddY(box_select_intersection_max_y)
+            end
+        end
+        if bit32.band(ms_flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 then
+            if prev.Min.y ~= curr.Min.y or prev.Max.y ~= curr.Max.y then
+                unclip_y:AddX(box_select_intersection_min_x)
+                unclip_y:AddX(box_select_intersection_max_x)
+            end
+        end
+
+        -- Merge both rectangles into one.
+        -- FIXME-OPT: When UnclipRect.Area() is much larger than the sum of UnclipRects[0]/[1] Areas, widgets should
+        -- ideally first use UnclipRect as a first coarse cull layer + the individual ones as a second validation.
+        ImRect_Copy(bs.UnclipRect, unclip_x)
+        bs.UnclipRect:Add(unclip_y)
+        if not bs.UnclipRect:IsInverted() and (not window.ClipRect:Contains(bs.UnclipRect.Min) or not window.ClipRect:Contains(bs.UnclipRect.Max)) then -- !! Don't use Contains(ImRect)
+            bs.UnclipMode = true
+        end
+        if bs.UnclipMode and g.CurrentTable ~= nil then
+            ImGui.TableApplyExternalUnclipRect(g.CurrentTable, bs.UnclipRect) -- No need submitting both
+        end
+    end
+
+    -- [Port] IMGUI_DEBUG_BOXSELECT visualization not ported (compile-time debug option, disabled upstream).
+    return true
+end
+
+--- @param scope_rect ImRect
+--- @param ms_flags   ImGuiMultiSelectFlags
+function ImGui.EndBoxSelect(scope_rect, ms_flags)
+    local g = GImGui
+    local window = g.CurrentWindow
+    local bs = g.BoxSelectState
+    IM_ASSERT(bs.IsActive)
+    bs.UnclipMode = false
+
+    -- Render selection rectangle
+    bs.EndPosRel = ImGui.WindowPosAbsToRel(window, ImClamp(g.IO.MousePos, scope_rect.Min, scope_rect.Max)) -- Clamp stored position according to current scrolling view
+    local box_select_r = ImRect(bs.BoxSelectRectCurr.Min, bs.BoxSelectRectCurr.Max)
+    box_select_r:ClipWith(scope_rect)
+    local draw_window = ImGui.FindFrontMostVisibleChildWindow(window)
+    draw_window.DrawList:AddRectFilled(box_select_r.Min, box_select_r.Max, ImGui.GetColorU32(ImGuiCol.SeparatorHovered, 0.30)) -- FIXME-MULTISELECT: Styling
+    draw_window.DrawList:AddRect(box_select_r.Min, box_select_r.Max, ImGui.GetColorU32(ImGuiCol.NavCursor)) -- FIXME-MULTISELECT FIXME-DPI: Styling
+
+    -- Scroll
+    local enable_scroll = bit32.band(ms_flags, ImGuiMultiSelectFlags.ScopeWindow) ~= 0 and bit32.band(ms_flags, ImGuiMultiSelectFlags.BoxSelectNoScroll) == 0
+    if enable_scroll then
+        local scroll_r = ImRect(scope_rect.Min, scope_rect.Max)
+        scroll_r:Expand(-g.FontSize)
+        --GetForegroundDrawList():AddRect(scroll_r.Min, scroll_r.Max, IM_COL32(0, 255, 0, 255))
+        if not scroll_r:Contains(g.IO.MousePos) then
+            BoxSelectScrollWithMouseDrag(bs, window, scroll_r)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Multi-Select support
+-------------------------------------------------------------------------------
+-- - DebugLogMultiSelectRequests() [Internal]
+-- - CalcScopeRect() [Internal]
+-- - BeginMultiSelect()
+-- - EndMultiSelect()
+-- - SetNextItemSelectionUserData()
+-- - MultiSelectItemHeader() [Internal]
+-- - MultiSelectItemFooter() [Internal]
+-- - DebugNodeMultiSelectState() [Internal]
+-------------------------------------------------------------------------------
+
+-- [Luau] reused scratch request: ImVector:push_back() copies it into the preallocated element (ImGuiSelectionRequest_Copy)
+local MultiSelectScratchRequest = { Type = 0, Selected = false, RangeDirection = 0, RangeFirstItem = -1, RangeLastItem = -1 }
+local MultiSelectScratchItemRect = ImRect() -- [Luau] scratch for MultiSelectItemFooter()'s item_rect
+
+local function DebugLogMultiSelectRequests(func, io)
+    local g = GImGui
+    for _, req in io.Requests:iter() do
+        if req.Type == ImGuiSelectionRequestType.SetAll then IMGUI_DEBUG_LOG_SELECTION("[selection] %s: Request: SetAll %d (= %s)\n", func, req.Selected and 1 or 0, req.Selected and "SelectAll" or "Clear") end
+        if req.Type == ImGuiSelectionRequestType.SetRange then IMGUI_DEBUG_LOG_SELECTION("[selection] %s: Request: SetRange %s..%s = %d (dir %d)\n", func, tostring(req.RangeFirstItem), tostring(req.RangeLastItem), req.Selected and 1 or 0, req.RangeDirection) end
+    end
+end
+
+local function CalcScopeRect(ms, window)
+    if bit32.band(ms.Flags, ImGuiMultiSelectFlags.ScopeRect) ~= 0 then
+        -- Warning: this depends on CursorMaxPos so it means to be called by EndMultiSelect() only
+        -- This probably doesn't work inside a table as there are ample ambiguities related to exact time of calling BeginMultiSelect()/EndMultiSelect().
+        return ImRect(ms.ScopeRectMin.x, ms.ScopeRectMin.y, ImMax(window.DC.CursorMaxPos.x, ms.ScopeRectMin.x), ImMax(window.DC.CursorMaxPos.y, ms.ScopeRectMin.y))
+    else
+        --// When a table, pull HostClipRect, which allows us to predict ClipRect before first row/layout is performed. (#7970)
+        local scope_rect = ImRect(window.InnerClipRect.Min, window.InnerClipRect.Max)
+        --if g.CurrentTable ~= nil then
+        --    scope_rect = g.CurrentTable.HostClipRect
+        --end
+
+        -- Add inner table decoration (#7821) // FIXME: Why not baking in InnerClipRect?
+        scope_rect.Min.x = ImMin(scope_rect.Min.x + window.DecoInnerSizeX1, scope_rect.Max.x)
+        scope_rect.Min.y = ImMin(scope_rect.Min.y + window.DecoInnerSizeY1, scope_rect.Max.y)
+        return scope_rect
+    end
+end
+
+-- Return ImGuiMultiSelectIO structure.
+-- Lifetime: don't hold on ImGuiMultiSelectIO references over multiple frames or past any subsequent call to BeginMultiSelect() or EndMultiSelect().
+-- Passing 'selection_size' and 'items_count' parameters is currently optional.
+-- - 'selection_size' is useful to disable some shortcut routing: e.g. ImGuiMultiSelectFlags.ClearOnEscape won't claim Escape key when selection_size 0,
+--    allowing a first press to clear selection THEN the second press to leave child window and return to parent.
+-- - 'items_count' is stored in ImGuiMultiSelectIO which makes it a convenient way to pass the information to your ApplyRequest() handler (but you may pass it differently).
+-- - If they are costly for you to compute (e.g. external intrusive selection without maintaining size), you may avoid them and pass -1.
+--   - If you can easily tell if your selection is empty or not, you may pass 0/1, or you may enable ImGuiMultiSelectFlags.ClearOnEscape flag dynamically.
+--- @param flags           ImGuiMultiSelectFlags
+--- @param selection_size? int
+--- @param items_count?    int
+--- @return ImGuiMultiSelectIO
+function ImGui.BeginMultiSelect(flags, selection_size, items_count)
+    if selection_size == nil then selection_size = -1 end
+    if items_count == nil then items_count = -1 end
+    local g = GImGui
+    local window = g.CurrentWindow
+
+    g.MultiSelectTempDataStacked = g.MultiSelectTempDataStacked + 1
+    while g.MultiSelectTempDataStacked > g.MultiSelectTempData.Size do -- [Port] resize(n, ImGuiMultiSelectTempData()) would share one instance
+        g.MultiSelectTempData:push_back(ImGuiMultiSelectTempData())
+    end
+    local ms = g.MultiSelectTempData.Data[g.MultiSelectTempDataStacked]
+    g.CurrentMultiSelect = ms
+    if bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.ScopeWindow, ImGuiMultiSelectFlags.ScopeRect)) == 0 then
+        flags = bit32.bor(flags, ImGuiMultiSelectFlags.ScopeWindow)
+    end
+    if bit32.band(flags, ImGuiMultiSelectFlags.SingleSelect) ~= 0 then
+        flags = bit32.band(flags, bit32.bnot(bit32.bor(ImGuiMultiSelectFlags.BoxSelect2d, ImGuiMultiSelectFlags.BoxSelect1d)))
+    end
+    if bit32.band(flags, ImGuiMultiSelectFlags.BoxSelect2d) ~= 0 then
+        flags = bit32.band(flags, bit32.bnot(ImGuiMultiSelectFlags.BoxSelect1d))
+    end
+
+    -- FIXME: Workaround to the fact we override CursorMaxPos, meaning size measurement are lost. (#8250)
+    -- They should perhaps be stacked properly?
+    local table_ = g.CurrentTable
+    if table_ then
+        if not table_.IsLayoutLocked then
+            ImGui.TableUpdateLayout(table_)
+        elseif table_.CurrentColumn ~= -1 then
+            ImGui.TableEndCell(table_) -- This is currently safe to call multiple time. If that properly is lost we can extract the "save measurement" part of it.
+        end
+    end
+
+    -- FIXME: BeginFocusScope()
+    local id = window.IDStack.Data[window.IDStack.Size] -- window.IDStack:back()
+    ms:Clear()
+    ms.FocusScopeId = id
+    ms.Flags = flags
+    ImVec2_Copy(ms.BackupCursorMaxPos, window.DC.CursorMaxPos)
+    ImVec2_Copy(ms.ScopeRectMin, window.DC.CursorPos)
+    if bit32.band(flags, ImGuiMultiSelectFlags.ScopeRect) ~= 0 then
+        ImVec2_Copy(window.DC.CursorMaxPos, ms.ScopeRectMin) -- CalcScopeRect() for ImGuiMultiSelectFlags.ScopeRect will measure in EndMultiSelect().
+    end
+    ImGui.PushFocusScope(ms.FocusScopeId)
+    ms.IsFocused = ImGui.IsInNavFocusRoute(g.CurrentFocusScopeId)
+    if bit32.band(flags, ImGuiMultiSelectFlags.ScopeWindow) ~= 0 then -- Mark parent child window as navigable into, with highlight. Assume user will always submit interactive items.
+        window.DC.NavLayersActiveMask = bit32.bor(window.DC.NavLayersActiveMask, bit32.lshift(1, ImGuiNavLayer.Main))
+    end
+
+    -- Use copy of keyboard mods at the time of the request, otherwise we would requires mods to be held for an extra frame.
+    if g.NavJustMovedToId ~= 0 then
+        ms.KeyMods = g.NavJustMovedToIsTabbing and 0 or g.NavJustMovedToKeyMods
+    else
+        ms.KeyMods = g.IO.KeyMods
+    end
+    if bit32.band(flags, ImGuiMultiSelectFlags.NoRangeSelect) ~= 0 then
+        ms.KeyMods = bit32.band(ms.KeyMods, bit32.bnot(ImGuiMod_Shift))
+    end
+
+    -- Bind storage
+    local storage = g.MultiSelectStorage:GetOrAddByKey(id)
+    storage.ID = id
+    storage.LastFrameActive = g.FrameCount
+    storage.LastSelectionSize = selection_size
+    storage.Window = window
+    ms.Storage = storage
+
+    -- Output to user
+    ms.IO.Requests:resize(0)
+    ms.IO.RangeSrcItem = storage.RangeSrcItem
+    ms.IO.NavIdItem = storage.NavIdItem
+    ms.IO.NavIdSelected = (storage.NavIdSelected == 1)
+    ms.IO.ItemsCount = items_count
+
+    -- Clear when using Navigation to move within the scope
+    -- (we compare FocusScopeId so it possible to use multiple selections inside a same window)
+    local request_clear = false
+    local request_select_all = false
+    if g.NavJustMovedToId ~= 0 and g.NavJustMovedToFocusScopeId == ms.FocusScopeId and g.NavJustMovedToHasSelectionData then
+        if bit32.band(ms.KeyMods, ImGuiMod_Shift) ~= 0 then
+            ms.IsKeyboardSetRange = true
+        end
+        if ms.IsKeyboardSetRange then
+            IM_ASSERT(storage.RangeSrcItem ~= ImGuiSelectionUserData_Invalid) -- Not ready -> could clear?
+        end
+        if bit32.band(ms.KeyMods, bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift)) == 0 and bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.NoAutoClear, ImGuiMultiSelectFlags.NoAutoSelect)) == 0 then
+            request_clear = true
+        end
+    elseif g.NavJustMovedFromFocusScopeId == ms.FocusScopeId then
+        -- Also clear on leaving scope (may be optional?)
+        if bit32.band(ms.KeyMods, bit32.bor(ImGuiMod_Ctrl, ImGuiMod_Shift)) == 0 and bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.NoAutoClear, ImGuiMultiSelectFlags.NoAutoSelect)) == 0 then
+            request_clear = true
+        end
+    end
+
+    -- Box-select handling: update active state.
+    local bs = g.BoxSelectState
+    if bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 then
+        ms.BoxSelectId = ImGui.GetID("##BoxSelect")
+        if ImGui.BeginBoxSelect(CalcScopeRect(ms, window), window, ms.BoxSelectId, flags) then
+            request_clear = request_clear or bs.RequestClear
+        end
+    end
+
+    if ms.IsFocused then
+        -- Shortcut: Clear selection (Escape)
+        -- - Only claim shortcut if selection is not empty, allowing further presses on Escape to e.g. leave current child window.
+        -- - Box select also handle Escape and needs to pass an id to bypass ActiveIdUsingAllKeyboardKeys lock.
+        if bit32.band(flags, ImGuiMultiSelectFlags.ClearOnEscape) ~= 0 then
+            if selection_size ~= 0 or bs.IsActive then
+                if ImGui.Shortcut(ImGuiKey.Escape, ImGuiInputFlags.None, bs.IsActive and bs.ID or 0) then
+                    request_clear = true
+                    if bs.IsActive then
+                        BoxSelectDeactivateDrag(bs)
+                    end
+                end
+            end
+        end
+
+        -- Shortcut: Select all (Ctrl+A)
+        if bit32.band(flags, ImGuiMultiSelectFlags.SingleSelect) == 0 and bit32.band(flags, ImGuiMultiSelectFlags.NoSelectAll) == 0 then
+            if ImGui.Shortcut(bit32.bor(ImGuiMod_Ctrl, ImGuiKey.A)) then
+                request_select_all = true
+            end
+        end
+    end
+
+    if request_clear or request_select_all then
+        ImGui.MultiSelectAddSetAll(ms, request_select_all)
+        if not request_select_all then
+            storage.LastSelectionSize = 0
+        end
+    end
+    ms.LoopRequestSetAll = request_select_all and 1 or (request_clear and 0 or -1)
+    ms.IsSoleOrUnknownSelectionSize = (storage.LastSelectionSize == 1) or (storage.LastSelectionSize == -1)
+    --ms.PrevSubmittedItem = ImGuiSelectionUserData_Invalid
+
+    if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.EventSelection) ~= 0 then
+        DebugLogMultiSelectRequests("BeginMultiSelect", ms.IO)
+    end
+
+    return ms.IO
+end
+
+-- Return updated ImGuiMultiSelectIO structure.
+-- Lifetime: don't hold on ImGuiMultiSelectIO references over multiple frames or past any subsequent call to BeginMultiSelect() or EndMultiSelect().
+--- @return ImGuiMultiSelectIO
+function ImGui.EndMultiSelect()
+    local g = GImGui
+    local ms = g.CurrentMultiSelect
+    local storage = ms.Storage
+    local window = g.CurrentWindow
+    IM_ASSERT_USER_ERROR(ms.FocusScopeId == g.CurrentFocusScopeId, "EndMultiSelect() FocusScope mismatch!")
+    IM_ASSERT(g.CurrentMultiSelect ~= nil and storage.Window == g.CurrentWindow)
+    IM_ASSERT(g.MultiSelectTempDataStacked > 0 and g.MultiSelectTempData.Data[g.MultiSelectTempDataStacked] == g.CurrentMultiSelect)
+
+    local scope_rect = CalcScopeRect(ms, window)
+    if ms.IsFocused then
+        -- We currently don't allow user code to modify RangeSrcItem by writing to BeginIO's version, but that would be an easy change here.
+        if ms.IO.RangeSrcReset or (ms.RangeSrcPassedBy == false and ms.IO.RangeSrcItem ~= ImGuiSelectionUserData_Invalid) then -- Can't read storage.RangeSrcItem here -> we want the state at beginning of the scope (see tests for easy failure)
+            IMGUI_DEBUG_LOG_SELECTION("[selection] EndMultiSelect: Reset RangeSrcItem.\n") -- Will set be to NavId.
+            storage.RangeSrcItem = ImGuiSelectionUserData_Invalid
+        end
+        if ms.NavIdPassedBy == false and storage.NavIdItem ~= ImGuiSelectionUserData_Invalid then
+            IMGUI_DEBUG_LOG_SELECTION("[selection] EndMultiSelect: Reset NavIdItem.\n")
+            storage.NavIdItem = ImGuiSelectionUserData_Invalid
+            storage.NavIdSelected = -1
+        end
+
+        if bit32.band(ms.Flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 and ImGui.GetBoxSelectState(ms.BoxSelectId) then
+            ImGui.EndBoxSelect(scope_rect, ms.Flags)
+        end
+    end
+
+    if ms.IsEndIO == false then
+        ms.IO.Requests:resize(0)
+    end
+
+    -- Clear selection when clicking void?
+    -- We specifically test for IsMouseDragPastThreshold(0) == false to allow box-selection!
+    -- The InnerRect test is necessary for non-child/decorated windows.
+    local scope_hovered = window.InnerRect:Contains(g.IO.MousePos) and ImGui.IsWindowHovered(ImGuiHoveredFlags.ChildWindows)
+    if scope_hovered and bit32.band(ms.Flags, ImGuiMultiSelectFlags.ScopeRect) ~= 0 then
+        scope_hovered = scope_hovered and scope_rect:Contains(g.IO.MousePos)
+    end
+    if scope_hovered and g.HoveredId == 0 and g.ActiveId == 0 then
+        if bit32.band(ms.Flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 then
+            if not g.BoxSelectState.IsActive and not g.BoxSelectState.IsStarting and g.IO.MouseClickedCount[0] == 1 then
+                BoxSelectPreStartDrag(ms.BoxSelectId, ImGuiSelectionUserData_Invalid)
+                ImGui.FocusWindow(window, ImGuiFocusRequestFlags.UnlessBelowModal)
+                ImGui.SetHoveredID(ms.BoxSelectId)
+                if bit32.band(ms.Flags, ImGuiMultiSelectFlags.ScopeRect) ~= 0 then
+                    ImGui.SetNavID(0, ImGuiNavLayer.Main, ms.FocusScopeId, ImRect(g.IO.MousePos.x, g.IO.MousePos.y, g.IO.MousePos.x, g.IO.MousePos.y)) -- Automatically switch FocusScope for initial click from void to box-select.
+                end
+            end
+        end
+
+        if bit32.band(ms.Flags, ImGuiMultiSelectFlags.ClearOnClickVoid) ~= 0 then
+            if ImGui.IsMouseReleased(0) and ImGui.IsMouseDragPastThreshold(0) == false and g.IO.KeyMods == ImGuiMod_None then
+                ImGui.MultiSelectAddSetAll(ms, false)
+            end
+        end
+    end
+
+    -- Courtesy nav wrapping helper flag
+    if bit32.band(ms.Flags, ImGuiMultiSelectFlags.NavWrapX) ~= 0 then
+        IM_ASSERT(bit32.band(ms.Flags, ImGuiMultiSelectFlags.ScopeWindow) ~= 0) -- Only supported at window scope
+        ImGui.NavMoveRequestTryWrapping(ImGui.GetCurrentWindow(), ImGuiNavMoveFlags.WrapX)
+    end
+
+    -- Unwind
+    local table_ = g.CurrentTable
+    if table_ then
+        if table_.IsInsideRow then
+            ImGui.TableEndRow(table_)
+        end
+    end
+    ImVec2_CopyV(window.DC.CursorMaxPos, ImMax(ms.BackupCursorMaxPos.x, window.DC.CursorMaxPos.x), ImMax(ms.BackupCursorMaxPos.y, window.DC.CursorMaxPos.y))
+    ImGui.PopFocusScope()
+
+    if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.EventSelection) ~= 0 then
+        DebugLogMultiSelectRequests("EndMultiSelect", ms.IO)
+    end
+
+    ms.FocusScopeId = 0
+    ms.Flags = ImGuiMultiSelectFlags.None
+    g.MultiSelectTempDataStacked = g.MultiSelectTempDataStacked - 1
+    if g.MultiSelectTempDataStacked > 0 then
+        g.CurrentMultiSelect = g.MultiSelectTempData.Data[g.MultiSelectTempDataStacked]
+    else
+        g.CurrentMultiSelect = nil
+    end
+
+    return ms.IO
+end
+
+--- @param selection_user_data ImGuiSelectionUserData
+function ImGui.SetNextItemSelectionUserData(selection_user_data)
+    -- Note that flags will be cleared by ItemAdd(), so it's only useful for Navigation code!
+    -- This designed so widgets can also cheaply set this before calling ItemAdd(), so we are not tied to MultiSelect api.
+    local g = GImGui
+    local next_item_data = g.NextItemData
+    next_item_data.SelectionUserData = selection_user_data
+    next_item_data.FocusScopeId = g.CurrentFocusScopeId
+
+    local ms = g.CurrentMultiSelect
+    if ms then
+        -- Auto updating RangeSrcPassedBy for cases were clipper is not used (done before ItemAdd() clipping)
+        next_item_data.ItemFlagsSet = bit32.bor(next_item_data.ItemFlagsSet, ImGuiItemFlags.HasSelectionUserData, ImGuiItemFlags.IsMultiSelect)
+        if ms.IO.RangeSrcItem == selection_user_data then
+            ms.RangeSrcPassedBy = true
+        end
+        --ms.PrevSubmittedItem = ms.CurrSubmittedItem -- Can't rely on previous g.NextItemData.SelectionUserData because NextItemData is not restored on nested multi-select.
+        --ms.CurrSubmittedItem = selection_user_data
+    else
+        next_item_data.ItemFlagsSet = bit32.bor(next_item_data.ItemFlagsSet, ImGuiItemFlags.HasSelectionUserData)
+    end
+end
+
+-- In charge of:
+-- - Applying SetAll for submitted items.
+-- - Applying SetRange for submitted items and record end points.
+-- - Altering button behavior flags to facilitate use with drag and drop.
+-- [Port] out-params as return values: `selected, button_flags = MultiSelectItemHeader(id, selected, button_flags)` (button_flags may be nil: C++ p_button_flags == NULL)
+--- @param id           ImGuiID
+--- @param selected     bool
+--- @param button_flags ImGuiButtonFlags?
+--- @return bool, ImGuiButtonFlags?
+function ImGui.MultiSelectItemHeader(id, selected, button_flags)
+    local g = GImGui
+    local ms = g.CurrentMultiSelect
+
+    if ms.IsFocused then
+        local storage = ms.Storage
+        local item_data = g.NextItemData.SelectionUserData
+        IM_ASSERT(g.NextItemData.FocusScopeId == g.CurrentFocusScopeId, "Forgot to call SetNextItemSelectionUserData() prior to item, required in BeginMultiSelect()/EndMultiSelect() scope")
+
+        -- Apply SetAll (Clear/SelectAll) requests requested by BeginMultiSelect().
+        -- This is only useful if the user hasn't processed them already, and this only works if the user isn't using the clipper.
+        -- If you are using a clipper you need to process the SetAll request after calling BeginMultiSelect()
+        if ms.LoopRequestSetAll ~= -1 then
+            selected = (ms.LoopRequestSetAll == 1)
+        end
+
+        -- When using Shift+Nav: because it can incur scrolling we cannot afford a frame of lag with the selection highlight (otherwise scrolling would happen before selection)
+        -- For this to work, we need someone to set 'RangeSrcPassedBy = true' at some point (either clipper either SetNextItemSelectionUserData() function)
+        if ms.IsKeyboardSetRange then
+            IM_ASSERT(id ~= 0 and bit32.band(ms.KeyMods, ImGuiMod_Shift) ~= 0)
+            local is_range_dst = (ms.RangeDstPassedBy == false) and g.NavJustMovedToId == id -- Assume that g.NavJustMovedToId is not clipped.
+            if is_range_dst then
+                ms.RangeDstPassedBy = true
+            end
+            if is_range_dst and storage.RangeSrcItem == ImGuiSelectionUserData_Invalid then -- If we don't have RangeSrc, assign RangeSrc = RangeDst
+                storage.RangeSrcItem = item_data
+                storage.RangeSelected = selected and 1 or 0
+            end
+            local is_range_src = storage.RangeSrcItem == item_data
+            if is_range_src or is_range_dst or ms.RangeSrcPassedBy ~= ms.RangeDstPassedBy then
+                -- Apply range-select value to visible items
+                IM_ASSERT(storage.RangeSrcItem ~= ImGuiSelectionUserData_Invalid and storage.RangeSelected ~= -1)
+                selected = (storage.RangeSelected ~= 0)
+            elseif bit32.band(ms.KeyMods, ImGuiMod_Ctrl) == 0 and bit32.band(ms.Flags, ImGuiMultiSelectFlags.NoAutoClear) == 0 then
+                -- Clear other items
+                selected = false
+            end
+        end
+    end
+
+    -- Alter button behavior flags
+    -- To handle drag and drop of multiple items we need to avoid clearing selection on click.
+    -- Enabling this test makes actions using Ctrl+Shift delay their effect on MouseUp which is annoying, but it allows drag and drop of multiple items.
+    if button_flags ~= nil then
+        button_flags = bit32.bor(button_flags, ImGuiButtonFlags.NoHoveredOnFocus)
+        button_flags = bit32.band(button_flags, bit32.bnot(bit32.bor(ImGuiButtonFlags.PressedOnClick, ImGuiButtonFlags.PressedOnClickRelease)))
+        if bit32.band(ms.Flags, ImGuiMultiSelectFlags.SelectOnClickAlways) ~= 0 then
+            button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnClick)
+        elseif bit32.band(ms.Flags, ImGuiMultiSelectFlags.SelectOnClickRelease) ~= 0 then
+            button_flags = bit32.bor(button_flags, ImGuiButtonFlags.PressedOnClickRelease)
+        else -- ImGuiMultiSelectFlags.SelectOnAuto
+            button_flags = bit32.bor(button_flags, (not selected or (g.ActiveId == id and g.ActiveIdHasBeenPressedBefore)) and ImGuiButtonFlags.PressedOnClick or ImGuiButtonFlags.PressedOnClickRelease)
+        end
+    end
+    return selected, button_flags
+end
+
+-- In charge of:
+-- - Auto-select on navigation.
+-- - Box-select toggle handling.
+-- - Right-click handling.
+-- - Altering selection based on Ctrl/Shift modifiers, both for keyboard and mouse.
+-- - Record current selection state for RangeSrc
+-- This is all rather complex, best to run and refer to "widgets_multiselect_xxx" tests in imgui_test_suite.
+-- [Port] out-params as return values: `selected, pressed = MultiSelectItemFooter(id, selected, pressed, extra_flags)`
+--- @param id           ImGuiID
+--- @param selected     bool
+--- @param pressed      bool
+--- @param extra_flags? ImGuiMultiSelectFlags
+--- @return bool, bool
+function ImGui.MultiSelectItemFooter(id, selected, pressed, extra_flags)
+    if extra_flags == nil then extra_flags = 0 end
+    local g = GImGui
+    local window = g.CurrentWindow
+
+    local ms = g.CurrentMultiSelect
+    local storage = ms.Storage
+    if pressed then
+        ms.IsFocused = true
+    end
+
+    local hovered = false
+    if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.HoveredRect) ~= 0 then
+        hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup)
+    end
+    if not ms.IsFocused and not hovered then
+        return selected, pressed
+    end
+
+    local item_data = g.NextItemData.SelectionUserData
+
+    local flags = bit32.bor(ms.Flags, extra_flags)
+    local is_singleselect = bit32.band(flags, ImGuiMultiSelectFlags.SingleSelect) ~= 0
+    local is_ctrl = bit32.band(ms.KeyMods, ImGuiMod_Ctrl) ~= 0
+    local is_shift = bit32.band(ms.KeyMods, ImGuiMod_Shift) ~= 0
+
+    local apply_to_range_src = false
+
+    if g.NavId == id and storage.RangeSrcItem == ImGuiSelectionUserData_Invalid then
+        apply_to_range_src = true
+    end
+    if ms.IsEndIO == false then
+        ms.IO.Requests:resize(0)
+        ms.IsEndIO = true
+    end
+
+    -- Auto-select as you navigate a list
+    if g.NavJustMovedToId == id then
+        if bit32.band(flags, ImGuiMultiSelectFlags.NoAutoSelect) == 0 then
+            if is_ctrl and is_shift then
+                pressed = true
+            elseif not is_ctrl then
+                selected = true; pressed = true
+            end
+        else
+            -- With NoAutoSelect, using Shift+keyboard performs a write/copy
+            if is_shift then
+                pressed = true
+            elseif not is_ctrl then
+                apply_to_range_src = true -- Since if (pressed) {} main block is not running we update this
+            end
+        end
+    end
+
+    if apply_to_range_src then
+        storage.RangeSrcItem = item_data
+        storage.RangeSelected = selected and 1 or 0 -- Will be updated at the end of this function anyway.
+    end
+
+    -- Box-select toggle handling
+    if ms.BoxSelectId ~= 0 then
+        local bs = ImGui.GetBoxSelectState(ms.BoxSelectId)
+        if bs then
+            local item_rect = MultiSelectScratchItemRect
+            ImRect_Copy(item_rect, g.LastItemData.Rect)
+            if not window.DC.NavIsScrollPushableX then -- FIXME: Rename to be more generic.
+                local table_ = g.CurrentTable
+                if table_ and table_.CurrentColumn ~= -1 then
+                    -- FIXME: We cannot solely use current ClipRect as it includes HostClipRect.
+                    -- However we account for ClipRect being larger than current column (e.g. when using SpanAllColumns)
+                    -- A more generic version would be nice, but window.WorkRect.Min/Max exclude CellPadding. (#7994, #9383)
+                    local column = table_.Columns[table_.CurrentColumn]
+                    -- [Port] upstream tests ItemFlags against ImGuiItemStatusFlags_HasClipRect (sic), reproduced as-is.
+                    local has_clip_rect = bit32.band(g.LastItemData.ItemFlags, ImGuiItemStatusFlags.HasClipRect) ~= 0
+                    local clip_min_x = has_clip_rect and g.LastItemData.ClipRect.Min.x or window.ClipRect.Min.x
+                    local clip_max_x = has_clip_rect and g.LastItemData.ClipRect.Max.x or window.ClipRect.Max.x
+                    if clip_min_x ~= clip_max_x then -- When zero sized we expect that bounds have been clamped and thus are unreliable
+                        item_rect.Min.x = ImMax(item_rect.Min.x, ImMin(column.MinX, clip_min_x))
+                        item_rect.Max.x = ImMin(item_rect.Max.x, ImMax(column.MaxX, clip_max_x))
+                    else
+                        item_rect.Min.x = ImMax(item_rect.Min.x, column.MinX)
+                        item_rect.Max.x = ImMin(item_rect.Max.x, column.MaxX)
+                    end
+                    --GetForegroundDrawList():AddRect(item_rect.Min, item_rect.Max, IM_COL32(255, 0, 255, 255))
+                end
+            end
+            local rect_overlap_curr = bs.BoxSelectRectCurr:Overlaps(item_rect)
+            local rect_overlap_prev = bs.BoxSelectRectPrev:Overlaps(item_rect)
+            if (rect_overlap_curr and not rect_overlap_prev and not selected) or (rect_overlap_prev and not rect_overlap_curr) then
+                if storage.LastSelectionSize <= 0 and bs.IsStartedSetNavIdOnce then
+                    pressed = true -- First item act as a pressed: code below will emit selection request and set NavId (whatever we emit here will be overridden anyway)
+                    bs.IsStartedSetNavIdOnce = false
+                else
+                    selected = not selected
+                    ImGui.MultiSelectAddSetRange(ms, selected, 1, item_data, item_data)
+                end
+                storage.LastSelectionSize = ImMax(storage.LastSelectionSize + 1, 1)
+            end
+        end
+    end
+
+    -- Right-click handling.
+    -- FIXME-MULTISELECT: Maybe should be moved to Selectable()? Also see #5816, #8200, #9015
+    if hovered and ImGui.IsMouseClicked(1) and bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.NoAutoSelect, ImGuiMultiSelectFlags.NoSelectOnRightClick)) == 0 then
+        if g.ActiveId ~= 0 and g.ActiveId ~= id then
+            ImGui.ClearActiveID()
+        end
+        ImGui.SetFocusID(id, window)
+        if not pressed and not selected then
+            pressed = true
+            is_ctrl = false; is_shift = false
+        end
+    end
+
+    -- Unlike Space, Enter doesn't alter selection (but can still return a press) unless current item is not selected.
+    -- The later, "unless current item is not select", may become optional? It seems like a better default if Enter doesn't necessarily open something
+    -- (unlike e.g. Windows explorer). For use case where Enter always open something, we might decide to make this optional?
+    local enter_pressed = pressed and (g.NavActivateId == id) and bit32.band(g.NavActivateFlags, ImGuiActivateFlags.PreferInput) ~= 0
+
+    -- Alter selection
+    if pressed and (not enter_pressed or not selected) then
+        -- Box-select
+        local input_source = (g.NavJustMovedToId == id or g.NavActivateId == id) and g.NavInputSource or ImGuiInputSource.Mouse
+        if bit32.band(flags, bit32.bor(ImGuiMultiSelectFlags.BoxSelect1d, ImGuiMultiSelectFlags.BoxSelect2d)) ~= 0 then
+            if not g.BoxSelectState.IsActive and not g.BoxSelectState.IsStarting and input_source == ImGuiInputSource.Mouse and g.IO.MouseClickedCount[0] == 1 then
+                BoxSelectPreStartDrag(ms.BoxSelectId, item_data)
+            end
+        end
+
+        ------------------------------------------------------------------------------------------
+        -- ACTION                      | Begin  | Pressed/Activated  | End
+        ------------------------------------------------------------------------------------------
+        -- Keys Navigated:             | Clear  | Src=item, Sel=1               SetRange 1
+        -- Keys Navigated: Ctrl        | n/a    | n/a
+        -- Keys Navigated:      Shift  | n/a    | Dst=item, Sel=1,   => Clear + SetRange 1
+        -- Keys Navigated: Ctrl+Shift  | n/a    | Dst=item, Sel=Src  => Clear + SetRange Src-Dst
+        -- Keys Activated:             | n/a    | Src=item, Sel=1    => Clear + SetRange 1
+        -- Keys Activated: Ctrl        | n/a    | Src=item, Sel=!Sel =>         SetSange 1
+        -- Keys Activated:      Shift  | n/a    | Dst=item, Sel=1    => Clear + SetSange 1
+        ------------------------------------------------------------------------------------------
+        -- Mouse Pressed:              | n/a    | Src=item, Sel=1,   => Clear + SetRange 1
+        -- Mouse Pressed:  Ctrl        | n/a    | Src=item, Sel=!Sel =>         SetRange 1
+        -- Mouse Pressed:       Shift  | n/a    | Dst=item, Sel=1,   => Clear + SetRange 1
+        -- Mouse Pressed:  Ctrl+Shift  | n/a    | Dst=item, Sel=!Sel =>         SetRange Src-Dst
+        ------------------------------------------------------------------------------------------
+
+        if bit32.band(flags, ImGuiMultiSelectFlags.NoAutoClear) == 0 then
+            local request_clear = false
+            if is_singleselect then
+                request_clear = true
+            elseif (input_source == ImGuiInputSource.Mouse or g.NavActivateId == id) and not is_ctrl then
+                if bit32.band(flags, ImGuiMultiSelectFlags.NoAutoClearOnReselect) ~= 0 then request_clear = not selected else request_clear = true end
+            elseif (input_source == ImGuiInputSource.Keyboard or input_source == ImGuiInputSource.Gamepad) and is_shift and not is_ctrl then
+                request_clear = true -- With is_shift==false the RequestClear was done in BeginIO, not necessary to do again.
+            end
+            if request_clear then
+                ImGui.MultiSelectAddSetAll(ms, false)
+            end
+        end
+
+        local range_direction
+        local range_selected
+        if is_shift and not is_singleselect then
+            --IM_ASSERT(storage.HasRangeSrc and storage.HasRangeValue)
+            if storage.RangeSrcItem == ImGuiSelectionUserData_Invalid then
+                storage.RangeSrcItem = item_data
+            end
+            if bit32.band(flags, ImGuiMultiSelectFlags.CheckboxMode_) == 0 then
+                -- Shift+Arrow always select
+                -- Ctrl+Shift+Arrow copy source selection state (already stored by BeginMultiSelect() in storage.RangeSelected)
+                if is_ctrl and storage.RangeSelected ~= -1 then range_selected = (storage.RangeSelected ~= 0) else range_selected = true end
+            else
+                -- Shift+Arrow copy source selection state
+                -- Shift+Click always copy from target selection state
+                if ms.IsKeyboardSetRange then
+                    if storage.RangeSelected ~= -1 then range_selected = (storage.RangeSelected ~= 0) else range_selected = true end
+                else
+                    range_selected = not selected
+                end
+            end
+            range_direction = ms.RangeSrcPassedBy and 1 or -1
+        else
+            -- Ctrl inverts selection, otherwise always select
+            if bit32.band(flags, ImGuiMultiSelectFlags.CheckboxMode_) == 0 then
+                if is_ctrl then selected = not selected else selected = true end
+            else
+                selected = not selected
+            end
+            storage.RangeSrcItem = item_data
+            range_selected = selected
+            range_direction = 1
+        end
+        ImGui.MultiSelectAddSetRange(ms, range_selected, range_direction, storage.RangeSrcItem, item_data)
+    end
+
+    -- Update/store the selection state of the Source item (used by Ctrl+Shift, when Source is unselected we perform a range unselect)
+    if storage.RangeSrcItem == item_data then
+        storage.RangeSelected = selected and 1 or 0
+    end
+
+    -- Update/store the selection state of focused item
+    if g.NavId == id then
+        storage.NavIdItem = item_data
+        storage.NavIdSelected = selected and 1 or 0
+    end
+    if storage.NavIdItem == item_data then
+        ms.NavIdPassedBy = true
+    end
+
+    return selected, pressed
+end
+
+--- @param ms       ImGuiMultiSelectTempData
+--- @param selected bool
+function ImGui.MultiSelectAddSetAll(ms, selected)
+    local req = MultiSelectScratchRequest -- ImGuiSelectionRequest req = { ImGuiSelectionRequestType_SetAll, selected, 0, ImGuiSelectionUserData_Invalid, ImGuiSelectionUserData_Invalid }
+    req.Type = ImGuiSelectionRequestType.SetAll; req.Selected = selected; req.RangeDirection = 0; req.RangeFirstItem = ImGuiSelectionUserData_Invalid; req.RangeLastItem = ImGuiSelectionUserData_Invalid
+    ms.IO.Requests:resize(0)      -- Can always clear previous requests
+    ms.IO.Requests:push_back(req) -- Add new request
+end
+
+--- @param ms         ImGuiMultiSelectTempData
+--- @param selected   bool
+--- @param range_dir  int
+--- @param first_item ImGuiSelectionUserData
+--- @param last_item  ImGuiSelectionUserData
+function ImGui.MultiSelectAddSetRange(ms, selected, range_dir, first_item, last_item)
+    -- Merge contiguous spans into same request (unless NoRangeSelect is set which guarantees single-item ranges)
+    -- FIXME-OPT: Disabled on 2026/04/09 as this would break with any form of coarse clipping that we don't know about (e.g. TableNextColumn() return value).
+    -- The low-hanging fruit would be to know that ImGuiSelectionUserData are sequential indices, in which case we can trivially compare PrevSubmittedItem + RangeDir == FirstItem.
+    -- User can always perform this merge if required.
+    -- (#if 0 block not ported)
+
+    local req = MultiSelectScratchRequest -- ImGuiSelectionRequest req = { ImGuiSelectionRequestType_SetRange, selected, (ImS8)range_dir, (range_dir > 0) ? first_item : last_item, (range_dir > 0) ? last_item : first_item }
+    req.Type = ImGuiSelectionRequestType.SetRange; req.Selected = selected; req.RangeDirection = range_dir
+    if range_dir > 0 then
+        req.RangeFirstItem = first_item; req.RangeLastItem = last_item
+    else
+        req.RangeFirstItem = last_item; req.RangeLastItem = first_item
+    end
+    ms.IO.Requests:push_back(req) -- Add new request
+end
+
+--- @param storage ImGuiMultiSelectState
+function ImGui.DebugNodeMultiSelectState(storage)
+    local is_active = (storage.LastFrameActive >= ImGui.GetFrameCount() - 2) -- Note that fully clipped early out scrolling tables will appear as inactive here.
+    if not is_active then ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyleColorVec4(ImGuiCol.TextDisabled)) end
+    local open = ImGui.TreeNode(storage.ID, "MultiSelect 0x%08X in '%s'%s", storage.ID, storage.Window and storage.Window.Name or "N/A", is_active and "" or " *Inactive*")
+    if not is_active then ImGui.PopStyleColor() end
+    if not open then
+        return
+    end
+    -- [Port] ImGuiSelectionUserData may be any Lua value: printed with tostring() instead of %lld (0x%llX)
+    ImGui.Text("RangeSrcItem = %s, RangeSelected = %d", tostring(storage.RangeSrcItem), storage.RangeSelected)
+    ImGui.Text("NavIdItem = %s, NavIdSelected = %d", tostring(storage.NavIdItem), storage.NavIdSelected)
+    ImGui.Text("LastSelectionSize = %d", storage.LastSelectionSize) -- Provided by user
+    ImGui.TreePop()
+end
+
+-------------------------------------------------------------------------------
+-- [SECTION] Widgets: Multi-Select helpers
+-------------------------------------------------------------------------------
+-- - ImGuiSelectionBasicStorage
+-- - ImGuiSelectionExternalStorage
+-------------------------------------------------------------------------------
+-- [Port] Storage representation:
+-- - Upstream _Storage is an ImGuiStorage (vector of {ImGuiID key, int val_i} pairs sorted by key, val_i = selection order
+--   or 0 when unselected). Here _Storage is a plain Lua table: [id] = selection order (always > 0); unselected ids are
+--   removed (nil) instead of being kept with val_i == 0. Contains()/SetItemSelected() are O(1).
+-- - Iteration: `local it, id = nil, 0; local has_more; while true do has_more, it, id = selection:GetNextSelectedItem(it) if not has_more then break end ... end`
+--   (C++: void* it = NULL; ImGuiID id; while (selection.GetNextSelectedItem(&it, &id)) {...}). The opaque iterator is an
+--   integer position into _IterKeys, a snapshot of the selected ids sorted by key (or by selection order when
+--   PreserveOrder is set), rebuilt when an iteration starts (it == nil). Ids unselected during an iteration are skipped.
+--   A storage supports one iteration at a time (starting a new one rebuilds the shared snapshot).
+-- - Keys returned by AdapterIndexToStorageId must be mutually comparable with '<' (numbers by default) for the sort.
+
+--- @class ImGuiSelectionBasicStorage
+--- @field Size                    int     # Number of selected items, maintained by this helper.
+--- @field PreserveOrder           bool    # = false  // GetNextSelectedItem() will return ordered selection (currently implemented by two additional sorts of selection. Could be improved)
+--- @field UserData                any     # = nil   // User data for use by adapter function        // e.g. selection.UserData = my_items
+--- @field AdapterIndexToStorageId fun(self: ImGuiSelectionBasicStorage, idx: int): ImGuiID # e.g. selection.AdapterIndexToStorageId = function(self, idx) return self.UserData[idx + 1].ID end
+--- @field _SelectionOrder         int     # [Internal] Increasing counter to store selection order
+--- @field _Storage                table   # [Internal] Selection set. Think of this as similar to e.g. std::set<ImGuiID>. Prefer not accessing directly: iterate with GetNextSelectedItem().
+MT.ImGuiSelectionBasicStorage = {}
+MT.ImGuiSelectionBasicStorage.__index = MT.ImGuiSelectionBasicStorage
+
+local function ImGuiSelectionBasicStorage_DefaultAdapterIndexToStorageId(_, idx) return idx end
+
+--- @return ImGuiSelectionBasicStorage
+function ImGuiSelectionBasicStorage()
+    local this = setmetatable({}, MT.ImGuiSelectionBasicStorage)
+    this.Size = 0
+    this.PreserveOrder = false
+    this.UserData = nil
+    this.AdapterIndexToStorageId = ImGuiSelectionBasicStorage_DefaultAdapterIndexToStorageId -- [](ImGuiSelectionBasicStorage*, int idx) { return (ImGuiID)idx; }
+    this._SelectionOrder = 1 -- Always >0
+    this._Storage = {}
+    this._IterKeys = {} -- [Port] GetNextSelectedItem() snapshot
+    return this
+end
+
+function MT.ImGuiSelectionBasicStorage:Clear()
+    self.Size = 0
+    self._SelectionOrder = 1 -- Always >0
+    table.clear(self._Storage)
+end
+
+--- @param r ImGuiSelectionBasicStorage
+function MT.ImGuiSelectionBasicStorage:Swap(r)
+    self.Size, r.Size = r.Size, self.Size
+    self._SelectionOrder, r._SelectionOrder = r._SelectionOrder, self._SelectionOrder
+    self._Storage, r._Storage = r._Storage, self._Storage
+end
+
+--- @param id ImGuiID
+--- @return bool
+function MT.ImGuiSelectionBasicStorage:Contains(id)
+    return self._Storage[id] ~= nil
+end
+
+local PairComparerStorage = nil
+local function PairComparerByValueInt(lhs, rhs)
+    return PairComparerStorage[lhs] < PairComparerStorage[rhs]
+end
+
+-- GetNextSelectedItem() is an abstraction allowing us to change our underlying actual storage system without impacting user.
+-- (e.g. store unselected vs compact down, compact down on demand, use raw ImVector<ImGuiID> instead of ImGuiStorage...)
+-- [Port] `has_more, opaque_it, out_id = selection:GetNextSelectedItem(opaque_it)`: pass nil to start, then the returned opaque_it.
+--- @param opaque_it any
+--- @return bool, any, ImGuiID
+function MT.ImGuiSelectionBasicStorage:GetNextSelectedItem(opaque_it)
+    local storage = self._Storage
+    local keys = self._IterKeys
+    local it = opaque_it
+    if it == nil then
+        table.clear(keys)
+        local n = 0
+        for id in pairs(storage) do n = n + 1; keys[n] = id end
+        if self.PreserveOrder then
+            PairComparerStorage = storage
+            table.sort(keys, PairComparerByValueInt) -- ~ImGuiStorage::BuildSortByValueInt()
+            PairComparerStorage = nil
+        else
+            table.sort(keys) -- ImGuiStorage is sorted by key
+        end
+        it = 1
+    end
+    local it_end = #keys + 1
+    IM_ASSERT(it >= 1 and it <= it_end)
+    while it < it_end and storage[keys[it]] == nil do
+        it = it + 1
+    end
+    local has_more = (it ~= it_end)
+    if has_more then
+        return true, it + 1, keys[it]
+    end
+    return false, it, 0
+end
+
+--- @param id       ImGuiID
+--- @param selected bool
+function MT.ImGuiSelectionBasicStorage:SetItemSelected(id, selected)
+    local storage = self._Storage
+    local p_int = storage[id]
+    if selected and p_int == nil then storage[id] = self._SelectionOrder; self._SelectionOrder = self._SelectionOrder + 1; self.Size = self.Size + 1
+    elseif not selected and p_int ~= nil then storage[id] = nil; self.Size = self.Size - 1 end
+end
+
+--- @param idx int
+--- @return ImGuiID
+function MT.ImGuiSelectionBasicStorage:GetStorageIdFromIndex(idx) return self.AdapterIndexToStorageId(self, idx) end -- Convert index to item id based on provided adapter.
+
+-- Optimized for batch edits (with same value of 'selected')
+-- [Port] With a hash table there is nothing to defer: insert/remove in place. size_before_amends is unused.
+local function ImGuiSelectionBasicStorage_BatchSetItemSelected(selection, id, selected, size_before_amends, selection_order)
+    local storage = selection._Storage
+    local is_contained = storage[id] ~= nil
+    if selected == is_contained then
+        return
+    end
+    if selected then
+        storage[id] = selection_order
+    else
+        storage[id] = nil
+    end
+    selection.Size = selection.Size + (selected and 1 or -1)
+end
+
+-- [Port] Upstream sorts the ImGuiStorage vector here (BuildSortByKey). The Lua table needs no sorting: GetNextSelectedItem() sorts its snapshot.
+local function ImGuiSelectionBasicStorage_BatchFinish(selection, selected, size_before_amends)
+end
+
+-- Apply requests coming from BeginMultiSelect() and EndMultiSelect().
+-- - Enable 'Demo->Tools->Debug Log->Selection' to see selection requests as they happen.
+-- - Honoring SetRange requests requires that you can iterate/interpolate between RangeFirstItem and RangeLastItem.
+--   - In this demo we often submit indices to SetNextItemSelectionUserData() + store the same indices in persistent selection.
+--   - Your code may do differently. If you store pointers or objects ID in ImGuiSelectionUserData you may need to perform
+--     a lookup in order to have some way to iterate/interpolate between two items.
+-- - A full-featured application is likely to allow search/filtering which is likely to lead to using indices
+--   and constructing a view index <> object id/ptr data structure anyway.
+-- WHEN YOUR APPLICATION SETTLES ON A CHOICE, YOU WILL PROBABLY PREFER TO GET RID OF THIS UNNECESSARY 'ImGuiSelectionBasicStorage' INDIRECTION LOGIC.
+-- Notice that with the simplest adapter (using indices everywhere), all functions return their parameters.
+-- The most simple implementation (using indices everywhere) would look like:
+--   for _, req in ms_io.Requests:iter() do
+--      if req.Type == ImGuiSelectionRequestType.SetAll then Clear(); if req.Selected then for n = 0, items_count - 1 do SetItemSelected(n, true) end end end
+--      if req.Type == ImGuiSelectionRequestType.SetRange then for n = req.RangeFirstItem, req.RangeLastItem do SetItemSelected(n, req.Selected) end end
+--   end
+--- @param ms_io ImGuiMultiSelectIO
+function MT.ImGuiSelectionBasicStorage:ApplyRequests(ms_io)
+    -- For convenience we obtain ItemsCount as passed to BeginMultiSelect(), which is optional.
+    -- It makes sense when using ImGuiSelectionBasicStorage to simply pass your items count to BeginMultiSelect().
+    -- Other scheme may handle SetAll differently.
+    IM_ASSERT(ms_io.ItemsCount ~= -1, "Missing value for items_count in BeginMultiSelect() call!")
+    IM_ASSERT(self.AdapterIndexToStorageId ~= nil)
+
+    -- This is optimized/specialized to cope with very large selections (e.g. 100k+ items)
+    -- - A simpler version could call SetItemSelected() directly instead of ImGuiSelectionBasicStorage_BatchSetItemSelected() + ImGuiSelectionBasicStorage_BatchFinish().
+    -- - Optimized select can append unsorted, then sort in a second pass. Optimized unselect can clear in-place then compact in a second pass.
+    -- - A more optimal version wouldn't even use ImGuiStorage but directly a ImVector<ImGuiID> to reduce bandwidth, but this is a reasonable trade off to reuse code.
+    -- - There are many ways this could be better optimized. The worse case scenario being: using BoxSelect2d in a grid, box-select scrolling down while wiggling
+    --   left and right: it affects coarse clipping + can emit multiple SetRange with 1 item each.
+    -- FIXME-OPT: For each block of consecutive SetRange request:
+    -- - add all requests to a sorted list, store ID, selected, offset in ImGuiStorage.
+    -- - rewrite sorted storage a single time.
+    for _, req in ms_io.Requests:iter() do
+        if req.Type == ImGuiSelectionRequestType.SetAll then
+            self:Clear()
+            if req.Selected then
+                local size_before_amends = self.Size -- [Port] _Storage.Data.Size (0 after Clear())
+                for idx = 0, ms_io.ItemsCount - 1 do
+                    ImGuiSelectionBasicStorage_BatchSetItemSelected(self, self:GetStorageIdFromIndex(idx), req.Selected, size_before_amends, self._SelectionOrder)
+                    self._SelectionOrder = self._SelectionOrder + 1
+                end
+                ImGuiSelectionBasicStorage_BatchFinish(self, req.Selected, size_before_amends)
+            end
+        elseif req.Type == ImGuiSelectionRequestType.SetRange then
+            local selection_changes = req.RangeLastItem - req.RangeFirstItem + 1
+            --local g = GImGui; IMGUI_DEBUG_LOG_SELECTION("Req %d/%d: set %d to %d\n", ms_io.Requests:index_from_ptr(req), ms_io.Requests.Size, selection_changes, req.Selected)
+            if selection_changes == 1 or (selection_changes < math.floor(self.Size / 100)) then
+                -- Multiple sorted insertion + copy likely to be faster.
+                -- Technically we could do a single copy with a little more work (sort sequential SetRange requests)
+                for idx = req.RangeFirstItem, req.RangeLastItem do
+                    self:SetItemSelected(self:GetStorageIdFromIndex(idx), req.Selected)
+                end
+            else
+                -- Append insertion + single sort likely be faster.
+                -- Use req.RangeDirection to set order field so that Shift+Clicking from 1 to 5 is different than Shift+Clicking from 5 to 1
+                local size_before_amends = self.Size
+                local selection_order = self._SelectionOrder + ((req.RangeDirection < 0) and selection_changes - 1 or 0)
+                for idx = req.RangeFirstItem, req.RangeLastItem do
+                    ImGuiSelectionBasicStorage_BatchSetItemSelected(self, self:GetStorageIdFromIndex(idx), req.Selected, size_before_amends, selection_order)
+                    selection_order = selection_order + req.RangeDirection
+                end
+                if req.Selected then
+                    self._SelectionOrder = self._SelectionOrder + selection_changes
+                end
+                ImGuiSelectionBasicStorage_BatchFinish(self, req.Selected, size_before_amends)
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+
+-- Optional helper to apply multi-selection requests to existing randomly accessible storage.
+-- Convenient if you want to quickly wire multi-select API on e.g. an array of bool or items storing their own selection state.
+--- @class ImGuiSelectionExternalStorage
+--- @field UserData               any # User data for use by adapter function                                // e.g. selection.UserData = my_items
+--- @field AdapterSetItemSelected fun(self: ImGuiSelectionExternalStorage, idx: int, selected: bool) # e.g. AdapterSetItemSelected = function(self, idx, selected) self.UserData[idx + 1].Selected = selected end
+MT.ImGuiSelectionExternalStorage = {}
+MT.ImGuiSelectionExternalStorage.__index = MT.ImGuiSelectionExternalStorage
+
+--- @return ImGuiSelectionExternalStorage
+function ImGuiSelectionExternalStorage()
+    local this = setmetatable({}, MT.ImGuiSelectionExternalStorage)
+    this.UserData = nil
+    this.AdapterSetItemSelected = nil
+    return this
+end
+
+-- Apply requests coming from BeginMultiSelect() and EndMultiSelect().
+-- We also pull 'ms_io.ItemsCount' as passed for BeginMultiSelect() for consistency with ImGuiSelectionBasicStorage
+-- This makes no assumption about underlying storage.
+--- @param ms_io ImGuiMultiSelectIO
+function MT.ImGuiSelectionExternalStorage:ApplyRequests(ms_io)
+    IM_ASSERT(self.AdapterSetItemSelected)
+    for _, req in ms_io.Requests:iter() do
+        if req.Type == ImGuiSelectionRequestType.SetAll then
+            for idx = 0, ms_io.ItemsCount - 1 do
+                self.AdapterSetItemSelected(self, idx, req.Selected)
+            end
+        end
+        if req.Type == ImGuiSelectionRequestType.SetRange then
+            for idx = req.RangeFirstItem, req.RangeLastItem do
+                self.AdapterSetItemSelected(self, idx, req.Selected)
+            end
+        end
+    end
+end
+
+end -- do (Typing-Select, Box-Select, Multi-Select)
 
 -------------------------------------------------------------------------------
 -- [SECTION] Widgets: ListBox

@@ -12,20 +12,20 @@ Known low scores that are not missing code: data-driven port code (e.g. DemoWind
 polyline stroker (AddPolyline), Lua-native replacements (ImGuiStorage, ImStr*, ImFormatString -> string.format).
 
 upstream file              funcs    ported   by size  similarity     stubs
-imgui.cpp                    786     87.4%     93.5%       74.9%         2
-imgui_widgets.cpp            308     82.8%     88.9%       78.7%         0
+imgui.cpp                    786     87.4%     93.5%       75.0%         2
+imgui_widgets.cpp            308     93.8%     98.7%       78.1%         1
 imgui_draw.cpp               258     75.2%     75.5%       63.1%         2
 imgui_tables.cpp             113     96.5%     99.0%       74.0%         0
 imgui_demo.cpp                56     82.1%     98.2%       50.8%         0
-imgui.h                      110     52.7%     37.1%       56.4%         0
-imgui_internal.h             269     55.8%     58.9%       67.5%         0
-TOTAL                       1900     78.9%     90.6%       69.7%         4
+imgui.h                      110     53.6%     37.4%       56.7%         0
+imgui_internal.h             269     61.3%     64.9%       68.3%         0
+TOTAL                       1900     81.5%     92.8%       69.9%         5
 
-upstream code reproduced (similarity x ported size / all upstream size):  63.2%
-Public API (imgui.h, namespace ImGui)                 365 /  376   97.1%
-Internal API (imgui_internal.h, namespace ImGui)      405 /  443   91.4%
-Enum values (imgui.h + imgui_internal.h)              978 / 1078   90.7%
-Struct fields (imgui.h + imgui_internal.h)           1764 / 1926   91.6%
+upstream code reproduced (similarity x ported size / all upstream size):  64.8%
+Public API (imgui.h, namespace ImGui)                 368 /  376   97.9%
+Internal API (imgui_internal.h, namespace ImGui)      417 /  443   94.1%
+Enum values (imgui.h + imgui_internal.h)             1005 / 1078   93.2%
+Struct fields (imgui.h + imgui_internal.h)           1820 / 1926   94.5%
 
 Legend: [x] ported (sim %)   [~] stub   [ ] not ported   [-] excluded (c++-only / obsolete / os-specific / #if 0 / test-engine)
 
@@ -41,7 +41,7 @@ imgui.cpp
   [ ]        FreeWrapper                                                                                 
 
   -- USER FACING STRUCTURES (ImGuiStyle, ImGuiIO, ImGuiPlatformIO)
-  [x]   38%  ImGuiStyle::ImGuiStyle                                     imgui_internal.lua:1460          
+  [x]   38%  ImGuiStyle::ImGuiStyle                                     imgui_internal.lua:1479          
   [x]   83%  ImGuiStyle::ScaleAllSizes                                  imgui.lua:4779                   
   [x]   12%  ImGuiIO::ImGuiIO                                           imgui_h.lua:1181                 
   [x]   83%  ImGuiIO::AddInputCharacter                                 imgui.lua:7983                   
@@ -116,11 +116,11 @@ imgui.cpp
   [x]   41%  ImTextCountLines                                           imgui_tables.lua:3782            
 
   -- MISC HELPERS/UTILITIES (Color functions)
-  [x]   73%  ImAlphaBlendColors                                         imgui.lua:14379                  
-  [x]   41%  ImGui::ColorConvertU32ToFloat4                             imgui.lua:14390                  
-  [x]   16%  ImGui::ColorConvertFloat4ToU32                             imgui.lua:14409                  
-  [x]   87%  ImGui::ColorConvertRGBtoHSV                                imgui.lua:14420                  
-  [x]   61%  ImGui::ColorConvertHSVtoRGB                                imgui.lua:14445                  
+  [x]   73%  ImAlphaBlendColors                                         imgui.lua:14383                  
+  [x]   41%  ImGui::ColorConvertU32ToFloat4                             imgui.lua:14394                  
+  [x]   16%  ImGui::ColorConvertFloat4ToU32                             imgui.lua:14413                  
+  [x]   87%  ImGui::ColorConvertRGBtoHSV                                imgui.lua:14424                  
+  [x]   61%  ImGui::ColorConvertHSVtoRGB                                imgui.lua:14449                  
 
   -- ImGuiStorage
   [x]   69%  ImLowerBound                                               imgui_widgets.lua:5186           
@@ -141,11 +141,11 @@ imgui.cpp
   [ ]        ImGuiStorage::SetAllInt                                                                     
 
   -- ImGuiTextFilter
-  [x]   32%  ImGuiTextFilter::ImGuiTextFilter                           imgui.lua:19333                  
-  [x]   36%  ImGuiTextFilter::Draw                                      imgui.lua:19343                  
-  [x]   62%  ImGuiTextFilter::DrawWithHint                              imgui.lua:19350                  
-  [x]   49%  ImGuiTextFilter::Build                                     imgui.lua:19365                  
-  [x]   56%  ImGuiTextFilter::PassFilter                                imgui.lua:19426                  
+  [x]   32%  ImGuiTextFilter::ImGuiTextFilter                           imgui.lua:19337                  
+  [x]   36%  ImGuiTextFilter::Draw                                      imgui.lua:19347                  
+  [x]   62%  ImGuiTextFilter::DrawWithHint                              imgui.lua:19354                  
+  [x]   49%  ImGuiTextFilter::Build                                     imgui.lua:19369                  
+  [x]   56%  ImGuiTextFilter::PassFilter                                imgui.lua:19430                  
 
   -- ImGuiTextBuffer, ImGuiTextIndex
   [x]    5%  ImGuiTextBuffer::append                                    imgui_h.lua:2685                 
@@ -154,31 +154,31 @@ imgui.cpp
   [ ]        ImGuiTextIndex::append                                                                      
 
   -- ImGuiListClipper
-  [x]   86%  GetSkipItemForListClipping                                 imgui.lua:19464                  
-  [x]   71%  ImGuiListClipper_SortAndFuseRanges                         imgui.lua:19474                  
-  [x]   89%  ImGuiListClipper_SeekCursorAndSetupPrevLine                imgui.lua:19498                  
-  [x]    8%  ImGuiListClipper::ImGuiListClipper                         imgui.lua:19531                  
+  [x]   86%  GetSkipItemForListClipping                                 imgui.lua:19468                  
+  [x]   71%  ImGuiListClipper_SortAndFuseRanges                         imgui.lua:19478                  
+  [x]   89%  ImGuiListClipper_SeekCursorAndSetupPrevLine                imgui.lua:19502                  
+  [x]    8%  ImGuiListClipper::ImGuiListClipper                         imgui.lua:19535                  
   [-]        ImGuiListClipper::~ImGuiListClipper                                                         c++-only
-  [x]   64%  ImGuiListClipper::Begin                                    imgui.lua:19538                  
-  [x]   79%  ImGuiListClipper::End                                      imgui.lua:19567                  
-  [x]   61%  ImGuiListClipper::IncludeItemsByIndex                      imgui.lua:19593                  
-  [x]   80%  ImGuiListClipper::SeekCursorForItem                        imgui.lua:19604                  
-  [x]   79%  ImGuiListClipper_StepInternal                              imgui.lua:19611                  
-  [x]   40%  ImGuiListClipper::Step                                     imgui.lua:19760                  
-  [x]   92%  ImGui::CalcClipRectVisibleItemsY                           imgui.lua:14477                  
+  [x]   64%  ImGuiListClipper::Begin                                    imgui.lua:19542                  
+  [x]   79%  ImGuiListClipper::End                                      imgui.lua:19571                  
+  [x]   61%  ImGuiListClipper::IncludeItemsByIndex                      imgui.lua:19597                  
+  [x]   80%  ImGuiListClipper::SeekCursorForItem                        imgui.lua:19608                  
+  [x]   79%  ImGuiListClipper_StepInternal                              imgui.lua:19615                  
+  [x]   40%  ImGuiListClipper::Step                                     imgui.lua:19764                  
+  [x]   92%  ImGui::CalcClipRectVisibleItemsY                           imgui.lua:14481                  
 
   -- STYLING
-  [x]   90%  ImGui::GetStyle                                            imgui.lua:14488                  
-  [x]   71%  ImGui::GetStyleColorVec4                                   imgui.lua:18883                  
-  [x]   26%  ImGui::GetColorU32                                         imgui.lua:14502                  
-  [x]   50%  ImGui::PushStyleColor                                      imgui.lua:14540                  
-  [x]   68%  ImGui::PopStyleColor                                       imgui.lua:14557                  
-  [x]   74%  ImGui::GetStyleVarInfo                                     imgui.lua:14624                  
-  [x]   56%  ImGui::PushStyleVar                                        imgui.lua:14632                  
-  [x]   91%  ImGui::PushStyleVarX                                       imgui.lua:14651                  
-  [x]   91%  ImGui::PushStyleVarY                                       imgui.lua:14662                  
-  [x]   70%  ImGui::PopStyleVar                                         imgui.lua:14672                  
-  [x]    1%  ImGui::GetStyleColorName                                   imgui.lua:19193                  
+  [x]   90%  ImGui::GetStyle                                            imgui.lua:14492                  
+  [x]   71%  ImGui::GetStyleColorVec4                                   imgui.lua:18887                  
+  [x]   26%  ImGui::GetColorU32                                         imgui.lua:14506                  
+  [x]   50%  ImGui::PushStyleColor                                      imgui.lua:14544                  
+  [x]   68%  ImGui::PopStyleColor                                       imgui.lua:14561                  
+  [x]   74%  ImGui::GetStyleVarInfo                                     imgui.lua:14628                  
+  [x]   56%  ImGui::PushStyleVar                                        imgui.lua:14636                  
+  [x]   91%  ImGui::PushStyleVarX                                       imgui.lua:14655                  
+  [x]   91%  ImGui::PushStyleVarY                                       imgui.lua:14666                  
+  [x]   70%  ImGui::PopStyleVar                                         imgui.lua:14676                  
+  [x]    1%  ImGui::GetStyleColorName                                   imgui.lua:19197                  
 
   -- RENDER HELPERS
   [x]   46%  ImGui::FindRenderedTextEnd                                 imgui.lua:10069                  
@@ -200,22 +200,22 @@ imgui.cpp
   [ ]        ImGui::GetAllocatorFunctions                                                                
   [x]   87%  ImGui::CreateContext                                       imgui.lua:5580                   
   [x]   83%  ImGui::DestroyContext                                      imgui.lua:5592                   
-  [x]    6%  ImGuiContext::ImGuiContext                                 imgui_internal.lua:2020          
+  [x]    6%  ImGuiContext::ImGuiContext                                 imgui_internal.lua:2197          
   [-]        ImGuiContext::~ImGuiContext                                                                 c++-only
   [x]   78%  ImGui::Initialize                                          imgui.lua:5538                   
-  [x]   41%  ImGui::Shutdown                                            imgui.lua:14296                  
+  [x]   44%  ImGui::Shutdown                                            imgui.lua:14298                  
   [ ]        ImGui::SetContextName                                                                       
   [ ]        ImGui::AddContextHook                                                                       
   [ ]        ImGui::RemoveContextHook                                                                    
   [ ]        ImGui::CallContextHooks                                                                     
 
   -- MAIN CODE (most of the code! lots of stuff, needs tidying up!)
-  [x]   11%  ImGuiWindow::ImGuiWindow                                   imgui_internal.lua:2605          
+  [x]   11%  ImGuiWindow::ImGuiWindow                                   imgui_internal.lua:2800          
   [-]        ImGuiWindow::~ImGuiWindow                                                                   c++-only
   [x]   74%  SetCurrentWindow                                           imgui.lua:10805                  
-  [x]   70%  ImGui::GcCompactTransientMiscBuffers                       imgui.lua:10826                  
-  [x]   94%  ImGui::GcCompactTransientWindowBuffers                     imgui.lua:10843                  
-  [x]   96%  ImGui::GcAwakeTransientWindowBuffers                       imgui.lua:10855                  
+  [x]   85%  ImGui::GcCompactTransientMiscBuffers                       imgui.lua:10826                  
+  [x]   94%  ImGui::GcCompactTransientWindowBuffers                     imgui.lua:10845                  
+  [x]   96%  ImGui::GcAwakeTransientWindowBuffers                       imgui.lua:10857                  
   [x]   86%  ImGui::SetActiveID                                         imgui.lua:7429                   
   [x]  100%  ImGui::ClearActiveID                                       imgui.lua:7495                   
   [x]   98%  ImGui::SetHoveredID                                        imgui.lua:7609                   
@@ -229,51 +229,51 @@ imgui.cpp
   [x]   64%  ImGui::IsClippedEx                                         imgui.lua:7937                   
   [x]   91%  ImGui::SetLastItemData                                     imgui.lua:7958                   
   [x]   98%  ImGui::SetLastItemDataForWindow                            imgui.lua:7969                   
-  [x]   93%  ImGui::SetLastItemDataForChildWindowItem                   imgui.lua:11283                  
+  [x]   93%  ImGui::SetLastItemDataForChildWindowItem                   imgui.lua:11285                  
   [x]   95%  ImGui::CalcWrapWidthForPos                                 imgui.lua:10037                  
   [x]   77%  ImGui::MemAlloc                                            imgui.lua:457                    
   [x]   79%  ImGui::MemFree                                             imgui.lua:470                    
   [ ]        ImGui::DemoMarker                                                                           
   [x]   79%  ImGui::DebugAllocHook                                      imgui.lua:485                    
-  [x]   91%  ImGui::GetClipboardText                                    imgui.lua:14332                  
-  [x]  100%  ImGui::SetClipboardText                                    imgui.lua:14338                  
-  [x]  100%  ImGui::GetVersion                                          imgui.lua:19190                  
-  [x]   57%  ImGui::GetIO                                               imgui.lua:14345                  
-  [x]   90%  ImGui::GetPlatformIO                                       imgui.lua:14348                  
-  [x]   86%  ImGui::GetDrawData                                         imgui.lua:14285                  
-  [x]  100%  ImGui::GetTime                                             imgui.lua:14291                  
-  [x]  100%  ImGui::GetFrameCount                                       imgui.lua:19182                  
-  [x]   82%  GetViewportBgFgDrawList                                    imgui.lua:13628                  
-  [x]   80%  ImGui::GetBackgroundDrawList                               imgui.lua:13651                  
-  [x]   80%  ImGui::GetForegroundDrawList                               imgui.lua:13663                  
-  [x]  100%  ImGui::GetDrawListSharedData                               imgui.lua:11531                  
-  [x]   90%  ImGui::StartMouseMovingWindow                              imgui.lua:11460                  
+  [x]   91%  ImGui::GetClipboardText                                    imgui.lua:14336                  
+  [x]  100%  ImGui::SetClipboardText                                    imgui.lua:14342                  
+  [x]  100%  ImGui::GetVersion                                          imgui.lua:19194                  
+  [x]   57%  ImGui::GetIO                                               imgui.lua:14349                  
+  [x]   90%  ImGui::GetPlatformIO                                       imgui.lua:14352                  
+  [x]   86%  ImGui::GetDrawData                                         imgui.lua:14287                  
+  [x]  100%  ImGui::GetTime                                             imgui.lua:14293                  
+  [x]  100%  ImGui::GetFrameCount                                       imgui.lua:19186                  
+  [x]   82%  GetViewportBgFgDrawList                                    imgui.lua:13630                  
+  [x]   80%  ImGui::GetBackgroundDrawList                               imgui.lua:13653                  
+  [x]   80%  ImGui::GetForegroundDrawList                               imgui.lua:13665                  
+  [x]  100%  ImGui::GetDrawListSharedData                               imgui.lua:11533                  
+  [x]   90%  ImGui::StartMouseMovingWindow                              imgui.lua:11462                  
   [x]   94%  ImGui::StartMouseMovingWindowOrNode                        imgui.lua:4527                   
   [x]   85%  ImGui::StopMouseMovingWindow                               imgui.lua:7400                   
-  [x]   95%  ImGui::UpdateMouseMovingWindowNewFrame                     imgui.lua:11492                  
-  [x]   88%  ImGui::UpdateMouseMovingWindowEndFrame                     imgui.lua:11589                  
-  [x]   65%  TranslateWindow                                            imgui.lua:11660                  
-  [x]   88%  ScaleWindow                                                imgui.lua:14900                  
+  [x]   95%  ImGui::UpdateMouseMovingWindowNewFrame                     imgui.lua:11494                  
+  [x]   88%  ImGui::UpdateMouseMovingWindowEndFrame                     imgui.lua:11591                  
+  [x]   65%  TranslateWindow                                            imgui.lua:11662                  
+  [x]   88%  ScaleWindow                                                imgui.lua:14904                  
   [x]  100%  IsWindowActiveAndVisible                                   imgui.lua:9570                   
-  [x]   93%  ImGui::UpdateHoveredWindowAndCaptureFlags                  imgui.lua:13034                  
-  [x]   55%  SetupDrawListSharedData                                    imgui.lua:13511                  
-  [x]   88%  ImGui::NewFrame                                            imgui.lua:13757                  
-  [x]   63%  ChildWindowComparer                                        imgui.lua:13677                  
-  [x]   89%  AddWindowToSortBuffer                                      imgui.lua:13692                  
-  [x]   86%  AddWindowToDrawData                                        imgui.lua:13706                  
-  [x]   64%  GetWindowDisplayLayer                                      imgui.lua:13722                  
-  [x]  100%  AddRootWindowToDrawData                                    imgui.lua:13728                  
-  [x]   63%  FlattenDrawDataIntoSingleLayer                             imgui.lua:13733                  
-  [x]   83%  InitViewportDrawData                                       imgui.lua:13537                  
-  [x]   52%  ImGui::PushClipRect                                        imgui.lua:13606                  
-  [x]   42%  ImGui::PopClipRect                                         imgui.lua:13615                  
-  [x]   60%  ImGui::RenderDimmedBackgroundBehindWindow                  imgui.lua:18964                  
-  [x]   83%  ImGui::FindBottomMostVisibleWindowWithinBeginStack         imgui.lua:18937                  
-  [x]   80%  ImGui::RenderDimmedBackgrounds                             imgui.lua:18985                  
-  [x]   84%  ImGui::EndFrame                                            imgui.lua:14061                  
-  [x]   74%  ImGui::Render                                              imgui.lua:14172                  
-  [x]   17%  ImGui::CalcTextSize                                        imgui.lua:14245                  
-  [x]   79%  ImGui::FindHoveredWindowEx                                 imgui.lua:12948                  
+  [x]   93%  ImGui::UpdateHoveredWindowAndCaptureFlags                  imgui.lua:13036                  
+  [x]   55%  SetupDrawListSharedData                                    imgui.lua:13513                  
+  [x]   88%  ImGui::NewFrame                                            imgui.lua:13759                  
+  [x]   63%  ChildWindowComparer                                        imgui.lua:13679                  
+  [x]   89%  AddWindowToSortBuffer                                      imgui.lua:13694                  
+  [x]   86%  AddWindowToDrawData                                        imgui.lua:13708                  
+  [x]   64%  GetWindowDisplayLayer                                      imgui.lua:13724                  
+  [x]  100%  AddRootWindowToDrawData                                    imgui.lua:13730                  
+  [x]   63%  FlattenDrawDataIntoSingleLayer                             imgui.lua:13735                  
+  [x]   83%  InitViewportDrawData                                       imgui.lua:13539                  
+  [x]   52%  ImGui::PushClipRect                                        imgui.lua:13608                  
+  [x]   42%  ImGui::PopClipRect                                         imgui.lua:13617                  
+  [x]   60%  ImGui::RenderDimmedBackgroundBehindWindow                  imgui.lua:18968                  
+  [x]   83%  ImGui::FindBottomMostVisibleWindowWithinBeginStack         imgui.lua:18941                  
+  [x]   80%  ImGui::RenderDimmedBackgrounds                             imgui.lua:18989                  
+  [x]   84%  ImGui::EndFrame                                            imgui.lua:14063                  
+  [x]   74%  ImGui::Render                                              imgui.lua:14174                  
+  [x]   17%  ImGui::CalcTextSize                                        imgui.lua:14247                  
+  [x]   79%  ImGui::FindHoveredWindowEx                                 imgui.lua:12950                  
   [x]   95%  ImGui::IsItemActive                                        imgui.lua:6979                   
   [x]   97%  ImGui::IsItemActivated                                     imgui.lua:7020                   
   [x]   95%  ImGui::IsItemDeactivated                                   imgui.lua:7006                   
@@ -288,19 +288,19 @@ imgui.cpp
   [x]   74%  ImGui::IsItemVisible                                       imgui.lua:7071                   
   [x]   74%  ImGui::IsItemEdited                                        imgui.lua:7075                   
   [x]   71%  ImGui::SetNextItemAllowOverlap                             imgui.lua:7082                   
-  [x]   93%  ImGui::SetActiveIdUsingAllKeyboardKeys                     imgui.lua:11113                  
+  [x]   93%  ImGui::SetActiveIdUsingAllKeyboardKeys                     imgui.lua:11115                  
   [x]   67%  ImGui::GetItemID                                           imgui.lua:7087                   
-  [x]  100%  ImGui::GetItemRectMin                                      imgui.lua:11122                  
-  [x]  100%  ImGui::GetItemRectMax                                      imgui.lua:11128                  
+  [x]  100%  ImGui::GetItemRectMin                                      imgui.lua:11124                  
+  [x]  100%  ImGui::GetItemRectMax                                      imgui.lua:11130                  
   [x]   67%  ImGui::GetItemRectSize                                     imgui.lua:7096                   
   [x]   67%  ImGui::GetItemFlags                                        imgui.lua:7091                   
-  [x]   43%  ImGui::BeginChild                                          imgui.lua:11272                  
-  [x]   81%  ImGui::BeginChildEx                                        imgui.lua:11138                  
-  [x]   90%  ImGui::EndChild                                            imgui.lua:11288                  
+  [x]   43%  ImGui::BeginChild                                          imgui.lua:11274                  
+  [x]   81%  ImGui::BeginChildEx                                        imgui.lua:11140                  
+  [x]   90%  ImGui::EndChild                                            imgui.lua:11290                  
   [x]   83%  ImGui::FindFrontMostVisibleChildWindow                     imgui.lua:5629                   
   [x]   42%  SetWindowConditionAllowFlags                               imgui.lua:5641                   
-  [x]   73%  ImGui::FindWindowByID                                      imgui.lua:11673                  
-  [x]  100%  ImGui::FindWindowByName                                    imgui.lua:11683                  
+  [x]   73%  ImGui::FindWindowByID                                      imgui.lua:11675                  
+  [x]  100%  ImGui::FindWindowByName                                    imgui.lua:11685                  
   [x]   86%  ApplyWindowSettings                                        imgui.lua:5655                   
   [x]   61%  InitOrLoadWindowSettings                                   imgui.lua:5694                   
   [x]   73%  CreateNewWindow                                            imgui.lua:5715                   
@@ -325,66 +325,66 @@ imgui.cpp
   [x]   85%  ImGui::UpdateWindowParentAndRootLinks                      imgui.lua:10711                  
   [x]   33%  ImGui::UpdateWindowSkipRefresh                             imgui.lua:10741                  
   [x]   92%  SetWindowActiveForSkipRefresh                              imgui.lua:10793                  
-  [x]   82%  ImGui::Begin                                               imgui.lua:11700                  
-  [x]   86%  ImGui::End                                                 imgui.lua:12768                  
-  [x]   84%  ImGui::PushItemFlag                                        imgui.lua:12857                  
-  [x]   96%  ImGui::PopItemFlag                                         imgui.lua:12872                  
-  [x]   79%  ImGui::BeginDisabled                                       imgui.lua:12887                  
-  [x]   87%  ImGui::EndDisabled                                         imgui.lua:12903                  
-  [x]   78%  ImGui::BeginDisabledOverrideReenable                       imgui.lua:12919                  
-  [x]   88%  ImGui::EndDisabledOverrideReenable                         imgui.lua:12930                  
-  [x]   54%  ImGui::PushTextWrapPos                                     imgui.lua:14697                  
-  [x]   69%  ImGui::PopTextWrapPos                                      imgui.lua:14708                  
-  [x]  100%  GetCombinedRootWindow                                      imgui.lua:14720                  
-  [x]  100%  ImGui::IsWindowChildOf                                     imgui.lua:14739                  
-  [x]   84%  ImGui::IsWindowInBeginStack                                imgui.lua:14759                  
-  [x]  100%  ImGui::IsWindowWithinBeginStackOf                          imgui.lua:14771                  
-  [x]   91%  ImGui::IsWindowAbove                                       imgui.lua:14789                  
-  [x]   90%  ImGui::IsWindowHovered                                     imgui.lua:14815                  
+  [x]   82%  ImGui::Begin                                               imgui.lua:11702                  
+  [x]   86%  ImGui::End                                                 imgui.lua:12770                  
+  [x]   84%  ImGui::PushItemFlag                                        imgui.lua:12859                  
+  [x]   96%  ImGui::PopItemFlag                                         imgui.lua:12874                  
+  [x]   79%  ImGui::BeginDisabled                                       imgui.lua:12889                  
+  [x]   87%  ImGui::EndDisabled                                         imgui.lua:12905                  
+  [x]   78%  ImGui::BeginDisabledOverrideReenable                       imgui.lua:12921                  
+  [x]   88%  ImGui::EndDisabledOverrideReenable                         imgui.lua:12932                  
+  [x]   54%  ImGui::PushTextWrapPos                                     imgui.lua:14701                  
+  [x]   69%  ImGui::PopTextWrapPos                                      imgui.lua:14712                  
+  [x]  100%  GetCombinedRootWindow                                      imgui.lua:14724                  
+  [x]  100%  ImGui::IsWindowChildOf                                     imgui.lua:14743                  
+  [x]   84%  ImGui::IsWindowInBeginStack                                imgui.lua:14763                  
+  [x]  100%  ImGui::IsWindowWithinBeginStackOf                          imgui.lua:14775                  
+  [x]   91%  ImGui::IsWindowAbove                                       imgui.lua:14793                  
+  [x]   90%  ImGui::IsWindowHovered                                     imgui.lua:14819                  
   [x]   67%  ImGui::GetWindowDockID                                     imgui.lua:4511                   
   [x]   67%  ImGui::IsWindowDocked                                      imgui.lua:4515                   
-  [x]  100%  ImGui::GetWindowWidth                                      imgui.lua:10865                  
-  [x]   74%  ImGui::GetWindowHeight                                     imgui.lua:10998                  
-  [x]   56%  ImGui::GetWindowPos                                        imgui.lua:11003                  
-  [x]   61%  ImGui::SetWindowPos                                        imgui.lua:10873                  
-  [x]   55%  ImGui::GetWindowSize                                       imgui.lua:11008                  
-  [x]   76%  ImGui::SetWindowSize                                       imgui.lua:10915                  
-  [x]   55%  ImGui::SetWindowCollapsed                                  imgui.lua:10960                  
-  [x]   59%  ImGui::SetWindowHitTestHole                                imgui.lua:10984                  
-  [x]   97%  ImGui::SetWindowHiddenAndSkipItemsForCurrentFrame          imgui.lua:11031                  
-  [x]   55%  ImGui::IsWindowCollapsed                                   imgui.lua:10990                  
-  [x]   55%  ImGui::IsWindowAppearing                                   imgui.lua:10994                  
-  [x]   72%  ImGui::SetNextWindowPos                                    imgui.lua:11040                  
-  [x]   74%  ImGui::SetNextWindowSize                                   imgui.lua:11056                  
-  [x]   87%  ImGui::SetNextWindowSizeConstraints                        imgui.lua:11075                  
-  [x]   65%  ImGui::SetNextWindowContentSize                            imgui.lua:11374                  
-  [x]   74%  ImGui::SetNextWindowScroll                                 imgui.lua:11381                  
-  [x]   77%  ImGui::SetNextWindowCollapsed                              imgui.lua:11389                  
-  [x]   80%  ImGui::SetNextWindowBgAlpha                                imgui.lua:11084                  
-  [x]   80%  ImGui::SetNextWindowViewport                               imgui.lua:11404                  
+  [x]  100%  ImGui::GetWindowWidth                                      imgui.lua:10867                  
+  [x]   74%  ImGui::GetWindowHeight                                     imgui.lua:11000                  
+  [x]   56%  ImGui::GetWindowPos                                        imgui.lua:11005                  
+  [x]   61%  ImGui::SetWindowPos                                        imgui.lua:10875                  
+  [x]   55%  ImGui::GetWindowSize                                       imgui.lua:11010                  
+  [x]   76%  ImGui::SetWindowSize                                       imgui.lua:10917                  
+  [x]   55%  ImGui::SetWindowCollapsed                                  imgui.lua:10962                  
+  [x]   59%  ImGui::SetWindowHitTestHole                                imgui.lua:10986                  
+  [x]   97%  ImGui::SetWindowHiddenAndSkipItemsForCurrentFrame          imgui.lua:11033                  
+  [x]   55%  ImGui::IsWindowCollapsed                                   imgui.lua:10992                  
+  [x]   55%  ImGui::IsWindowAppearing                                   imgui.lua:10996                  
+  [x]   72%  ImGui::SetNextWindowPos                                    imgui.lua:11042                  
+  [x]   74%  ImGui::SetNextWindowSize                                   imgui.lua:11058                  
+  [x]   87%  ImGui::SetNextWindowSizeConstraints                        imgui.lua:11077                  
+  [x]   65%  ImGui::SetNextWindowContentSize                            imgui.lua:11376                  
+  [x]   74%  ImGui::SetNextWindowScroll                                 imgui.lua:11383                  
+  [x]   77%  ImGui::SetNextWindowCollapsed                              imgui.lua:11391                  
+  [x]   80%  ImGui::SetNextWindowBgAlpha                                imgui.lua:11086                  
+  [x]   80%  ImGui::SetNextWindowViewport                               imgui.lua:11406                  
   [x]   76%  ImGui::SetNextWindowDockID                                 imgui.lua:4519                   
-  [x]   50%  ImGui::SetNextWindowClass                                  imgui.lua:11411                  
-  [x]   69%  ImGui::SetNextWindowRefreshPolicy                          imgui.lua:11421                  
-  [x]   47%  ImGui::SetNextWindowFlags                                  imgui.lua:11355                  
-  [x]   47%  ImGui::SetNextWindowChildFlags                             imgui.lua:11337                  
-  [x]  100%  ImGui::GetWindowDrawList                                   imgui.lua:11090                  
-  [x]   22%  ImGui::GetWindowDpiScale                                   imgui.lua:11441                  
-  [x]   42%  ImGui::GetWindowViewport                                   imgui.lua:11445                  
-  [x]  100%  ImGui::GetFont                                             imgui.lua:11095                  
+  [x]   50%  ImGui::SetNextWindowClass                                  imgui.lua:11413                  
+  [x]   69%  ImGui::SetNextWindowRefreshPolicy                          imgui.lua:11423                  
+  [x]   47%  ImGui::SetNextWindowFlags                                  imgui.lua:11357                  
+  [x]   47%  ImGui::SetNextWindowChildFlags                             imgui.lua:11339                  
+  [x]  100%  ImGui::GetWindowDrawList                                   imgui.lua:11092                  
+  [x]   22%  ImGui::GetWindowDpiScale                                   imgui.lua:11443                  
+  [x]   42%  ImGui::GetWindowViewport                                   imgui.lua:11447                  
+  [x]  100%  ImGui::GetFont                                             imgui.lua:11097                  
   [ ]        ImGui::GetFontBaked                                                                         
-  [x]  100%  ImGui::GetFontSize                                         imgui.lua:11102                  
-  [x]  100%  ImGui::GetFontTexUvWhitePixel                              imgui.lua:11107                  
+  [x]  100%  ImGui::GetFontSize                                         imgui.lua:11104                  
+  [x]  100%  ImGui::GetFontTexUvWhitePixel                              imgui.lua:11109                  
   [-]        ImGui::SetWindowFontScale                                                                   obsolete
-  [x]   93%  ImGui::PushFocusScope                                      imgui.lua:15905                  
-  [x]   56%  ImGui::PopFocusScope                                       imgui.lua:15914                  
-  [x]   91%  ImGui::IsInNavFocusRoute                                   imgui.lua:15926                  
-  [x]   71%  ImGui::SetNavFocusScope                                    imgui.lua:15940                  
-  [x]   76%  ImGui::FocusItem                                           imgui.lua:19153                  
-  [x]  100%  ImGui::ActivateItemByID                                    imgui.lua:19166                  
-  [x]   81%  ImGui::SetKeyboardFocusHere                                imgui.lua:19125                  
-  [x]   98%  ImGui::SetItemDefaultFocus                                 imgui.lua:15980                  
-  [x]   91%  ImGui::SetStateStorage                                     imgui.lua:19184                  
-  [x]   74%  ImGui::GetStateStorage                                     imgui.lua:19183                  
+  [x]   93%  ImGui::PushFocusScope                                      imgui.lua:15909                  
+  [x]   56%  ImGui::PopFocusScope                                       imgui.lua:15918                  
+  [x]   91%  ImGui::IsInNavFocusRoute                                   imgui.lua:15930                  
+  [x]   71%  ImGui::SetNavFocusScope                                    imgui.lua:15944                  
+  [x]   76%  ImGui::FocusItem                                           imgui.lua:19157                  
+  [x]  100%  ImGui::ActivateItemByID                                    imgui.lua:19170                  
+  [x]   81%  ImGui::SetKeyboardFocusHere                                imgui.lua:19129                  
+  [x]   98%  ImGui::SetItemDefaultFocus                                 imgui.lua:15984                  
+  [x]   91%  ImGui::SetStateStorage                                     imgui.lua:19188                  
+  [x]   74%  ImGui::GetStateStorage                                     imgui.lua:19187                  
   [x]   72%  ImGui::IsRectVisible                                       imgui.lua:6795                   
 
   -- FONTS, TEXTURES
@@ -451,17 +451,17 @@ imgui.cpp
   [x]   75%  ImGui::IsAnyMouseDown                                      imgui.lua:9031                   
   [x]   87%  ImGui::GetMouseDragDelta                                   imgui.lua:9221                   
   [x]   71%  ImGui::ResetMouseDragDelta                                 imgui.lua:9240                   
-  [x]  100%  ImGui::GetMouseCursor                                      imgui.lua:14357                  
-  [x]  100%  ImGui::SetMouseCursor                                      imgui.lua:14366                  
-  [x]   92%  UpdateAliasKey                                             imgui.lua:13128                  
-  [x]   42%  GetMergedModsFromKeys                                      imgui.lua:13136                  
-  [x]   85%  ImGui::UpdateKeyboardInputs                                imgui.lua:13149                  
-  [x]   88%  ImGui::UpdateMouseInputs                                   imgui.lua:13227                  
-  [x]   91%  LockWheelingWindow                                         imgui.lua:13335                  
-  [x]   76%  FindBestWheelingWindow                                     imgui.lua:13356                  
-  [x]   92%  ImGui::UpdateMouseWheel                                    imgui.lua:13406                  
-  [x]   60%  ImGui::SetNextFrameWantCaptureKeyboard                     imgui.lua:19188                  
-  [x]   60%  ImGui::SetNextFrameWantCaptureMouse                        imgui.lua:19189                  
+  [x]  100%  ImGui::GetMouseCursor                                      imgui.lua:14361                  
+  [x]  100%  ImGui::SetMouseCursor                                      imgui.lua:14370                  
+  [x]   92%  UpdateAliasKey                                             imgui.lua:13130                  
+  [x]   42%  GetMergedModsFromKeys                                      imgui.lua:13138                  
+  [x]   85%  ImGui::UpdateKeyboardInputs                                imgui.lua:13151                  
+  [x]   88%  ImGui::UpdateMouseInputs                                   imgui.lua:13229                  
+  [x]   91%  LockWheelingWindow                                         imgui.lua:13337                  
+  [x]   76%  FindBestWheelingWindow                                     imgui.lua:13358                  
+  [x]   92%  ImGui::UpdateMouseWheel                                    imgui.lua:13408                  
+  [x]   60%  ImGui::SetNextFrameWantCaptureKeyboard                     imgui.lua:19192                  
+  [x]   60%  ImGui::SetNextFrameWantCaptureMouse                        imgui.lua:19193                  
   [ ]        GetInputSourceName                                                                          
   [ ]        GetMouseSourceName                                                                          
   [ ]        DebugPrintInputEvent                                                                        
@@ -478,16 +478,16 @@ imgui.cpp
 
   -- ERROR CHECKING, STATE RECOVERY
   [ ]        ImGui::DebugCheckVersionAndDataLayout                                                       
-  [x]   86%  ImGui::ErrorCheckUsingSetCursorPosToExtendParentBoundaries imgui.lua:18900                  
+  [x]   86%  ImGui::ErrorCheckUsingSetCursorPosToExtendParentBoundaries imgui.lua:18904                  
   [ ]        ImGui::ErrorCheckNewFrameSanityChecks                                                       
   [ ]        ImGui::ErrorCheckEndFrameSanityChecks                                                       
-  [x]  100%  ImGui::ErrorRecoveryStoreState                             imgui.lua:19787                  
-  [x]   91%  ImGui::ErrorRecoveryTryToRecoverState                      imgui.lua:19805                  
-  [x]   91%  ImGui::ErrorRecoveryTryToRecoverWindowState                imgui.lua:19834                  
-  [x]   86%  ImGui::ErrorLog                                            imgui.lua:19923                  
-  [x]   80%  ImGui::ErrorCheckEndFrameFinalizeErrorTooltip              imgui.lua:19967                  
-  [x]   77%  ImGui::BeginErrorTooltip                                   imgui.lua:20005                  
-  [x]  100%  ImGui::EndErrorTooltip                                     imgui.lua:20027                  
+  [x]  100%  ImGui::ErrorRecoveryStoreState                             imgui.lua:19791                  
+  [x]   91%  ImGui::ErrorRecoveryTryToRecoverState                      imgui.lua:19809                  
+  [x]   91%  ImGui::ErrorRecoveryTryToRecoverWindowState                imgui.lua:19838                  
+  [x]   86%  ImGui::ErrorLog                                            imgui.lua:19927                  
+  [x]   80%  ImGui::ErrorCheckEndFrameFinalizeErrorTooltip              imgui.lua:19971                  
+  [x]   77%  ImGui::BeginErrorTooltip                                   imgui.lua:20009                  
+  [x]  100%  ImGui::EndErrorTooltip                                     imgui.lua:20031                  
 
   -- ITEM SUBMISSION
   [x]  100%  ImGui::KeepAliveID                                         imgui.lua:6247                   
@@ -525,126 +525,126 @@ imgui.cpp
   [x]   91%  ImGui::EndGroup                                            imgui.lua:6839                   
 
   -- SCROLLING
-  [x]  100%  CalcScrollEdgeSnap                                         imgui.lua:14939                  
-  [x]   89%  CalcNextScrollFromScrollTargetAndClamp                     imgui.lua:14950                  
-  [x]   78%  ImGui::ScrollToItem                                        imgui.lua:15076                  
-  [x]   86%  ImGui::ScrollToRect                                        imgui.lua:15084                  
-  [x]   88%  ImGui::ScrollToRectEx                                      imgui.lua:14982                  
-  [x]   74%  ImGui::GetScrollX                                          imgui.lua:15067                  
-  [x]   74%  ImGui::GetScrollY                                          imgui.lua:15071                  
-  [x]   74%  ImGui::GetScrollMaxX                                       imgui.lua:15063                  
-  [x]  100%  ImGui::GetScrollMaxY                                       imgui.lua:15058                  
-  [x]   75%  ImGui::SetScrollX                                          imgui.lua:15119                  
-  [x]   75%  ImGui::SetScrollY                                          imgui.lua:15128                  
-  [x]   78%  ImGui::SetScrollFromPosX                                   imgui.lua:15148                  
-  [x]   78%  ImGui::SetScrollFromPosY                                   imgui.lua:15160                  
-  [x]   95%  ImGui::SetScrollHereX                                      imgui.lua:15090                  
-  [x]   95%  ImGui::SetScrollHereY                                      imgui.lua:15104                  
+  [x]  100%  CalcScrollEdgeSnap                                         imgui.lua:14943                  
+  [x]   89%  CalcNextScrollFromScrollTargetAndClamp                     imgui.lua:14954                  
+  [x]   78%  ImGui::ScrollToItem                                        imgui.lua:15080                  
+  [x]   86%  ImGui::ScrollToRect                                        imgui.lua:15088                  
+  [x]   88%  ImGui::ScrollToRectEx                                      imgui.lua:14986                  
+  [x]   74%  ImGui::GetScrollX                                          imgui.lua:15071                  
+  [x]   74%  ImGui::GetScrollY                                          imgui.lua:15075                  
+  [x]   74%  ImGui::GetScrollMaxX                                       imgui.lua:15067                  
+  [x]  100%  ImGui::GetScrollMaxY                                       imgui.lua:15062                  
+  [x]   75%  ImGui::SetScrollX                                          imgui.lua:15123                  
+  [x]   75%  ImGui::SetScrollY                                          imgui.lua:15132                  
+  [x]   78%  ImGui::SetScrollFromPosX                                   imgui.lua:15152                  
+  [x]   78%  ImGui::SetScrollFromPosY                                   imgui.lua:15164                  
+  [x]   95%  ImGui::SetScrollHereX                                      imgui.lua:15094                  
+  [x]   95%  ImGui::SetScrollHereY                                      imgui.lua:15108                  
 
   -- TOOLTIPS
-  [x]  100%  ImGui::BeginTooltip                                        imgui.lua:15228                  
-  [x]  100%  ImGui::BeginItemTooltip                                    imgui.lua:15232                  
-  [x]   83%  ImGui::BeginTooltipEx                                      imgui.lua:15175                  
-  [x]   73%  ImGui::EndTooltip                                          imgui.lua:15239                  
-  [x]   21%  ImGui::SetTooltip                                          imgui.lua:15246                  
+  [x]  100%  ImGui::BeginTooltip                                        imgui.lua:15232                  
+  [x]  100%  ImGui::BeginItemTooltip                                    imgui.lua:15236                  
+  [x]   83%  ImGui::BeginTooltipEx                                      imgui.lua:15179                  
+  [x]   73%  ImGui::EndTooltip                                          imgui.lua:15243                  
+  [x]   21%  ImGui::SetTooltip                                          imgui.lua:15250                  
   [ ]        ImGui::SetTooltipV                                                                          
-  [x]   52%  ImGui::SetItemTooltip                                      imgui.lua:15258                  
+  [x]   52%  ImGui::SetItemTooltip                                      imgui.lua:15262                  
   [ ]        ImGui::SetItemTooltipV                                                                      
 
   -- POPUPS
-  [x]   73%  ImGui::IsPopupOpen                                         imgui.lua:11538                  
-  [x]   82%  ImGui::GetTopMostPopupModal                                imgui.lua:11573                  
-  [x]   81%  ImGui::GetTopMostAndVisiblePopupModal                      imgui.lua:18953                  
-  [x]   79%  ImGui::FindBlockingModal                                   imgui.lua:15282                  
-  [x]   26%  ImGui::OpenPopup                                           imgui.lua:15315                  
-  [x]   86%  ImGui::OpenPopupEx                                         imgui.lua:15336                  
-  [x]   73%  ImGui::ClosePopupsOverWindow                               imgui.lua:15399                  
-  [x]   80%  ImGui::ClosePopupsExceptModals                             imgui.lua:19019                  
-  [x]   62%  ImGui::ClosePopupToLevel                                   imgui.lua:15457                  
-  [x]   81%  ImGui::CloseCurrentPopup                                   imgui.lua:15493                  
-  [x]   81%  ImGui::BeginPopupEx                                        imgui.lua:15533                  
-  [x]   80%  ImGui::BeginPopupMenuEx                                    imgui.lua:15556                  
-  [x]   83%  ImGui::BeginPopup                                          imgui.lua:15582                  
-  [x]   83%  ImGui::BeginPopupModal                                     imgui.lua:19037                  
-  [x]   95%  ImGui::EndPopup                                            imgui.lua:15595                  
-  [x]   38%  ImGui::GetMouseButtonFromPopupFlags                        imgui.lua:15816                  
-  [x]   94%  ImGui::IsPopupOpenRequestForItem                           imgui.lua:15828                  
-  [x]   85%  ImGui::IsPopupOpenRequestForWindow                         imgui.lua:19067                  
-  [x]   83%  ImGui::OpenPopupOnItemClick                                imgui.lua:15845                  
-  [x]   83%  ImGui::BeginPopupContextItem                               imgui.lua:15879                  
-  [x]   85%  ImGui::BeginPopupContextWindow                             imgui.lua:19081                  
-  [x]   88%  ImGui::BeginPopupContextVoid                               imgui.lua:19091                  
-  [x]   87%  ImGui::FindBestWindowPosForPopupEx                         imgui.lua:15632                  
-  [x]   87%  ImGui::GetPopupAllowedExtentRect                           imgui.lua:15725                  
-  [x]   92%  ImGui::FindBestWindowPosForPopup                           imgui.lua:15748                  
+  [x]   73%  ImGui::IsPopupOpen                                         imgui.lua:11540                  
+  [x]   82%  ImGui::GetTopMostPopupModal                                imgui.lua:11575                  
+  [x]   81%  ImGui::GetTopMostAndVisiblePopupModal                      imgui.lua:18957                  
+  [x]   79%  ImGui::FindBlockingModal                                   imgui.lua:15286                  
+  [x]   26%  ImGui::OpenPopup                                           imgui.lua:15319                  
+  [x]   86%  ImGui::OpenPopupEx                                         imgui.lua:15340                  
+  [x]   73%  ImGui::ClosePopupsOverWindow                               imgui.lua:15403                  
+  [x]   80%  ImGui::ClosePopupsExceptModals                             imgui.lua:19023                  
+  [x]   62%  ImGui::ClosePopupToLevel                                   imgui.lua:15461                  
+  [x]   81%  ImGui::CloseCurrentPopup                                   imgui.lua:15497                  
+  [x]   81%  ImGui::BeginPopupEx                                        imgui.lua:15537                  
+  [x]   80%  ImGui::BeginPopupMenuEx                                    imgui.lua:15560                  
+  [x]   83%  ImGui::BeginPopup                                          imgui.lua:15586                  
+  [x]   83%  ImGui::BeginPopupModal                                     imgui.lua:19041                  
+  [x]   95%  ImGui::EndPopup                                            imgui.lua:15599                  
+  [x]   38%  ImGui::GetMouseButtonFromPopupFlags                        imgui.lua:15820                  
+  [x]   94%  ImGui::IsPopupOpenRequestForItem                           imgui.lua:15832                  
+  [x]   85%  ImGui::IsPopupOpenRequestForWindow                         imgui.lua:19071                  
+  [x]   83%  ImGui::OpenPopupOnItemClick                                imgui.lua:15849                  
+  [x]   83%  ImGui::BeginPopupContextItem                               imgui.lua:15883                  
+  [x]   85%  ImGui::BeginPopupContextWindow                             imgui.lua:19085                  
+  [x]   88%  ImGui::BeginPopupContextVoid                               imgui.lua:19095                  
+  [x]   87%  ImGui::FindBestWindowPosForPopupEx                         imgui.lua:15636                  
+  [x]   87%  ImGui::GetPopupAllowedExtentRect                           imgui.lua:15729                  
+  [x]   92%  ImGui::FindBestWindowPosForPopup                           imgui.lua:15752                  
 
   -- WINDOW FOCUS
-  [x]   51%  ImGui::SetWindowFocus                                      imgui.lua:11014                  
-  [x]   71%  ImGui::SetNextWindowFocus                                  imgui.lua:11398                  
-  [x]   87%  ImGui::IsWindowFocused                                     imgui.lua:14871                  
+  [x]   51%  ImGui::SetWindowFocus                                      imgui.lua:11016                  
+  [x]   71%  ImGui::SetNextWindowFocus                                  imgui.lua:11400                  
+  [x]   87%  ImGui::IsWindowFocused                                     imgui.lua:14875                  
   [x]   94%  ImGui::FindWindowFocusIndex                                imgui.lua:7203                   
   [x]   81%  ImGui::UpdateWindowInFocusOrderList                        imgui.lua:7238                   
   [x]   82%  ImGui::BringWindowToFocusFront                             imgui.lua:7263                   
   [x]   56%  ImGui::BringWindowToDisplayFront                           imgui.lua:7289                   
-  [x]   54%  ImGui::BringWindowToDisplayBack                            imgui.lua:18927                  
+  [x]   54%  ImGui::BringWindowToDisplayBack                            imgui.lua:18931                  
   [x]   35%  ImGui::BringWindowToDisplayBehind                          imgui.lua:7310                   
-  [x]   41%  ImGui::FindWindowDisplayIndex                              imgui.lua:18921                  
+  [x]   41%  ImGui::FindWindowDisplayIndex                              imgui.lua:18925                  
   [x]   87%  ImGui::FocusWindow                                         imgui.lua:7124                   
   [x]   84%  ImGui::FocusTopMostWindowUnderOne                          imgui.lua:7322                   
 
   -- KEYBOARD/GAMEPAD NAVIGATION
-  [x]   93%  ImGui::SetNavCursorVisible                                 imgui.lua:19172                  
-  [x]   94%  ImGui::SetNavCursorVisibleAfterMove                        imgui.lua:16001                  
-  [x]   80%  ImGui::SetNavWindow                                        imgui.lua:16017                  
-  [x]  100%  ImGui::NavHighlightActivated                               imgui.lua:16097                  
-  [x]  100%  ImGui::NavClearPreferredPosForAxis                         imgui.lua:16031                  
-  [x]   95%  ImGui::SetNavID                                            imgui.lua:16040                  
+  [x]   93%  ImGui::SetNavCursorVisible                                 imgui.lua:19176                  
+  [x]   94%  ImGui::SetNavCursorVisibleAfterMove                        imgui.lua:16005                  
+  [x]   80%  ImGui::SetNavWindow                                        imgui.lua:16021                  
+  [x]  100%  ImGui::NavHighlightActivated                               imgui.lua:16101                  
+  [x]  100%  ImGui::NavClearPreferredPosForAxis                         imgui.lua:16035                  
+  [x]   95%  ImGui::SetNavID                                            imgui.lua:16044                  
   [x]   96%  ImGui::SetFocusID                                          imgui.lua:7362                   
-  [x]   90%  ImGetDirQuadrantFromDelta                                  imgui.lua:17067                  
-  [x]  100%  NavScoreItemDistInterval                                   imgui.lua:17074                  
-  [x]   77%  ImGui::NavScoreItem                                        imgui.lua:17088                  
-  [x]   93%  ImGui::NavApplyItemToResult                                imgui.lua:17194                  
-  [x]  100%  ImGui::NavUpdateCurrentWindowIsScrollPushableX             imgui.lua:17521                  
-  [x]   94%  ImGui::NavProcessItem                                      imgui.lua:17286                  
-  [x]   90%  ImGui::NavProcessItemForTabbingRequest                     imgui.lua:17226                  
-  [x]  100%  ImGui::NavMoveRequestButNoResultYet                        imgui.lua:17062                  
-  [x]   89%  ImGui::NavMoveRequestSubmit                                imgui.lua:16540                  
-  [x]   92%  ImGui::NavMoveRequestResolveWithLastItem                   imgui.lua:17209                  
-  [x]   92%  ImGui::NavMoveRequestResolveWithPastTreeNode               imgui.lua:17530                  
-  [x]   93%  ImGui::NavMoveRequestCancel                                imgui.lua:17541                  
-  [x]   95%  ImGui::NavMoveRequestForward                               imgui.lua:17553                  
-  [x]   78%  ImGui::NavMoveRequestTryWrapping                           imgui.lua:17568                  
-  [x]   93%  ImGui::NavSaveLastChildNavWindowIntoParent                 imgui.lua:16058                  
-  [x]   57%  ImGui::NavRestoreLastChildNavWindow                        imgui.lua:16071                  
-  [x]   86%  ImGui::NavRestoreLayer                                     imgui.lua:16079                  
-  [x]  100%  ImGui::NavUpdateAnyRequestFlag                             imgui.lua:16103                  
-  [x]   88%  ImGui::NavInitWindow                                       imgui.lua:16114                  
-  [x]   97%  ImGui::NavCalcPreferredRefPosSource                        imgui.lua:16146                  
-  [x]   94%  ImGui::NavCalcPreferredRefPos                              imgui.lua:16165                  
-  [x]   91%  ImGui::GetNavTweakPressedAmount                            imgui.lua:16207                  
-  [x]   85%  ImGui::NavUpdate                                           imgui.lua:16809                  
-  [x]   88%  ImGui::NavInitRequestApplyResult                           imgui.lua:17360                  
-  [x]   81%  NavBiasScoringRect                                         imgui.lua:16569                  
-  [x]   83%  ImGui::NavUpdateCreateMoveRequest                          imgui.lua:16670                  
-  [x]   87%  ImGui::NavUpdateCreateTabbingRequest                       imgui.lua:16780                  
-  [x]   85%  ImGui::NavMoveRequestApplyResult                           imgui.lua:17391                  
-  [x]   91%  ImGui::NavUpdateCancelRequest                              imgui.lua:17017                  
-  [x]   83%  ImGui::NavUpdateContextMenuRequest                         imgui.lua:16505                  
-  [x]   90%  ImGui::NavUpdatePageUpPageDown                             imgui.lua:16601                  
-  [x]   81%  ImGui::NavEndFrame                                         imgui.lua:19307                  
-  [x]   83%  ImGui::NavUpdateCreateWrappingRequest                      imgui.lua:19251                  
+  [x]   90%  ImGetDirQuadrantFromDelta                                  imgui.lua:17071                  
+  [x]  100%  NavScoreItemDistInterval                                   imgui.lua:17078                  
+  [x]   77%  ImGui::NavScoreItem                                        imgui.lua:17092                  
+  [x]   93%  ImGui::NavApplyItemToResult                                imgui.lua:17198                  
+  [x]  100%  ImGui::NavUpdateCurrentWindowIsScrollPushableX             imgui.lua:17525                  
+  [x]   94%  ImGui::NavProcessItem                                      imgui.lua:17290                  
+  [x]   90%  ImGui::NavProcessItemForTabbingRequest                     imgui.lua:17230                  
+  [x]  100%  ImGui::NavMoveRequestButNoResultYet                        imgui.lua:17066                  
+  [x]   89%  ImGui::NavMoveRequestSubmit                                imgui.lua:16544                  
+  [x]   92%  ImGui::NavMoveRequestResolveWithLastItem                   imgui.lua:17213                  
+  [x]   92%  ImGui::NavMoveRequestResolveWithPastTreeNode               imgui.lua:17534                  
+  [x]   93%  ImGui::NavMoveRequestCancel                                imgui.lua:17545                  
+  [x]   95%  ImGui::NavMoveRequestForward                               imgui.lua:17557                  
+  [x]   78%  ImGui::NavMoveRequestTryWrapping                           imgui.lua:17572                  
+  [x]   93%  ImGui::NavSaveLastChildNavWindowIntoParent                 imgui.lua:16062                  
+  [x]   57%  ImGui::NavRestoreLastChildNavWindow                        imgui.lua:16075                  
+  [x]   86%  ImGui::NavRestoreLayer                                     imgui.lua:16083                  
+  [x]  100%  ImGui::NavUpdateAnyRequestFlag                             imgui.lua:16107                  
+  [x]   88%  ImGui::NavInitWindow                                       imgui.lua:16118                  
+  [x]   97%  ImGui::NavCalcPreferredRefPosSource                        imgui.lua:16150                  
+  [x]   94%  ImGui::NavCalcPreferredRefPos                              imgui.lua:16169                  
+  [x]   91%  ImGui::GetNavTweakPressedAmount                            imgui.lua:16211                  
+  [x]   85%  ImGui::NavUpdate                                           imgui.lua:16813                  
+  [x]   88%  ImGui::NavInitRequestApplyResult                           imgui.lua:17364                  
+  [x]   81%  NavBiasScoringRect                                         imgui.lua:16573                  
+  [x]   83%  ImGui::NavUpdateCreateMoveRequest                          imgui.lua:16674                  
+  [x]   87%  ImGui::NavUpdateCreateTabbingRequest                       imgui.lua:16784                  
+  [x]   85%  ImGui::NavMoveRequestApplyResult                           imgui.lua:17395                  
+  [x]   91%  ImGui::NavUpdateCancelRequest                              imgui.lua:17021                  
+  [x]   83%  ImGui::NavUpdateContextMenuRequest                         imgui.lua:16509                  
+  [x]   90%  ImGui::NavUpdatePageUpPageDown                             imgui.lua:16605                  
+  [x]   81%  ImGui::NavEndFrame                                         imgui.lua:19311                  
+  [x]   83%  ImGui::NavUpdateCreateWrappingRequest                      imgui.lua:19255                  
   [x]   85%  ImGui::IsWindowNavFocusable                                imgui.lua:7217                   
   [x]   67%  FindWindowNavFocusable                                     imgui.lua:7225                   
-  [x]   86%  NavUpdateWindowingTarget                                   imgui.lua:16235                  
-  [x]   92%  ImGui::NavUpdateWindowingApplyFocus                        imgui.lua:16258                  
-  [x]   88%  ImGui::NavUpdateWindowing                                  imgui.lua:16296                  
-  [x]   67%  GetFallbackWindowNameForWindowingList                      imgui.lua:19208                  
-  [x]   84%  ImGui::NavUpdateWindowingOverlay                           imgui.lua:19222                  
+  [x]   86%  NavUpdateWindowingTarget                                   imgui.lua:16239                  
+  [x]   92%  ImGui::NavUpdateWindowingApplyFocus                        imgui.lua:16262                  
+  [x]   88%  ImGui::NavUpdateWindowing                                  imgui.lua:16300                  
+  [x]   67%  GetFallbackWindowNameForWindowingList                      imgui.lua:19212                  
+  [x]   84%  ImGui::NavUpdateWindowingOverlay                           imgui.lua:19226                  
 
   -- DRAG AND DROP
   [x]   55%  ImGui::IsDragDropActive                                    imgui.lua:525                    
   [x]   73%  ImGui::ClearDragDrop                                       imgui.lua:529                    
-  [x]   82%  ImGui::BeginTooltipHidden                                  imgui.lua:19104                  
+  [x]   82%  ImGui::BeginTooltipHidden                                  imgui.lua:19108                  
   [x]   88%  ImGui::BeginDragDropSource                                 imgui.lua:547                    
   [x]   86%  ImGui::EndDragDropSource                                   imgui.lua:648                    
   [x]   62%  ImGui::SetDragDropPayload                                  imgui.lua:665                    
@@ -697,38 +697,38 @@ imgui.cpp
   [x]   78%  WindowSettingsHandler_WriteAll                             imgui.lua:6001                   
 
   -- LOCALIZATION
-  [x]   84%  ImGui::LocalizeRegisterEntries                             imgui.lua:17594                  
+  [x]   84%  ImGui::LocalizeRegisterEntries                             imgui.lua:17598                  
 
   -- VIEWPORTS, PLATFORM WINDOWS
-  [x]   83%  ImGuiViewport::GetDebugName                                imgui.lua:17628                  
-  [x]   76%  ImGuiPlatformIO::ClearPlatformHandlers                     imgui.lua:17633                  
-  [x]   69%  ImGuiPlatformIO::ClearRendererHandlers                     imgui.lua:17647                  
-  [x]   78%  ImGui::GetMainViewport                                     imgui.lua:17656                  
-  [x]   88%  ImGui::FindViewportByID                                    imgui.lua:17665                  
+  [x]   83%  ImGuiViewport::GetDebugName                                imgui.lua:17632                  
+  [x]   76%  ImGuiPlatformIO::ClearPlatformHandlers                     imgui.lua:17637                  
+  [x]   69%  ImGuiPlatformIO::ClearRendererHandlers                     imgui.lua:17651                  
+  [x]   78%  ImGui::GetMainViewport                                     imgui.lua:17660                  
+  [x]   88%  ImGui::FindViewportByID                                    imgui.lua:17669                  
   [ ]        ImGui::FindViewportByPlatformHandle                                                         
-  [x]   98%  ImGui::SetCurrentViewport                                  imgui.lua:17677                  
-  [x]   99%  ImGui::SetWindowViewport                                   imgui.lua:17705                  
-  [x]   86%  ImGui::GetWindowAlwaysWantOwnViewport                      imgui.lua:17718                  
-  [x]   86%  IsViewportAbove                                            imgui.lua:17740                  
-  [x]   89%  ImGui::UpdateTryMergeWindowIntoHostViewport                imgui.lua:17765                  
-  [x]   83%  ImGui::UpdateTryMergeWindowIntoHostViewports               imgui.lua:17825                  
-  [x]   88%  ImGui::TranslateWindowsInViewport                          imgui.lua:17837                  
-  [x]   94%  ImGui::ScaleWindowsInViewport                              imgui.lua:14911                  
-  [x]   85%  ImGui::FindHoveredViewportFromPlatformWindowStack          imgui.lua:17863                  
-  [x]   87%  ImGui::UpdateViewportsNewFrame                             imgui.lua:17880                  
-  [x]   78%  ImGui::UpdateViewportsEndFrame                             imgui.lua:18167                  
-  [x]   81%  ImGui::AddUpdateViewport                                   imgui.lua:18201                  
-  [x]   80%  ImGui::DestroyViewport                                     imgui.lua:18281                  
-  [x]   93%  ImGui::WindowSelectViewport                                imgui.lua:18307                  
-  [x]   73%  ImGui::WindowSyncOwnedViewport                             imgui.lua:18433                  
-  [x]   88%  ImGui::UpdatePlatformWindows                               imgui.lua:18537                  
-  [x]   85%  ImGui::RenderPlatformWindowsDefault                        imgui.lua:18655                  
-  [x]   87%  ImGui::FindPlatformMonitorForPos                           imgui.lua:18687                  
-  [x]   78%  ImGui::FindPlatformMonitorForRect                          imgui.lua:18703                  
-  [x]   93%  ImGui::UpdateViewportPlatformMonitor                       imgui.lua:18744                  
-  [x]   89%  ImGui::GetViewportPlatformMonitor                          imgui.lua:18751                  
-  [x]   97%  ImGui::DestroyPlatformWindow                               imgui.lua:18763                  
-  [x]   77%  ImGui::DestroyPlatformWindows                              imgui.lua:18789                  
+  [x]   98%  ImGui::SetCurrentViewport                                  imgui.lua:17681                  
+  [x]   99%  ImGui::SetWindowViewport                                   imgui.lua:17709                  
+  [x]   86%  ImGui::GetWindowAlwaysWantOwnViewport                      imgui.lua:17722                  
+  [x]   86%  IsViewportAbove                                            imgui.lua:17744                  
+  [x]   89%  ImGui::UpdateTryMergeWindowIntoHostViewport                imgui.lua:17769                  
+  [x]   83%  ImGui::UpdateTryMergeWindowIntoHostViewports               imgui.lua:17829                  
+  [x]   88%  ImGui::TranslateWindowsInViewport                          imgui.lua:17841                  
+  [x]   94%  ImGui::ScaleWindowsInViewport                              imgui.lua:14915                  
+  [x]   85%  ImGui::FindHoveredViewportFromPlatformWindowStack          imgui.lua:17867                  
+  [x]   87%  ImGui::UpdateViewportsNewFrame                             imgui.lua:17884                  
+  [x]   78%  ImGui::UpdateViewportsEndFrame                             imgui.lua:18171                  
+  [x]   81%  ImGui::AddUpdateViewport                                   imgui.lua:18205                  
+  [x]   80%  ImGui::DestroyViewport                                     imgui.lua:18285                  
+  [x]   93%  ImGui::WindowSelectViewport                                imgui.lua:18311                  
+  [x]   73%  ImGui::WindowSyncOwnedViewport                             imgui.lua:18437                  
+  [x]   88%  ImGui::UpdatePlatformWindows                               imgui.lua:18541                  
+  [x]   85%  ImGui::RenderPlatformWindowsDefault                        imgui.lua:18659                  
+  [x]   87%  ImGui::FindPlatformMonitorForPos                           imgui.lua:18691                  
+  [x]   78%  ImGui::FindPlatformMonitorForRect                          imgui.lua:18707                  
+  [x]   93%  ImGui::UpdateViewportPlatformMonitor                       imgui.lua:18748                  
+  [x]   89%  ImGui::GetViewportPlatformMonitor                          imgui.lua:18755                  
+  [x]   97%  ImGui::DestroyPlatformWindow                               imgui.lua:18767                  
+  [x]   77%  ImGui::DestroyPlatformWindows                              imgui.lua:18793                  
 
   -- DOCKING
   [x]   61%  ImGuiDockRequest::ImGuiDockRequest                         imgui.lua:1019                   
@@ -845,47 +845,47 @@ imgui.cpp
   [ ]        InitializeDefaultPlatformHandlers                                                           
 
   -- METRICS/DEBUGGER WINDOW
-  [x]   97%  MetricsHelpMarker                                          imgui.lua:20063                  = MetricsHelpMarker
-  [x]   93%  ImGui::DebugRenderViewportThumbnail                        imgui.lua:18812                  
-  [x]   92%  RenderViewportsThumbnails                                  imgui.lua:18851                  
+  [x]   97%  MetricsHelpMarker                                          imgui.lua:20067                  = MetricsHelpMarker
+  [x]   93%  ImGui::DebugRenderViewportThumbnail                        imgui.lua:18816                  
+  [x]   92%  RenderViewportsThumbnails                                  imgui.lua:18855                  
   [ ]        ViewportComparerByLastFocusedStampCount                                                     
   [ ]        ImGui::DebugRenderKeyboardPreview                                                           
-  [x]   52%  ImGui::DebugTextEncoding                                   imgui.lua:20965                  
+  [x]   52%  ImGui::DebugTextEncoding                                   imgui.lua:20969                  
   [ ]        DebugFlashStyleColorStop                                                                    
   [ ]        ImGui::DebugFlashStyleColor                                                                 
   [ ]        ImGui::UpdateDebugToolFlashStyleColor                                                       
   [ ]        ImGui::DebugTextureIDToU64                                                                  
   [ ]        FormatTextureRefForDebugDisplay                                                             
-  [x]   52%  ImGui::ShowFontAtlas                                       imgui.lua:20264                  
-  [x]   84%  ImGui::DebugNodeTexture                                    imgui.lua:20231                  
-  [x]   42%  ImGui::ShowMetricsWindow                                   imgui.lua:21030                  
+  [x]   52%  ImGui::ShowFontAtlas                                       imgui.lua:20268                  
+  [x]   84%  ImGui::DebugNodeTexture                                    imgui.lua:20235                  
+  [x]   44%  ImGui::ShowMetricsWindow                                   imgui.lua:21034                  
   [ ]        ImGui::DebugBreakClearData                                                                  
   [ ]        ImGui::DebugBreakButtonTooltip                                                              
   [ ]        ImGui::DebugBreakButton                                                                     
-  [x]   87%  ImGui::DebugNodeColumns                                    imgui.lua:20609                  
-  [x]   48%  DebugNodeDockNodeFlags                                     imgui.lua:20797                  
-  [x]   79%  ImGui::DebugNodeDockNode                                   imgui.lua:20814                  
-  [x]   28%  ImGui::DebugNodeDrawList                                   imgui.lua:20631                  
+  [x]   87%  ImGui::DebugNodeColumns                                    imgui.lua:20613                  
+  [x]   48%  DebugNodeDockNodeFlags                                     imgui.lua:20801                  
+  [x]   79%  ImGui::DebugNodeDockNode                                   imgui.lua:20818                  
+  [x]   28%  ImGui::DebugNodeDrawList                                   imgui.lua:20635                  
   [ ]        ImGui::DebugNodeDrawCmdShowMeshAndBoundingBox                                               
   [ ]        CalcFontGlyphSrcOverlapMask                                                                 
-  [x]   60%  ImGui::DebugNodeFont                                       imgui.lua:20154                  
-  [x]   59%  ImGui::DebugNodeFontGlyphsForSrcMask                       imgui.lua:20099                  
-  [x]   89%  ImGui::DebugNodeFontGlyph                                  imgui.lua:20085                  
-  [x]   37%  ImGui::DebugNodeStorage                                    imgui.lua:20619                  
-  [x]   68%  ImGui::DebugNodeTabBar                                     imgui.lua:20692                  
-  [x]   62%  ImGui::DebugNodeViewport                                   imgui.lua:20947                  
+  [x]   60%  ImGui::DebugNodeFont                                       imgui.lua:20158                  
+  [x]   59%  ImGui::DebugNodeFontGlyphsForSrcMask                       imgui.lua:20103                  
+  [x]   89%  ImGui::DebugNodeFontGlyph                                  imgui.lua:20089                  
+  [x]   37%  ImGui::DebugNodeStorage                                    imgui.lua:20623                  
+  [x]   68%  ImGui::DebugNodeTabBar                                     imgui.lua:20696                  
+  [x]   62%  ImGui::DebugNodeViewport                                   imgui.lua:20951                  
   [ ]        ImGui::DebugNodePlatformMonitor                                                             
-  [x]   70%  ImGui::DebugNodeWindow                                     imgui.lua:20858                  
-  [x]   87%  ImGui::DebugNodeWindowSettings                             imgui.lua:20916                  
-  [x]   73%  ImGui::DebugNodeWindowsList                                imgui.lua:20922                  
-  [x]   67%  ImGui::DebugNodeWindowsListByBeginStackParent              imgui.lua:20933                  
+  [x]   70%  ImGui::DebugNodeWindow                                     imgui.lua:20862                  
+  [x]   87%  ImGui::DebugNodeWindowSettings                             imgui.lua:20920                  
+  [x]   73%  ImGui::DebugNodeWindowsList                                imgui.lua:20926                  
+  [x]   67%  ImGui::DebugNodeWindowsListByBeginStackParent              imgui.lua:20937                  
 
   -- DEBUG LOG WINDOW
-  [x]    5%  ImGui::DebugLog                                            imgui.lua:19904                  
+  [x]    5%  ImGui::DebugLog                                            imgui.lua:19908                  
   [ ]        ImGui::DebugLogV                                                                            
-  [x]   93%  SameLineOrWrap                                             imgui.lua:20336                  
-  [x]   61%  ShowDebugLogFlag                                           imgui.lua:20343                  
-  [x]   65%  ImGui::ShowDebugLogWindow                                  imgui.lua:20356                  
+  [x]   93%  SameLineOrWrap                                             imgui.lua:20340                  
+  [x]   61%  ShowDebugLogFlag                                           imgui.lua:20347                  
+  [x]   65%  ImGui::ShowDebugLogWindow                                  imgui.lua:20360                  
   [ ]        ImGui::DebugTextUnformattedWithLocateItem                                                   
 
   -- OTHER DEBUG TOOLS (ITEM PICKER, ID STACK TOOL)
@@ -897,13 +897,13 @@ imgui.cpp
   [ ]        ImGui::DebugLocateItemResolveWithLastItem                                                   
   [ ]        ImGui::DebugStartItemPicker                                                                 
   [ ]        ImGui::UpdateDebugToolItemPicker                                                            
-  [x]   75%  DebugItemPathQuery_UpdateAndGetHookId                      imgui.lua:20427                  
-  [x]   49%  ImGui::UpdateDebugToolItemPathQuery                        imgui.lua:20456                  
-  [x]   47%  ImGui::DebugHookIdInfo                                     imgui.lua:20468                  
+  [x]   75%  DebugItemPathQuery_UpdateAndGetHookId                      imgui.lua:20431                  
+  [x]   49%  ImGui::UpdateDebugToolItemPathQuery                        imgui.lua:20460                  
+  [x]   47%  ImGui::DebugHookIdInfo                                     imgui.lua:20472                  
   [ ]        DebugItemPathQuery_FormatLevelInfo                                                          
   [ ]        DebugItemPathQuery_GetResultAsPath                                                          
-  [x]   51%  ImGui::ShowIDStackToolWindow                               imgui.lua:20527                  
-  [x]   78%  ImGui::ShowFontSelector                                    imgui.lua:20069                  
+  [x]   51%  ImGui::ShowIDStackToolWindow                               imgui.lua:20531                  
+  [x]   78%  ImGui::ShowFontSelector                                    imgui.lua:20073                  
 
 ====================================================================================================
 imgui_widgets.cpp
@@ -946,7 +946,7 @@ imgui_widgets.cpp
   [x]   28%  ImGui::Image                                               imgui_widgets.lua:1252           
   [x]   92%  ImGui::ImageButtonEx                                       imgui_widgets.lua:1264           
   [x]   98%  ImGui::ImageButton                                         imgui_widgets.lua:1308           
-  [x]   76%  ImGui::Checkbox                                            imgui_widgets.lua:1323           
+  [x]   77%  ImGui::Checkbox                                            imgui_widgets.lua:1323           
   [x]   79%  ImGui::CheckboxFlagsT                                      imgui_widgets.lua:1436           = ImGui . CheckboxFlags
   [x]    7%  ImGui::CheckboxFlags                                       imgui_widgets.lua:1415           
   [x]    5%  ImGui::RadioButton                                         imgui_widgets.lua:1510           
@@ -966,7 +966,7 @@ imgui_widgets.cpp
   [x]  100%  ImGui::SeparatorText                                       imgui_widgets.lua:1916           
   [x]   82%  ImGui::SplitterBehavior                                    imgui.lua:4592                   
   [ ]        ShrinkWidthItemComparer                                                                     
-  [x]   58%  ImGui::ShrinkWidths                                        imgui_widgets.lua:9371           
+  [x]   58%  ImGui::ShrinkWidths                                        imgui_widgets.lua:10696          
 
   -- Widgets: ComboBox
   [x]  100%  CalcMaxPopupHeightFromItemCount                            imgui_widgets.lua:1945           
@@ -1076,7 +1076,7 @@ imgui_widgets.cpp
   [x]   79%  STB_TEXTEDIT_DELETECHARS                                   imgui_widgets.lua:4738           
   [x]   87%  STB_TEXTEDIT_INSERTCHARS                                   imgui_widgets.lua:4752           
   [x]   81%  stb_textedit_replace                                       imgui_widgets.lua:4795           
-  [x]   12%  ImGuiInputTextState::ImGuiInputTextState                   imgui_internal.lua:1644          
+  [x]   12%  ImGuiInputTextState::ImGuiInputTextState                   imgui_internal.lua:1663          
   [-]        ImGuiInputTextState::~ImGuiInputTextState                                                   c++-only
   [x]   93%  ImGuiInputTextState::OnKeyPressed                          imgui_widgets.lua:4823           
   [x]   63%  ImGuiInputTextState::OnCharPressed                         imgui_widgets.lua:4838           
@@ -1145,123 +1145,123 @@ imgui_widgets.cpp
   [x]   83%  ImGui::Selectable                                          imgui_widgets.lua:8112           
 
   -- Widgets: Typing-Select support
-  [ ]        ImGui::GetTypingSelectRequest                                                               
-  [ ]        ImStrimatchlen                                                                              
-  [ ]        ImGui::TypingSelectFindMatch                                                                
-  [ ]        ImGui::TypingSelectFindNextSingleCharMatch                                                  
-  [ ]        ImGui::TypingSelectFindBestLeadingMatch                                                     
-  [ ]        ImGui::DebugNodeTypingSelectState                                                           
+  [x]   74%  ImGui::GetTypingSelectRequest                              imgui_widgets.lua:8343           
+  [x]   48%  ImStrimatchlen                                             imgui_widgets.lua:8445           
+  [x]   95%  ImGui::TypingSelectFindMatch                               imgui_widgets.lua:8468           
+  [x]   88%  ImGui::TypingSelectFindNextSingleCharMatch                 imgui_widgets.lua:8485           
+  [x]   85%  ImGui::TypingSelectFindBestLeadingMatch                    imgui_widgets.lua:8516           
+  [x]   86%  ImGui::DebugNodeTypingSelectState                          imgui_widgets.lua:8534           
 
   -- Widgets: Box-Select support
-  [ ]        BoxSelectPreStartDrag                                                                       
-  [ ]        BoxSelectActivateDrag                                                                       
-  [ ]        BoxSelectDeactivateDrag                                                                     
-  [ ]        BoxSelectScrollWithMouseDrag                                                                
-  [ ]        ImGui::BeginBoxSelect                                                                       
-  [ ]        ImGui::EndBoxSelect                                                                         
+  [x]   67%  BoxSelectPreStartDrag                                      imgui_widgets.lua:8555           
+  [x]   89%  BoxSelectActivateDrag                                      imgui_widgets.lua:8569           
+  [x]   99%  BoxSelectDeactivateDrag                                    imgui_widgets.lua:8582           
+  [x]   81%  BoxSelectScrollWithMouseDrag                               imgui_widgets.lua:8592           
+  [x]   49%  ImGui::BeginBoxSelect                                      imgui_widgets.lua:8629           
+  [x]   90%  ImGui::EndBoxSelect                                        imgui_widgets.lua:8725           
 
   -- Widgets: Multi-Select support
-  [ ]        DebugLogMultiSelectRequests                                                                 
-  [ ]        CalcScopeRect                                                                               
-  [ ]        ImGui::BeginMultiSelect                                                                     
-  [ ]        ImGui::EndMultiSelect                                                                       
-  [ ]        ImGui::SetNextItemSelectionUserData                                                         
-  [ ]        ImGui::MultiSelectItemHeader                                                                
-  [ ]        ImGui::MultiSelectItemFooter                                                                
-  [ ]        ImGui::MultiSelectAddSetAll                                                                 
-  [ ]        ImGui::MultiSelectAddSetRange                                                               
-  [ ]        ImGui::DebugNodeMultiSelectState                                                            
+  [x]   74%  DebugLogMultiSelectRequests                                imgui_widgets.lua:8769           
+  [x]   61%  CalcScopeRect                                              imgui_widgets.lua:8777           
+  [x]   80%  ImGui::BeginMultiSelect                                    imgui_widgets.lua:8808           
+  [x]   83%  ImGui::EndMultiSelect                                      imgui_widgets.lua:8955           
+  [x]   73%  ImGui::SetNextItemSelectionUserData                        imgui_widgets.lua:9045           
+  [x]   84%  ImGui::MultiSelectItemHeader                               imgui_widgets.lua:9076           
+  [x]   86%  ImGui::MultiSelectItemFooter                               imgui_widgets.lua:9146           
+  [x]   59%  ImGui::MultiSelectAddSetAll                                imgui_widgets.lua:9360           
+  [x]   31%  ImGui::MultiSelectAddSetRange                              imgui_widgets.lua:9372           
+  [x]   84%  ImGui::DebugNodeMultiSelectState                           imgui_widgets.lua:9390           
 
   -- Widgets: Multi-Select helpers
-  [ ]        ImGuiSelectionBasicStorage::ImGuiSelectionBasicStorage                                      
-  [ ]        ImGuiSelectionBasicStorage::Clear                                                           
-  [ ]        ImGuiSelectionBasicStorage::Swap                                                            
-  [ ]        ImGuiSelectionBasicStorage::Contains                                                        
-  [ ]        PairComparerByValueInt                                                                      
-  [ ]        ImGuiSelectionBasicStorage::GetNextSelectedItem                                             
-  [ ]        ImGuiSelectionBasicStorage::SetItemSelected                                                 
-  [ ]        ImGuiSelectionBasicStorage_BatchSetItemSelected                                             
-  [ ]        ImGuiSelectionBasicStorage_BatchFinish                                                      
-  [ ]        ImGuiSelectionBasicStorage::ApplyRequests                                                   
-  [ ]        ImGuiSelectionExternalStorage::ImGuiSelectionExternalStorage                                  
-  [ ]        ImGuiSelectionExternalStorage::ApplyRequests                                                
+  [x]   46%  ImGuiSelectionBasicStorage::ImGuiSelectionBasicStorage     imgui_widgets.lua:9435           
+  [x]   61%  ImGuiSelectionBasicStorage::Clear                          imgui_widgets.lua:9447           
+  [x]   53%  ImGuiSelectionBasicStorage::Swap                           imgui_widgets.lua:9454           
+  [x]   57%  ImGuiSelectionBasicStorage::Contains                       imgui_widgets.lua:9462           
+  [x]   12%  PairComparerByValueInt                                     imgui_widgets.lua:9467           
+  [x]   26%  ImGuiSelectionBasicStorage::GetNextSelectedItem            imgui_widgets.lua:9476           
+  [x]   50%  ImGuiSelectionBasicStorage::SetItemSelected                imgui_widgets.lua:9507           
+  [x]   42%  ImGuiSelectionBasicStorage_BatchSetItemSelected            imgui_widgets.lua:9520           
+  [~]    0%  ImGuiSelectionBasicStorage_BatchFinish                     imgui_widgets.lua:9535           stub
+  [x]   78%  ImGuiSelectionBasicStorage::ApplyRequests                  imgui_widgets.lua:9554           
+  [x]   48%  ImGuiSelectionExternalStorage::ImGuiSelectionExternalStorage imgui_widgets.lua:9619           
+  [x]   84%  ImGuiSelectionExternalStorage::ApplyRequests               imgui_widgets.lua:9630           
 
   -- Widgets: ListBox
-  [x]   92%  ImGui::BeginListBox                                        imgui_widgets.lua:8338           
-  [x]   78%  ImGui::EndListBox                                          imgui_widgets.lua:8379           
-  [x]   63%  ImGui::ListBox                                             imgui_widgets.lua:8394           
+  [x]   92%  ImGui::BeginListBox                                        imgui_widgets.lua:9663           
+  [x]   78%  ImGui::EndListBox                                          imgui_widgets.lua:9704           
+  [x]   63%  ImGui::ListBox                                             imgui_widgets.lua:9719           
 
   -- Widgets: PlotLines, PlotHistogram
-  [x]   89%  ImGui::PlotEx                                              imgui_widgets.lua:8466           
-  [x]   86%  ImGuiPlotArrayGetterData::ImGuiPlotArrayGetterData         imgui_widgets.lua:8596           
-  [x]   48%  Plot_ArrayGetter                                           imgui_widgets.lua:8607           
-  [x]   41%  ImGui::PlotLines                                           imgui_widgets.lua:8621           
-  [x]   41%  ImGui::PlotHistogram                                       imgui_widgets.lua:8647           
+  [x]   89%  ImGui::PlotEx                                              imgui_widgets.lua:9791           
+  [x]   86%  ImGuiPlotArrayGetterData::ImGuiPlotArrayGetterData         imgui_widgets.lua:9921           
+  [x]   48%  Plot_ArrayGetter                                           imgui_widgets.lua:9932           
+  [x]   41%  ImGui::PlotLines                                           imgui_widgets.lua:9946           
+  [x]   41%  ImGui::PlotHistogram                                       imgui_widgets.lua:9972           
 
   -- Widgets: Value helpers
   [x]   21%  ImGui::Value                                               imgui_widgets.lua:384            
 
   -- MenuItem, BeginMenu, EndMenu, etc.
-  [x]   49%  ImGuiMenuColumns::Update                                   imgui_widgets.lua:8679           
-  [x]   77%  ImGuiMenuColumns::CalcNextTotalWidth                       imgui_widgets.lua:8691           
-  [x]   64%  ImGuiMenuColumns::DeclColumns                              imgui_widgets.lua:8714           
-  [x]   91%  ImGui::BeginMenuBar                                        imgui_widgets.lua:8727           
-  [x]   92%  ImGui::EndMenuBar                                          imgui_widgets.lua:8761           
-  [x]   85%  ImGui::BeginViewportSideBar                                imgui_widgets.lua:8824           
-  [x]   90%  ImGui::BeginMainMenuBar                                    imgui_widgets.lua:8860           
-  [x]   90%  ImGui::EndMainMenuBar                                      imgui_widgets.lua:8886           
-  [x]   91%  IsRootOfOpenMenuSet                                        imgui_widgets.lua:8902           
-  [x]   89%  ImGui::BeginMenuEx                                         imgui_widgets.lua:8930           
-  [x]   67%  ImGui::BeginMenu                                           imgui_widgets.lua:9161           
-  [x]   92%  ImGui::EndMenu                                             imgui_widgets.lua:9167           
-  [x]   85%  ImGui::MenuItemEx                                          imgui_widgets.lua:9191           
-  [x]   67%  ImGui::MenuItem                                            imgui_widgets.lua:9298           
+  [x]   49%  ImGuiMenuColumns::Update                                   imgui_widgets.lua:10004          
+  [x]   77%  ImGuiMenuColumns::CalcNextTotalWidth                       imgui_widgets.lua:10016          
+  [x]   64%  ImGuiMenuColumns::DeclColumns                              imgui_widgets.lua:10039          
+  [x]   91%  ImGui::BeginMenuBar                                        imgui_widgets.lua:10052          
+  [x]   92%  ImGui::EndMenuBar                                          imgui_widgets.lua:10086          
+  [x]   85%  ImGui::BeginViewportSideBar                                imgui_widgets.lua:10149          
+  [x]   90%  ImGui::BeginMainMenuBar                                    imgui_widgets.lua:10185          
+  [x]   90%  ImGui::EndMainMenuBar                                      imgui_widgets.lua:10211          
+  [x]   91%  IsRootOfOpenMenuSet                                        imgui_widgets.lua:10227          
+  [x]   89%  ImGui::BeginMenuEx                                         imgui_widgets.lua:10255          
+  [x]   67%  ImGui::BeginMenu                                           imgui_widgets.lua:10486          
+  [x]   92%  ImGui::EndMenu                                             imgui_widgets.lua:10492          
+  [x]   85%  ImGui::MenuItemEx                                          imgui_widgets.lua:10516          
+  [x]   67%  ImGui::MenuItem                                            imgui_widgets.lua:10623          
 
   -- Widgets: BeginTabBar, EndTabBar, etc.
-  [x]   19%  ImGuiTabBarSection::ImGuiTabBarSection                     imgui_widgets.lua:9366           
-  [x]   16%  ImGuiTabBar::ImGuiTabBar                                   imgui_internal.lua:1991          
-  [x]   65%  TabItemGetSectionIdx                                       imgui_widgets.lua:9333           
+  [x]   19%  ImGuiTabBarSection::ImGuiTabBarSection                     imgui_widgets.lua:10691          
+  [x]   16%  ImGuiTabBar::ImGuiTabBar                                   imgui_internal.lua:2168          
+  [x]   65%  TabItemGetSectionIdx                                       imgui_widgets.lua:10658          
   [ ]        TabItemComparerBySection                                                                    
   [ ]        TabItemComparerByBeginOrder                                                                 
   [ ]        GetTabBarFromTabBarRef                                                                      
   [ ]        GetTabBarRefFromTabBar                                                                      
-  [x]   60%  ImGui::TabBarFindByID                                      imgui_widgets.lua:9454           
-  [x]   77%  ImGui::TabBarRemove                                        imgui_widgets.lua:9460           
-  [x]   92%  ImGui::BeginTabBar                                         imgui_widgets.lua:9465           
-  [x]   82%  ImGui::BeginTabBarEx                                       imgui_widgets.lua:9483           
-  [x]   90%  ImGui::EndTabBar                                           imgui_widgets.lua:9547           
-  [x]   68%  TabBarCalcScrollableWidth                                  imgui_widgets.lua:9359           
-  [x]   81%  ImGui::TabBarLayout                                        imgui_widgets.lua:9582           
-  [x]   75%  ImGui::TabBarCalcTabID                                     imgui_widgets.lua:9853           
-  [x]   62%  ImGui::TabBarCalcMaxTabWidth                               imgui_widgets.lua:9863           
-  [x]   71%  ImGui::TabBarFindTabByID                                   imgui_widgets.lua:9867           
-  [x]   90%  ImGui::TabBarFindTabByOrder                                imgui_widgets.lua:9879           
-  [x]   85%  ImGui::TabBarFindMostRecentlySelectedTabForActiveWindow    imgui_widgets.lua:9891           
-  [x]   93%  ImGui::TabBarGetCurrentTab                                 imgui_widgets.lua:9902           
-  [x]   55%  ImGui::TabBarGetTabName                                    imgui_widgets.lua:9907           
-  [x]   89%  ImGui::TabBarGetTabPos                                     imgui_widgets.lua:9913           
-  [x]   92%  ImGui::TabBarAddTab                                        imgui_widgets.lua:9922           
-  [x]   91%  ImGui::TabBarRemoveTab                                     imgui_widgets.lua:9939           
-  [x]   92%  ImGui::TabBarCloseTab                                      imgui_widgets.lua:9948           
-  [x]   97%  ImGui::TabBarScrollClamp                                   imgui_widgets.lua:9966           
-  [x]   89%  ImGui::TabBarScrollToTab                                   imgui_widgets.lua:9972           
-  [x]   67%  ImGui::TabBarQueueFocus                                    imgui_widgets.lua:10010          
-  [x]  100%  ImGui::TabBarQueueReorder                                  imgui_widgets.lua:10019          
-  [x]   85%  ImGui::TabBarQueueReorderFromMousePos                      imgui_widgets.lua:10026          
-  [x]   64%  ImGui::TabBarProcessReorder                                imgui_widgets.lua:10060          
-  [x]   85%  ImGui::TabBarScrollingButtons                              imgui_widgets.lua:10083          
-  [x]   80%  ImGui::TabBarTabListPopupButton                            imgui_widgets.lua:10143          
+  [x]   60%  ImGui::TabBarFindByID                                      imgui_widgets.lua:10779          
+  [x]   77%  ImGui::TabBarRemove                                        imgui_widgets.lua:10785          
+  [x]   92%  ImGui::BeginTabBar                                         imgui_widgets.lua:10790          
+  [x]   82%  ImGui::BeginTabBarEx                                       imgui_widgets.lua:10808          
+  [x]   90%  ImGui::EndTabBar                                           imgui_widgets.lua:10872          
+  [x]   68%  TabBarCalcScrollableWidth                                  imgui_widgets.lua:10684          
+  [x]   81%  ImGui::TabBarLayout                                        imgui_widgets.lua:10907          
+  [x]   75%  ImGui::TabBarCalcTabID                                     imgui_widgets.lua:11178          
+  [x]   62%  ImGui::TabBarCalcMaxTabWidth                               imgui_widgets.lua:11188          
+  [x]   71%  ImGui::TabBarFindTabByID                                   imgui_widgets.lua:11192          
+  [x]   90%  ImGui::TabBarFindTabByOrder                                imgui_widgets.lua:11204          
+  [x]   85%  ImGui::TabBarFindMostRecentlySelectedTabForActiveWindow    imgui_widgets.lua:11216          
+  [x]   93%  ImGui::TabBarGetCurrentTab                                 imgui_widgets.lua:11227          
+  [x]   55%  ImGui::TabBarGetTabName                                    imgui_widgets.lua:11232          
+  [x]   89%  ImGui::TabBarGetTabPos                                     imgui_widgets.lua:11238          
+  [x]   92%  ImGui::TabBarAddTab                                        imgui_widgets.lua:11247          
+  [x]   91%  ImGui::TabBarRemoveTab                                     imgui_widgets.lua:11264          
+  [x]   92%  ImGui::TabBarCloseTab                                      imgui_widgets.lua:11273          
+  [x]   97%  ImGui::TabBarScrollClamp                                   imgui_widgets.lua:11291          
+  [x]   89%  ImGui::TabBarScrollToTab                                   imgui_widgets.lua:11297          
+  [x]   67%  ImGui::TabBarQueueFocus                                    imgui_widgets.lua:11335          
+  [x]  100%  ImGui::TabBarQueueReorder                                  imgui_widgets.lua:11344          
+  [x]   85%  ImGui::TabBarQueueReorderFromMousePos                      imgui_widgets.lua:11351          
+  [x]   64%  ImGui::TabBarProcessReorder                                imgui_widgets.lua:11385          
+  [x]   85%  ImGui::TabBarScrollingButtons                              imgui_widgets.lua:11408          
+  [x]   80%  ImGui::TabBarTabListPopupButton                            imgui_widgets.lua:11468          
 
   -- Widgets: BeginTabItem, EndTabItem, etc.
-  [x]   78%  ImGui::BeginTabItem                                        imgui_widgets.lua:10191          
-  [x]   85%  ImGui::EndTabItem                                          imgui_widgets.lua:10210          
-  [x]   81%  ImGui::TabItemButton                                       imgui_widgets.lua:10224          
-  [x]   84%  ImGui::TabItemSpacing                                      imgui_widgets.lua:10234          
-  [x]   79%  ImGui::TabItemEx                                           imgui_widgets.lua:10245          
-  [x]   88%  ImGui::SetTabItemClosed                                    imgui_widgets.lua:10531          
-  [x]   79%  ImGui::TabItemCalcSize                                     imgui_widgets.lua:10553          
-  [x]   91%  ImGui::TabItemBackground                                   imgui_widgets.lua:10569          
-  [x]   86%  ImGui::TabItemLabelAndCloseButton                          imgui_widgets.lua:10590          
+  [x]   78%  ImGui::BeginTabItem                                        imgui_widgets.lua:11516          
+  [x]   85%  ImGui::EndTabItem                                          imgui_widgets.lua:11535          
+  [x]   81%  ImGui::TabItemButton                                       imgui_widgets.lua:11549          
+  [x]   84%  ImGui::TabItemSpacing                                      imgui_widgets.lua:11559          
+  [x]   79%  ImGui::TabItemEx                                           imgui_widgets.lua:11570          
+  [x]   88%  ImGui::SetTabItemClosed                                    imgui_widgets.lua:11856          
+  [x]   79%  ImGui::TabItemCalcSize                                     imgui_widgets.lua:11878          
+  [x]   91%  ImGui::TabItemBackground                                   imgui_widgets.lua:11894          
+  [x]   86%  ImGui::TabItemLabelAndCloseButton                          imgui_widgets.lua:11915          
 
 ====================================================================================================
 imgui_draw.cpp
@@ -1273,7 +1273,7 @@ imgui_draw.cpp
   [x]   82%  ImGui::StyleColorsLight                                    imgui_draw.lua:271               
 
   -- ImDrawList
-  [x]   30%  ImDrawListSharedData::ImDrawListSharedData                 imgui_internal.lua:1073          
+  [x]   30%  ImDrawListSharedData::ImDrawListSharedData                 imgui_internal.lua:1092          
   [-]        ImDrawListSharedData::~ImDrawListSharedData                                                 c++-only
   [x]   57%  ImDrawListSharedData::SetCircleTessellationMaxError        imgui_draw.lua:3632              
   [x]    7%  ImDrawList::ImDrawList                                     imgui_h.lua:653                  
@@ -1594,7 +1594,7 @@ imgui_tables.cpp
   [x]   82%  TableGetMaxDisplayOrderAllowed                             imgui_tables.lua:899             
   [x]   82%  ImGui::TableQueueSetColumnDisplayOrder                     imgui_tables.lua:925             
   [x]   62%  TableSetupColumnFlags                                      imgui_tables.lua:937             
-  [x]   81%  ImGui::TableUpdateLayout                                   imgui_tables.lua:996             
+  [x]   82%  ImGui::TableUpdateLayout                                   imgui_tables.lua:996             
   [x]   84%  ImGui::TableApplyExternalUnclipRect                        imgui_tables.lua:1555            
   [x]   76%  ImGui::TableUpdateBorders                                  imgui_tables.lua:1571            
   [x]   80%  ImGui::EndTable                                            imgui_tables.lua:1633            
@@ -1697,8 +1697,8 @@ imgui_tables.cpp
 
   -- Tables: Debugging
   [ ]        DebugNodeTableGetSizingPolicyDesc                                                           
-  [x]   16%  ImGui::DebugNodeTable                                      imgui.lua:20750                  
-  [x]   69%  ImGui::DebugNodeTableSettings                              imgui.lua:20732                  
+  [x]   16%  ImGui::DebugNodeTable                                      imgui.lua:20754                  
+  [x]   69%  ImGui::DebugNodeTableSettings                              imgui.lua:20736                  
 
   -- Columns, BeginColumns, EndColumns, etc.
   [x]   24%  ImGui::SetWindowClipRectBeforeSetChannel                   imgui_tables.lua:2070            
@@ -1923,8 +1923,8 @@ imgui.h
   -- Helpers (ImGuiOnceUponAFrame, ImGuiTextFilter, ImGuiTextBuffer, ImGuiStorage, ImGuiListClipper, Math Operators, ImColor)
   [ ]        ImGuiOnceUponAFrame::ImGuiOnceUponAFrame                                                    
   [-]        ImGuiOnceUponAFrame::operatorbool                                                           c++-only
-  [x]   80%  ImGuiTextFilter::Clear                                     imgui.lua:19360                  
-  [x]  100%  ImGuiTextFilter::IsActive                                  imgui.lua:19361                  
+  [x]   80%  ImGuiTextFilter::Clear                                     imgui.lua:19364                  
+  [x]  100%  ImGuiTextFilter::IsActive                                  imgui.lua:19365                  
   [-]        ImGuiTextFilter::Draw                                                                       obsolete
   [x]    0%  ImGuiTextBuffer::ImGuiTextBuffer                           imgui_h.lua:2682                 
   [ ]        ImGuiTextBuffer::begin                                                                      
@@ -1937,7 +1937,7 @@ imgui.h
   [x]   31%  ImGuiTextBuffer::c_str                                     imgui_h.lua:2687                 
   [ ]        ImGuiStoragePair::ImGuiStoragePair                                                          
   [ ]        ImGuiStorage::Clear                                                                         
-  [x]  100%  ImGuiListClipper::IncludeItemByIndex                       imgui.lua:19591                  
+  [x]  100%  ImGuiListClipper::IncludeItemByIndex                       imgui.lua:19595                  
   [-]        operator+                                                                                   c++-only
   [-]        operator-                                                                                   c++-only
   [-]        operator*                                                                                   c++-only
@@ -1955,7 +1955,7 @@ imgui.h
   [ ]        IM_MSVC_RUNTIME_CHECKS_RESTORE::HSV                                                         
 
   -- Multi-Select API flags and structures (ImGuiMultiSelectFlags, ImGuiSelectionRequestType, ImGuiSelectionRequest, ImGuiMultiSelectIO, ImGuiSelectionBasicStorage)
-  [ ]        ImGuiSelectionBasicStorage::GetStorageIdFromIndex                                           
+  [x]  100%  ImGuiSelectionBasicStorage::GetStorageIdFromIndex          imgui_widgets.lua:9516           
 
   -- Drawing API (ImDrawCmd, ImDrawIdx, ImDrawVert, ImDrawChannel, ImDrawListSplitter, ImDrawFlags, ImDrawList, ImDrawData)
   [x]   14%  ImDrawCmd::ImDrawCmd                                       imgui_h.lua:506                  
@@ -1965,12 +1965,12 @@ imgui.h
   [ ]        ImDrawList::GetClipRectMin                                                                  
   [ ]        ImDrawList::GetClipRectMax                                                                  
   [x]    1%  ImDrawList::AddPolyline                                    imgui_draw.lua:4336              
-  [x]   29%  ImDrawList::PathClear                                      imgui_internal.lua:997           
-  [x]   16%  ImDrawList::PathLineTo                                     imgui_internal.lua:1001          
-  [x]   48%  ImDrawList::PathLineToMergeDuplicate                       imgui_internal.lua:1011          
-  [x]   88%  ImDrawList::PathFillConvex                                 imgui_internal.lua:1019          
+  [x]   29%  ImDrawList::PathClear                                      imgui_internal.lua:1016          
+  [x]   16%  ImDrawList::PathLineTo                                     imgui_internal.lua:1020          
+  [x]   48%  ImDrawList::PathLineToMergeDuplicate                       imgui_internal.lua:1030          
+  [x]   88%  ImDrawList::PathFillConvex                                 imgui_internal.lua:1038          
   [x]   94%  ImDrawList::PathFillConcave                                imgui_draw.lua:5935              
-  [x]   67%  ImDrawList::PathStroke                                     imgui_internal.lua:1027          
+  [x]   67%  ImDrawList::PathStroke                                     imgui_internal.lua:1046          
   [x]   89%  ImDrawList::ChannelsSplit                                  imgui_draw.lua:4089              
   [x]   80%  ImDrawList::ChannelsMerge                                  imgui_draw.lua:4090              
   [x]   89%  ImDrawList::ChannelsSetCurrent                             imgui_draw.lua:4092              
@@ -2039,9 +2039,9 @@ imgui_internal.h
   [x]   92%  ImIsPowerOfTwo                                             imgui_internal.lua:270           
   [x]   35%  ImUpperPowerOfTwo                                          imgui_internal.lua:274           
   [x]   82%  ImCountSetBits                                             imgui_internal.lua:289           
-  [ ]        ImToUpper                                                                                   
-  [x]   75%  ImCharIsBlankA                                             imgui_internal.lua:663           
-  [x]   83%  ImCharIsBlankW                                             imgui_internal.lua:666           
+  [x]   62%  ImToUpper                                                  imgui_internal.lua:397           
+  [x]   75%  ImCharIsBlankA                                             imgui_internal.lua:679           
+  [x]   83%  ImCharIsBlankW                                             imgui_internal.lua:682           
   [ ]        ImCharIsXdigitA                                                                             
   [x]    0%  ImFileOpen                                                 imgui.lua:4702                   
   [x]    0%  ImFileClose                                                imgui.lua:4719                   
@@ -2051,7 +2051,7 @@ imgui_internal.h
   [x]   n/a  ImPow                                                      imgui_internal.lua:150           = math . pow
   [x]   n/a  ImLog                                                      imgui_internal.lua:151           = math . log
   [x]   n/a  ImAbs                                                      imgui_internal.lua:152           = math . abs
-  [ ]        ImSign                                                                                      
+  [x]   69%  ImSign                                                     imgui_internal.lua:391           
   [x]   40%  ImRsqrt                                                    imgui_internal.lua:260           
   [ ]        ImRsqrtPrecise                                                                              
   [ ]        ImSwap                                                                                      
@@ -2062,7 +2062,7 @@ imgui_internal.h
   [x]   25%  ImClamp                                                    imgui_internal.lua:218           
   [x]   45%  ImLerp                                                     imgui_internal.lua:229           
   [x]   77%  ImSaturate                                                 imgui_internal.lua:387           
-  [x]   67%  ImLengthSqr                                                imgui_internal.lua:424           
+  [x]   67%  ImLengthSqr                                                imgui_internal.lua:434           
   [ ]        ImInvLength                                                                                 
   [x]   24%  ImTrunc                                                    imgui_internal.lua:242           
   [x]   69%  ImFloor                                                    imgui_internal.lua:266           
@@ -2071,50 +2071,50 @@ imgui_internal.h
   [ ]        ImRoundSigned64                                                                             
   [x]   42%  ImCeilFast                                                 imgui_internal.lua:252           
   [ ]        ImModPositive                                                                               
-  [x]  100%  ImDot                                                      imgui_internal.lua:437           
-  [x]   98%  ImRotate                                                   imgui_internal.lua:431           
-  [x]  100%  ImLinearSweep                                              imgui_widgets.lua:9327           
-  [ ]        ImLinearRemapClamp                                                                          
-  [x]   97%  ImMul                                                      imgui_internal.lua:444           
+  [x]  100%  ImDot                                                      imgui_internal.lua:447           
+  [x]   98%  ImRotate                                                   imgui_internal.lua:441           
+  [x]  100%  ImLinearSweep                                              imgui_widgets.lua:10652          
+  [x]  100%  ImLinearRemapClamp                                         imgui_internal.lua:393           
+  [x]   97%  ImMul                                                      imgui_internal.lua:454           
   [ ]        ImIsFloatAboveGuaranteedIntegerPrecision                                                    
   [x]   71%  ImExponentialMovingAverage                                 imgui_internal.lua:302           
   [ ]        ImIsTruncated                                                                               
   [ ]        ImIsTruncated4                                                                              
   [ ]        ImTriangleArea                                                                              
   [ ]        ImTriangleIsClockwise                                                                       
-  [x]    0%  IM_MSVC_RUNTIME_CHECKS_OFF::ImVec1                         imgui_internal.lua:768           
+  [x]    0%  IM_MSVC_RUNTIME_CHECKS_OFF::ImVec1                         imgui_internal.lua:784           
   [ ]        ImVec2i::ImVec2i                                                                            
   [ ]        ImVec2ih::ImVec2ih                                                                          
-  [x]    0%  ImRect::ImRect                                             imgui_internal.lua:798           
-  [x]   90%  ImRect::GetCenter                                          imgui_internal.lua:828           
-  [x]   89%  ImRect::GetSize                                            imgui_internal.lua:833           
-  [x]   94%  ImRect::GetWidth                                           imgui_internal.lua:829           
-  [x]   94%  ImRect::GetHeight                                          imgui_internal.lua:830           
-  [x]   91%  ImRect::GetArea                                            imgui_internal.lua:919           
-  [x]   33%  ImRect::GetTL                                              imgui_internal.lua:836           
-  [x]   89%  ImRect::GetTR                                              imgui_internal.lua:838           
-  [x]   89%  ImRect::GetBL                                              imgui_internal.lua:840           
-  [x]   33%  ImRect::GetBR                                              imgui_internal.lua:842           
-  [x]   43%  ImRect::Contains                                           imgui_internal.lua:805           
-  [x]   96%  ImRect::ContainsWithPad                                    imgui_internal.lua:817           
-  [x]   14%  ImRect::Overlaps                                           imgui_internal.lua:823           
-  [x]   59%  ImRect::Add                                                imgui_internal.lua:867           
-  [ ]        ImRect::AddX                                                                                
-  [ ]        ImRect::AddY                                                                                
-  [x]   38%  ImRect::Expand                                             imgui_internal.lua:885           
-  [x]   64%  ImRect::Translate                                          imgui_internal.lua:902           
-  [x]   55%  ImRect::TranslateX                                         imgui_internal.lua:908           
-  [x]   55%  ImRect::TranslateY                                         imgui_internal.lua:913           
-  [x]   22%  ImRect::ClipWith                                           imgui_internal.lua:847           
-  [x]   20%  ImRect::ClipWithFull                                       imgui_internal.lua:857           
-  [x]   91%  ImRect::IsInverted                                         imgui_internal.lua:917           
-  [x]   94%  ImRect::ToVec4                                             imgui_internal.lua:896           
-  [x]   36%  ImRect::AsVec4                                             imgui_internal.lua:922           
+  [x]    0%  ImRect::ImRect                                             imgui_internal.lua:814           
+  [x]   90%  ImRect::GetCenter                                          imgui_internal.lua:844           
+  [x]   89%  ImRect::GetSize                                            imgui_internal.lua:849           
+  [x]   94%  ImRect::GetWidth                                           imgui_internal.lua:845           
+  [x]   94%  ImRect::GetHeight                                          imgui_internal.lua:846           
+  [x]   91%  ImRect::GetArea                                            imgui_internal.lua:938           
+  [x]   33%  ImRect::GetTL                                              imgui_internal.lua:852           
+  [x]   89%  ImRect::GetTR                                              imgui_internal.lua:854           
+  [x]   89%  ImRect::GetBL                                              imgui_internal.lua:856           
+  [x]   33%  ImRect::GetBR                                              imgui_internal.lua:858           
+  [x]   43%  ImRect::Contains                                           imgui_internal.lua:821           
+  [x]   96%  ImRect::ContainsWithPad                                    imgui_internal.lua:833           
+  [x]   14%  ImRect::Overlaps                                           imgui_internal.lua:839           
+  [x]   59%  ImRect::Add                                                imgui_internal.lua:883           
+  [x]   96%  ImRect::AddX                                               imgui_internal.lua:899           
+  [x]   96%  ImRect::AddY                                               imgui_internal.lua:900           
+  [x]   38%  ImRect::Expand                                             imgui_internal.lua:904           
+  [x]   64%  ImRect::Translate                                          imgui_internal.lua:921           
+  [x]   55%  ImRect::TranslateX                                         imgui_internal.lua:927           
+  [x]   55%  ImRect::TranslateY                                         imgui_internal.lua:932           
+  [x]   22%  ImRect::ClipWith                                           imgui_internal.lua:863           
+  [x]   20%  ImRect::ClipWithFull                                       imgui_internal.lua:873           
+  [x]   91%  ImRect::IsInverted                                         imgui_internal.lua:936           
+  [x]   94%  ImRect::ToVec4                                             imgui_internal.lua:915           
+  [x]   36%  ImRect::AsVec4                                             imgui_internal.lua:941           
   [ ]        ImBitArrayGetStorageSizeInBytes                                                             
   [ ]        ImBitArrayClearAllBits                                                                      
   [ ]        ImBitArrayTestBit                                                                           
   [ ]        ImBitArrayClearBit                                                                          
-  [x]   34%  ImBitArraySetBit                                           imgui_internal.lua:957           
+  [x]   34%  ImBitArraySetBit                                           imgui_internal.lua:976           
   [ ]        ImBitArraySetBitRange                                                                       
   [ ]        ImBitVector::Create                                                                         
   [ ]        ImBitVector::Clear                                                                          
@@ -2166,10 +2166,10 @@ imgui_internal.h
   [ ]        template::offset_from_ptr                                                                   
   [ ]        template::ptr_from_offset                                                                   
   [ ]        template::swap                                                                              
-  [x]   83%  ImGuiTextIndex::clear                                      imgui_internal.lua:1758          
-  [x]  100%  ImGuiTextIndex::size                                       imgui_internal.lua:1760          
-  [x]   71%  ImGuiTextIndex::get_line_begin                             imgui_internal.lua:1762          
-  [x]   76%  ImGuiTextIndex::get_line_end                               imgui_internal.lua:1766          
+  [x]   83%  ImGuiTextIndex::clear                                      imgui_internal.lua:1777          
+  [x]  100%  ImGuiTextIndex::size                                       imgui_internal.lua:1779          
+  [x]   71%  ImGuiTextIndex::get_line_begin                             imgui_internal.lua:1781          
+  [x]   76%  ImGuiTextIndex::get_line_end                               imgui_internal.lua:1785          
   [ ]        ImGuiTextFilterItem::ImGuiTextFilterItem                                                    
   [ ]        ImGuiPackedDate::ImGuiPackedDate                                                            
   [ ]        ImGuiPackedDate::IsValid                                                                    
@@ -2177,37 +2177,37 @@ imgui_internal.h
   [ ]        ImGuiPackedDate::SubtractMonths                                                             
 
   -- ImDrawList support
-  [x]   27%  ImDrawDataBuilder::ImDrawDataBuilder                       imgui_internal.lua:2778          
+  [x]   27%  ImDrawDataBuilder::ImDrawDataBuilder                       imgui_internal.lua:2973          
 
   -- Style support
   [ ]        ImGuiStyleVarInfo::GetVarPtr                                                                
-  [x]   39%  ImGuiStyleMod::ImGuiStyleMod                               imgui_internal.lua:1210          
+  [x]   39%  ImGuiStyleMod::ImGuiStyleMod                               imgui_internal.lua:1229          
 
   -- Widgets support: flags, enums, data structures
-  [x]   21%  ImGuiComboPreviewData::ImGuiComboPreviewData               imgui_internal.lua:1604          
-  [x]   12%  ImGuiMenuColumns::ImGuiMenuColumns                         imgui_internal.lua:2445          
-  [x]   20%  ImGuiInputTextDeactivatedState::ImGuiInputTextDeactivatedState imgui_internal.lua:1690          
+  [x]   21%  ImGuiComboPreviewData::ImGuiComboPreviewData               imgui_internal.lua:1623          
+  [x]   12%  ImGuiMenuColumns::ImGuiMenuColumns                         imgui_internal.lua:2640          
+  [x]   20%  ImGuiInputTextDeactivatedState::ImGuiInputTextDeactivatedState imgui_internal.lua:1709          
   [ ]        ImGuiInputTextDeactivatedState::ClearFreeMemory                                             
   [ ]        ImGuiInputTextState::ClearText                                                              
   [ ]        ImGuiInputTextState::ClearFreeMemory                                                        
   [ ]        ImGuiInputTextState::GetText                                                                
-  [x]    3%  ImGuiNextWindowData::ImGuiNextWindowData                   imgui_internal.lua:1375          
+  [x]    3%  ImGuiNextWindowData::ImGuiNextWindowData                   imgui_internal.lua:1394          
   [ ]        ImGuiNextWindowData::ClearFlags                                                             
-  [x]   20%  ImGuiNextItemData::ImGuiNextItemData                       imgui_internal.lua:1327          
+  [x]   20%  ImGuiNextItemData::ImGuiNextItemData                       imgui_internal.lua:1346          
   [ ]        ImGuiNextItemData::ClearFlags                                                               
-  [x]   11%  ImGuiLastItemData::ImGuiLastItemData                       imgui_internal.lua:1247          
-  [x]    8%  ImGuiErrorRecoveryState::ImGuiErrorRecoveryState           imgui.lua:19780                  
+  [x]   11%  ImGuiLastItemData::ImGuiLastItemData                       imgui_internal.lua:1266          
+  [x]    8%  ImGuiErrorRecoveryState::ImGuiErrorRecoveryState           imgui.lua:19784                  
   [ ]        ImGuiPtrOrIndex::ImGuiPtrOrIndex                                                            
 
   -- Popup support
-  [x]   36%  ImGuiPopupData::ImGuiPopupData                             imgui_internal.lua:3332          
+  [x]   36%  ImGuiPopupData::ImGuiPopupData                             imgui_internal.lua:3527          
 
   -- Inputs support
-  [x]    9%  ImGuiInputEvent::ImGuiInputEvent                           imgui_internal.lua:3126          
-  [x]   73%  ImGuiKeyRoutingData::ImGuiKeyRoutingData                   imgui_internal.lua:1711          
-  [x]   10%  ImGuiKeyRoutingTable::ImGuiKeyRoutingTable                 imgui_internal.lua:1738          
+  [x]    9%  ImGuiInputEvent::ImGuiInputEvent                           imgui_internal.lua:3321          
+  [x]   73%  ImGuiKeyRoutingData::ImGuiKeyRoutingData                   imgui_internal.lua:1730          
+  [x]   10%  ImGuiKeyRoutingTable::ImGuiKeyRoutingTable                 imgui_internal.lua:1757          
   [ ]        ImGuiKeyRoutingTable::Clear                                                                 
-  [x]   64%  ImGuiKeyOwnerData::ImGuiKeyOwnerData                       imgui_internal.lua:624           
+  [x]   64%  ImGuiKeyOwnerData::ImGuiKeyOwnerData                       imgui_internal.lua:634           
 
   -- Clipper support
   [ ]        ImGuiListClipperRange::FromIndices                                                          
@@ -2216,25 +2216,25 @@ imgui_internal.h
   [ ]        ImGuiListClipperData::Reset                                                                 
 
   -- Navigation support
-  [x]   13%  ImGuiNavItemData::ImGuiNavItemData                         imgui_internal.lua:1844          
+  [x]   13%  ImGuiNavItemData::ImGuiNavItemData                         imgui_internal.lua:1863          
   [ ]        ImGuiNavItemData::Clear                                                                     
 
   -- Typing-select support
-  [ ]        ImGuiTypingSelectState::ImGuiTypingSelectState                                              
-  [ ]        ImGuiTypingSelectState::Clear                                                               
+  [x]    7%  ImGuiTypingSelectState::ImGuiTypingSelectState             imgui_internal.lua:1907          
+  [x]   71%  ImGuiTypingSelectState::Clear                              imgui_internal.lua:1910          
 
   -- Columns support
   [x]   19%  ImGuiOldColumnData::ImGuiOldColumnData                     imgui_tables.lua:340             
   [x]    5%  ImGuiOldColumns::ImGuiOldColumns                           imgui_tables.lua:345             
 
   -- Box-select support
-  [ ]        ImGuiBoxSelectState::ImGuiBoxSelectState                                                    
+  [x]    6%  ImGuiBoxSelectState::ImGuiBoxSelectState                   imgui_internal.lua:1934          
 
   -- Multi-select support
-  [ ]        ImGuiMultiSelectTempData::ImGuiMultiSelectTempData                                          
-  [ ]        ImGuiMultiSelectTempData::Clear                                                             
-  [ ]        ImGuiMultiSelectTempData::ClearIO                                                           
-  [ ]        ImGuiMultiSelectState::ImGuiMultiSelectState                                                
+  [x]    9%  ImGuiMultiSelectTempData::ImGuiMultiSelectTempData         imgui_internal.lua:1980          
+  [x]   10%  ImGuiMultiSelectTempData::Clear                            imgui_internal.lua:1986          
+  [x]   67%  ImGuiMultiSelectTempData::ClearIO                          imgui_internal.lua:2004          
+  [x]   72%  ImGuiMultiSelectState::ImGuiMultiSelectState               imgui_internal.lua:2017          
 
   -- Docking support
   [x]  100%  ImGuiDockNode::IsRootNode                                  imgui.lua:1095                   
@@ -2252,23 +2252,23 @@ imgui_internal.h
   [x]   20%  ImGuiDockContext::ImGuiDockContext                         imgui.lua:1040                   
 
   -- Viewport support
-  [x]   36%  ImGuiViewportP::ImGuiViewportP                             imgui_internal.lua:2865          
+  [x]   36%  ImGuiViewportP::ImGuiViewportP                             imgui_internal.lua:3060          
   [-]        ImGuiViewportP::~ImGuiViewportP                                                             c++-only
-  [x]   78%  ImGuiViewportP::ClearRequestFlags                          imgui_internal.lua:2820          
-  [x]   94%  ImGuiViewportP::CalcWorkRectPos                            imgui_internal.lua:2827          
-  [x]   98%  ImGuiViewportP::CalcWorkRectSize                           imgui_internal.lua:2831          
-  [x]   87%  ImGuiViewportP::UpdateWorkRect                             imgui_internal.lua:2836          
-  [x]   92%  ImGuiViewportP::GetMainRect                                imgui_internal.lua:2843          
-  [x]   92%  ImGuiViewportP::GetWorkRect                                imgui_internal.lua:2850          
-  [x]   96%  ImGuiViewportP::GetBuildWorkRect                           imgui_internal.lua:2857          
+  [x]   78%  ImGuiViewportP::ClearRequestFlags                          imgui_internal.lua:3015          
+  [x]   94%  ImGuiViewportP::CalcWorkRectPos                            imgui_internal.lua:3022          
+  [x]   98%  ImGuiViewportP::CalcWorkRectSize                           imgui_internal.lua:3026          
+  [x]   87%  ImGuiViewportP::UpdateWorkRect                             imgui_internal.lua:3031          
+  [x]   92%  ImGuiViewportP::GetMainRect                                imgui_internal.lua:3038          
+  [x]   92%  ImGuiViewportP::GetWorkRect                                imgui_internal.lua:3045          
+  [x]   96%  ImGuiViewportP::GetBuildWorkRect                           imgui_internal.lua:3052          
 
   -- Settings support
-  [x]   18%  ImGuiWindowSettings::ImGuiWindowSettings                   imgui_internal.lua:2412          
+  [x]   18%  ImGuiWindowSettings::ImGuiWindowSettings                   imgui_internal.lua:2607          
   [ ]        ImGuiWindowSettings::GetName                                                                
-  [x]   13%  ImGuiSettingsHandler::ImGuiSettingsHandler                 imgui_h.lua:2719                 
+  [x]   13%  ImGuiSettingsHandler::ImGuiSettingsHandler                 imgui_h.lua:2835                 
 
   -- Metrics, Debug Tools
-  [x]    7%  ImGuiDebugAllocInfo::ImGuiDebugAllocInfo                   imgui_internal.lua:1792          
+  [x]    7%  ImGuiDebugAllocInfo::ImGuiDebugAllocInfo                   imgui_internal.lua:1811          
   [ ]        ImGuiStackLevelInfo::ImGuiStackLevelInfo                                                    
   [ ]        ImGuiDebugItemPathQuery::ImGuiDebugItemPathQuery                                            
   [ ]        ImGuiIDStackTool::ImGuiIDStackTool                                                          
@@ -2277,12 +2277,12 @@ imgui_internal.h
   [ ]        ImGuiContextHook::ImGuiContextHook                                                          
 
   -- ImGuiWindowTempData, ImGuiWindow
-  [x]   92%  ImGuiWindow::Rect                                          imgui_internal.lua:2586          
-  [x]   84%  ImGuiWindow::TitleBarRect                                  imgui_internal.lua:2592          
-  [x]   91%  ImGuiWindow::MenuBarRect                                   imgui_internal.lua:2598          
+  [x]   92%  ImGuiWindow::Rect                                          imgui_internal.lua:2781          
+  [x]   84%  ImGuiWindow::TitleBarRect                                  imgui_internal.lua:2787          
+  [x]   91%  ImGuiWindow::MenuBarRect                                   imgui_internal.lua:2793          
 
   -- Tab bar, Tab item support
-  [x]   50%  ImGuiTabItem::ImGuiTabItem                                 imgui_internal.lua:1972          
+  [x]   50%  ImGuiTabItem::ImGuiTabItem                                 imgui_internal.lua:2149          
 
   -- Table support + internal API
   [x]   28%  ImGuiTableColumn::ImGuiTableColumn                         imgui_tables.lua:240             
@@ -2298,36 +2298,36 @@ imgui_internal.h
   [x]   86%  TableGetInstanceID                                         imgui_tables.lua:445             
 
   -- ImGui internal API
-  [x]  100%  GetScale                                                   imgui.lua:13575                  
-  [x]  100%  GetCurrentWindowRead                                       imgui.lua:13581                  
-  [x]  100%  GetCurrentWindow                                           imgui.lua:13588                  
+  [x]  100%  GetScale                                                   imgui.lua:13577                  
+  [x]  100%  GetCurrentWindowRead                                       imgui.lua:13583                  
+  [x]  100%  GetCurrentWindow                                           imgui.lua:13590                  
   [ ]        SetWindowParentWindowForFocusRoute                                                          
-  [x]   99%  WindowRectAbsToRel                                         imgui_internal.lua:641           
-  [x]   99%  WindowRectRelToAbs                                         imgui_internal.lua:646           
-  [x]   98%  WindowPosAbsToRel                                          imgui_internal.lua:659           
-  [ ]        WindowPosRelToAbs                                                                           
+  [x]   99%  WindowRectAbsToRel                                         imgui_internal.lua:651           
+  [x]   99%  WindowRectRelToAbs                                         imgui_internal.lua:656           
+  [x]   98%  WindowPosAbsToRel                                          imgui_internal.lua:669           
+  [x]   98%  WindowPosRelToAbs                                          imgui_internal.lua:675           
   [ ]        GetPixelDensity                                                                             
-  [x]   55%  GetRoundedFontSize                                         imgui_internal.lua:635           
-  [x]   15%  GetForegroundDrawList                                      imgui.lua:13663                  
-  [x]   80%  LocalizeGetMsg                                             imgui_internal.lua:3436          
+  [x]   55%  GetRoundedFontSize                                         imgui_internal.lua:645           
+  [x]   15%  GetForegroundDrawList                                      imgui.lua:13665                  
+  [x]   80%  LocalizeGetMsg                                             imgui_internal.lua:3631          
   [ ]        ScrollToBringRectIntoView                                                                   
   [ ]        GetItemStatusFlags                                                                          
   [ ]        GetActiveID                                                                                 
   [ ]        GetFocusID                                                                                  
   [x]    2%  ItemSize                                                   imgui.lua:6492                   
-  [x]  100%  IsNamedKey                                                 imgui_internal.lua:549           
-  [x]   75%  IsNamedKeyOrMod                                            imgui_internal.lua:580           
+  [x]  100%  IsNamedKey                                                 imgui_internal.lua:559           
+  [x]   75%  IsNamedKeyOrMod                                            imgui_internal.lua:590           
   [ ]        IsLegacyKey                                                                                 
-  [x]   60%  IsKeyboardKey                                              imgui_internal.lua:554           
-  [x]   60%  IsGamepadKey                                               imgui_internal.lua:559           
-  [x]   60%  IsMouseKey                                                 imgui_internal.lua:564           
-  [x]   60%  IsAliasKey                                                 imgui_internal.lua:569           
-  [x]  100%  IsLRModKey                                                 imgui_internal.lua:574           
-  [x]   76%  ConvertSingleModFlagToKey                                  imgui_internal.lua:586           
+  [x]   60%  IsKeyboardKey                                              imgui_internal.lua:564           
+  [x]   60%  IsGamepadKey                                               imgui_internal.lua:569           
+  [x]   60%  IsMouseKey                                                 imgui_internal.lua:574           
+  [x]   60%  IsAliasKey                                                 imgui_internal.lua:579           
+  [x]  100%  IsLRModKey                                                 imgui_internal.lua:584           
+  [x]   76%  ConvertSingleModFlagToKey                                  imgui_internal.lua:596           
   [x]   17%  GetKeyData                                                 imgui.lua:8440                   
-  [x]   97%  MouseButtonToKey                                           imgui_internal.lua:546           
-  [x]   81%  IsActiveIdUsingNavDir                                      imgui_internal.lua:650           
-  [x]   88%  GetKeyOwnerData                                            imgui_internal.lua:612           
+  [x]   97%  MouseButtonToKey                                           imgui_internal.lua:556           
+  [x]   81%  IsActiveIdUsingNavDir                                      imgui_internal.lua:660           
+  [x]   88%  GetKeyOwnerData                                            imgui_internal.lua:622           
   [x]  100%  DockNodeGetRootNode                                        imgui.lua:4488                   
   [x]  100%  DockNodeIsInHierarchyOf                                    imgui.lua:4493                   
   [x]   86%  DockNodeGetDepth                                           imgui.lua:4501                   
@@ -2335,36 +2335,33 @@ imgui_internal.h
   [ ]        GetWindowDockNode                                                                           
   [x]   97%  DockBuilderGetCentralNode                                  imgui.lua:3661                   
   [ ]        GetCurrentFocusScope                                                                        
-  [ ]        GetBoxSelectState                                                                           
-  [ ]        GetMultiSelectState                                                                         
+  [x]   91%  GetBoxSelectState                                          imgui_internal.lua:2023          
+  [x]   95%  GetMultiSelectState                                        imgui_internal.lua:2026          
   [ ]        GetCurrentTabBar                                                                            
-  [x]   35%  TabBarGetTabOrder                                          imgui_widgets.lua:9885           
+  [x]   35%  TabBarGetTabOrder                                          imgui_widgets.lua:11210          
   [-]        RenderNavHighlight                                                                          obsolete
-  [x]  100%  TempInputIsActive                                          imgui_internal.lua:3443          
-  [x]   88%  GetInputTextState                                          imgui_internal.lua:3451          
+  [x]  100%  TempInputIsActive                                          imgui_internal.lua:3638          
+  [x]   88%  GetInputTextState                                          imgui_internal.lua:3646          
   [ ]        IsItemActiveAsInputText                                                                     
-  [x]   80%  SetNextItemColorMarker                                     imgui_internal.lua:1036          
+  [x]   80%  SetNextItemColorMarker                                     imgui_internal.lua:1055          
 
   -- ImFontLoader
-  [x]    6%  ImFontLoader::ImFontLoader                                 imgui_internal.lua:2927          
+  [x]    6%  ImFontLoader::ImFontLoader                                 imgui_internal.lua:3122          
 
   -- ImFontAtlas internal API
   [-]        operator==                                                                                  c++-only
   [-]        operator!=                                                                                  c++-only
-  [x]   75%  ImFontAtlasRectId_GetIndex                                 imgui_internal.lua:2979          
-  [x]   62%  ImFontAtlasRectId_GetGeneration                            imgui_internal.lua:2983          
-  [x]   77%  ImFontAtlasRectId_Make                                     imgui_internal.lua:2988          
-  [x]   19%  ImFontAtlasBuilder::ImFontAtlasBuilder                     imgui_internal.lua:1134          
+  [x]   75%  ImFontAtlasRectId_GetIndex                                 imgui_internal.lua:3174          
+  [x]   62%  ImFontAtlasRectId_GetGeneration                            imgui_internal.lua:3178          
+  [x]   77%  ImFontAtlasRectId_Make                                     imgui_internal.lua:3183          
+  [x]   19%  ImFontAtlasBuilder::ImFontAtlasBuilder                     imgui_internal.lua:1153          
 
 ====================================================================================================
 API declarations not ported (by upstream line)
 ====================================================================================================
 
-  Public API (imgui.h, namespace ImGui): 365 / 376
+  Public API (imgui.h, namespace ImGui): 368 / 376
     -- Dear ImGui end-user API functions
-    [ ] ImGui::BeginMultiSelect
-    [ ] ImGui::EndMultiSelect
-    [ ] ImGui::SetNextItemSelectionUserData
     [ ] ImGui::SetTooltipV
     [ ] ImGui::SetItemTooltipV
     [ ] ImGui::DebugFlashStyleColor
@@ -2374,7 +2371,7 @@ API declarations not ported (by upstream line)
     [ ] ImGui::GetAllocatorFunctions
     [ ] ImGui::FindViewportByPlatformHandle
 
-  Internal API (imgui_internal.h, namespace ImGui): 405 / 443
+  Internal API (imgui_internal.h, namespace ImGui): 417 / 443
     -- ImGui internal API
     [ ] ImGui::RegisterUserTexture
     [ ] ImGui::UnregisterUserTexture
@@ -2384,16 +2381,6 @@ API declarations not ported (by upstream line)
     [ ] ImGui::RemoveContextHook
     [ ] ImGui::CallContextHooks
     [ ] ImGui::TestShortcutRouting
-    [ ] ImGui::GetTypingSelectRequest
-    [ ] ImGui::TypingSelectFindMatch
-    [ ] ImGui::TypingSelectFindNextSingleCharMatch
-    [ ] ImGui::TypingSelectFindBestLeadingMatch
-    [ ] ImGui::BeginBoxSelect
-    [ ] ImGui::EndBoxSelect
-    [ ] ImGui::MultiSelectItemHeader
-    [ ] ImGui::MultiSelectItemFooter
-    [ ] ImGui::MultiSelectAddSetAll
-    [ ] ImGui::MultiSelectAddSetRange
     [ ] ImGui::GetWindowResizeCornerID
     [ ] ImGui::GetWindowResizeBorderID
     [ ] ImGui::DemoMarker
@@ -2410,8 +2397,6 @@ API declarations not ported (by upstream line)
     [ ] ImGui::DebugTextureIDToU64
     [ ] ImGui::DebugNodeDrawCmdShowMeshAndBoundingBox
     [ ] ImGui::DebugNodeInputTextState
-    [ ] ImGui::DebugNodeTypingSelectState
-    [ ] ImGui::DebugNodeMultiSelectState
     [ ] ImGui::DebugNodePlatformMonitor
     [ ] ImGui::DebugRenderKeyboardPreview
 
@@ -2465,7 +2450,7 @@ Enums (values ported / total; missing listed)
   ImGuiMouseButton_                           4 /    4
   ImGuiMouseCursor_                          13 /   13
   ImGuiMouseSource                            4 /    4
-  ImGuiMultiSelectFlags_                      0 /   21   missing: ImGuiMultiSelectFlags_None, ImGuiMultiSelectFlags_SingleSelect, ImGuiMultiSelectFlags_NoSelectAll, ImGuiMultiSelectFlags_NoRangeSelect, ImGuiMultiSelectFlags_NoAutoSelect, ImGuiMultiSelectFlags_NoAutoClear, ImGuiMultiSelectFlags_NoAutoClearOnReselect, ImGuiMultiSelectFlags_BoxSelect1d, ImGuiMultiSelectFlags_BoxSelect2d, ImGuiMultiSelectFlags_BoxSelectNoScroll, ImGuiMultiSelectFlags_ClearOnEscape, ImGuiMultiSelectFlags_ClearOnClickVoid, ImGuiMultiSelectFlags_ScopeWindow, ImGuiMultiSelectFlags_ScopeRect, ImGuiMultiSelectFlags_SelectOnAuto, ImGuiMultiSelectFlags_SelectOnClickAlways, ImGuiMultiSelectFlags_SelectOnClickRelease, ImGuiMultiSelectFlags_NavWrapX, ImGuiMultiSelectFlags_NoSelectOnRightClick, ImGuiMultiSelectFlags_SelectOnMask_, ImGuiMultiSelectFlags_CheckboxMode_
+  ImGuiMultiSelectFlags_                     21 /   21
   ImGuiNavLayer                               3 /    3
   ImGuiNavMoveFlags_                         18 /   18
   ImGuiNavRenderCursorFlags_                  3 /    3
@@ -2478,7 +2463,7 @@ Enums (values ported / total; missing listed)
   ImGuiScrollFlags_                          10 /   10
   ImGuiSelectableFlagsPrivate_                7 /    7
   ImGuiSelectableFlags_                       8 /    8
-  ImGuiSelectionRequestType                   0 /    3   missing: ImGuiSelectionRequestType_None, ImGuiSelectionRequestType_SetAll, ImGuiSelectionRequestType_SetRange
+  ImGuiSelectionRequestType                   3 /    3
   ImGuiSeparatorFlags_                        4 /    4
   ImGuiSliderFlagsPrivate_                    2 /    2
   ImGuiSliderFlags_                          11 /   11
@@ -2496,7 +2481,7 @@ Enums (values ported / total; missing listed)
   ImGuiTooltipFlags_                          2 /    2
   ImGuiTreeNodeFlagsPrivate_                  5 /    5
   ImGuiTreeNodeFlags_                        22 /   22
-  ImGuiTypingSelectFlags_                     0 /    3   missing: ImGuiTypingSelectFlags_None, ImGuiTypingSelectFlags_AllowBackspace, ImGuiTypingSelectFlags_AllowSingleCharMode
+  ImGuiTypingSelectFlags_                     3 /    3
   ImGuiViewportFlags_                        15 /   15
   ImGuiWindowBgClickFlags_                    2 /    2
   ImGuiWindowDockStyleCol                    10 /   10
@@ -2517,7 +2502,7 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ExampleTreeNode                             9 /    9
   IM_MSVC_RUNTIME_CHECKS_OFF                  7 /    7
   IM_MSVC_RUNTIME_CHECKS_RESTORE             79 /   81   missing: CurveTessellationMaxError, DataEnd
-  ImBitVector                                 0 /    1   missing: Storage
+  ImBitVector                                 1 /    1
   ImDrawChannel                               2 /    2
   ImDrawCmd                                   9 /    9
   ImDrawCmdHeader                             3 /    3
@@ -2539,10 +2524,10 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImFontGlyphRangesBuilder                    0 /    1   missing: UsedChars
   ImFontLoader                                2 /    2
   ImFontStackData                             3 /    3
-  ImGuiBoxSelectState                         3 /   16   missing: IsActive, IsStarting, IsStartedFromVoid, IsStartedSetNavIdOnce, RequestClear, StartPosRel, EndPosRel, ScrollAccum, UnclipMode, UnclipRect, UnclipRects, BoxSelectRectPrev, BoxSelectRectCurr
+  ImGuiBoxSelectState                        16 /   16
   ImGuiColorMod                               2 /    2
   ImGuiComboPreviewData                       6 /    9   missing: BackupWorkRectMaxX, BackupContentRectMaxX, WithinPreview
-  ImGuiContext                              306 /  338   missing: TestEngineHookItems, CurrentPixelDensity, TestEngine, InputEventsTrail, MixedValueLabel, DebugBreakInShortcutRouting, DebugLocateId, NavJustMovedToIsInit, DragDropPayloadBufHeap, DragDropPayloadBufLocal, BoxSelectState, CurrentMultiSelect, MultiSelectTempDataStacked, MultiSelectTempData, MultiSelectStorage, ClipboardHandlerData, TypingSelectState, SessionDate, DemoMarkerCallback, DebugLogIndex, DebugLogSkippedErrors, DebugLocateFrames, DebugBreakInLocateId, DebugBreakKeyChord, DebugItemPickerActive, DebugItemPickerMouseButton, DebugItemPickerBreakId, DebugFlashStyleColorTime, DebugFlashStyleColorBackup, DebugDrawIdConflictsAliveCount, DebugDrawIdConflictsHighlightSet, TempKeychordName
+  ImGuiContext                              312 /  338   missing: TestEngineHookItems, CurrentPixelDensity, TestEngine, InputEventsTrail, MixedValueLabel, DebugBreakInShortcutRouting, DebugLocateId, NavJustMovedToIsInit, DragDropPayloadBufHeap, DragDropPayloadBufLocal, ClipboardHandlerData, SessionDate, DemoMarkerCallback, DebugLogIndex, DebugLogSkippedErrors, DebugLocateFrames, DebugBreakInLocateId, DebugBreakKeyChord, DebugItemPickerActive, DebugItemPickerMouseButton, DebugItemPickerBreakId, DebugFlashStyleColorTime, DebugFlashStyleColorBackup, DebugDrawIdConflictsAliveCount, DebugDrawIdConflictsHighlightSet, TempKeychordName
   ImGuiContextHook                            2 /    5   missing: HookId, Owner, Callback
   ImGuiDataTypeInfo                           4 /    4
   ImGuiDataTypeStorage                        1 /    1
@@ -2585,9 +2570,9 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImGuiLocEntry                               2 /    2
   ImGuiMenuColumns                            8 /    8
   ImGuiMetricsConfig                         15 /   17   missing: SettingsDiscardMonths, SettingsHighlightOldEntries
-  ImGuiMultiSelectIO                          2 /    6   missing: RangeSrcItem, NavIdItem, NavIdSelected, RangeSrcReset
-  ImGuiMultiSelectState                       3 /    8   missing: LastSelectionSize, RangeSelected, NavIdSelected, RangeSrcItem, NavIdItem
-  ImGuiMultiSelectTempData                    6 /   16   missing: Storage, ScopeRectMin, BoxSelectId, LoopRequestSetAll, IsEndIO, IsKeyboardSetRange, NavIdPassedBy, RangeSrcPassedBy, RangeDstPassedBy, IsSoleOrUnknownSelectionSize
+  ImGuiMultiSelectIO                          6 /    6
+  ImGuiMultiSelectState                       8 /    8
+  ImGuiMultiSelectTempData                   16 /   16
   ImGuiNavItemData                            9 /    9
   ImGuiNextItemData                          12 /   12
   ImGuiNextWindowData                        25 /   25
@@ -2604,9 +2589,9 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImGuiPtrOrIndex                             1 /    2   missing: Ptr
   ImGuiResizeBorderDef                        4 /    4
   ImGuiResizeGripDef                          4 /    4
-  ImGuiSelectionBasicStorage                  2 /    5   missing: PreserveOrder, _SelectionOrder, _Storage
+  ImGuiSelectionBasicStorage                  5 /    5
   ImGuiSelectionExternalStorage               1 /    1
-  ImGuiSelectionRequest                       2 /    5   missing: RangeDirection, RangeFirstItem, RangeLastItem
+  ImGuiSelectionRequest                       5 /    5
   ImGuiSettingsCleanupArgs                    0 /    7   missing: TypeHashFilter, DiscardOlderThanMonths, DiscardWhenMissingDate, DiscardAll, SetCurrentSessionDateToAll, SetCurrentSessionDateWhenMissingDate, _DiscardOlderThanDate
   ImGuiSettingsHandler                        3 /    3
   ImGuiShrinkWidthItem                        3 /    3
@@ -2636,8 +2621,8 @@ Struct fields (name found in the port / total; missing listed). Field names are 
   ImGuiTextFilterItem                         1 /    4   missing: Begin, Len, MatchIncludesMask
   ImGuiTextIndex                              2 /    2
   ImGuiTreeNodeStackData                      7 /    7
-  ImGuiTypingSelectRequest                    1 /    6   missing: SearchBufferLen, SearchBuffer, SelectRequest, SingleCharMode, SingleCharSize
-  ImGuiTypingSelectState                      0 /    6   missing: Request, SearchBuffer, FocusScope, LastRequestFrame, LastRequestTime, SingleCharModeLock
+  ImGuiTypingSelectRequest                    6 /    6
+  ImGuiTypingSelectState                      6 /    6
   ImGuiViewport                              19 /   20   missing: PlatformIconData
   ImGuiViewportP                             22 /   23   missing: BgFgDrawListsLastFrameActive
   ImGuiWindow                               124 /  125   missing: NameBufLen

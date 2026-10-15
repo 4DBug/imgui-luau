@@ -10828,6 +10828,8 @@ function ImGui.GcCompactTransientMiscBuffers()
     g.ItemFlagsStack:clear()
     g.GroupStack:clear()
     g.InputTextLineIndex:clear()
+    g.MultiSelectTempDataStacked = 0
+    g.MultiSelectTempData:clear()
     ImGui.TableGcCompactSettings()
     for _, atlas in g.FontAtlases:iter() do
         atlas:CompactCache()
@@ -14324,6 +14326,8 @@ function ImGui.Shutdown()
     -- TODO:
 
     -- Clear everything else
+    g.MultiSelectStorage:Clear()
+    g.MultiSelectTempData:clear()
     g.MenusIdSubmittedThisFrame:clear()
 end
 
@@ -19700,7 +19704,7 @@ local function ImGuiListClipper_StepInternal(clipper)
 
             -- Add box selection range
             local bs = g.BoxSelectState
-            if bs and bs.IsActive and bs.Window == window then
+            if bs.IsActive and bs.Window == window then
                 -- FIXME: Selectable() use of half-ItemSpacing isn't consistent in matter of layout, as ItemAdd(bb) stray above ItemSize()'s CursorPos.
                 -- RangeSelect's BoxSelect relies on comparing overlap of previous and current rectangle and is sensitive to that.
                 -- As a workaround we currently half ItemSpacing worth on each side.
@@ -19846,7 +19850,7 @@ function ImGui.ErrorRecoveryTryToRecoverWindowState(state_in)
         IM_ASSERT_USER_ERROR(false, "Missing EndTabBar()")
         ImGui.EndTabBar()
     end
-    while g.CurrentMultiSelect ~= nil and g.CurrentMultiSelect.Storage.Window == window and ImGui.EndMultiSelect do
+    while g.CurrentMultiSelect ~= nil and g.CurrentMultiSelect.Storage.Window == window do --V1044
         IM_ASSERT_USER_ERROR(false, "Missing EndMultiSelect()")
         ImGui.EndMultiSelect()
     end
@@ -21183,6 +21187,25 @@ function ImGui.ShowMetricsWindow(p_open)
         ImGui.TreePop()
     end
 
+    -- Details for TypingSelect
+    if ImGui.TreeNode("TypingSelect", "TypingSelect (%d)", (#g.TypingSelectState.SearchBuffer ~= 0) and 1 or 0) then
+        ImGui.DebugNodeTypingSelectState(g.TypingSelectState)
+        ImGui.TreePop()
+    end
+
+    -- Details for MultiSelect
+    if ImGui.TreeNode("MultiSelect", "MultiSelect (%d)", g.MultiSelectStorage.AliveCount) then
+        local bs = g.BoxSelectState
+        ImGui.BulletText("BoxSelect ID=0x%08X, Starting = %d, Active %d", bs.ID, B(bs.IsStarting), B(bs.IsActive))
+        for n = 0, g.MultiSelectStorage:GetMapSize() - 1 do
+            local state = g.MultiSelectStorage:GetByIndex(n)
+            if state then
+                ImGui.DebugNodeMultiSelectState(state)
+            end
+        end
+        ImGui.TreePop()
+    end
+
     -- Details for Docking
     if ImGui.TreeNode("Docking") then
         local dc = g.DockContext
@@ -21310,6 +21333,7 @@ function ImGui.ShowMetricsWindow(p_open)
         ImGui.Indent()
         ImGui.Text("NavWindow: '%s'", N(g.NavWindow))
         ImGui.Text("NavId: 0x%08X, NavLayer: %d", g.NavId, g.NavLayer)
+        ImGui.Text("NavLastValidSelectionUserData = %s", tostring(g.NavLastValidSelectionUserData)) -- [Port] any Lua value: tostring() instead of %lld (0x%llX)
         ImGui.Text("NavActive: %d, NavVisible: %d", B(io.NavActive), B(io.NavVisible))
         ImGui.Text("NavActivateId/DownId/PressedId: %08X/%08X/%08X", g.NavActivateId, g.NavActivateDownId or 0, g.NavActivatePressedId or 0)
         ImGui.Text("NavActivateFlags: %04X", g.NavActivateFlags or 0)

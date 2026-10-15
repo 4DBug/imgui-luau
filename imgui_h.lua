@@ -2713,6 +2713,122 @@ function ImColorMT:U32() return ImGui.ColorConvertFloat4ToU32(self.Value) end
 function ImColorMT:SetHSV(h, s, v, a) self.Value.x, self.Value.y, self.Value.z = ImGui.ColorConvertHSVtoRGB(h, s, v); self.Value.w = a or 1.0 end
 function ImColor.HSV(h, s, v, a) local r, g, b = ImGui.ColorConvertHSVtoRGB(h, s, v); return ImColor(r, g, b, a or 1.0) end
 
+-------------------------------------------------------------------------------
+-- [SECTION] Multi-Select API flags and structures (ImGuiMultiSelectFlags, ImGuiSelectionRequestType, ImGuiSelectionRequest, ImGuiMultiSelectIO, ImGuiSelectionBasicStorage)
+-------------------------------------------------------------------------------
+
+-- Multi-selection system
+-- Documentation at: https://github.com/ocornut/imgui/wiki/Multi-Select
+-- - Refer to 'Demo->Widgets->Selection State & Multi-Select' for demos using this.
+-- - This system implements standard multi-selection idioms (Ctrl+Mouse/Keyboard, Shift+Mouse/Keyboard, etc)
+--   with support for clipper (skipping non-visible items), box-select and many other details.
+-- - Selectable(), Checkbox() are supported but custom widgets may use it as well.
+-- - TreeNode() is technically supported but... using this correctly is more complicated: you need some sort of linear/random access to your tree,
+--   which is suited to advanced trees setups also implementing filters and clipper. We will work toward simplifying and demoing it.
+-- - In the spirit of Dear ImGui design, your code owns actual selection data.
+--   This is designed to allow all kinds of selection storage you may use in your application e.g. set/map/hash.
+-- About ImGuiSelectionBasicStorage:
+-- - This is an optional helper to store a selection state and apply selection requests.
+-- - It is used by our demos and provided as a convenience to quickly implement multi-selection.
+-- Usage:
+-- - Identify submitted items with SetNextItemSelectionUserData(), most likely using an index into your current data-set.
+-- - Store and maintain actual selection data using persistent object identifiers.
+-- - Usage flow:
+--     BEGIN - (1) Call BeginMultiSelect() and retrieve the ImGuiMultiSelectIO result.
+--           - (2) Honor request list (SetAll/SetRange requests) by updating your selection data. Same code as Step 6.
+--           - (3) [If using clipper] You need to make sure RangeSrcItem is always submitted. Calculate its index and pass to clipper:IncludeItemByIndex(). If storing indices in ImGuiSelectionUserData, a simple clipper:IncludeItemByIndex(ms_io.RangeSrcItem) call will work.
+--     LOOP  - (4) Submit your items with SetNextItemSelectionUserData() + Selectable()/TreeNode() calls.
+--     END   - (5) Call EndMultiSelect() and retrieve the ImGuiMultiSelectIO result.
+--           - (6) Honor request list (SetAll/SetRange requests) by updating your selection data. Same code as Step 2.
+--     If you submit all items (no clipper), Step 2 and 3 are optional and will be handled by each item themselves. It is fine to always honor those steps.
+-- About ImGuiSelectionUserData:
+-- - This can store an application-defined identifier (e.g. index or pointer) submitted via SetNextItemSelectionUserData().
+-- - In return we store them into RangeSrcItem/RangeFirstItem/RangeLastItem and other fields in ImGuiMultiSelectIO.
+-- - Most applications will store an object INDEX, hence the chosen name and type. Storing an index is natural, because
+--   SetRange requests will give you two end-points and you will need to iterate/interpolate between them to update your selection.
+-- - However it is perfectly possible to store a POINTER or another IDENTIFIER inside ImGuiSelectionUserData.
+--   Our system never assume that you identify items by indices, it never attempts to interpolate between two values.
+-- - If you enable ImGuiMultiSelectFlags.NoRangeSelect then it is guaranteed that you will never have to interpolate
+--   between two ImGuiSelectionUserData, which may be a convenient way to use part of the feature with less code work.
+-- - As most users will want to store an index, for convenience and to reduce confusion we use ImS64 instead of void*,
+--   being syntactically easier to downcast. Feel free to reinterpret_cast and store a pointer inside.
+-- [Port] ImGuiSelectionUserData is any Lua value compared with '==' (an integer index, or e.g. a table reference instead of a pointer).
+--        -1 (ImGuiSelectionUserData_Invalid) is reserved. ImGuiSelectionBasicStorage/ImGuiSelectionExternalStorage require integer indices.
+
+-- Flags for BeginMultiSelect()
+--- @enum ImGuiMultiSelectFlags
+ImGuiMultiSelectFlags = {
+    None                  = 0,
+    SingleSelect          = bitLShift(1, 0),  -- Disable selecting more than one item. This is available to allow single-selection code to share same code/logic if desired. It essentially disables the main purpose of BeginMultiSelect() tho!
+    NoSelectAll           = bitLShift(1, 1),  -- Disable Ctrl+A shortcut to select all.
+    NoRangeSelect         = bitLShift(1, 2),  -- Disable Shift+selection mouse/keyboard support (useful for unordered 2D selection). With BoxSelect is also ensure contiguous SetRange requests are not combined into one. This allows not handling interpolation in SetRange requests.
+    NoAutoSelect          = bitLShift(1, 3),  -- Disable selecting items when navigating (useful for e.g. supporting range-select in a list of checkboxes).
+    NoAutoClear           = bitLShift(1, 4),  -- Disable clearing selection when navigating or selecting another one (generally used with ImGuiMultiSelectFlags.NoAutoSelect. useful for e.g. supporting range-select in a list of checkboxes).
+    NoAutoClearOnReselect = bitLShift(1, 5),  -- Disable clearing selection when clicking/selecting an already selected item.
+    BoxSelect1d           = bitLShift(1, 6),  -- Enable box-selection with same width and same x pos items (e.g. full row Selectable()). Box-selection works better with little bit of spacing between items hit-box in order to be able to aim at empty space.
+    BoxSelect2d           = bitLShift(1, 7),  -- Enable box-selection with varying width or varying x pos items support (e.g. different width labels, or 2D layout/grid). This is slower: alters clipping logic so that e.g. horizontal movements will update selection of normally clipped items.
+    BoxSelectNoScroll     = bitLShift(1, 8),  -- Disable scrolling when box-selecting and moving mouse near edges of scope.
+    ClearOnEscape         = bitLShift(1, 9),  -- Clear selection when pressing Escape while scope is focused.
+    ClearOnClickVoid      = bitLShift(1, 10), -- Clear selection when clicking on empty location within scope.
+    ScopeWindow           = bitLShift(1, 11), -- Scope for _BoxSelect and _ClearOnClickVoid is whole window (Default). Use if BeginMultiSelect() covers a whole window or used a single time in same window.
+    ScopeRect             = bitLShift(1, 12), -- Scope for _BoxSelect and _ClearOnClickVoid is rectangle encompassing BeginMultiSelect()/EndMultiSelect(). Use if BeginMultiSelect() is called multiple times in same window.
+    SelectOnAuto          = bitLShift(1, 13), -- Apply selection on mouse down when clicking on unselected item, on mouse up when clicking on selected item. (Default)
+    SelectOnClickAlways   = bitLShift(1, 14), -- Apply selection on mouse down when clicking on any items. Prevents Drag and Drop from being used on multiple-selection, but allows e.g. BoxSelect to always reselect even when clicking inside an existing selection. (Excel style behavior)
+    SelectOnClickRelease  = bitLShift(1, 15), -- Apply selection on mouse release when clicking an unselected item. Allow dragging an unselected item without altering selection.
+    --RangeSelect2d       = bitLShift(1, 15), -- Shift+Selection uses 2d geometry instead of linear sequence, so possible to use Shift+up/down to select vertically in grid. Analogous to what BoxSelect does.
+    NavWrapX              = bitLShift(1, 16), -- [Temporary] Enable navigation wrapping on X axis. Provided as a convenience because we don't have a design for the general Nav API for this yet. When the more general feature be public we may obsolete this flag in favor of new one.
+    NoSelectOnRightClick  = bitLShift(1, 17), -- Disable default right-click processing, which selects item on mouse down, and is designed for context-menus.
+    CheckboxMode_         = bitLShift(1, 20), -- [Internal]
+}
+ImGuiMultiSelectFlags.SelectOnMask_ = bit32.bor(ImGuiMultiSelectFlags.SelectOnAuto, ImGuiMultiSelectFlags.SelectOnClickAlways, ImGuiMultiSelectFlags.SelectOnClickRelease)
+ImGuiMultiSelectFlags.SelectOnClick = ImGuiMultiSelectFlags.SelectOnAuto -- RENAMED in 1.92.6
+
+-- Main IO structure returned by BeginMultiSelect()/EndMultiSelect().
+-- This mainly contains a list of selection requests.
+-- - Use 'Demo->Tools->Debug Log->Selection' to see requests as they happen.
+-- - Some fields are only useful if your list is dynamic and allows deletion (getting post-deletion focus/state right is shown in the demo)
+-- - Below: who reads/writes each fields? 'r'=read, 'w'=write, 'ms'=multi-select code, 'app'=application/user code.
+--- @class ImGuiMultiSelectIO
+--- @field Requests      ImVector<ImGuiSelectionRequest> #  ms:w, app:r     /  ms:w  app:r   // Requests to apply to your selection data. (1-based .Data)
+--- @field RangeSrcItem  ImGuiSelectionUserData          #  ms:w  app:r     /                // (If using clipper) Begin: Source item (often the first selected item) must never be clipped: use clipper:IncludeItemByIndex() to ensure it is submitted.
+--- @field NavIdItem     ImGuiSelectionUserData          #  ms:w, app:r     /                // (If using deletion) Last known SetNextItemSelectionUserData() value for NavId (if part of submitted items).
+--- @field NavIdSelected bool                            #  ms:w, app:r     /        app:r   // (If using deletion) Last known selection state for NavId (if part of submitted items).
+--- @field RangeSrcReset bool                            #        app:w     /  ms:r          // (If using deletion) Set before EndMultiSelect() to reset ResetSrcItem (e.g. if deleted selection).
+--- @field ItemsCount    int                             #  ms:w, app:r     /        app:r   // 'int items_count' parameter to BeginMultiSelect() is copied here for convenience, allowing simpler calls to your ApplyRequests handler. Not used internally.
+
+-- Selection request type
+--- @enum ImGuiSelectionRequestType
+ImGuiSelectionRequestType = {
+    None     = 0,
+    SetAll   = 1, -- Request app to clear selection (if Selected==false) or select all items (if Selected==true). We cannot set RangeFirstItem/RangeLastItem as its contents is entirely up to user (not necessarily an index)
+    SetRange = 2, -- Request app to select/unselect [RangeFirstItem..RangeLastItem] items (inclusive) based on value of Selected. Only EndMultiSelect() request this, app code can read after BeginMultiSelect() and it will always be false.
+}
+
+-- Selection request item
+--- @class ImGuiSelectionRequest
+--- @field Type           ImGuiSelectionRequestType #  ms:w, app:r     /  ms:w, app:r   // Request type. You'll most often receive 1 Clear + 1 SetRange with a single-item range.
+--- @field Selected       bool                      #  ms:w, app:r     /  ms:w, app:r   // Parameter for SetAll/SetRange requests (true = select, false = unselect)
+--- @field RangeDirection int                       #                  /  ms:w  app:r   // Parameter for SetRange request: +1 when RangeFirstItem comes before RangeLastItem, -1 otherwise. Useful if you want to preserve selection order on a backward Shift+Click.
+--- @field RangeFirstItem ImGuiSelectionUserData    #                  /  ms:w, app:r   // Parameter for SetRange request (this is generally == RangeSrcItem when shift selecting from top to bottom).
+--- @field RangeLastItem  ImGuiSelectionUserData    #                  /  ms:w, app:r   // Parameter for SetRange request (this is generally == RangeSrcItem when shift selecting from bottom to top). Inclusive!
+function ImGuiSelectionRequest()
+    return { Type = ImGuiSelectionRequestType.None, Selected = false, RangeDirection = 0, RangeFirstItem = -1, RangeLastItem = -1 }
+end
+-- [Port] ImVector<ImGuiSelectionRequest> copy function: push_back() copies fields into the preallocated element (C++ copies by value),
+-- so callers can push a reused scratch request without allocating.
+function ImGuiSelectionRequest_Copy(t, k, v)
+    local dst = t[k]
+    dst.Type = v.Type; dst.Selected = v.Selected; dst.RangeDirection = v.RangeDirection; dst.RangeFirstItem = v.RangeFirstItem; dst.RangeLastItem = v.RangeLastItem
+end
+
+--- @return ImGuiMultiSelectIO
+function ImGuiMultiSelectIO()
+    return { Requests = ImVector(ImGuiSelectionRequest, ImGuiSelectionRequest_Copy), RangeSrcItem = -1, NavIdItem = -1, NavIdSelected = false, RangeSrcReset = false, ItemsCount = 0 }
+end
+
+-- ImGuiSelectionBasicStorage, ImGuiSelectionExternalStorage: see [SECTION] Widgets: Multi-Select helpers in imgui_widgets.lua
+-- (constructors and methods are defined there, like upstream's out-of-line definitions in imgui_widgets.cpp).
+
 --- @class ImGuiSettingsHandler
 --- Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
 --- WriteAllFn(ctx, handler, buf: ImGuiTextBuffer)
