@@ -461,6 +461,18 @@ function ImMul(lhs, rhs)
     return ImVec2(lhs.x * rhs.x, lhs.y * rhs.y)
 end
 
+--- @param a ImVec2
+--- @param b ImVec2
+--- @param c ImVec2
+--- @return float
+function ImTriangleArea(a, b, c) return ImFabs((a.x * (b.y - c.y)) + (b.x * (c.y - a.y)) + (c.x * (a.y - b.y))) * 0.5 end
+
+--- @param a ImVec2
+--- @param b ImVec2
+--- @param c ImVec2
+--- @return boolean
+function ImTriangleIsClockwise(a, b, c) return ((b.x - a.x) * (c.y - b.y)) - ((c.x - b.x) * (b.y - a.y)) > 0.0 end
+
 --- @param str    char[]
 --- @param begin? int
 function ImStd.ImStrlen(str, begin)
