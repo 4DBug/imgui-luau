@@ -4872,26 +4872,33 @@ local ImGuiResizeBorderDef = {
 --- @param thickness    float
 --- @return ImRect
 --- @nodiscard
-local function GetResizeBorderRect(window, border_n, perp_padding, thickness)
-    local rect = window:Rect()
+-- [Luau] out: optional ImRect written in place (no allocation)
+local function GetResizeBorderRect(window, border_n, perp_padding, thickness, out)
+    local x0, y0 = window.Pos.x, window.Pos.y
+    local x1, y1 = x0 + window.Size.x, y0 + window.Size.y
     if thickness == 0.0 then
-        ImVec2_CopyV(rect.Max, rect.Max.x - 1, rect.Max.y - 1)
+        x1, y1 = x1 - 1, y1 - 1
     end
+    local a, b, c, d
     if border_n == ImGuiDir.Left then
-        return ImRect(rect.Min.x - thickness, rect.Min.y + perp_padding, rect.Min.x + thickness, rect.Max.y - perp_padding)
+        a, b, c, d = x0 - thickness, y0 + perp_padding, x0 + thickness, y1 - perp_padding
+    elseif border_n == ImGuiDir.Right then
+        a, b, c, d = x1 - thickness, y0 + perp_padding, x1 + thickness, y1 - perp_padding
+    elseif border_n == ImGuiDir.Up then
+        a, b, c, d = x0 + perp_padding, y0 - thickness, x1 - perp_padding, y0 + thickness
+    elseif border_n == ImGuiDir.Down then
+        a, b, c, d = x0 + perp_padding, y1 - thickness, x1 - perp_padding, y1 + thickness
+    else
+        IM_ASSERT(false)
+        a, b, c, d = 0, 0, 0, 0
     end
-    if border_n == ImGuiDir.Right then
-        return ImRect(rect.Max.x - thickness, rect.Min.y + perp_padding, rect.Max.x + thickness, rect.Max.y - perp_padding)
+    if out then
+        out.Min.x, out.Min.y, out.Max.x, out.Max.y = a, b, c, d
+        return out
     end
-    if border_n == ImGuiDir.Up then
-        return ImRect(rect.Min.x + perp_padding, rect.Min.y - thickness, rect.Max.x - perp_padding, rect.Min.y + thickness)
-    end
-    if border_n == ImGuiDir.Down then
-        return ImRect(rect.Min.x + perp_padding, rect.Max.y - thickness, rect.Max.x - perp_padding, rect.Max.y + thickness)
-    end
-    IM_ASSERT(false)
-    return ImRect()
+    return ImRect(a, b, c, d)
 end
+local UpdateWindowManualResize_rect = ImRect() -- [Luau] scratch grip/border rect: ItemAdd() copies, ButtonBehavior() reads
 
 -- Known size hash
 -- It is ok to call ImHashData on a string with known length but the ### operator won't be supported.
@@ -10173,10 +10180,12 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
         local corner_pos = def.CornerPosN
         local inner_dir = def.InnerDir
 
-        local corner = ImVec2(window.Pos.x + corner_pos.x * window.Size.x, window.Pos.y + corner_pos.y * window.Size.y)
+        local corner_x, corner_y = window.Pos.x + corner_pos.x * window.Size.x, window.Pos.y + corner_pos.y * window.Size.y
 
         -- Using the FlattenChilds button flag we make the resize button accessible even if we are hovering over a child window
-        local resize_rect = ImRect(corner - inner_dir * grip_hover_outer_size, corner + inner_dir * grip_hover_inner_size)
+        local resize_rect = UpdateWindowManualResize_rect -- [Luau] scratch, scalar math
+        resize_rect.Min.x, resize_rect.Min.y = corner_x - inner_dir.x * grip_hover_outer_size, corner_y - inner_dir.y * grip_hover_outer_size
+        resize_rect.Max.x, resize_rect.Max.y = corner_x + inner_dir.x * grip_hover_inner_size, corner_y + inner_dir.y * grip_hover_inner_size
 
         if resize_rect.Min.x > resize_rect.Max.x then resize_rect.Min.x, resize_rect.Max.x = resize_rect.Max.x, resize_rect.Min.x end
         if resize_rect.Min.y > resize_rect.Max.y then resize_rect.Min.y, resize_rect.Max.y = resize_rect.Max.y, resize_rect.Min.y end
@@ -10249,7 +10258,7 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
             axis = ImGuiAxis.Y
         end
 
-        local border_rect = GetResizeBorderRect(window, border_n, grip_hover_inner_size, g.WindowsBorderHoverPadding)
+        local border_rect = GetResizeBorderRect(window, border_n, grip_hover_inner_size, g.WindowsBorderHoverPadding, UpdateWindowManualResize_rect)
         local border_id = window:GetID(border_n + 4) -- == GetWindowResizeBorderID()
         ImGui.ItemAdd(border_rect, border_id, nil, ImGuiItemFlags.NoNav)
         local _, hovered, held = ImGui.ButtonBehavior(border_rect, border_id, bit32.bor(ImGuiButtonFlags.FlattenChildren, ImGuiButtonFlags.NoNavFocus))
@@ -10278,7 +10287,7 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
             -- FIXME: May want to generalize this idiom at lower-level, so more widgets can use it!
             local just_scrolled_manually_while_resizing = (g.WheelingWindow ~= nil and g.WheelingWindowScrolledFrame == g.FrameCount and ImGui.IsWindowChildOf(window, g.WheelingWindow, false, true))
             if g.ActiveIdIsJustActivated or just_scrolled_manually_while_resizing then
-                g.WindowResizeBorderExpectedRect = border_rect
+                g.WindowResizeBorderExpectedRect = ImRect(border_rect.Min, border_rect.Max) -- [Luau] copy: border_rect is scratch
                 g.WindowResizeRelativeMode = false
             end
 
@@ -10486,18 +10495,23 @@ function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin
     local pos = RenderTextClippedEx_pos
     pos.x = pos_min.x; pos.y = pos_min.y
 
-    local text_size = text_size_if_known or ImGui.CalcTextSize(text, text_display_end, false, 0.0)
+    local text_size_x, text_size_y -- [Luau] scalar text_size
+    if text_size_if_known then
+        text_size_x, text_size_y = text_size_if_known.x, text_size_if_known.y
+    else
+        text_size_x, text_size_y = ImGui.CalcTextSizeXY(text, 1, text_display_end, false, 0.0)
+    end
 
     local clip_min = clip_rect and clip_rect.Min or pos_min
     local clip_max = clip_rect and clip_rect.Max or pos_max
-    local need_clipping = (pos.x + text_size.x >= clip_max.x) or (pos.y + text_size.y >= clip_max.y)
+    local need_clipping = (pos.x + text_size_x >= clip_max.x) or (pos.y + text_size_y >= clip_max.y)
     if (clip_rect) then -- If we had no explicit clipping rectangle then pos==clip_min
         need_clipping = need_clipping or ((pos.x < clip_min.x) or (pos.y < clip_min.y))
     end
 
     -- Align whole block. We should defer that to the better rendering function when we'll have support for individual line alignment.
-    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
-    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
+    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size_x) * align.x) end
+    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size_y) * align.y) end
 
     -- Render
     if (need_clipping) then
@@ -10816,6 +10830,9 @@ end
 --- @param handle_borders_and_resize_grips bool
 --- @param resize_grip_col                 ImU32[]
 --- @param resize_grip_draw_size           float
+-- [Luau] scratch for RenderWindowDecorations()/RenderWindowTitleBarContents(): callees only read or copy these
+local WindowDecoScratch = { text_size = ImVec2(), layout_r = ImRect(), clip_r = ImRect(), bg_rect = ImRect(), p = ImVec2(), title_bar_rect = ImRect() }
+
 local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_highlight, handle_borders_and_resize_grips, resize_grip_col, resize_grip_draw_size)
     local g = GImGui
     local style = g.Style
@@ -10856,7 +10873,8 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) ~= 0 then bg_col = 0 end
 
             if bit32.band(bg_col, IM_COL32_A_MASK) ~= 0 then
-                local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)
+                local bg_rect = WindowDecoScratch.bg_rect -- [Luau] scalar, no temporaries
+                bg_rect.Min.x, bg_rect.Min.y, bg_rect.Max.x, bg_rect.Max.y = window.Pos.x + 0, window.Pos.y + window.TitleBarHeight, window.Pos.x + window.Size.x, window.Pos.y + window.Size.y
                 local bg_rounding_flags
                 if window.DockIsActive then
                     bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
@@ -10928,11 +10946,20 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
                 end
 
                 local grip = ImGuiResizeGripDef[resize_grip_n]
-                local corner = ImLerp(window.Pos, window.Pos + window.Size, grip.CornerPosN)
+                -- [Luau] scalar corner/points, one scratch ImVec2 (the path copies points)
+                local pos, cpn, dir = window.Pos, grip.CornerPosN, grip.InnerDir
+                local corner_x = pos.x + ((pos.x + window.Size.x) - pos.x) * cpn.x
+                local corner_y = pos.y + ((pos.y + window.Size.y) - pos.y) * cpn.y
                 local border_inner = IM_ROUND(window_border_size * 0.5)
-                window.DrawList:PathLineTo(corner + grip.InnerDir * ((resize_grip_n % 2 == 0) and ImVec2(border_inner, resize_grip_draw_size) or ImVec2(resize_grip_draw_size, border_inner)))
-                window.DrawList:PathLineTo(corner + grip.InnerDir * ((resize_grip_n % 2 == 0) and ImVec2(resize_grip_draw_size, border_inner) or ImVec2(border_inner, resize_grip_draw_size)))
-                window.DrawList:PathArcToFast(ImVec2(corner.x + grip.InnerDir.x * (window_rounding + border_inner), corner.y + grip.InnerDir.y * (window_rounding + border_inner)), window_rounding, grip.AngleMin12, grip.AngleMax12)
+                local a, b = border_inner, resize_grip_draw_size
+                if resize_grip_n % 2 ~= 0 then a, b = b, a end
+                local p = WindowDecoScratch.p
+                p.x, p.y = corner_x + dir.x * a, corner_y + dir.y * b
+                window.DrawList:PathLineTo(p)
+                p.x, p.y = corner_x + dir.x * b, corner_y + dir.y * a
+                window.DrawList:PathLineTo(p)
+                p.x, p.y = corner_x + dir.x * (window_rounding + border_inner), corner_y + dir.y * (window_rounding + border_inner)
+                window.DrawList:PathArcToFast(p, window_rounding, grip.AngleMin12, grip.AngleMax12)
                 window.DrawList:PathFillConvex(col)
 
                 until true
@@ -10948,6 +10975,7 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
     window.DC.NavLayerCurrent = ImGuiNavLayer.Main
 end
 ImGui.RenderWindowOuterBorders = RenderWindowOuterBorders
+
 
 -- When inside a dock node, this is handled in DockNodeCalcTabBarLayout() instead.
 -- Render title text, collapse button, close button
@@ -11014,7 +11042,9 @@ local function RenderWindowTitleBarContents(window, title_bar_rect, name, open)
     -- Title bar text (with: horizontal alignment, avoiding collapse/close button, optional "unsaved document" marker)
     -- FIXME: Refactor text alignment facilities along with RenderText helpers, this is WAY too much messy code..
     local marker_size_x = (bit32.band(flags, ImGuiWindowFlags.UnsavedDocument) ~= 0) and (button_sz * 0.80) or 0.0
-    local text_size = ImGui.CalcTextSize(name, nil, true) + ImVec2(marker_size_x, 0.0)
+    local text_size = WindowDecoScratch.text_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    local text_size_x, text_size_y = ImGui.CalcTextSizeXY(name, 1, nil, true)
+    text_size.x = text_size_x + marker_size_x; text_size.y = text_size_y + 0.0
 
     -- As a nice touch we try to ensure that centered title text doesn't get affected by visibility of Close/Collapse button,
     -- while uncentered title text will still reach edges correctly.
@@ -11031,8 +11061,9 @@ local function RenderWindowTitleBarContents(window, title_bar_rect, name, open)
         pad_r = ImMax(pad_r, pad_extend * centerness)
     end
 
-    local layout_r = ImRect(title_bar_rect.Min.x + pad_l, title_bar_rect.Min.y, title_bar_rect.Max.x - pad_r, title_bar_rect.Max.y)
-    local clip_r = ImRect(layout_r.Min.x, layout_r.Min.y, ImMin(layout_r.Max.x + g.Style.ItemInnerSpacing.x, title_bar_rect.Max.x), layout_r.Max.y)
+    local layout_r, clip_r = WindowDecoScratch.layout_r, WindowDecoScratch.clip_r -- [Luau] scratch, only read by callees
+    layout_r.Min.x, layout_r.Min.y, layout_r.Max.x, layout_r.Max.y = title_bar_rect.Min.x + pad_l, title_bar_rect.Min.y, title_bar_rect.Max.x - pad_r, title_bar_rect.Max.y
+    clip_r.Min.x, clip_r.Min.y, clip_r.Max.x, clip_r.Max.y = layout_r.Min.x, layout_r.Min.y, ImMin(layout_r.Max.x + g.Style.ItemInnerSpacing.x, title_bar_rect.Max.x), layout_r.Max.y
 
     if bit32.band(flags, ImGuiWindowFlags.UnsavedDocument) ~= 0 then
         local marker_pos = ImVec2()
@@ -12169,13 +12200,17 @@ function ImGui.Begin(name, open, flags)
     -- Add to stack
     g.CurrentWindow = window
     g.CurrentWindowStack:resize(g.CurrentWindowStack.Size + 1)
-    g.CurrentWindowStack.Data[g.CurrentWindowStack.Size] = ImGuiWindowStackData()
+    -- [Luau] reuse the slot's table left by pop_back() (C++ reuses the vector storage); every field is set below
     local window_stack_data = g.CurrentWindowStack.Data[g.CurrentWindowStack.Size]
+    if type(window_stack_data) ~= "table" or window_stack_data.ParentLastItemDataBackup == nil then
+        window_stack_data = ImGuiWindowStackData()
+        g.CurrentWindowStack.Data[g.CurrentWindowStack.Size] = window_stack_data
+    end
     window_stack_data.Window = window
     ImGuiLastItemData_Copy(window_stack_data.ParentLastItemDataBackup, g.LastItemData)
     window_stack_data.DisabledOverrideReenable = (bit32.band(flags, ImGuiWindowFlags.Tooltip) ~= 0) and (bit32.band(g.CurrentItemFlags, ImGuiItemFlags.Disabled) ~= 0)
     window_stack_data.DisabledOverrideReenableAlphaBackup = 0.0
-    window_stack_data.StackSizesInBegin = ImGuiErrorRecoveryState()
+    window_stack_data.StackSizesInBegin = window_stack_data.StackSizesInBegin or ImGuiErrorRecoveryState() -- [Luau] reused, all fields stored
     ImGui.ErrorRecoveryStoreState(window_stack_data.StackSizesInBegin)
     g.StackSizesInBeginForCurrentWindow = window_stack_data.StackSizesInBegin
     if bit32.band(flags, ImGuiWindowFlags.ChildMenu) ~= 0 then
@@ -12956,7 +12991,9 @@ function ImGui.Begin(name, open, flags)
 
         -- Title bar
         if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and not window.DockIsActive then
-            open = RenderWindowTitleBarContents(window, ImRect(title_bar_rect.Min.x + window.WindowBorderSize, title_bar_rect.Min.y, title_bar_rect.Max.x - window.WindowBorderSize, title_bar_rect.Max.y), name, open)
+            local r = WindowDecoScratch.title_bar_rect -- [Luau] scratch, only read
+            r.Min.x, r.Min.y, r.Max.x, r.Max.y = title_bar_rect.Min.x + window.WindowBorderSize, title_bar_rect.Min.y, title_bar_rect.Max.x - window.WindowBorderSize, title_bar_rect.Max.y
+            open = RenderWindowTitleBarContents(window, r, name, open)
         elseif bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and window.DockIsActive then
             ImGui.LogText("%s\n", string.sub(window.Name, 1, ImGui.FindRenderedTextEnd(window.Name) - 1))
         end
@@ -14660,10 +14697,10 @@ end
 --- @param hide_text_after_double_hash? bool
 --- @param wrap_width?                  float
 --- @return ImVec2
+-- [Luau] scalar CalcTextSizeEx(): returns x, y without allocating an ImVec2 (hot widget paths)
 @native
-function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
-    if hide_text_after_double_hash == nil then hide_text_after_double_hash = false end
-    if wrap_width                  == nil then wrap_width                  = -1.0  end
+function ImGui.CalcTextSizeXY(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    if wrap_width == nil then wrap_width = -1.0 end
 
     local g = GImGui
 
@@ -14674,19 +14711,22 @@ function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double
         text_display_end = text_end
     end
 
-    local font = g.Font
     local font_size = g.FontSize
     if text == "" or (text_end and text_end <= text_begin) then
-        return ImVec2(0.0, font_size)
+        return 0.0, font_size
     end
-    local text_size = ImFontCalcTextSizeEx(font, font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, text_display_end, nil, ImDrawTextFlags.None) -- [Luau] inline font:CalcTextSizeA()
+    local x, y = ImFontCalcTextSizeXY(g.Font, font_size, FLT_MAX, wrap_width, text, text_begin, text_display_end, text_display_end, nil, ImDrawTextFlags.None) -- [Luau] inline font:CalcTextSizeA()
 
     -- Round
     -- (see 7b0bf230, 4622fa4b6, #791 for details about this.)
     -- FIXME: Add a way to disable this.
-    text_size.x = math.ceil(text_size.x) -- [Luau] == ImCeilFast() for all finite values, builtin
+    return math.ceil(x), y -- [Luau] == ImCeilFast() for all finite values, builtin
+end
 
-    return text_size
+@native
+function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    local x, y = ImGui.CalcTextSizeXY(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    return ImVec2(x, y)
 end
 
 -- Pass this to your backend rendering function! Valid after Render() and until the next call to NewFrame()

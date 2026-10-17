@@ -40,8 +40,19 @@ function M.GetBackendData()
 end
 
 @native
-local function CopyTexturePixels(tex, dst, x, y, w, h)
+local function CopyTexturePixels(tex, dst, x, y, w, h, dst_zero)
     local bpp, tex_w = tex.BytesPerPixel, tex.Width
+    if x == 0 and w == tex_w and bpp == 4 then -- whole rows: one flat loop; dst_zero: skip writing zero pixels
+        local src, s = tex:GetPixelsAt(0, y)
+        local d = y * tex_w * 4
+        for _ = 1, w * h do
+            local v = src[s] + src[s + 1] * 256 + src[s + 2] * 65536 + src[s + 3] * 16777216
+            if v ~= 0 or not dst_zero then writeu32(dst, d, v) end
+            s += 4
+            d += 4
+        end
+        return
+    end
     for row = 0, h - 1 do
         local src, src_base = tex:GetPixelsAt(x, y + row)
         local dst_off = ((y + row) * tex_w + x) * 4
@@ -63,8 +74,34 @@ local Records = {}
 M.Records = Records
 
 local function CreateTextureRecord(tex)
-    local t = { Buffer = buffer.create(tex.Width * tex.Height * 4), Width = tex.Width, Height = tex.Height }
-    CopyTexturePixels(tex, t.Buffer, 0, 0, tex.Width, tex.Height)
+    local w, h = tex.Width, tex.Height
+    local b = buffer.create(w * h * 4)
+    -- The current font atlas texture: pixels outside the packed rects (MaxRectBounds) and the queued uploads (UsedRect)
+    -- are still zero (repack's BlockCopy doesn't queue, but every copied rect is packed). Fill them with what zero
+    -- converts to, convert only the used corner. A fresh/grown atlas is mostly empty. Any other texture: everything.
+    local atlas = ImGui.GetCurrentContext() and ImGui.GetIO().Fonts
+    local cw, ch = w, h
+    if atlas and atlas.TexData == tex and atlas.Builder then
+        local u, m = tex.UsedRect, atlas.Builder.MaxRectBounds
+        cw = math.min(w, math.max(u.x + u.w, m.x))
+        ch = math.min(h, math.max(u.y + u.h, m.y))
+    end
+    if cw < w or ch < h then
+        if tex.BytesPerPixel ~= 4 then -- Alpha8 zero -> 0x00FFFFFF; RGBA zero -> 0 (buffer.create's fill)
+            local n, total = 4, w * h * 4
+            writeu32(b, 0, 16777215)
+            while n < total do
+                local c = math.min(n, total - n)
+                buffer.copy(b, n, b, 0, c)
+                n += c
+            end
+        end
+        CopyTexturePixels(tex, b, 0, 0, cw, ch, tex.BytesPerPixel == 4)
+    else
+        CopyTexturePixels(tex, b, 0, 0, w, h, true)
+    end
+    -- rows FillRow.. hold only Fill (what zero converts to): parallel.lua sends Actors the rows above it
+    local t = { Buffer = b, Width = w, Height = h, FillRow = ch, Fill = tex.BytesPerPixel ~= 4 and 16777215 or 0 }
     EditableImages.LastTextureId += 1
     Records[EditableImages.LastTextureId] = t
     tex.BackendUserData = EditableImages.LastTextureId
@@ -81,10 +118,19 @@ function M.UpdateTexture(tex)
             CreateTextureRecord(tex)
             return
         end
+        local y0, y1 = math.huge, -1
         for _, r in tex.Updates:iter() do
             CopyTexturePixels(tex, t.Buffer, r.x, r.y, r.w, r.h)
+            if r.y < y0 then y0 = r.y end
+            if r.y + r.h > y1 then y1 = r.y + r.h end
         end
-        t.V = (t.V or 0) + 1 -- parallel workers hold copies, resent when this changes
+        -- parallel workers hold copies, patched when this changes: Log[V] = changed rows (only the last 16 kept)
+        if t.FillRow and y1 > t.FillRow then t.FillRow = y1 end
+        local v = (t.V or 0) + 1
+        t.V = v
+        t.Log = t.Log or {}
+        t.Log[v] = y1 > y0 and { y0, y1 } or { 0, 0 }
+        t.Log[v - 16] = nil
         tex:SetStatus(ImTextureStatus.OK)
     elseif tex.Status == ImTextureStatus.WantDestroy then
         if tex.BackendUserData then

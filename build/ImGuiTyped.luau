@@ -70,6 +70,7 @@ export type ImGuiAPI = {
     CalcRoundingFlagsForRectInRect: (...any) -> ...any,
     CalcTextSize: (text: string, text_end: string?, hide_text_after_double_hash: boolean?, wrap_width: number?) -> ImVec2,
     CalcTextSizeEx: (...any) -> ...any,
+    CalcTextSizeXY: (...any) -> ...any,
     CalcTypematicRepeatAmount: (...any) -> ...any,
     CalcWindowNextAutoFitSize: (...any) -> ...any,
     CalcWrapWidthForPos: (...any) -> ...any,

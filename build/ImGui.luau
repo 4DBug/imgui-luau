@@ -4917,26 +4917,33 @@ local ImGuiResizeBorderDef = {
 --- @param thickness    float
 --- @return ImRect
 --- @nodiscard
-local function GetResizeBorderRect(window, border_n, perp_padding, thickness)
-    local rect = window:Rect()
+-- [Luau] out: optional ImRect written in place (no allocation)
+local function GetResizeBorderRect(window, border_n, perp_padding, thickness, out)
+    local x0, y0 = window.Pos.x, window.Pos.y
+    local x1, y1 = x0 + window.Size.x, y0 + window.Size.y
     if thickness == 0.0 then
-        ImVec2_CopyV(rect.Max, rect.Max.x - 1, rect.Max.y - 1)
+        x1, y1 = x1 - 1, y1 - 1
     end
+    local a, b, c, d
     if border_n == 0 --[[ImGuiDir.Left]] then
-        return ImRect(rect.Min.x - thickness, rect.Min.y + perp_padding, rect.Min.x + thickness, rect.Max.y - perp_padding)
+        a, b, c, d = x0 - thickness, y0 + perp_padding, x0 + thickness, y1 - perp_padding
+    elseif border_n == 1 --[[ImGuiDir.Right]] then
+        a, b, c, d = x1 - thickness, y0 + perp_padding, x1 + thickness, y1 - perp_padding
+    elseif border_n == 2 --[[ImGuiDir.Up]] then
+        a, b, c, d = x0 + perp_padding, y0 - thickness, x1 - perp_padding, y0 + thickness
+    elseif border_n == 3 --[[ImGuiDir.Down]] then
+        a, b, c, d = x0 + perp_padding, y1 - thickness, x1 - perp_padding, y1 + thickness
+    else
+        assert(false)
+        a, b, c, d = 0, 0, 0, 0
     end
-    if border_n == 1 --[[ImGuiDir.Right]] then
-        return ImRect(rect.Max.x - thickness, rect.Min.y + perp_padding, rect.Max.x + thickness, rect.Max.y - perp_padding)
+    if out then
+        out.Min.x, out.Min.y, out.Max.x, out.Max.y = a, b, c, d
+        return out
     end
-    if border_n == 2 --[[ImGuiDir.Up]] then
-        return ImRect(rect.Min.x + perp_padding, rect.Min.y - thickness, rect.Max.x - perp_padding, rect.Min.y + thickness)
-    end
-    if border_n == 3 --[[ImGuiDir.Down]] then
-        return ImRect(rect.Min.x + perp_padding, rect.Max.y - thickness, rect.Max.x - perp_padding, rect.Max.y + thickness)
-    end
-    assert(false)
-    return ImRect()
+    return ImRect(a, b, c, d)
 end
+local UpdateWindowManualResize_rect = ImRect() -- [Luau] scratch grip/border rect: ItemAdd() copies, ButtonBehavior() reads
 
 -- Known size hash
 -- It is ok to call ImHashData on a string with known length but the ### operator won't be supported.
@@ -10218,10 +10225,12 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
         local corner_pos = def.CornerPosN
         local inner_dir = def.InnerDir
 
-        local corner = ImVec2(window.Pos.x + corner_pos.x * window.Size.x, window.Pos.y + corner_pos.y * window.Size.y)
+        local corner_x, corner_y = window.Pos.x + corner_pos.x * window.Size.x, window.Pos.y + corner_pos.y * window.Size.y
 
         -- Using the FlattenChilds button flag we make the resize button accessible even if we are hovering over a child window
-        local resize_rect = ImRect(corner - inner_dir * grip_hover_outer_size, corner + inner_dir * grip_hover_inner_size)
+        local resize_rect = UpdateWindowManualResize_rect -- [Luau] scratch, scalar math
+        resize_rect.Min.x, resize_rect.Min.y = corner_x - inner_dir.x * grip_hover_outer_size, corner_y - inner_dir.y * grip_hover_outer_size
+        resize_rect.Max.x, resize_rect.Max.y = corner_x + inner_dir.x * grip_hover_inner_size, corner_y + inner_dir.y * grip_hover_inner_size
 
         if resize_rect.Min.x > resize_rect.Max.x then resize_rect.Min.x, resize_rect.Max.x = resize_rect.Max.x, resize_rect.Min.x end
         if resize_rect.Min.y > resize_rect.Max.y then resize_rect.Min.y, resize_rect.Max.y = resize_rect.Max.y, resize_rect.Min.y end
@@ -10294,7 +10303,7 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
             axis = 2 --[[ImGuiAxis.Y]]
         end
 
-        local border_rect = GetResizeBorderRect(window, border_n, grip_hover_inner_size, g.WindowsBorderHoverPadding)
+        local border_rect = GetResizeBorderRect(window, border_n, grip_hover_inner_size, g.WindowsBorderHoverPadding, UpdateWindowManualResize_rect)
         local border_id = window:GetID(border_n + 4) -- == GetWindowResizeBorderID()
         ImGui.ItemAdd(border_rect, border_id, nil, 2 --[[ImGuiItemFlags.NoNav]])
         local _, hovered, held = ImGui.ButtonBehavior(border_rect, border_id, bit32.bor(2048 --[[ImGuiButtonFlags.FlattenChildren]], 262144 --[[ImGuiButtonFlags.NoNavFocus]]))
@@ -10323,7 +10332,7 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
             -- FIXME: May want to generalize this idiom at lower-level, so more widgets can use it!
             local just_scrolled_manually_while_resizing = (g.WheelingWindow ~= nil and g.WheelingWindowScrolledFrame == g.FrameCount and ImGui.IsWindowChildOf(window, g.WheelingWindow, false, true))
             if g.ActiveIdIsJustActivated or just_scrolled_manually_while_resizing then
-                g.WindowResizeBorderExpectedRect = border_rect
+                g.WindowResizeBorderExpectedRect = ImRect(border_rect.Min, border_rect.Max) -- [Luau] copy: border_rect is scratch
                 g.WindowResizeRelativeMode = false
             end
 
@@ -10531,18 +10540,23 @@ function ImGui.RenderTextClippedEx(draw_list, pos_min, pos_max, text, text_begin
     local pos = RenderTextClippedEx_pos
     pos.x = pos_min.x; pos.y = pos_min.y
 
-    local text_size = text_size_if_known or ImGui.CalcTextSize(text, text_display_end, false, 0.0)
+    local text_size_x, text_size_y -- [Luau] scalar text_size
+    if text_size_if_known then
+        text_size_x, text_size_y = text_size_if_known.x, text_size_if_known.y
+    else
+        text_size_x, text_size_y = ImGui.CalcTextSizeXY(text, 1, text_display_end, false, 0.0)
+    end
 
     local clip_min = clip_rect and clip_rect.Min or pos_min
     local clip_max = clip_rect and clip_rect.Max or pos_max
-    local need_clipping = (pos.x + text_size.x >= clip_max.x) or (pos.y + text_size.y >= clip_max.y)
+    local need_clipping = (pos.x + text_size_x >= clip_max.x) or (pos.y + text_size_y >= clip_max.y)
     if (clip_rect) then -- If we had no explicit clipping rectangle then pos==clip_min
         need_clipping = need_clipping or ((pos.x < clip_min.x) or (pos.y < clip_min.y))
     end
 
     -- Align whole block. We should defer that to the better rendering function when we'll have support for individual line alignment.
-    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x) end
-    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y) end
+    if (align.x > 0.0) then pos.x = math.max(pos.x, pos.x + (pos_max.x - pos.x - text_size_x) * align.x) end
+    if (align.y > 0.0) then pos.y = math.max(pos.y, pos.y + (pos_max.y - pos.y - text_size_y) * align.y) end
 
     -- Render
     if (need_clipping) then
@@ -10861,6 +10875,9 @@ end
 --- @param handle_borders_and_resize_grips bool
 --- @param resize_grip_col                 ImU32[]
 --- @param resize_grip_draw_size           float
+-- [Luau] scratch for RenderWindowDecorations()/RenderWindowTitleBarContents(): callees only read or copy these
+local WindowDecoScratch = { text_size = ImVec2(), layout_r = ImRect(), clip_r = ImRect(), bg_rect = ImRect(), p = ImVec2(), title_bar_rect = ImRect() }
+
 local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_highlight, handle_borders_and_resize_grips, resize_grip_col, resize_grip_draw_size)
     local g = GImGui
     local style = g.Style
@@ -10901,7 +10918,8 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
             if bit32.band(flags, 8388608 --[[ImGuiWindowFlags.DockNodeHost]]) ~= 0 then bg_col = 0 end
 
             if bit32.band(bg_col, 4278190080 --[[IM_COL32_A_MASK]]) ~= 0 then
-                local bg_rect = ImRect(window.Pos + ImVec2(0, window.TitleBarHeight), window.Pos + window.Size)
+                local bg_rect = WindowDecoScratch.bg_rect -- [Luau] scalar, no temporaries
+                bg_rect.Min.x, bg_rect.Min.y, bg_rect.Max.x, bg_rect.Max.y = window.Pos.x + 0, window.Pos.y + window.TitleBarHeight, window.Pos.x + window.Size.x, window.Pos.y + window.Size.y
                 local bg_rounding_flags
                 if window.DockIsActive then
                     bg_rounding_flags = ImGui.CalcRoundingFlagsForRectInRect(bg_rect, window.DockNode.HostWindow:Rect(), 0.0)
@@ -10973,11 +10991,20 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
                 end
 
                 local grip = ImGuiResizeGripDef[resize_grip_n]
-                local corner = ImLerp(window.Pos, window.Pos + window.Size, grip.CornerPosN)
+                -- [Luau] scalar corner/points, one scratch ImVec2 (the path copies points)
+                local pos, cpn, dir = window.Pos, grip.CornerPosN, grip.InnerDir
+                local corner_x = pos.x + ((pos.x + window.Size.x) - pos.x) * cpn.x
+                local corner_y = pos.y + ((pos.y + window.Size.y) - pos.y) * cpn.y
                 local border_inner = IM_ROUND(window_border_size * 0.5)
-                window.DrawList:PathLineTo(corner + grip.InnerDir * ((resize_grip_n % 2 == 0) and ImVec2(border_inner, resize_grip_draw_size) or ImVec2(resize_grip_draw_size, border_inner)))
-                window.DrawList:PathLineTo(corner + grip.InnerDir * ((resize_grip_n % 2 == 0) and ImVec2(resize_grip_draw_size, border_inner) or ImVec2(border_inner, resize_grip_draw_size)))
-                window.DrawList:PathArcToFast(ImVec2(corner.x + grip.InnerDir.x * (window_rounding + border_inner), corner.y + grip.InnerDir.y * (window_rounding + border_inner)), window_rounding, grip.AngleMin12, grip.AngleMax12)
+                local a, b = border_inner, resize_grip_draw_size
+                if resize_grip_n % 2 ~= 0 then a, b = b, a end
+                local p = WindowDecoScratch.p
+                p.x, p.y = corner_x + dir.x * a, corner_y + dir.y * b
+                window.DrawList:PathLineTo(p)
+                p.x, p.y = corner_x + dir.x * b, corner_y + dir.y * a
+                window.DrawList:PathLineTo(p)
+                p.x, p.y = corner_x + dir.x * (window_rounding + border_inner), corner_y + dir.y * (window_rounding + border_inner)
+                window.DrawList:PathArcToFast(p, window_rounding, grip.AngleMin12, grip.AngleMax12)
                 window.DrawList:PathFillConvex(col)
 
                 until true
@@ -10993,6 +11020,7 @@ local function RenderWindowDecorations(window, title_bar_rect, title_bar_is_high
     window.DC.NavLayerCurrent = 0 --[[ImGuiNavLayer.Main]]
 end
 ImGui.RenderWindowOuterBorders = RenderWindowOuterBorders
+
 
 -- When inside a dock node, this is handled in DockNodeCalcTabBarLayout() instead.
 -- Render title text, collapse button, close button
@@ -11059,7 +11087,9 @@ local function RenderWindowTitleBarContents(window, title_bar_rect, name, open)
     -- Title bar text (with: horizontal alignment, avoiding collapse/close button, optional "unsaved document" marker)
     -- FIXME: Refactor text alignment facilities along with RenderText helpers, this is WAY too much messy code..
     local marker_size_x = (bit32.band(flags, 262144 --[[ImGuiWindowFlags.UnsavedDocument]]) ~= 0) and (button_sz * 0.80) or 0.0
-    local text_size = ImGui.CalcTextSize(name, nil, true) + ImVec2(marker_size_x, 0.0)
+    local text_size = WindowDecoScratch.text_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    local text_size_x, text_size_y = ImGui.CalcTextSizeXY(name, 1, nil, true)
+    text_size.x = text_size_x + marker_size_x; text_size.y = text_size_y + 0.0
 
     -- As a nice touch we try to ensure that centered title text doesn't get affected by visibility of Close/Collapse button,
     -- while uncentered title text will still reach edges correctly.
@@ -11076,8 +11106,9 @@ local function RenderWindowTitleBarContents(window, title_bar_rect, name, open)
         pad_r = ImMax(pad_r, pad_extend * centerness)
     end
 
-    local layout_r = ImRect(title_bar_rect.Min.x + pad_l, title_bar_rect.Min.y, title_bar_rect.Max.x - pad_r, title_bar_rect.Max.y)
-    local clip_r = ImRect(layout_r.Min.x, layout_r.Min.y, ImMin(layout_r.Max.x + g.Style.ItemInnerSpacing.x, title_bar_rect.Max.x), layout_r.Max.y)
+    local layout_r, clip_r = WindowDecoScratch.layout_r, WindowDecoScratch.clip_r -- [Luau] scratch, only read by callees
+    layout_r.Min.x, layout_r.Min.y, layout_r.Max.x, layout_r.Max.y = title_bar_rect.Min.x + pad_l, title_bar_rect.Min.y, title_bar_rect.Max.x - pad_r, title_bar_rect.Max.y
+    clip_r.Min.x, clip_r.Min.y, clip_r.Max.x, clip_r.Max.y = layout_r.Min.x, layout_r.Min.y, ImMin(layout_r.Max.x + g.Style.ItemInnerSpacing.x, title_bar_rect.Max.x), layout_r.Max.y
 
     if bit32.band(flags, 262144 --[[ImGuiWindowFlags.UnsavedDocument]]) ~= 0 then
         local marker_pos = ImVec2()
@@ -12214,13 +12245,17 @@ function ImGui.Begin(name, open, flags)
     -- Add to stack
     g.CurrentWindow = window
     g.CurrentWindowStack:resize(g.CurrentWindowStack.Size + 1)
-    g.CurrentWindowStack.Data[g.CurrentWindowStack.Size] = ImGuiWindowStackData()
+    -- [Luau] reuse the slot's table left by pop_back() (C++ reuses the vector storage); every field is set below
     local window_stack_data = g.CurrentWindowStack.Data[g.CurrentWindowStack.Size]
+    if type(window_stack_data) ~= "table" or window_stack_data.ParentLastItemDataBackup == nil then
+        window_stack_data = ImGuiWindowStackData()
+        g.CurrentWindowStack.Data[g.CurrentWindowStack.Size] = window_stack_data
+    end
     window_stack_data.Window = window
     ImGuiLastItemData_Copy(window_stack_data.ParentLastItemDataBackup, g.LastItemData)
     window_stack_data.DisabledOverrideReenable = (bit32.band(flags, 33554432 --[[ImGuiWindowFlags.Tooltip]]) ~= 0) and (bit32.band(g.CurrentItemFlags, 64 --[[ImGuiItemFlags.Disabled]]) ~= 0)
     window_stack_data.DisabledOverrideReenableAlphaBackup = 0.0
-    window_stack_data.StackSizesInBegin = ImGuiErrorRecoveryState()
+    window_stack_data.StackSizesInBegin = window_stack_data.StackSizesInBegin or ImGuiErrorRecoveryState() -- [Luau] reused, all fields stored
     ImGui.ErrorRecoveryStoreState(window_stack_data.StackSizesInBegin)
     g.StackSizesInBeginForCurrentWindow = window_stack_data.StackSizesInBegin
     if bit32.band(flags, 268435456 --[[ImGuiWindowFlags.ChildMenu]]) ~= 0 then
@@ -13001,7 +13036,9 @@ function ImGui.Begin(name, open, flags)
 
         -- Title bar
         if bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) == 0 and not window.DockIsActive then
-            open = RenderWindowTitleBarContents(window, ImRect(title_bar_rect.Min.x + window.WindowBorderSize, title_bar_rect.Min.y, title_bar_rect.Max.x - window.WindowBorderSize, title_bar_rect.Max.y), name, open)
+            local r = WindowDecoScratch.title_bar_rect -- [Luau] scratch, only read
+            r.Min.x, r.Min.y, r.Max.x, r.Max.y = title_bar_rect.Min.x + window.WindowBorderSize, title_bar_rect.Min.y, title_bar_rect.Max.x - window.WindowBorderSize, title_bar_rect.Max.y
+            open = RenderWindowTitleBarContents(window, r, name, open)
         elseif bit32.band(flags, 1 --[[ImGuiWindowFlags.NoTitleBar]]) == 0 and window.DockIsActive then
             ImGui.LogText("%s\n", string.sub(window.Name, 1, ImGui.FindRenderedTextEnd(window.Name) - 1))
         end
@@ -14705,10 +14742,10 @@ end
 --- @param hide_text_after_double_hash? bool
 --- @param wrap_width?                  float
 --- @return ImVec2
+-- [Luau] scalar CalcTextSizeEx(): returns x, y without allocating an ImVec2 (hot widget paths)
 @native
-function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
-    if hide_text_after_double_hash == nil then hide_text_after_double_hash = false end
-    if wrap_width                  == nil then wrap_width                  = -1.0  end
+function ImGui.CalcTextSizeXY(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    if wrap_width == nil then wrap_width = -1.0 end
 
     local g = GImGui
 
@@ -14719,19 +14756,22 @@ function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double
         text_display_end = text_end
     end
 
-    local font = g.Font
     local font_size = g.FontSize
     if text == "" or (text_end and text_end <= text_begin) then
-        return ImVec2(0.0, font_size)
+        return 0.0, font_size
     end
-    local text_size = ImFontCalcTextSizeEx(font, font_size, 3.4028234663853e+38 --[[FLT_MAX]], wrap_width, text, text_begin, text_display_end, text_display_end, nil, 0 --[[ImDrawTextFlags.None]]) -- [Luau] inline font:CalcTextSizeA()
+    local x, y = ImFontCalcTextSizeXY(g.Font, font_size, 3.4028234663853e+38 --[[FLT_MAX]], wrap_width, text, text_begin, text_display_end, text_display_end, nil, 0 --[[ImDrawTextFlags.None]]) -- [Luau] inline font:CalcTextSizeA()
 
     -- Round
     -- (see 7b0bf230, 4622fa4b6, #791 for details about this.)
     -- FIXME: Add a way to disable this.
-    text_size.x = math.ceil(text_size.x) -- [Luau] == ImCeilFast() for all finite values, builtin
+    return math.ceil(x), y -- [Luau] == ImCeilFast() for all finite values, builtin
+end
 
-    return text_size
+@native
+function ImGui.CalcTextSizeEx(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    local x, y = ImGui.CalcTextSizeXY(text, text_begin, text_end, hide_text_after_double_hash, wrap_width)
+    return ImVec2(x, y)
 end
 
 -- Pass this to your backend rendering function! Valid after Render() and until the next call to NewFrame()
@@ -34553,6 +34593,7 @@ end
 --- @param buf  char[] # 1-based
 --- @param base int    # 1-based start index
 --- @param u32  ImU32
+@native
 local function write_u32(buf, base, u32)
     buf[base + 0] = bit32.band(u32, 0xFF)
     buf[base + 1] = bit32.band(bit32.rshift(u32, 8), 0xFF)
@@ -35282,6 +35323,7 @@ end
 --- @param dst_pitch       int
 --- @param w               int
 --- @param h               int
+@native
 function ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, dst_pixels, dst_pixels_base, dst_fmt, dst_pitch, w, h)
     assert(src_pixels ~= nil and dst_pixels ~= nil)
     local src_pixels_base = 1
@@ -35299,7 +35341,8 @@ function ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, dst_pixe
                 local alpha = src_pixels[src_pixels_base + 0]
                 src_pixels_base = src_pixels_base + 1
 
-                write_u32(dst_pixels, dst_pixels_base, IM_COL32(255, 255, 255, alpha))
+                -- [Luau] inline write_u32(dst_pixels, dst_pixels_base, IM_COL32(255, 255, 255, alpha))
+                dst_pixels[dst_pixels_base] = 255; dst_pixels[dst_pixels_base + 1] = 255; dst_pixels[dst_pixels_base + 2] = 255; dst_pixels[dst_pixels_base + 3] = alpha
                 dst_pixels_base = dst_pixels_base + 4
             end
 
@@ -37205,8 +37248,13 @@ function MT.ImTextureData:Create(format, w, h)
     self.Height = h
     self.BytesPerPixel = ImTextureDataGetFormatBytesPerPixel(format)
     self.UseColors = false
-    self.Pixels = {}
-    ImStd.memset(self.Pixels, 0, self.Width * self.Height * self.BytesPerPixel)
+    local n = self.Width * self.Height * self.BytesPerPixel
+    if table.create then
+        self.Pixels = table.create(n, 0) -- [Luau] native zero fill, same contents as memset
+    else
+        self.Pixels = {}
+        ImStd.memset(self.Pixels, 0, n)
+    end
     self.UsedRect.x = 0
     self.UsedRect.y = 0
     self.UsedRect.w = 0
@@ -37970,7 +38018,8 @@ end
 local TEXT_SIZE_CACHE_MAX = 4096
 
 @native
-function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+-- [Luau] scalar core of ImFontCalcTextSizeEx(): returns size.x, size.y, remaining (no ImVec2 allocated)
+function ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
     local text_is_str = type(text) == "string"
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
     -- Advances of a baked font never change once loaded, so entries stay valid.
@@ -37987,7 +38036,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
         local e = cache[text]
         if e then
-            return ImVec2(e[1] * (size / baked.Size), e[2] * size), text_len1
+            return e[1] * (size / baked.Size), e[2] * size, text_len1
         end
         cache_key = text
     elseif cacheable and wrap_width > 0.0 then
@@ -38003,7 +38052,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         if by_wrap == nil then by_wrap = {}; by_size[wrap_width] = by_wrap end
         local e = by_wrap[text]
         if e then
-            return ImVec2(e[1], e[2]), e[3]
+            return e[1], e[2], e[3]
         end
         wrap_cache = by_wrap
     end
@@ -38018,7 +38067,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     local line_height = size
     local scale = line_height / baked.Size
 
-    local text_size = ImVec2()
+    local tx, ty = 0.0, 0.0
     local line_width = 0.0
 
     local word_wrap_enabled = (wrap_width > 0.0)
@@ -38038,10 +38087,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             end
 
             if s >= word_wrap_eol then
-                if text_size.x < line_width then
-                    text_size.x = line_width
+                if tx < line_width then
+                    tx = line_width
                 end
-                text_size.y = text_size.y + line_height
+                ty = ty + line_height
                 line_width = 0.0
                 s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags) -- Wrapping skips upcoming blanks
                 if bit32.band(flags, 4 --[[ImDrawTextFlags.StopOnNewLine]]) ~= 0 then
@@ -38066,8 +38115,8 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
 
         if c == 10 then -- '\n'
-            text_size.x = ImMax(text_size.x, line_width)
-            text_size.y = text_size.y + line_height
+            if tx < line_width then tx = line_width end
+            ty = ty + line_height
             line_width = 0.0
             if bit32.band(flags, 4 --[[ImDrawTextFlags.StopOnNewLine]]) ~= 0 then
                 stop = true; break
@@ -38099,30 +38148,36 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         if stop then break end
     end
 
-    if (text_size.x < line_width) then
-        text_size.x = line_width
+    if (tx < line_width) then
+        tx = line_width
     end
 
     if out_offset then -- offset allow for the possibility of sitting after a trailing \n
         out_offset.x = line_width
-        out_offset.y = text_size.y + line_height
+        out_offset.y = ty + line_height
     end
 
-    if (line_width > 0 or text_size.y == 0.0) then -- whereas size.y will ignore the trailing \n
-        text_size.y = text_size.y + line_height
+    if (line_width > 0 or ty == 0.0) then -- whereas size.y will ignore the trailing \n
+        ty = ty + line_height
     end
 
     local out_remaining = s
 
     if cache_key then
-        baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
+        baked._TextSizeCache[cache_key] = { tx / scale, ty / line_height }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     elseif wrap_cache then
-        wrap_cache[text] = { text_size.x, text_size.y, out_remaining }
+        wrap_cache[text] = { tx, ty, out_remaining }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 
-    return text_size, out_remaining
+    return tx, ty, out_remaining
+end
+
+-- ImVec2 version (upstream signature)
+function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    local x, y, remaining = ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    return ImVec2(x, y), remaining
 end
 
 --- @param size       float
@@ -41492,7 +41547,15 @@ end
 
 -- Render-level scissoring. This is passed down to your render function but not used for CPU-side coarse clipping. Prefer using higher-level ImGui.PushClipRect() to affect logic (hit-testing and widget culling)
 function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_rect)
-    local cr = ImVec4(cr_min.x, cr_min.y, cr_max.x, cr_max.y)
+    -- [Luau] reuse the stack slot's ImVec4 left from earlier frames (each slot stays uniquely owned by the stack)
+    local stack = self._ClipRectStack
+    local n = stack.Size + 1
+    local cr = n <= stack.Capacity and stack.Data[n] or nil
+    if cr then
+        cr.x = cr_min.x; cr.y = cr_min.y; cr.z = cr_max.x; cr.w = cr_max.y
+    else
+        cr = ImVec4(cr_min.x, cr_min.y, cr_max.x, cr_max.y)
+    end
 
     if intersect_with_current_clip_rect then
         local current = self._CmdHeader.ClipRect
@@ -41507,8 +41570,6 @@ function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_
     cr.w = math.max(cr.y, cr.w)
 
     -- [Luau] inline self._ClipRectStack:push_back(cr)
-    local stack = self._ClipRectStack
-    local n = stack.Size + 1
     if n > stack.Capacity then stack:push_back(cr) else stack.Data[n] = cr; stack.Size = n end
     ImVec4_Copy(self._CmdHeader.ClipRect, cr)
     self:_OnChangedClipRect()
@@ -45846,11 +45907,11 @@ local readi32 = buffer.readi32
 local M = {
     TILE = 128,
     -- Packed jobs (parallel executor -> worker), per Actor and flush: P = primitive records, T = tile jobs.
-    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2), tex id (-1: none), clip x0 y0 x1 y1,
-    --   bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v f64, col u32): a at REC_A,
-    --   c at REC_C, b at REC_B.
+    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2, 4 line quad), tex id (-1: none),
+    --   clip x0 y0 x1 y1, bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v f64,
+    --   col u32): a at REC_A, c at REC_C, b at REC_B, d at REC_D.
     -- T job: tox toy (f64), x0 y0 nr count (i32), nr x rect x0 y0 x1 y1 (i32, tile pixels), count x P offset (i32).
-    VTX = 36, REC = 148, REC_A = 40, REC_C = 76, REC_B = 112, JOB = 32,
+    VTX = 36, REC = 184, REC_A = 40, REC_C = 76, REC_B = 112, REC_D = 148, JOB = 32,
 }
 local TILE = M.TILE
 
@@ -45876,6 +45937,31 @@ local function RowRepeats(o: number, len: number, has_prev: boolean): boolean
     return false
 end
 local RectColumns = table.create(256, 0)
+
+-- Uniform region: [UX0, UX1) x [UY0, UY1) of the target holds only the pixel value UV (empty when UX0 >= UX1).
+-- Set by ClearRect and by solid rects; shrunk by everything drawn over it. A solid rect inside it blends one pixel and
+-- fills (window/frame backgrounds over backgrounds), instead of blending every pixel.
+local UX0, UY0, UX1, UY1, UV = 0, 0, 0, 0, 0
+
+-- Drawing may change [x0, x1) x [y0, y1): keep the largest uniform piece outside it
+@native
+local function Shrink(x0: number, y0: number, x1: number, y1: number)
+    if x0 >= UX1 or x1 <= UX0 or y0 >= UY1 or y1 <= UY0 or UX0 >= UX1 then return end
+    local h, w = UY1 - UY0, UX1 - UX0
+    local left, right, top, bottom = (x0 - UX0) * h, (UX1 - x1) * h, (y0 - UY0) * w, (UY1 - y1) * w
+    local best = max(left, right, top, bottom)
+    if best <= 0 then
+        UX1 = UX0
+    elseif best == left then
+        UX1 = x0
+    elseif best == right then
+        UX0 = x1
+    elseif best == top then
+        UY1 = y0
+    else
+        UY0 = y1
+    end
+end
 
 -- FillSpan and DrawTriangle's flat path inline this math with per-span constants: keep them in sync.
 @native
@@ -45912,13 +45998,44 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     b: number, a: number)
     if a <= 0 then return end
     local w4 = (x1 - x0 - 1) * 4
+    if x0 >= UX0 and y0 >= UY0 and x1 <= UX1 and y1 <= UY1 and a < 255 then
+        -- over one value: FillSpan's per-pixel result for d = UV, then fill
+        local d, v = UV, 0
+        if d < 16777216 then
+            v = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
+        else
+            local sa = a / 255
+            local ns = 1 - sa
+            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+            if d >= 4278190080 then
+                v = floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
+                    + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080
+            else
+                local k = rshift(d, 24) * (ns / 255)
+                local oa = sa + k
+                local inv = 1 / oa
+                v = floor((r * sa + dr * k) * inv + 0.5) + floor((g * sa + dg * k) * inv + 0.5) * 256
+                    + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+            end
+        end
+        local first = (y0 * TargetWidth + x0) * 4
+        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, v) end
+        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, v
+        return
+    end
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
         for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        -- now uniform: keep whichever region is larger
+        local area = (x1 - x0) * (y1 - y0)
+        Shrink(x0, y0, x1, y1)
+        if area > (UX1 - UX0) * (UY1 - UY0) or UX0 >= UX1 then UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, packed end
         return
     end
+    Shrink(x0, y0, x1, y1)
     local packed0 = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
     local sa = a / 255
     local ns = 1 - sa
@@ -45983,11 +46100,12 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
             r, g, b, a = r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255
         end
         if a <= 0 then return end
-        if a >= 255 or px1 - px0 < 32 then
+        if a >= 255 or px1 - px0 < 32 or (px0 >= UX0 and py0 >= UY0 and px1 <= UX1 and py1 <= UY1) then
             FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
             return
         end
         -- Wide translucent rect: rows usually blend over identical rows, so copy the previous row's result
+        Shrink(px0, py0, px1, py1)
         local len = (px1 - px0) * 4
         local prev_o = 0
         for y = py0, py1 - 1 do
@@ -46002,11 +46120,14 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         return
     end
 
+    Shrink(px0, py0, px1, py1)
     local du, dv = (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0)
     local tw: number, th: number, tbuf: buffer, dbuf: buffer = t.Width, t.Height, t.Buffer, TargetBuffer
     local r255, g255, b255, a255 = r / 255, g / 255, b / 255, a / 255
     local ncol = px1 - px0
     local cols = RectColumns
+    local ident = col == 4294967295
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
     for c = 1, ncol do
         local tx = floor((u0 + (px0 + c - 1 + 0.5 - x0) * du) * tw)
         if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
@@ -46019,17 +46140,47 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         local o = (y * TargetWidth + px0) * 4
         for c = 1, ncol do
             local tv = readu32(tbuf, trow4 + cols[c])
-            if tv >= 16777216 then
-                local sa = rshift(tv, 24) * a255
-                local sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255,
-                    band(rshift(tv, 16), 255) * b255
-                if sa >= 255 then
-                    writeu32(dbuf, o, floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536 + 4278190080)
+            if tv < 16777216 then
+                o += 4
+                continue
+            end
+            if ident and tv >= 4278190080 then -- white opaque vertex colour: an opaque texel is the result
+                writeu32(dbuf, o, tv)
+                o += 4
+                continue
+            end
+            -- BlendPixel inlined (same math)
+            if tv ~= last_tv then
+                last_tv = tv
+                sa = rshift(tv, 24) * a255
+                sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                fa = sa / 255
+                fn = 1 - fa
+                fk = (1 - fa) / 255
+            end
+            if sa >= 255 then
+                writeu32(dbuf, o, s_opaque + 4278190080)
+            elseif sa > 0 then
+                local d = readu32(dbuf, o)
+                if d < 16777216 then
+                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
                 else
-                    BlendPixel(dbuf, o, sr, sg, sb, sa)
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                    else
+                        local k = rshift(d, 24) * fk
+                        local oa = fa + k
+                        local inv = 1 / oa
+                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv + 0.5)
+                            + floor((sg * fa + dg * k) * inv + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                    end
                 end
             end
-            o = o + 4
+            o += 4
         end
     end
 end
@@ -46051,6 +46202,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local minx, maxx = max(floor(min(x0, x1, x2)), cx0), min(ceil(max(x0, x1, x2)), cx1 - 1)
     local miny, maxy = max(floor(min(y0, y1, y2)), cy0), min(ceil(max(y0, y1, y2)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
+    Shrink(minx, miny, maxx + 1, maxy + 1)
 
     local A0, B0 = y1 - y2, x2 - x1
     local C0 = -(A0 * x1 + B0 * y1)
@@ -46089,6 +46241,64 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         f_ns = 1 - f_sa
         f_c1 = f_ns / 255
         f_rs, f_gs, f_bs = ra * f_sa, ga * f_sa, ba * f_sa
+    end
+    local cconst = textured and ra == rb and ra == rc and ga == gb and ga == gc and ba == bb and ba == bc and aa == ab
+        and aa == ac
+    if cconst and aa <= 0 then return end
+    local tw: number, th: number, tbuf: buffer = 0, 0, dbuf
+    local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    if cconst then tw, th, tbuf = t.Width, t.Height, t.Buffer end
+
+    if not textured and (maxx - minx) * 2 < maxy - miny then
+        -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
+        -- pixel blended once, so the order does not matter): no empty-row passes
+        local m0, m1, m2 = B0 ~= 0 and -1 / B0 or 0, B1 ~= 0 and -1 / B1 or 0, B2 ~= 0 and -1 / B2 or 0
+        local stride = TargetWidth * 4
+        for x = minx, maxx do
+            local px = x + 0.5
+            local yt, yb = miny, maxy
+            local f0, f1, f2 = A0 * px + C0, A1 * px + C1, A2 * px + C2
+            if B0 > 0 then yt = max(yt, floor(f0 * m0 - 0.500001)) elseif B0 < 0 then yb = min(yb, ceil(f0 * m0 - 0.499999)) end
+            if B1 > 0 then yt = max(yt, floor(f1 * m1 - 0.500001)) elseif B1 < 0 then yb = min(yb, ceil(f1 * m1 - 0.499999)) end
+            if B2 > 0 then yt = max(yt, floor(f2 * m2 - 0.500001)) elseif B2 < 0 then yb = min(yb, ceil(f2 * m2 - 0.499999)) end
+            while yt <= yb do
+                local py = yt + 0.5
+                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
+                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
+                    break
+                end
+                yt += 1
+            end
+            while yb > yt do
+                local py = yb + 0.5
+                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
+                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
+                    break
+                end
+                yb -= 1
+            end
+            if yt > yb then continue end
+            local o = (yt * TargetWidth + x) * 4
+            if flat then
+                for _ = yt, yb do
+                    BlendPixel(dbuf, o, ra, ga, ba, aa)
+                    o += stride
+                end
+                continue
+            end
+            for y = yt, yb do
+                local py = y + 0.5
+                local w0, w1, w2 = (A0 * px + (B0 * py + C0)) * inv, (A1 * px + (B1 * py + C1)) * inv,
+                    (A2 * px + (B2 * py + C2)) * inv
+                local a = w0 * aa + w1 * ab + w2 * ac
+                if a > 0 then
+                    BlendPixel(dbuf, o, w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc, w0 * ba + w1 * bb + w2 * bc, a)
+                end
+                o += stride
+            end
+        end
+        return
     end
 
     for y = miny, maxy do
@@ -46161,6 +46371,50 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             continue
         end
+        if cconst then
+            -- constant vertex colour, varying uv (AA line textures): texel read as u32, blend cached per texel value
+            for x = xl, xr do
+                local px = x + 0.5
+                local w0, w1, w2 = (A0 * px + e0) * inv, (A1 * px + e1) * inv, (A2 * px + e2) * inv
+                local tx, ty = floor((w0 * ua + w1 * ub + w2 * uc) * tw), floor((w0 * vva + w1 * vvb + w2 * vvc) * th)
+                if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+                if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+                local tv = readu32(tbuf, (ty * tw + tx) * 4)
+                if tv ~= last_tv then
+                    last_tv = tv
+                    sa = rshift(tv, 24) * a255
+                    sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                    s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                    fa = sa / 255
+                    fn = 1 - fa
+                    fk = (1 - fa) / 255
+                end
+                -- BlendPixel inlined (same math)
+                if sa >= 255 then
+                    writeu32(dbuf, o, s_opaque + 4278190080)
+                elseif sa > 0 then
+                    local d = readu32(dbuf, o)
+                    if d < 16777216 then
+                        writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                    else
+                        local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                        if d >= 4278190080 then
+                            writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                                + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                        else
+                            local k = rshift(d, 24) * fk
+                            local oa = fa + k
+                            local inv2 = 1 / oa
+                            writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
+                                + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
+                                + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                        end
+                    end
+                end
+                o += 4
+            end
+            continue
+        end
         for x = xl, xr do
             local px = x + 0.5
             local w0, w1, w2 = (A0 * px + e0) * inv, (A1 * px + e1) * inv, (A2 * px + e2) * inv
@@ -46180,6 +46434,131 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     end
 end
 
+-- Textured line quad (triangles a b c + a c d, one colour, uv a = b and c = d: ImPlot PrimLine). Same edge functions as
+-- the two DrawTriangle calls (so the same pixels), uv from triangle a b c's barycentrics over the whole quad.
+@native
+local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, vc: number, vd: number, t,
+    cx0: number, cy0: number, cx1: number, cy1: number, ox: number, oy: number)
+    local x0, y0 = readf64(vbuf, va) - ox, readf64(vbuf, va + 8) - oy
+    local x1, y1 = readf64(vbuf, vb) - ox, readf64(vbuf, vb + 8) - oy
+    local x2, y2 = readf64(vbuf, vc) - ox, readf64(vbuf, vc + 8) - oy
+    local x3, y3 = readf64(vbuf, vd) - ox, readf64(vbuf, vd + 8) - oy
+    local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
+    local area2 = (x2 - x0) * (y3 - y0) - (y2 - y0) * (x3 - x0)
+    if area == 0 or area2 == 0 or (area < 0) ~= (area2 < 0) then -- degenerate or not convex: the two triangles
+        DrawTriangle(dbuf, vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
+        DrawTriangle(dbuf, vbuf, va, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
+        return
+    end
+    local ua, vva, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+    -- outer edges P -> Q (quad order, counter-clockwise like DrawTriangle's swap): A = yP - yQ, B = xQ - xP, C from P
+    local px_, py_, qx_, qy_ = x1, y1, x3, y3 -- b, d
+    if area < 0 then
+        px_, py_, qx_, qy_ = x3, y3, x1, y1
+        area = -area
+    end
+    -- order a -> p -> c -> q
+    local A0, B0 = y0 - py_, px_ - x0
+    local C0 = -(A0 * x0 + B0 * y0)
+    local A1, B1 = py_ - y2, x2 - px_
+    local C1 = -(A1 * px_ + B1 * py_)
+    local A2, B2 = y2 - qy_, qx_ - x2
+    local C2 = -(A2 * x2 + B2 * y2)
+    local A3, B3 = qy_ - y0, x0 - qx_
+    local C3 = -(A3 * qx_ + B3 * qy_)
+    local tl0 = A0 > 0 or (A0 == 0 and B0 > 0)
+    local tl1 = A1 > 0 or (A1 == 0 and B1 > 0)
+    local tl2 = A2 > 0 or (A2 == 0 and B2 > 0)
+    local tl3 = A3 > 0 or (A3 == 0 and B3 > 0)
+    local n0, n1, n2, n3 = A0 ~= 0 and -1 / A0 or 0, A1 ~= 0 and -1 / A1 or 0, A2 ~= 0 and -1 / A2 or 0,
+        A3 ~= 0 and -1 / A3 or 0
+    -- weight of c in triangle a b c: edge a -> b over its area (same sign whichever side b is on)
+    local WA, WB = y0 - y1, x1 - x0
+    local WC = -(WA * x0 + WB * y0)
+    local winv = 1 / ((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0))
+    WA, WB, WC = WA * winv, WB * winv, WC * winv
+    local du, dv = uc - ua, vvc - vva
+
+    local minx, maxx = max(floor(min(x0, x1, x2, x3)), cx0), min(ceil(max(x0, x1, x2, x3)), cx1 - 1)
+    local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
+    if minx > maxx or miny > maxy then return end
+    local ra, ga, ba, aa = UnpackColor(readu32(vbuf, va + 32))
+    if aa <= 0 then return end
+    Shrink(minx, miny, maxx + 1, maxy + 1)
+    local tw: number, th: number, tbuf: buffer = t.Width, t.Height, t.Buffer
+    local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    for y = miny, maxy do
+        local py = y + 0.5
+        local xl, xr = minx, maxx
+        local e0, e1, e2, e3 = B0 * py + C0, B1 * py + C1, B2 * py + C2, B3 * py + C3
+        if A0 > 0 then xl = max(xl, floor(e0 * n0 - 0.500001)) elseif A0 < 0 then xr = min(xr, ceil(e0 * n0 - 0.499999)) end
+        if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
+        if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
+        if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        while xl <= xr do
+            local px = xl + 0.5
+            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
+            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
+                and (w3 > 0 or (w3 == 0 and tl3)) then
+                break
+            end
+            xl += 1
+        end
+        while xr > xl do
+            local px = xr + 0.5
+            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
+            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
+                and (w3 > 0 or (w3 == 0 and tl3)) then
+                break
+            end
+            xr -= 1
+        end
+        if xl > xr then continue end
+        local o = (y * TargetWidth + xl) * 4
+        local wrow = WB * py + WC
+        for x = xl, xr do
+            local w = WA * (x + 0.5) + wrow
+            local tx, ty = floor((ua + w * du) * tw), floor((vva + w * dv) * th)
+            if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+            if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+            local tv = readu32(tbuf, (ty * tw + tx) * 4)
+            if tv ~= last_tv then
+                last_tv = tv
+                sa = rshift(tv, 24) * a255
+                sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                fa = sa / 255
+                fn = 1 - fa
+                fk = (1 - fa) / 255
+            end
+            -- BlendPixel inlined (same math)
+            if sa >= 255 then
+                writeu32(dbuf, o, s_opaque + 4278190080)
+            elseif sa > 0 then
+                local d = readu32(dbuf, o)
+                if d < 16777216 then
+                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                else
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                    else
+                        local k = rshift(d, 24) * fk
+                        local oa = fa + k
+                        local inv2 = 1 / oa
+                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
+                            + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                    end
+                end
+            end
+            o += 4
+        end
+    end
+end
+
 -- Linear gradient quad, constant uv. kind 1: along y (ca top, cb bottom), 2: along x. Same pixels as the triangles.
 @native
 local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1: number, y1: number, ca: number,
@@ -46187,6 +46566,7 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
     local px0, py0 = max(ceil(x0 - 0.5), cx0), max(ceil(y0 - 0.5), cy0)
     local px1, py1 = min(ceil(x1 - 0.5), cx1), min(ceil(y1 - 0.5), cy1)
     if px0 >= px1 or py0 >= py1 then return end
+    Shrink(px0, py0, px1, py1)
     local ra, ga, ba, aa = UnpackColor(ca)
     local rb, gb, bb, ab = UnpackColor(cb)
     if t then
@@ -46228,11 +46608,13 @@ end
 
 function M.SetTarget(buf: buffer, width: number)
     TargetBuffer, TargetWidth = buf, width
+    UX1 = UX0
 end
 
 @native
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
+    UX0, UY0, UX1, UY1, UV = rx0, ry0, rx1, ry1, 0
     if rw == TargetWidth then
         buffer.fill(TargetBuffer, ry0 * TargetWidth * 4, 0, (ry1 - ry0) * TargetWidth * 4)
     else
@@ -46247,12 +46629,15 @@ function M.CopySubRect(dst: buffer, rx0: number, ry0: number, rw: number, rh: nu
     end
 end
 
--- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2
+-- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2, 4 line quad (va vb vc vd)
 @native
-local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, vc: number, tox: number, toy: number,
-    cx0: number, cy0: number, cx1: number, cy1: number)
+local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, vc: number, vd: number, tox: number,
+    toy: number, cx0: number, cy0: number, cx1: number, cy1: number)
     if kind == 0 then
         DrawTriangle(TargetBuffer, vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, tox, toy)
+        return
+    elseif kind == 4 then
+        DrawLineQuad(TargetBuffer, vbuf, va, vb, vc, vd, t, cx0, cy0, cx1, cy1, tox, toy)
         return
     end
     local ax, ay, cx, cy = readf64(vbuf, va) - tox, readf64(vbuf, va + 8) - toy, readf64(vbuf, vc) - tox,
@@ -46272,7 +46657,7 @@ local Scratch = buffer.create(TILE * TILE * 4)
 @native
 function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
     local ClearRect, CopySubRect = M.ClearRect, M.CopySubRect
-    local REC_A, REC_B, REC_C = M.REC_A, M.REC_B, M.REC_C
+    local REC_A, REC_B, REC_C, REC_D = M.REC_A, M.REC_B, M.REC_C, M.REC_D
     M.SetTarget(Scratch, TILE)
     local out, no = {}, 0
     local o = 0
@@ -46296,7 +46681,7 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
                 end
                 local tid, t = readi32(P, q + 4), nil
                 if tid >= 0 then t = textures[tid] end
-                DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, tox, toy, cx0, cy0, cx1, cy1)
+                DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, q + REC_D, tox, toy, cx0, cy0, cx1, cy1)
             end
             local rw, rh = rx1 - rx0, ry1 - ry0
             local sub = buffer.create(rw * rh * 4)
@@ -46353,8 +46738,19 @@ function M.GetBackendData()
 end
 
 @native
-local function CopyTexturePixels(tex, dst, x, y, w, h)
+local function CopyTexturePixels(tex, dst, x, y, w, h, dst_zero)
     local bpp, tex_w = tex.BytesPerPixel, tex.Width
+    if x == 0 and w == tex_w and bpp == 4 then -- whole rows: one flat loop; dst_zero: skip writing zero pixels
+        local src, s = tex:GetPixelsAt(0, y)
+        local d = y * tex_w * 4
+        for _ = 1, w * h do
+            local v = src[s] + src[s + 1] * 256 + src[s + 2] * 65536 + src[s + 3] * 16777216
+            if v ~= 0 or not dst_zero then writeu32(dst, d, v) end
+            s += 4
+            d += 4
+        end
+        return
+    end
     for row = 0, h - 1 do
         local src, src_base = tex:GetPixelsAt(x, y + row)
         local dst_off = ((y + row) * tex_w + x) * 4
@@ -46376,8 +46772,34 @@ local Records = {}
 M.Records = Records
 
 local function CreateTextureRecord(tex)
-    local t = { Buffer = buffer.create(tex.Width * tex.Height * 4), Width = tex.Width, Height = tex.Height }
-    CopyTexturePixels(tex, t.Buffer, 0, 0, tex.Width, tex.Height)
+    local w, h = tex.Width, tex.Height
+    local b = buffer.create(w * h * 4)
+    -- The current font atlas texture: pixels outside the packed rects (MaxRectBounds) and the queued uploads (UsedRect)
+    -- are still zero (repack's BlockCopy doesn't queue, but every copied rect is packed). Fill them with what zero
+    -- converts to, convert only the used corner. A fresh/grown atlas is mostly empty. Any other texture: everything.
+    local atlas = ImGui.GetCurrentContext() and ImGui.GetIO().Fonts
+    local cw, ch = w, h
+    if atlas and atlas.TexData == tex and atlas.Builder then
+        local u, m = tex.UsedRect, atlas.Builder.MaxRectBounds
+        cw = math.min(w, math.max(u.x + u.w, m.x))
+        ch = math.min(h, math.max(u.y + u.h, m.y))
+    end
+    if cw < w or ch < h then
+        if tex.BytesPerPixel ~= 4 then -- Alpha8 zero -> 0x00FFFFFF; RGBA zero -> 0 (buffer.create's fill)
+            local n, total = 4, w * h * 4
+            writeu32(b, 0, 16777215)
+            while n < total do
+                local c = math.min(n, total - n)
+                buffer.copy(b, n, b, 0, c)
+                n += c
+            end
+        end
+        CopyTexturePixels(tex, b, 0, 0, cw, ch, tex.BytesPerPixel == 4)
+    else
+        CopyTexturePixels(tex, b, 0, 0, w, h, true)
+    end
+    -- rows FillRow.. hold only Fill (what zero converts to): parallel.lua sends Actors the rows above it
+    local t = { Buffer = b, Width = w, Height = h, FillRow = ch, Fill = tex.BytesPerPixel ~= 4 and 16777215 or 0 }
     EditableImages.LastTextureId += 1
     Records[EditableImages.LastTextureId] = t
     tex.BackendUserData = EditableImages.LastTextureId
@@ -46394,10 +46816,19 @@ function M.UpdateTexture(tex)
             CreateTextureRecord(tex)
             return
         end
+        local y0, y1 = math.huge, -1
         for _, r in tex.Updates:iter() do
             CopyTexturePixels(tex, t.Buffer, r.x, r.y, r.w, r.h)
+            if r.y < y0 then y0 = r.y end
+            if r.y + r.h > y1 then y1 = r.y + r.h end
         end
-        t.V = (t.V or 0) + 1 -- parallel workers hold copies, resent when this changes
+        -- parallel workers hold copies, patched when this changes: Log[V] = changed rows (only the last 16 kept)
+        if t.FillRow and y1 > t.FillRow then t.FillRow = y1 end
+        local v = (t.V or 0) + 1
+        t.V = v
+        t.Log = t.Log or {}
+        t.Log[v] = y1 > y0 and { y0, y1 } or { 0, 0 }
+        t.Log[v - 16] = nil
         tex:SetStatus(0 --[[ImTextureStatus.OK]])
     elseif tex.Status == 4 --[[ImTextureStatus.WantDestroy]] then
         if tex.BackendUserData then
@@ -46974,10 +47405,9 @@ local function HashVertex(h1: number, h2: number, vbuf: buffer, v: number, ox: n
     local x, y = readf64(vbuf, v) - ox, readf64(vbuf, v + 8) - oy
     local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
     local c = readu32(vbuf, v + 32)
-    h1 = (h1 * 48271 + x * 4096 + y) % P1
-    h1 = (h1 * 48271 + uv * 4096 + c) % P1
-    h2 = (h2 * 16807 + y * 4093 + x) % P2
-    h2 = (h2 * 16807 + uv * 65521 + c * 3) % P2
+    -- one % per hash: h < 2^31, so h * 48271 + the terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
+    h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+    h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
     return h1, h2
 end
 
@@ -47023,6 +47453,10 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                 if gk then
                     h1 = (h1 * 48271 + gk) % P1
                     h2 = (h2 * 16807 + gk * 3) % P2
+                end
+                if gk == 3 then -- line quad: any shape
+                    h1, h2 = HashVertex(h1, h2, vbuf, PrimB[p], vax, vay)
+                    h1, h2 = HashVertex(h1, h2, vbuf, vd, vax, vay)
                 end
             else
                 h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
@@ -47264,7 +47698,7 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
         end
         local kind, gk = 0, PrimGradient[p]
         if PrimD[p] then kind = gk and gk + 1 or 1 end
-        DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], tox, toy, cx0, cy0, cx1, cy1)
+        DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0, cx1, cy1)
     end
 end
 
@@ -47506,7 +47940,22 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                     if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic then
                         local d = (vo + idx[i + 5] - 1) * 36 --[[VTX_STRIDE]]
                         local pdx, pdy = readf64(vbuf, d), readf64(vbuf, d + 8)
-                        if pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
+                        local col = readu32(vbuf, va + 32)
+                        if t and readu32(vbuf, vb + 32) == col and readu32(vbuf, vc + 32) == col
+                            and readu32(vbuf, d + 32) == col then
+                            -- textured line quad (ImPlot PrimLine): uv a = b, c = d, u a ~= u c (else a textured rect may match)
+                            local tax, tay, tcx, tcy = readf64(vbuf, va + 16), readf64(vbuf, va + 24),
+                                readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+                            if tax ~= tcx and readf64(vbuf, vb + 16) == tax
+                                and readf64(vbuf, vb + 24) == tay and readf64(vbuf, d + 16) == tcx
+                                and readf64(vbuf, d + 24) == tcy then
+                                vd, gk = d, 3
+                                bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
+                                bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
+                                by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
+                            end
+                        end
+                        if not vd and pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
                             local col, colb, colc, cold = readu32(vbuf, va + 32), readu32(vbuf, vb + 32),
                                 readu32(vbuf, vc + 32), readu32(vbuf, d + 32)
                             local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
@@ -47650,14 +48099,16 @@ function M.RenderDrawData(draw_data)
     PB("ImGui RenderDrawData")
     BackendData.FrameStartTime = os.clock()
     if EditableImages.StageTiming then
-        EditableImages.StageFrame = { Compare = 0, Collect = 0, Hash = 0, Raster = 0, Upload = 0, Other = 0, Total = 0,
+        EditableImages.StageFrame = { Compare = 0, Collect = 0, Hash = 0, Raster = 0, Upload = 0, Textures = 0, Flush = 0, Other = 0, Total = 0,
         TilesRasterized = 0, PixelsRasterized = 0, Uploads = 0, TilesCreated = 0, TilesFreed = 0 } end
     BackendData.FrameTiles = 0
     -- the first dirty tile of a frame is always redrawn (progress), the rest within the budget
     BackendData.RedrawStarted = false
     BackendData.Stale = nil
 
+    if EditableImages.StageTiming then EditableImages.BeginStage() end
     UpdateTextures(draw_data)
+    if EditableImages.StageTiming then EditableImages.EndStage("Textures") end
     if not RenderRateAllows(BackendData, draw_data) then
         PE()
         return
@@ -47730,13 +48181,15 @@ function M.RenderDrawData(draw_data)
         BackendData.StaleHeartbeat = BackendData.HeartbeatCount
     end
     if Parallel.Active then
+        if EditableImages.StageTiming then EditableImages.BeginStage() end
         Parallel.Flush()
+        if EditableImages.StageTiming then EditableImages.EndStage("Flush") end
     end
     if EditableImages.StageTiming and EditableImages.StageFrame then
         local f = EditableImages.StageFrame
         f.Raster -= f.Upload
         f.Total = os.clock() - BackendData.FrameStartTime
-        f.Other = f.Total - f.Compare - f.Collect - f.Hash - f.Raster - f.Upload
+        f.Other = f.Total - f.Compare - f.Collect - f.Hash - f.Raster - f.Upload - f.Textures - f.Flush
         BackendData.FrameStats = f
     end
     PE()
@@ -47764,15 +48217,18 @@ local PrimTexId, PrimVtxBuffer = Render.PrimTexId, Render.PrimVtxBuffer
 local M = Render.Parallel
 local writei32, writef64, copy = buffer.writei32, buffer.writef64, buffer.copy
 local RasterJobs = Raster.RasterJobs
-local VTX, REC, REC_A, REC_B, REC_C, JOB = Raster.VTX, Raster.REC, Raster.REC_A, Raster.REC_B, Raster.REC_C, Raster.JOB
+local VTX, REC, REC_A, REC_B, REC_C, REC_D, JOB = Raster.VTX, Raster.REC, Raster.REC_A, Raster.REC_B, Raster.REC_C,
+    Raster.REC_D, Raster.JOB
 assert(VTX == VTX_STRIDE, "raster.lua: vertex layout differs from ImDrawVert")
 
 -- Sync / SyncDrop / Inline: test hooks (inline "workers"; drop half their results; bypass the executor)
-M.Config = { Actors = 4, MinTiles = 4, MinPixels = 16384, MaxBytesPerPixel = 3, Sync = false, SyncDrop = false,
+M.Config = { Actors = 4, MinTiles = 1, MinPixels = 2048, MaxBytesPerPixel = 0, Sync = false, SyncDrop = false,
     Inline = false, Worker = nil }
 M.Stats = {
     ParallelFlushes = 0, SerialFlushes = 0, Tiles = 0, Fallbacks = 0, Late = 0, Pack = 0, Flush = 0, Finish = 0,
     SendBytes = 0, TexSends = 0, TexBytes = 0, Rects = 0, Recv = 0, RecvBytes = 0,
+    -- why a flush stayed serial: dispatch window closed / Actors not ready / below MinTiles or MinPixels / over MaxBytesPerPixel
+    SerialClosed = 0, SerialNotReady = 0, SerialSmall = 0, SerialBytes = 0,
 }
 local Stats = M.Stats
 
@@ -47907,9 +48363,10 @@ function M.Tile(img, list, count: number, x0: number, y0: number, tox: number, t
             local vb = PrimVtxBuffer[p]
             copy(P, pn + REC_A, vb, PrimA[p], VTX)
             copy(P, pn + REC_C, vb, PrimC[p], VTX)
-            if not d then
+            if not d or gk == 3 then
                 copy(P, pn + REC_B, vb, PrimB[p], VTX)
             end
+            if gk == 3 then copy(P, pn + REC_D, vb, d, VTX) end
             pn += REC
         end
         writei32(T, to, poff[p])
@@ -47979,6 +48436,21 @@ function M.Finish()
     Stats.Finish += os.clock() - t0
 end
 
+-- A whole texture for an Actor without a copy (new id: grow/repack): only the rows above FillRow, the Actor fills the
+-- rest with Fill (a new atlas is mostly empty). Built once per version, shared by every Actor's SendMessage.
+local function fullCopy(rec, v: number): buffer
+    if rec.HeadV ~= v then
+        local src, len = rec.Buffer, (rec.FillRow or rec.Height) * rec.Width * 4
+        local head = src
+        if len < buffer.len(src) then
+            head = buffer.create(len)
+            copy(head, 0, src, 0, len)
+        end
+        rec.Head, rec.HeadV = head, v
+    end
+    return rec.Head
+end
+
 function M.Flush()
     local n = jobs.N
     if n == 0 then
@@ -47996,6 +48468,11 @@ function M.Flush()
             bytes += Pn[a] + Tn[a]
         end
         par = bytes <= cfg.MaxBytesPerPixel * jobs.Px
+        if not par then Stats.SerialBytes += 1 end
+    elseif not par then
+        if not open then Stats.SerialClosed += 1
+        elseif not (cfg.Sync or ready) then Stats.SerialNotReady += 1
+        else Stats.SerialSmall += 1 end
     end
     batch_no += 1
     local b = jobs
@@ -48019,14 +48496,38 @@ function M.Flush()
         local tex, s = NO_TEX, sent[a]
         for rec, id in used[a] do
             local v = rec.V or 0
-            if s[rec] ~= v then
+            local had = s[rec]
+            if had ~= v then
                 if tex == NO_TEX then
                     tex = {}
                 end
                 s[rec] = v
-                tex[#tex + 1] = { id, rec.Buffer, rec.Width, rec.Height }
+                -- the Actor has version `had`: send only the rows changed since then when the log covers them
+                local y0, y1, log = math.huge, -1, rec.Log
+                if had and log then
+                    for k = had + 1, v do
+                        local e = log[k]
+                        if not e then y0 = nil; break end
+                        if e[2] > e[1] then
+                            if e[1] < y0 then y0 = e[1] end
+                            if e[2] > y1 then y1 = e[2] end
+                        end
+                    end
+                else
+                    y0 = nil
+                end
+                if y0 == nil then
+                    local buf = fullCopy(rec, v)
+                    tex[#tex + 1] = { id, buf, rec.Width, rec.Height, rec.Fill or 0 }
+                    Stats.TexBytes += buffer.len(buf)
+                elseif y1 > y0 then
+                    local row = rec.Width * 4
+                    local patch = buffer.create((y1 - y0) * row)
+                    copy(patch, 0, rec.Buffer, y0 * row, (y1 - y0) * row)
+                    tex[#tex + 1] = { id, false, rec.Width, rec.Height, y0 * row, patch }
+                    Stats.TexBytes += buffer.len(patch)
+                end
                 Stats.TexSends += 1
-                Stats.TexBytes += buffer.len(rec.Buffer)
             end
         end
         Stats.SendBytes += Pn[a] + tl
@@ -55369,13 +55870,15 @@ end
 --- @param s table # 1-based
 --- @param c any
 --- @param n int
+@native
 function ImStd.memset(s, c, n)
     for i = 1, n do s[i] = c end
 end
 
 do
 
-local _memmove = function(dest, dest_start, src, src_start, count)
+@native
+local function _memmove(dest, dest_start, src, src_start, count)
     if count <= 0 then return end
 
     local c = (dest == src and dest_start >= src_start)
@@ -64218,13 +64721,13 @@ function ImGui.TextEx(text, text_end, flags)
         -- [Luau] scalar text_pos, scratch bb (ItemAdd() copies it, RenderTextWrapped() only reads it)
         local text_pos_x, text_pos_y = dc.CursorPos.x, dc.CursorPos.y + dc.CurrLineTextBaseOffset
         local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(dc.CursorPos, wrap_pos_x) or 0.0
-        local text_size = ImGui.CalcTextSizeEx(text, 1, text_end, false, wrap_width)
+        local text_size_x, text_size_y = ImGui.CalcTextSizeXY(text, 1, text_end, false, wrap_width)
 
         local bb = TextEx_bb
         local bb_min, bb_max = bb.Min, bb.Max
         bb_min.x = text_pos_x; bb_min.y = text_pos_y
-        bb_max.x = text_pos_x + text_size.x; bb_max.y = text_pos_y + text_size.y
-        ImGui.ItemSize(text_size, 0.0)
+        bb_max.x = text_pos_x + text_size_x; bb_max.y = text_pos_y + text_size_y
+        ImGui.ItemSize(bb, 0.0) -- [Luau] the bb's size == text_size
         if not ImGui.ItemAdd(bb, 0) then
             return
         end
@@ -64450,6 +64953,8 @@ end
 -- Text with a little bullet aligned to the typical tree node.
 --- @param fmt string
 --- @param ... any
+local BulletText_bb, BulletText_pos, BulletText_size = ImRect(), ImVec2(), ImVec2() -- [Luau] scratch, only read by callees
+
 function ImGui.BulletText(fmt, ...)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -64461,20 +64966,26 @@ function ImGui.BulletText(fmt, ...)
 
     local text = ImFormatString(fmt, ...)
     local text_end = #text + 1
-    local label_size = ImGui.CalcTextSize(text, text_end, false)
-    local total_size = ImVec2(g.FontSize + ((label_size.x > 0.0) and (label_size.x + style.FramePadding.x * 2) or 0.0), label_size.y) -- Empty text doesn't add padding
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(text, 1, text_end, false) -- [Luau] scalar label_size/total_size
+    local total_size_x = g.FontSize + ((label_size_x > 0.0) and (label_size_x + style.FramePadding.x * 2) or 0.0) -- Empty text doesn't add padding
     -- [Luau] scalar pos, no temporary ImVec2
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset
+    local bb = BulletText_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = pos_x, pos_y, pos_x + total_size_x, pos_y + label_size_y
+    local total_size = BulletText_size
+    total_size.x, total_size.y = total_size_x, label_size_y
     ImGui.ItemSize(total_size, 0.0)
-    local bb = ImRect(pos_x, pos_y, pos_x + total_size.x, pos_y + total_size.y)
     if not ImGui.ItemAdd(bb, 0) then
         return
     end
 
     -- Render
     local text_col = ImGui.GetColorU32(0 --[[ImGuiCol.Text]])
-    ImGui.RenderBullet(window.DrawList, ImVec2(bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + g.FontSize * 0.5), text_col)
-    ImGui.RenderText(ImVec2(bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0), text, 1, text_end, false)
+    local p = BulletText_pos
+    p.x, p.y = bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + g.FontSize * 0.5
+    ImGui.RenderBullet(window.DrawList, p, text_col)
+    p.x, p.y = bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0
+    ImGui.RenderText(p, text, 1, text_end, false)
 end
 
 -- [Port] va_list variants: identical to the varargs versions in Lua
@@ -64852,6 +65363,7 @@ end
 --- @param size_arg? ImVec2
 --- @param flags?    ImGuiButtonFlags
 --- @return bool
+local ButtonEx_bb, ButtonEx_label_size, ButtonEx_size = ImRect(), ImVec2(), ImVec2()
 local ButtonEx_text_min, ButtonEx_text_max = ImVec2(), ImVec2()
 
 @native
@@ -64868,7 +65380,8 @@ function ImGui.ButtonEx(label, size_arg, flags)
     local style = g.Style
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size = ButtonEx_label_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
 
     -- [Luau] scalar pos, no temporary ImVec2
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y
@@ -64876,9 +65389,11 @@ function ImGui.ButtonEx(label, size_arg, flags)
     if bit32.band(flags, 32768 --[[ImGuiButtonFlags.AlignTextBaseLine]]) ~= 0 and frame_padding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
         pos_y = pos_y + window.DC.CurrLineTextBaseOffset - frame_padding.y
     end
-    local size = ImGui.CalcItemSize(size_arg, label_size.x + frame_padding.x * 2.0, label_size.y + frame_padding.y * 2.0)
+    local size = ButtonEx_size -- [Luau] scratch + scalar CalcItemSize(): ItemSize() only reads it
+    size.x, size.y = ImGui._CalcItemSizeXY(size_arg.x, size_arg.y, label_size.x + frame_padding.x * 2.0, label_size.y + frame_padding.y * 2.0)
 
-    local bb = ImRect(pos_x, pos_y, pos_x + size.x, pos_y + size.y)
+    local bb = ButtonEx_bb -- [Luau] scratch: ItemAdd() copies it, ButtonBehavior()/Render*() only read it
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = pos_x, pos_y, pos_x + size.x, pos_y + size.y
     ImGui.ItemSize(size, frame_padding.y)
     if not ImGui.ItemAdd(bb, id) then
         return false
@@ -65407,6 +65922,8 @@ end
 --- @param v     bool
 --- @return bool is_pressed
 --- @return bool is_checked # The updated `v` passed in
+local Checkbox_total_bb, Checkbox_check_bb, Checkbox_label_pos = ImRect(), ImRect(), ImVec2() -- [Luau] scratch, only read by callees
+
 @native
 function ImGui.Checkbox(label, v)
     local window = ImGui.GetCurrentWindow()
@@ -65418,18 +65935,19 @@ function ImGui.Checkbox(label, v)
     local style = g.Style
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
     local square_sz = g.FontSize + style.FramePadding.y * 2.0 -- [Luau] inline GetFrameHeight()
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos, no temporary ImVec2
 
     local total_width
-    if label_size.x > 0.0 then
-        total_width = square_sz + style.ItemInnerSpacing.x + label_size.x
+    if label_size_x > 0.0 then
+        total_width = square_sz + style.ItemInnerSpacing.x + label_size_x
     else
         total_width = square_sz
     end
-    local total_bb = ImRect(pos_x, pos_y, pos_x + total_width, pos_y + (label_size.y + style.FramePadding.y * 2.0))
+    local total_bb = Checkbox_total_bb
+    total_bb.Min.x, total_bb.Min.y, total_bb.Max.x, total_bb.Max.y = pos_x, pos_y, pos_x + total_width, pos_y + (label_size_y + style.FramePadding.y * 2.0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     local is_visible = ImGui.ItemAdd(total_bb, id)
     local is_multi_select = (bit32.band(g.LastItemData.ItemFlags, 4194304 --[[ImGuiItemFlags.IsMultiSelect]]) ~= 0)
@@ -65461,7 +65979,8 @@ function ImGui.Checkbox(label, v)
         ImGui.MarkItemEdited(id)
     end
 
-    local check_bb = ImRect(pos_x, pos_y, pos_x + square_sz, pos_y + square_sz)
+    local check_bb = Checkbox_check_bb
+    check_bb.Min.x, check_bb.Min.y, check_bb.Max.x, check_bb.Max.y = pos_x, pos_y, pos_x + square_sz, pos_y + square_sz
     local mixed_value = (bit32.band(g.LastItemData.ItemFlags, 4096 --[[ImGuiItemFlags.MixedValue]]) ~= 0)
     if is_visible then
         ImGui.RenderNavCursor(total_bb, id)
@@ -65486,8 +66005,9 @@ function ImGui.Checkbox(label, v)
         ImGui.LogRenderedText(ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y), mixed_value and "[~]" or (v and "[x]" or "[ ]")) -- label_pos
     end
 
-    if is_visible and label_size.x > 0.0 then
-        local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y) -- [Luau] only built when used
+    if is_visible and label_size_x > 0.0 then
+        local label_pos = Checkbox_label_pos
+        label_pos.x, label_pos.y = check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y
         ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
@@ -67610,7 +68130,8 @@ end
 -- [Luau] memo of string.format(format, value) for drag/slider value text (same values are redrawn every frame).
 
 local fmt_memo, fmt_memo_n = {}, 0
-local SliderScalar_total_bb, SliderScalar_grab_bb = ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
+local SliderScalar_total_bb, SliderScalar_grab_bb, SliderScalar_frame_bb = ImRect(), ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
+local SliderScalar_label_pos = ImVec2()
 local DRAG_TEXT_ALIGN = ImVec2(0.5, 0.5)
 function FormatCached(format, v)
     local m = fmt_memo[format]
@@ -67641,12 +68162,13 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
     local color_marker = (bit32.band(g.NextItemData.HasFlags, 32 --[[ImGuiNextItemDataFlags.HasColorMarker]]) ~= 0) and g.NextItemData.ColorMarker or 0
 
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
+    local frame_bb = SliderScalar_frame_bb -- [Luau] scratch: callees only read it
+    frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y = cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size_y + style.FramePadding.y * 2.0)
     local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
     total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y
-    total_bb.Max.x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0); total_bb.Max.y = frame_bb.Max.y + 0.0
+    total_bb.Max.x = frame_bb.Max.x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0); total_bb.Max.y = frame_bb.Max.y + 0.0
 
     local temp_input_allowed = (bit32.band(flags, 128 --[[ImGuiSliderFlags.NoInput]]) == 0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
@@ -67734,8 +68256,10 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
         ImGui.PopStyleColor()
     end
 
-    if label_size.x > 0.0 then
-        ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    if label_size_x > 0.0 then
+        local label_pos = SliderScalar_label_pos
+        label_pos.x, label_pos.y = frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
     return data, value_changed
@@ -68346,10 +68870,11 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     local color_marker = (bit32.band(g.NextItemData.HasFlags, 32 --[[ImGuiNextItemDataFlags.HasColorMarker]]) ~= 0) and g.NextItemData.ColorMarker or 0
 
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
-    local total_bb_x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0)
+    local frame_bb = SliderScalar_frame_bb -- [Luau] scratch: callees only read it
+    frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y = cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size_y + style.FramePadding.y * 2.0)
+    local total_bb_x = frame_bb.Max.x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0)
     local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
     total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y; total_bb.Max.x = total_bb_x; total_bb.Max.y = frame_bb.Max.y
 
@@ -68435,8 +68960,10 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         ImGui.PopStyleColor()
     end
 
-    if label_size.x > 0.0 then
-        ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    if label_size_x > 0.0 then
+        local label_pos = SliderScalar_label_pos
+        label_pos.x, label_pos.y = frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
     -- IMGUI_TEST_ENGINE_ITEM_INFO()
@@ -71920,6 +72447,10 @@ end
 --- @param flags      ImGuiTreeNodeFlags
 --- @param label      string
 --- @param label_end? int
+local TreeNode_frame_bb, TreeNode_interact_bb = ImRect(), ImRect() -- [Luau] scratch for TreeNodeBehavior(), never escape
+local TreeNode_label_size, TreeNode_text_pos, TreeNode_tmp = ImVec2(), ImVec2(), ImVec2()
+local function TreeNode_tmp_pos(x, y) local v = TreeNode_tmp; v.x = x; v.y = y; return v end -- [Luau] scratch pos for Render*() args
+
 @native
 function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local window = ImGui.GetCurrentWindow()
@@ -71944,7 +72475,8 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     if label_end == nil then
         label_end = ImGui.FindRenderedTextEnd(label)
     end
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size = TreeNode_label_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
 
     local text_offset_x = g.FontSize + (display_frame and (padding_x * 3) or (padding_x * 2)) -- Collapsing arrow width + Spacing
     local text_offset_y = use_frame_padding and ImMax(style.FramePadding.y, window.DC.CurrLineTextBaseOffset) or window.DC.CurrLineTextBaseOffset -- Latch before ItemSize changes it
@@ -71953,7 +72485,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local frame_height = label_size.y + padding_y * 2
     local span_all_columns = bit32.band(flags, 16384 --[[ImGuiTreeNodeFlags.SpanAllColumns]]) ~= 0 and (g.CurrentTable ~= nil)
     local span_all_columns_label = bit32.band(flags, 32768 --[[ImGuiTreeNodeFlags.LabelSpanAllColumns]]) ~= 0 and (g.CurrentTable ~= nil)
-    local frame_bb = ImRect()
+    local frame_bb = TreeNode_frame_bb -- [Luau] scratch, fully written here; callees copy or only read it
     frame_bb.Min.x = span_all_columns and window.ParentWorkRect.Min.x or (bit32.band(flags, 4096 --[[ImGuiTreeNodeFlags.SpanFullWidth]]) ~= 0 and window.WorkRect.Min.x or window.DC.CursorPos.x)
     frame_bb.Min.y = window.DC.CursorPos.y + (text_offset_y - padding_y)
     frame_bb.Max.x = span_all_columns and window.ParentWorkRect.Max.x or (bit32.band(flags, 8192 --[[ImGuiTreeNodeFlags.SpanLabelWidth]]) ~= 0 and window.DC.CursorPos.x + text_width + padding_x or window.WorkRect.Max.x)
@@ -71964,12 +72496,13 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         frame_bb.Max.x = frame_bb.Max.x + outer_extend
     end
 
-    local text_pos = ImVec2(window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y)
+    local text_pos = TreeNode_text_pos -- [Luau] scratch
+    text_pos.x, text_pos.y = window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y
     local item_size = LayoutHelpers_size; item_size.x = text_width; item_size.y = frame_height -- [Luau] scratch, ItemSize() only reads it
     ImGui.ItemSize(item_size, padding_y)
 
     -- For regular tree nodes, we arbitrary allow to click past 2 worth of ItemSpacing
-    local interact_bb = ImRect()
+    local interact_bb = TreeNode_interact_bb -- [Luau] scratch, ItemAdd()/ButtonBehavior()/SetNavID() copy or only read it
     ImRect_Copy(interact_bb, frame_bb)
     if bit32.band(flags, bit32.bor(2 --[[ImGuiTreeNodeFlags.Framed]], 2048 --[[ImGuiTreeNodeFlags.SpanAvailWidth]], 4096 --[[ImGuiTreeNodeFlags.SpanFullWidth]], 8192 --[[ImGuiTreeNodeFlags.SpanLabelWidth]], 16384 --[[ImGuiTreeNodeFlags.SpanAllColumns]])) == 0 then
         interact_bb.Max.x = frame_bb.Min.x + text_width + (label_size.x > 0.0 and (style.ItemSpacing.x * 2.0) or 0.0)
@@ -72163,9 +72696,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
                 ImGui.TablePopBackgroundChannel()
             end
             if bit32.band(flags, 512 --[[ImGuiTreeNodeFlags.Bullet]]) ~= 0 then
-                ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
+                ImGui.RenderBullet(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y), text_col, is_open and ((bit32.band(flags, 536870912 --[[ImGuiTreeNodeFlags.UpsideDownArrow]]) ~= 0) and 2 --[[ImGuiDir.Up]] or 3 --[[ImGuiDir.Down]]) or 1 --[[ImGuiDir.Right]], 1.0)
+                ImGui.RenderArrow(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y), text_col, is_open and ((bit32.band(flags, 536870912 --[[ImGuiTreeNodeFlags.UpsideDownArrow]]) ~= 0) and 2 --[[ImGuiDir.Up]] or 3 --[[ImGuiDir.Down]]) or 1 --[[ImGuiDir.Right]], 1.0)
             else -- Leaf without bullet, left-adjusted text
                 text_pos.x = text_pos.x - (text_offset_x - padding_x)
             end
@@ -72186,9 +72719,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
                 ImGui.TablePopBackgroundChannel()
             end
             if bit32.band(flags, 512 --[[ImGuiTreeNodeFlags.Bullet]]) ~= 0 then
-                ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.5, text_pos.y + g.FontSize * 0.5), text_col)
+                ImGui.RenderBullet(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x * 0.5, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, 536870912 --[[ImGuiTreeNodeFlags.UpsideDownArrow]]) ~= 0) and 2 --[[ImGuiDir.Up]] or 3 --[[ImGuiDir.Down]]) or 1 --[[ImGuiDir.Right]], 0.70)
+                ImGui.RenderArrow(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, 536870912 --[[ImGuiTreeNodeFlags.UpsideDownArrow]]) ~= 0) and 2 --[[ImGuiDir.Up]] or 3 --[[ImGuiDir.Down]]) or 1 --[[ImGuiDir.Right]], 0.70)
             end
             if g.LogEnabled then
                 ImGui.LogSetNextTextDecoration(">", nil)
@@ -72196,7 +72729,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         end
 
         if draw_tree_lines then
-            ImGui.TreeNodeDrawLineToChildNode(ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.5))
+            ImGui.TreeNodeDrawLineToChildNode(TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.5))
         end
 
         -- Label
@@ -76451,6 +76984,7 @@ local STBRP__PREV_LINK_TYPE = {
 
 --- @return stbrp_rect
 --- @nodiscard
+@native
 local function stbrp_rect()
     return {
         -- reserved for your use:
@@ -76474,6 +77008,7 @@ end
 
 --- @return stbrp_node
 --- @nodiscard
+@native
 local function stbrp_node()
     return {
         x    = 0,
@@ -76495,6 +77030,7 @@ end
 
 --- @return stbrp_context
 --- @nodiscard
+@native
 local function stbrp_context()
     return {
         width     = 0,
@@ -76517,6 +77053,7 @@ end
 --- @field prev_link_type? int
 
 --- @return stbrp__findresult
+@native
 local function stbrp__findresult()
     return {
         x = 0,
@@ -76537,6 +77074,7 @@ end
 -- If you call init again, this will be reset to the default.
 --- @param context   stbrp_context
 --- @param heuristic int
+@native
 local function stbrp_setup_heuristic(context, heuristic)
     if context.init_mode == STBRP__INIT_skyline then
         STBRP_ASSERT(heuristic == STBRP_HEURISTIC_Skyline.BL_sortHeight or heuristic == STBRP_HEURISTIC_Skyline.BF_sortHeight)
@@ -76551,6 +77089,7 @@ end
 -- If you call init again, this will be reset to the default (false).
 --- @param context          stbrp_context
 --- @param allow_out_of_mem boolean
+@native
 local function stbrp_setup_allow_out_of_mem(context, allow_out_of_mem)
     if allow_out_of_mem then
         -- if it's ok to run out of memory, then don't bother aligning them;
@@ -76594,6 +77133,7 @@ end
 --- @param height    int
 --- @param nodes     stbrp_node[]
 --- @param num_nodes int
+@native
 function stbrp_init_target(context, width, height, nodes, num_nodes)
     for i = 1, num_nodes - 1 do
         nodes[i].next = nodes[i + 1]
@@ -76624,6 +77164,7 @@ end
 --- @param x0 int
 --- @param width int
 --- @return int, int
+@native
 local function stbrp__skyline_find_min_y(c, first, x0, width)
     local node = first
     local x1 = x0 + width
@@ -76671,6 +77212,7 @@ end
 --- @param width  int
 --- @param height int
 --- @return stbrp__findresult
+@native
 local function stbrp__skyline_find_best_pos(c, width, height)
     local best_waste = bit32.lshift(1, 30)
     local best_x = 0
@@ -76800,6 +77342,7 @@ end
 --- @param width   int
 --- @param height  int
 --- @return stbrp__findresult
+@native
 local function stbrp__skyline_pack_rectangle(context, width, height)
     -- find best position according to heuristic
     local res = stbrp__skyline_find_best_pos(context, width, height)
@@ -76868,6 +77411,7 @@ end
 --- @param b stbrp_rect
 --- @return bool
 --- @package
+@native
 local function rect_height_compare(a, b)
     if a.h > b.h then
         return true
@@ -76882,6 +77426,7 @@ end
 --- @param b stbrp_rect
 --- @return bool
 --- @package
+@native
 local function rect_original_order(a, b)
     return a.was_packed < b.was_packed
 end
@@ -76913,6 +77458,7 @@ end
 --- @param rects     stbrp_rect[]
 --- @param num_rects int
 --- @return int
+@native
 local function stbrp_pack_rects(context, rects, num_rects)
     local all_rects_packed = 1
 
@@ -78720,7 +79266,7 @@ local stbtt_MakeGlyphBitmapSubpixelPrefilter
 local stbtt_GetFontVMetrics
 local stbtt__GetGlyphInfoT2
 local stbtt__GetGlyphShapeT2
-local stbtt_GetGlyphShape
+local stbtt_GetGlyphShape, stbtt_GetGlyphShapeUncached
 local stbtt_GetGlyphBitmapBox
 local stbtt_GetGlyphBitmapBoxSubpixel
 local stbtt_GetGlyphHMetrics
@@ -78773,6 +79319,7 @@ local trunc = function(x)
     end
 end
 
+@native
 local function STBTT__NOTUSED(_) return end
 
 --- @alias stbtt_int32 int
@@ -78795,6 +79342,7 @@ local unsigned_char = stbtt_uint8
 --- @param initial_offset? int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__buf(initial_offset)
     return {
         data   = nil,
@@ -78829,6 +79377,7 @@ end
 --- @field fdselect         stbtt__buf  # map from glyph to fontdict
 
 --- @return stbtt_fontinfo
+@native
 function stbtt_fontinfo()
     return {
         data      = nil,
@@ -78869,6 +79418,7 @@ end
 
 --- @return stbtt_vertex
 --- @nodiscard
+@native
 local function stbtt_vertex()
     return {
         x       = nil,
@@ -78898,6 +79448,7 @@ end
 
 --- @return stbtt__csctx
 --- @nodiscard
+@native
 local function stbtt__csctx()
     return {
         bounds  = false,
@@ -78919,6 +79470,7 @@ end
 --- @param bounds bool
 --- @return stbtt__csctx
 --- @nodiscard
+@native
 local function STBTT__CSCTX_INIT(bounds)
     local this = stbtt__csctx()
 
@@ -78952,6 +79504,7 @@ end
 
 --- @return stbtt__edge
 --- @nodiscard
+@native
 local function stbtt__edge()
     return {
         x0 = nil,
@@ -78966,6 +79519,7 @@ end
 
 --- @return stbtt__active_edge
 --- @nodiscard
+@native
 local function stbtt__active_edge()
     return {
         next = nil,
@@ -78980,8 +79534,15 @@ end
 
 --- @return stbtt__active_edge
 --- @nodiscard
+local active_pool, active_pool_n = {}, 0 -- [Luau] reused per stbtt__rasterize_sorted_edges() call (C: stbtt__hheap)
+@native
 local function stbtt__new_active(e, off_x, start_point)
-    local z = stbtt__active_edge()
+    active_pool_n = active_pool_n + 1
+    local z = active_pool[active_pool_n]
+    if z == nil then
+        z = stbtt__active_edge()
+        active_pool[active_pool_n] = z
+    end
     local dxdy = (e.x1 - e.x0) / (e.y1 - e.y0)
 
     z.fdx = dxdy
@@ -79005,6 +79566,7 @@ end
 
 --- @return stbtt__bitmap
 --- @nodiscard
+@native
 local function stbtt__bitmap()
     return {
         w      = nil,
@@ -79020,6 +79582,7 @@ end
 
 --- @return stbtt__point
 --- @nodiscard
+@native
 local function stbtt__point() return { x = nil, y = nil } end
 
 ----------------------------------------------
@@ -79030,6 +79593,7 @@ local function stbtt__point() return { x = nil, y = nil } end
 ---
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get8(b)
     if b.cursor >= b.size then return 0 end
     local result = b.data[b.offset + b.cursor + 1]
@@ -79038,6 +79602,7 @@ local function stbtt__buf_get8(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_peek8(b)
     if b.cursor >= b.size then return 0 end
     return b.data[b.offset + b.cursor + 1]
@@ -79045,6 +79610,7 @@ end
 
 --- @param b stbtt__buf
 --- @param o int
+@native
 local function stbtt__buf_seek(b, o)
     STBTT_assert(not (o > b.size or o < 0))
     if o > b.size or o < 0 then
@@ -79056,10 +79622,12 @@ end
 
 --- @param b stbtt__buf
 --- @param o int
+@native
 local function stbtt__buf_skip(b, o)
     stbtt__buf_seek(b, b.cursor + o)
 end
 
+@native
 local function stbtt__buf_get(b, n)
     local v = 0
     STBTT_assert(n >= 1 and n <= 4)
@@ -79074,6 +79642,7 @@ end
 --- @param offset? int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__new_buf(p, size, offset)
     local r = stbtt__buf(offset)
     STBTT_assert(size < 0x40000000)
@@ -79084,8 +79653,10 @@ local function stbtt__new_buf(p, size, offset)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get16(b) return stbtt__buf_get(b, 2) end
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get32(b) return stbtt__buf_get(b, 4) end
 
 --- @param b stbtt__buf
@@ -79093,6 +79664,7 @@ local function stbtt__buf_get32(b) return stbtt__buf_get(b, 4) end
 --- @param s int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__buf_range(b, o, s)
     local r = stbtt__new_buf(nil, 0)
     if (o < 0 or s < 0 or o > b.size or s > (b.size - o)) then
@@ -79105,6 +79677,7 @@ local function stbtt__buf_range(b, o, s)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_get_index(b)
     local count, start, offsize
     start = b.cursor
@@ -79119,6 +79692,7 @@ local function stbtt__cff_get_index(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_int(b)
     local b0 = stbtt__buf_get8(b)
     if b0 >= 32 and b0 <= 246 then return b0 - 139
@@ -79132,6 +79706,7 @@ local function stbtt__cff_int(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_skip_operand(b)
     local v
     local b0 = stbtt__buf_peek8(b)
@@ -79153,6 +79728,7 @@ end
 --- @param key int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__dict_get(b, key)
     stbtt__buf_seek(b, 0)
     while b.cursor < b.size do
@@ -79174,6 +79750,7 @@ end
 --- @param outcount int
 --- @return int[]
 --- @nodiscard
+@native
 local function stbtt__dict_get_ints(b, key, outcount)
     local operands = stbtt__dict_get(b, key)
     local out = {}
@@ -79185,6 +79762,7 @@ local function stbtt__dict_get_ints(b, key, outcount)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_index_count(b)
     stbtt__buf_seek(b, 0)
     return stbtt__buf_get16(b)
@@ -79194,6 +79772,7 @@ end
 --- @param i int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__cff_index_get(b, i)
     local count, offsize, start, _end
     stbtt__buf_seek(b, 0)
@@ -79237,17 +79816,26 @@ end
 ---     stbtt_GetNumberOfFonts_internal
 ---     stbtt__get_svg
 
+@native
 local function ttUSHORT(p, offset) return stbtt_uint16(p[offset + 1] * 256 + p[offset + 2]) end
+@native
 local function ttSHORT(p, offset)  return stbtt_int16(p[offset + 1] * 256 + p[offset + 2]) end
+@native
 local function ttULONG(p, offset)  return stbtt_uint32(bit32.lshift(p[offset + 1], 24) + bit32.lshift(p[offset + 2], 16) + bit32.lshift(p[offset + 3], 8) + p[offset + 4]) end
+@native
 local function ttLONG(p, offset)   return stbtt_int32(bit32.lshift(p[offset + 1], 24) + bit32.lshift(p[offset + 2], 16) + bit32.lshift(p[offset + 3], 8) + p[offset + 4]) end
 
+@native
 local function ttBYTE(p, offset) return stbtt_uint8(p[offset + 1]) end
+@native
 local function ttCHAR(p, offset) return stbtt_int8(p[offset + 1]) end
 
+@native
 local function stbtt_tag4(p, c0, c1, c2, c3, offset) offset = offset or 0; return p[offset + 1] == c0 and p[offset + 2] == c1 and p[offset + 3] == c2 and p[offset + 4] == c3 end
+@native
 local function stbtt_tag(p, str, offset) local c0, c1, c2, c3 = string.byte(str, 1, 4); return stbtt_tag4(p, c0, c1, c2, c3, offset) end
 
+@native
 local function stbtt__isfont(font)
     -- check the version number
     if stbtt_tag4(font, 49, 0, 0, 0) then return true end -- TrueType 1
@@ -79259,6 +79847,7 @@ local function stbtt__isfont(font)
 end
 
 -- @OPTIMIZE: binary search
+@native
 local function stbtt__find_table(data, font_start, tag)
     local num_tables = ttUSHORT(data, font_start + 4)
     local tabledir = font_start + 12
@@ -79271,6 +79860,7 @@ local function stbtt__find_table(data, font_start, tag)
     return 0
 end
 
+@native
 local function stbtt_GetFontOffsetForIndex_internal(font_collection, index)
     -- if it's just a font, there's only one valid index
     if stbtt__isfont(font_collection) then
@@ -79294,6 +79884,7 @@ end
 
 --- @param cff      stbtt__buf
 --- @param fontdict stbtt__buf
+@native
 local function stbtt__get_subrs(cff, fontdict)
     local private_loc = stbtt__dict_get_ints(fontdict, 18, 2)
     if (private_loc[2] == 0 or private_loc[1] == 0) then
@@ -79309,6 +79900,7 @@ local function stbtt__get_subrs(cff, fontdict)
 end
 
 --- @return bool
+@native
 local function stbtt_InitFont_internal(info, data, fontstart)
     local cmap
     local numTables
@@ -79436,6 +80028,7 @@ end
 -- Returns 0 if the character codepoint is not defined in the font.
 --- @param info              stbtt_fontinfo
 --- @param unicode_codepoint int
+@native
 function stbtt_FindGlyphIndex(info, unicode_codepoint)
     local data = info.data
     local index_map = info.index_map
@@ -79541,6 +80134,7 @@ end
 --- @param y        stbtt_int32
 --- @param cx       stbtt_int32
 --- @param cy       stbtt_int32
+@native
 local function stbtt_setvertex(v, vtx_type, x, y, cx, cy)
     v.type = vtx_type
     v.x = (stbtt_int16)(x)
@@ -79549,6 +80143,7 @@ local function stbtt_setvertex(v, vtx_type, x, y, cx, cy)
     v.cy = (stbtt_int16)(cy)
 end
 
+@native
 local function stbtt__GetGlyfOffset(info, glyph_index)
     STBTT_assert(info.cff.size == 0)
 
@@ -79569,6 +80164,7 @@ end
 
 -- Gets the bounding box of the visible part of the glyph, in unscaled coordinates
 --- @return integer, integer?, integer?, integer?, integer?
+@native
 local function stbtt_GetGlyphBox(info, glyph_index)
     local n, x0, y0, x1, y1
 
@@ -79597,6 +80193,7 @@ end
 --- @param scy          stbtt_int32
 --- @param cx           stbtt_int32
 --- @param cy           stbtt_int32
+@native
 local function stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx, sy, scx, scy, cx, cy)
     if start_off then
         if was_off then
@@ -79621,6 +80218,7 @@ end
 --- @param glyph_index int
 --- @return int             num_vertices
 --- @return stbtt_vertex[]? vertices
+@native
 local function stbtt__GetGlyphShapeTT(info, glyph_index)
     local data = info.data
     local num_vertices
@@ -79840,7 +80438,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
             n = STBTT_sqrt(mtx[3] * mtx[3] + mtx[4] * mtx[4])
 
             -- Get indexed glyph.
-            comp_num_vertices, comp_verts = stbtt_GetGlyphShape(info, gidx)
+            comp_num_vertices, comp_verts = stbtt_GetGlyphShapeUncached(info, gidx) -- [Luau] transformed in place below: must be a fresh copy
             if comp_num_vertices > 0 then
                 -- Transform vertices.
                 for i = 1, comp_num_vertices do
@@ -79878,6 +80476,7 @@ end
 --- @param c stbtt__csctx
 --- @param x stbtt_int32
 --- @param y stbtt_int32
+@native
 local function stbtt__track_vertex(c, x, y)
     if x > c.max_x or not c.started then c.max_x = x end
     if y > c.max_y or not c.started then c.max_y = y end
@@ -79894,6 +80493,7 @@ end
 --- @param cy       stbtt_int32
 --- @param cx1      stbtt_int32
 --- @param cy1      stbtt_int32
+@native
 local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
     if c.bounds then
         stbtt__track_vertex(c, x, y)
@@ -79909,6 +80509,7 @@ local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
 end
 
 --- @param ctx stbtt__csctx
+@native
 local function stbtt__csctx_close_shape(ctx)
     if ctx.first_x ~= ctx.x or ctx.first_y ~= ctx.y then
         stbtt__csctx_v(ctx, STBTT_VTX.LINE, trunc(ctx.first_x), trunc(ctx.first_y), 0, 0, 0, 0)
@@ -79918,6 +80519,7 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
+@native
 local function stbtt__csctx_rmove_to(ctx, dx, dy)
     stbtt__csctx_close_shape(ctx)
     ctx.x = ctx.x + dx
@@ -79930,6 +80532,7 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
+@native
 local function stbtt__csctx_rline_to(ctx, dx, dy)
     ctx.x = ctx.x + dx
     ctx.y = ctx.y + dy
@@ -79943,6 +80546,7 @@ end
 --- @param dy2 float
 --- @param dx3 float
 --- @param dy3 float
+@native
 local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     local cx1 = ctx.x + dx1
     local cy1 = ctx.y + dy1
@@ -79953,6 +80557,7 @@ local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     stbtt__csctx_v(ctx, STBTT_VTX.CUBIC, trunc(ctx.x), trunc(ctx.y), trunc(cx1), trunc(cy1), trunc(cx2), trunc(cy2))
 end
 
+@native
 local function stbtt__get_subr(idx, n)
     local count = stbtt__cff_index_count(idx)
     local bias = 107
@@ -79968,6 +80573,7 @@ local function stbtt__get_subr(idx, n)
     return stbtt__cff_index_get(idx, n)
 end
 
+@native
 local function stbtt__cid_get_glyph_subrs(info, glyph_index)
     local fdselect = info.fdselect
     local fdselector = -1
@@ -79998,6 +80604,7 @@ end
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
 --- @param c           stbtt__csctx
+@native
 local function stbtt__run_charstring(info, glyph_index, c)
     local in_header = true
     local maskbits = 0
@@ -80271,6 +80878,7 @@ end
 --- @param glyph_index int
 --- @return int             num_vertices
 --- @return stbtt_vertex[]? vertices
+@native
 function stbtt__GetGlyphShapeT2(info, glyph_index)
     -- runs the charstring twice, once to count and once to output (to avoid realloc)
     local vertices = nil
@@ -80296,6 +80904,7 @@ end
 --- @return int y0
 --- @return int x1
 --- @return int y1
+@native
 function stbtt__GetGlyphInfoT2(info, glyph_index)
     local c = STBTT__CSCTX_INIT(true)
     local r = stbtt__run_charstring(info, glyph_index, c)
@@ -80317,7 +80926,8 @@ end
 -- its x,y, using cx,cy as the bezier control point.
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
-function stbtt_GetGlyphShape(info, glyph_index)
+@native
+function stbtt_GetGlyphShapeUncached(info, glyph_index)
     if info.cff.size == 0 then
         return stbtt__GetGlyphShapeTT(info, glyph_index)
     else
@@ -80325,11 +80935,32 @@ function stbtt_GetGlyphShape(info, glyph_index)
     end
 end
 
+@native
+function stbtt_GetGlyphShape(info, glyph_index)
+    -- [Luau] shapes don't depend on the size: cache them per font (baking a new size re-used to re-parse every glyph).
+    -- Callers only read the vertices (stbtt_FreeShape is a no-op).
+    local cache = info._ShapeCache
+    if cache == nil then cache = {}; info._ShapeCache = cache end
+    local e = cache[glyph_index]
+    if e == nil then
+        local n, v
+        if info.cff.size == 0 then
+            n, v = stbtt__GetGlyphShapeTT(info, glyph_index)
+        else
+            n, v = stbtt__GetGlyphShapeT2(info, glyph_index)
+        end
+        e = { n, v }
+        cache[glyph_index] = e
+    end
+    return e[1], e[2]
+end
+
 -- leftSideBearing is the offset from the current horizontal position to the left edge of the character
 -- advanceWidth is the offset from the current horizontal position to the next horizontal position
 --   these are expressed in unscaled coordinates
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
+@native
 function stbtt_GetGlyphHMetrics(info, glyph_index)
     local numOfLongHorMetrics = ttUSHORT(info.data, info.hhea + 34)
 
@@ -80352,6 +80983,7 @@ end
 --   these are expressed in unscaled coordinates, so you must multiply by
 --   the scale factor for a given size
 --- @param info stbtt_fontinfo
+@native
 function stbtt_GetFontVMetrics(info)
     local ascent = ttSHORT(info.data, info.hhea + 4)
     local descent = ttSHORT(info.data, info.hhea + 6)
@@ -80368,6 +81000,7 @@ end
 -- so if you prefer to measure height by the ascent only, use a similar calculation.
 --- @param info   stbtt_fontinfo
 --- @param height float
+@native
 function stbtt_ScaleForPixelHeight(info, height)
     local fheight = ttSHORT(info.data, info.hhea + 4) - ttSHORT(info.data, info.hhea + 6)
     return height / fheight
@@ -80388,6 +81021,7 @@ end
 --- @param scale_y float
 --- @param shift_x float
 --- @param shift_y float
+@native
 function stbtt_GetGlyphBitmapBoxSubpixel(font, glyph, scale_x, scale_y, shift_x, shift_y)
     local n, x0, y0, x1, y1 = stbtt_GetGlyphBox(font, glyph)
 
@@ -80418,6 +81052,7 @@ end
 --- @param glyph   int
 --- @param scale_x float
 --- @param scale_y float
+@native
 function stbtt_GetGlyphBitmapBox(font, glyph, scale_x, scale_y)
     return stbtt_GetGlyphBitmapBoxSubpixel(font, glyph, scale_x, scale_y, 0.0, 0.0)
 end
@@ -80445,6 +81080,7 @@ end
 --- @param y0       float
 --- @param x1       float
 --- @param y1       float
+@native
 local function stbtt__handle_clipped_edge(scanline, x, e, x0, y0, x1, y1)
     if y0 == y1 then return end
     STBTT_assert(y0 < y1)
@@ -80486,6 +81122,7 @@ end
 --- @param height       float
 --- @param top_width    float
 --- @param bottom_width float
+@native
 local function stbtt__sized_trapezoid_area(height, top_width, bottom_width)
     STBTT_assert(top_width >= 0)
     STBTT_assert(bottom_width >= 0)
@@ -80497,12 +81134,14 @@ end
 --- @param tx1    float
 --- @param bx0    float
 --- @param bx1    float
+@native
 local function stbtt__position_trapezoid_area(height, tx0, tx1, bx0, bx1)
     return stbtt__sized_trapezoid_area(height, tx1 - tx0, bx1 - bx0)
 end
 
 --- @param height float
 --- @param width  float
+@native
 local function stbtt__sized_triangle_area(height, width)
     return height * width / 2
 end
@@ -80512,6 +81151,7 @@ end
 --- @param len           int
 --- @param e             stbtt__active_edge
 --- @param y_top         float
+@native
 local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_top)
     local y_bottom = y_top + 1
 
@@ -80734,11 +81374,14 @@ end
 --- @param vsubsample int
 --- @param off_x      int
 --- @param off_y      int
+local rasterize_scanline, rasterize_scanline2 = {}, {} -- [Luau] reused: fully cleared per scanline below
+@native
 local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, off_y)
     local active = nil
 
-    local scanline = {} -- [Port] size = result.w, 0-based
-    local scanline2 = {} -- [Port] size = result.w + 1, 0-based
+    active_pool_n = 0 -- every active edge of the previous call is dead
+    local scanline = rasterize_scanline -- [Port] size = result.w, 0-based
+    local scanline2 = rasterize_scanline2 -- [Port] size = result.w + 1, 0-based
 
     STBTT__NOTUSED(vsubsample)
 
@@ -80796,20 +81439,18 @@ local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, of
 
         do
             local sum = 0
+            local pixels, base = result.pixels, j * result.stride + 1
             for i = 0, result.w - 1 do
-                local k
-                local m
                 sum = sum + scanline2[i]
-                k = scanline[i] + sum
-                k = STBTT_fabs(k) * 255 + 0.5
-                m = trunc(k)
+                -- [Luau] k >= 0: trunc == floor, and m is already 0..255 (unsigned_char() is a no-op)
+                local m = math.floor(math.abs(scanline[i] + sum) * 255 + 0.5)
                 if m > 255 then m = 255 end
-                result.pixels[j * result.stride + i + 1] = unsigned_char(m)
+                pixels[base + i] = m
             end
         end
 
         -- advance all the edges
-        step = active
+        local step = active
         while step do
             step.fx = step.fx + step.fdx -- advance to position for current scanline
             step = step.next -- advance through list
@@ -80829,8 +81470,45 @@ local STBTT__COMPARE = function(a, b)
 end
 
 --- @param p stbtt__edge[]
+@native
 local function stbtt__sort_edges(p)
     STBTT_sort(p, STBTT__COMPARE)
+end
+
+-- [Luau] sorts p[lo..hi] by y0 without a comparator callback (like upstream's stbtt__sort_edges_quicksort + ins_sort)
+@native
+local function stbtt__sort_edges_range(p, lo, hi)
+    while hi - lo > 12 do
+        -- median of three -> p[lo]
+        local m = math.floor((lo + hi) / 2)
+        local a, b, c = p[lo], p[m], p[hi]
+        if b.y0 < a.y0 then a, b = b, a end
+        if c.y0 < b.y0 then b, c = c, b; if b.y0 < a.y0 then a, b = b, a end end
+        p[lo], p[m], p[hi] = b, a, c
+        local pivot = p[lo].y0
+        local i, j = lo + 1, hi
+        while true do
+            while p[i].y0 < pivot do i = i + 1 end
+            while pivot < p[j].y0 do j = j - 1 end
+            if i >= j then break end
+            p[i], p[j] = p[j], p[i]
+            i = i + 1; j = j - 1
+        end
+        p[lo], p[j] = p[j], p[lo]
+        -- recurse into the smaller side, loop on the larger
+        if j - lo < hi - j then
+            stbtt__sort_edges_range(p, lo, j - 1); lo = j + 1
+        else
+            stbtt__sort_edges_range(p, j + 1, hi); hi = j - 1
+        end
+    end
+    for i = lo + 1, hi do
+        local t = p[i]
+        local y = t.y0
+        local j = i - 1
+        while j >= lo and p[j].y0 > y do p[j + 1] = p[j]; j = j - 1 end
+        p[j + 1] = t
+    end
 end
 
 --- @param result   stbtt__bitmap
@@ -80844,6 +81522,8 @@ end
 --- @param off_x    int
 --- @param off_y    int
 --- @param invert   bool
+local rasterize_edges = {}
+@native
 local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y, shift_x, shift_y, off_x, off_y, invert)
     local y_scale_inv = (invert) and -scale_y or scale_y
     local vsubsample = 1 -- STBTT_RASTERIZER_VERSION == 2
@@ -80855,7 +81535,13 @@ local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y,
         n = n + wcount[i]
     end
 
-    local e = {} for i = 1, n + 1 do e[i] = stbtt__edge() end -- add an extra one as a sentinel
+    -- [Luau] edges reused across calls; unused entries are sentinels (y0 = nil) like the unfilled ones upstream
+    local e = rasterize_edges
+    for i = 1, n + 1 do
+        local ed = e[i]
+        if ed == nil then e[i] = stbtt__edge() else ed.y0 = nil; ed.invert = false end
+    end
+    for i = n + 2, #e do e[i].y0 = nil end
     n = 0
 
     local m = 0
@@ -80899,7 +81585,7 @@ local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y,
     end
 
     -- now sort the edges by their highest point (should snap to integer, and then by x)
-    stbtt__sort_edges(e)
+    stbtt__sort_edges_range(e, 1, n) -- [Luau] e[n + 1..] are y0 == nil sentinels, already last
 
     -- now, traverse the scanlines and find the intersections on each scanline, use xor winding rule
     stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, off_y)
@@ -80909,6 +81595,7 @@ end
 --- @param n       int
 --- @param x       float
 --- @param y       float
+@native
 local function stbtt__add_point(points, n, x, y)
     if points == nil then return end -- during first pass, it's unallocated
     points[n + 1].x = x
@@ -80927,6 +81614,7 @@ end
 --- @param objspace_flatness_squared float
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
+@native
 local function stbtt__tesselate_curve(points, num_points, x0, y0, x1, y1, x2, y2, objspace_flatness_squared, n)
     -- midpoint
     local mx = (x0 + 2 * x1 + x2) / 4
@@ -80963,6 +81651,7 @@ end
 --- @param objspace_flatness_squared float
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
+@native
 local function stbtt__tesselate_cubic(points, num_points, x0, y0, x1, y1, x2, y2, x3, y3, objspace_flatness_squared, n)
     -- @TODO this "flatness" calculation is just made-up nonsense that seems to work well enough
     local dx0 = x1 - x0
@@ -81014,6 +81703,8 @@ end
 --- @return stbtt__point[]? points
 --- @return int?            num_contours
 --- @return int[]?          contour_lengths
+local flatten_points = {}
+@native
 local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     local points = nil
     local num_points = 0
@@ -81038,8 +81729,8 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     for pass = 0, 1 do
         local x, y = 0, 0
         if pass == 1 then
-            points = {}
-            for i = 1, num_points do points[i] = stbtt__point() end
+            points = flatten_points -- [Luau] reused across calls (only [1..num_points] is read)
+            for i = #points + 1, num_points do points[i] = stbtt__point() end
         end
         num_points = 0
         n = -1
@@ -81096,6 +81787,7 @@ end
 --- @param x_off              int
 --- @param y_off              int
 --- @param invert             bool
+@native
 local function stbtt_Rasterize(result, flatness_in_pixels, vertices, num_verts, scale_x, scale_y, shift_x, shift_y, x_off, y_off, invert)
     local scale = (scale_x > scale_y) and scale_y or scale_x
 
@@ -81123,6 +81815,7 @@ end
 --- @param shift_x    float
 --- @param shift_y    float
 --- @param glyph      int
+@native
 local function stbtt_MakeGlyphBitmapSubpixel(info, output, out_w, out_h, out_stride, scale_x, scale_y, shift_x, shift_y, glyph)
     local num_verts, vertices = stbtt_GetGlyphShape(info, glyph)
     local gbm = stbtt__bitmap()
@@ -81176,6 +81869,7 @@ local STBTT__OVER_MASK = STBTT_MAX_OVERSAMPLE - 1
 --- @param h               int
 --- @param stride_in_bytes int
 --- @param kernel_width    unsigned_int
+@native
 local function stbtt__h_prefilter(pixels, w, h, stride_in_bytes, kernel_width)
     local buffer = {}
     local safe_w = w - kernel_width
@@ -81205,6 +81899,7 @@ end
 --- @param h               int
 --- @param stride_in_bytes int
 --- @param kernel_width    unsigned_int
+@native
 local function stbtt__v_prefilter(pixels, w, h, stride_in_bytes, kernel_width)
     local buffer = {}
     local safe_h = h - kernel_width
@@ -81231,6 +81926,7 @@ end
 
 --- @param oversample int
 --- @return float
+@native
 local function stbtt__oversample_shift(oversample)
     if oversample == 0 then
         return 0.0
@@ -81257,6 +81953,7 @@ end
 --- @param prefilter_x int
 --- @param prefilter_y int
 --- @param glyph       int
+@native
 function stbtt_MakeGlyphBitmapSubpixelPrefilter(info, output, out_w, out_h, out_stride, scale_x, scale_y, shift_x, shift_y, prefilter_x, prefilter_y, glyph)
     stbtt_MakeGlyphBitmapSubpixel(info, output, out_w - (prefilter_x - 1), out_h - (prefilter_y - 1), out_stride, scale_x, scale_y, shift_x, shift_y, glyph)
 
@@ -81310,6 +82007,7 @@ end
 -- return '0' for index 0, and -1 for all other indices.
 --- @param data  table
 --- @param index int
+@native
 function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForIndex_internal(data, index) end
 
 -- Given an offset into the file that defines a font, this function builds
@@ -81320,6 +82018,7 @@ function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForI
 --- @param info   stbtt_fontinfo
 --- @param data   table
 --- @param offset int
+@native
 function stbtt_InitFont(info, data, offset) return stbtt_InitFont_internal(info, data, offset) end
 
 return {
@@ -81855,6 +82554,7 @@ return {
     ImFontBaked_BuildLoadGlyph = ImFontBaked_BuildLoadGlyph,
     ImFontBaked_BuildLoadGlyphAdvanceX = ImFontBaked_BuildLoadGlyphAdvanceX,
     ImFontCalcTextSizeEx = ImFontCalcTextSizeEx,
+    ImFontCalcTextSizeXY = ImFontCalcTextSizeXY,
     ImFontCalcWordWrapPositionEx = ImFontCalcWordWrapPositionEx,
     ImFontCalcWordWrapPositionEx_Uncached = ImFontCalcWordWrapPositionEx_Uncached,
     ImFontConfig = ImFontConfig,
@@ -82217,6 +82917,7 @@ return {
     stbtt_GetGlyphBitmapBoxSubpixel = stbtt_GetGlyphBitmapBoxSubpixel,
     stbtt_GetGlyphHMetrics = stbtt_GetGlyphHMetrics,
     stbtt_GetGlyphShape = stbtt_GetGlyphShape,
+    stbtt_GetGlyphShapeUncached = stbtt_GetGlyphShapeUncached,
     stbtt_InitFont = stbtt_InitFont,
     stbtt_MakeGlyphBitmapSubpixelPrefilter = stbtt_MakeGlyphBitmapSubpixelPrefilter,
     stbtt_ScaleForPixelHeight = stbtt_ScaleForPixelHeight,

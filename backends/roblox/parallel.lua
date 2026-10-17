@@ -17,15 +17,18 @@ local PrimTexId, PrimVtxBuffer = Render.PrimTexId, Render.PrimVtxBuffer
 local M = Render.Parallel
 local writei32, writef64, copy = buffer.writei32, buffer.writef64, buffer.copy
 local RasterJobs = Raster.RasterJobs
-local VTX, REC, REC_A, REC_B, REC_C, JOB = Raster.VTX, Raster.REC, Raster.REC_A, Raster.REC_B, Raster.REC_C, Raster.JOB
+local VTX, REC, REC_A, REC_B, REC_C, REC_D, JOB = Raster.VTX, Raster.REC, Raster.REC_A, Raster.REC_B, Raster.REC_C,
+    Raster.REC_D, Raster.JOB
 assert(VTX == VTX_STRIDE, "raster.lua: vertex layout differs from ImDrawVert")
 
 -- Sync / SyncDrop / Inline: test hooks (inline "workers"; drop half their results; bypass the executor)
-M.Config = { Actors = 4, MinTiles = 4, MinPixels = 16384, MaxBytesPerPixel = 3, Sync = false, SyncDrop = false,
+M.Config = { Actors = 4, MinTiles = 1, MinPixels = 2048, MaxBytesPerPixel = 0, Sync = false, SyncDrop = false,
     Inline = false, Worker = nil }
 M.Stats = {
     ParallelFlushes = 0, SerialFlushes = 0, Tiles = 0, Fallbacks = 0, Late = 0, Pack = 0, Flush = 0, Finish = 0,
     SendBytes = 0, TexSends = 0, TexBytes = 0, Rects = 0, Recv = 0, RecvBytes = 0,
+    -- why a flush stayed serial: dispatch window closed / Actors not ready / below MinTiles or MinPixels / over MaxBytesPerPixel
+    SerialClosed = 0, SerialNotReady = 0, SerialSmall = 0, SerialBytes = 0,
 }
 local Stats = M.Stats
 
@@ -160,9 +163,10 @@ function M.Tile(img, list, count: number, x0: number, y0: number, tox: number, t
             local vb = PrimVtxBuffer[p]
             copy(P, pn + REC_A, vb, PrimA[p], VTX)
             copy(P, pn + REC_C, vb, PrimC[p], VTX)
-            if not d then
+            if not d or gk == 3 then
                 copy(P, pn + REC_B, vb, PrimB[p], VTX)
             end
+            if gk == 3 then copy(P, pn + REC_D, vb, d, VTX) end
             pn += REC
         end
         writei32(T, to, poff[p])
@@ -232,6 +236,21 @@ function M.Finish()
     Stats.Finish += os.clock() - t0
 end
 
+-- A whole texture for an Actor without a copy (new id: grow/repack): only the rows above FillRow, the Actor fills the
+-- rest with Fill (a new atlas is mostly empty). Built once per version, shared by every Actor's SendMessage.
+local function fullCopy(rec, v: number): buffer
+    if rec.HeadV ~= v then
+        local src, len = rec.Buffer, (rec.FillRow or rec.Height) * rec.Width * 4
+        local head = src
+        if len < buffer.len(src) then
+            head = buffer.create(len)
+            copy(head, 0, src, 0, len)
+        end
+        rec.Head, rec.HeadV = head, v
+    end
+    return rec.Head
+end
+
 function M.Flush()
     local n = jobs.N
     if n == 0 then
@@ -249,6 +268,11 @@ function M.Flush()
             bytes += Pn[a] + Tn[a]
         end
         par = bytes <= cfg.MaxBytesPerPixel * jobs.Px
+        if not par then Stats.SerialBytes += 1 end
+    elseif not par then
+        if not open then Stats.SerialClosed += 1
+        elseif not (cfg.Sync or ready) then Stats.SerialNotReady += 1
+        else Stats.SerialSmall += 1 end
     end
     batch_no += 1
     local b = jobs
@@ -272,14 +296,38 @@ function M.Flush()
         local tex, s = NO_TEX, sent[a]
         for rec, id in used[a] do
             local v = rec.V or 0
-            if s[rec] ~= v then
+            local had = s[rec]
+            if had ~= v then
                 if tex == NO_TEX then
                     tex = {}
                 end
                 s[rec] = v
-                tex[#tex + 1] = { id, rec.Buffer, rec.Width, rec.Height }
+                -- the Actor has version `had`: send only the rows changed since then when the log covers them
+                local y0, y1, log = math.huge, -1, rec.Log
+                if had and log then
+                    for k = had + 1, v do
+                        local e = log[k]
+                        if not e then y0 = nil; break end
+                        if e[2] > e[1] then
+                            if e[1] < y0 then y0 = e[1] end
+                            if e[2] > y1 then y1 = e[2] end
+                        end
+                    end
+                else
+                    y0 = nil
+                end
+                if y0 == nil then
+                    local buf = fullCopy(rec, v)
+                    tex[#tex + 1] = { id, buf, rec.Width, rec.Height, rec.Fill or 0 }
+                    Stats.TexBytes += buffer.len(buf)
+                elseif y1 > y0 then
+                    local row = rec.Width * 4
+                    local patch = buffer.create((y1 - y0) * row)
+                    copy(patch, 0, rec.Buffer, y0 * row, (y1 - y0) * row)
+                    tex[#tex + 1] = { id, false, rec.Width, rec.Height, y0 * row, patch }
+                    Stats.TexBytes += buffer.len(patch)
+                end
                 Stats.TexSends += 1
-                Stats.TexBytes += buffer.len(rec.Buffer)
             end
         end
         Stats.SendBytes += Pn[a] + tl

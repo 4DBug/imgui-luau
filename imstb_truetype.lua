@@ -168,7 +168,7 @@ local stbtt_MakeGlyphBitmapSubpixelPrefilter
 local stbtt_GetFontVMetrics
 local stbtt__GetGlyphInfoT2
 local stbtt__GetGlyphShapeT2
-local stbtt_GetGlyphShape
+local stbtt_GetGlyphShape, stbtt_GetGlyphShapeUncached
 local stbtt_GetGlyphBitmapBox
 local stbtt_GetGlyphBitmapBoxSubpixel
 local stbtt_GetGlyphHMetrics
@@ -221,6 +221,7 @@ local trunc = function(x)
     end
 end
 
+@native
 local function STBTT__NOTUSED(_) return end
 
 --- @alias stbtt_int32 int
@@ -243,6 +244,7 @@ local unsigned_char = stbtt_uint8
 --- @param initial_offset? int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__buf(initial_offset)
     return {
         data   = nil,
@@ -277,6 +279,7 @@ end
 --- @field fdselect         stbtt__buf  # map from glyph to fontdict
 
 --- @return stbtt_fontinfo
+@native
 function stbtt_fontinfo()
     return {
         data      = nil,
@@ -317,6 +320,7 @@ end
 
 --- @return stbtt_vertex
 --- @nodiscard
+@native
 local function stbtt_vertex()
     return {
         x       = nil,
@@ -346,6 +350,7 @@ end
 
 --- @return stbtt__csctx
 --- @nodiscard
+@native
 local function stbtt__csctx()
     return {
         bounds  = false,
@@ -367,6 +372,7 @@ end
 --- @param bounds bool
 --- @return stbtt__csctx
 --- @nodiscard
+@native
 local function STBTT__CSCTX_INIT(bounds)
     local this = stbtt__csctx()
 
@@ -400,6 +406,7 @@ end
 
 --- @return stbtt__edge
 --- @nodiscard
+@native
 local function stbtt__edge()
     return {
         x0 = nil,
@@ -414,6 +421,7 @@ end
 
 --- @return stbtt__active_edge
 --- @nodiscard
+@native
 local function stbtt__active_edge()
     return {
         next = nil,
@@ -428,8 +436,15 @@ end
 
 --- @return stbtt__active_edge
 --- @nodiscard
+local active_pool, active_pool_n = {}, 0 -- [Luau] reused per stbtt__rasterize_sorted_edges() call (C: stbtt__hheap)
+@native
 local function stbtt__new_active(e, off_x, start_point)
-    local z = stbtt__active_edge()
+    active_pool_n = active_pool_n + 1
+    local z = active_pool[active_pool_n]
+    if z == nil then
+        z = stbtt__active_edge()
+        active_pool[active_pool_n] = z
+    end
     local dxdy = (e.x1 - e.x0) / (e.y1 - e.y0)
 
     z.fdx = dxdy
@@ -453,6 +468,7 @@ end
 
 --- @return stbtt__bitmap
 --- @nodiscard
+@native
 local function stbtt__bitmap()
     return {
         w      = nil,
@@ -468,6 +484,7 @@ end
 
 --- @return stbtt__point
 --- @nodiscard
+@native
 local function stbtt__point() return { x = nil, y = nil } end
 
 ----------------------------------------------
@@ -478,6 +495,7 @@ local function stbtt__point() return { x = nil, y = nil } end
 ---
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get8(b)
     if b.cursor >= b.size then return 0 end
     local result = b.data[b.offset + b.cursor + 1]
@@ -486,6 +504,7 @@ local function stbtt__buf_get8(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_peek8(b)
     if b.cursor >= b.size then return 0 end
     return b.data[b.offset + b.cursor + 1]
@@ -493,6 +512,7 @@ end
 
 --- @param b stbtt__buf
 --- @param o int
+@native
 local function stbtt__buf_seek(b, o)
     STBTT_assert(not (o > b.size or o < 0))
     if o > b.size or o < 0 then
@@ -504,10 +524,12 @@ end
 
 --- @param b stbtt__buf
 --- @param o int
+@native
 local function stbtt__buf_skip(b, o)
     stbtt__buf_seek(b, b.cursor + o)
 end
 
+@native
 local function stbtt__buf_get(b, n)
     local v = 0
     STBTT_assert(n >= 1 and n <= 4)
@@ -522,6 +544,7 @@ end
 --- @param offset? int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__new_buf(p, size, offset)
     local r = stbtt__buf(offset)
     STBTT_assert(size < 0x40000000)
@@ -532,8 +555,10 @@ local function stbtt__new_buf(p, size, offset)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get16(b) return stbtt__buf_get(b, 2) end
 --- @param b stbtt__buf
+@native
 local function stbtt__buf_get32(b) return stbtt__buf_get(b, 4) end
 
 --- @param b stbtt__buf
@@ -541,6 +566,7 @@ local function stbtt__buf_get32(b) return stbtt__buf_get(b, 4) end
 --- @param s int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__buf_range(b, o, s)
     local r = stbtt__new_buf(nil, 0)
     if (o < 0 or s < 0 or o > b.size or s > (b.size - o)) then
@@ -553,6 +579,7 @@ local function stbtt__buf_range(b, o, s)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_get_index(b)
     local count, start, offsize
     start = b.cursor
@@ -567,6 +594,7 @@ local function stbtt__cff_get_index(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_int(b)
     local b0 = stbtt__buf_get8(b)
     if b0 >= 32 and b0 <= 246 then return b0 - 139
@@ -580,6 +608,7 @@ local function stbtt__cff_int(b)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_skip_operand(b)
     local v
     local b0 = stbtt__buf_peek8(b)
@@ -601,6 +630,7 @@ end
 --- @param key int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__dict_get(b, key)
     stbtt__buf_seek(b, 0)
     while b.cursor < b.size do
@@ -622,6 +652,7 @@ end
 --- @param outcount int
 --- @return int[]
 --- @nodiscard
+@native
 local function stbtt__dict_get_ints(b, key, outcount)
     local operands = stbtt__dict_get(b, key)
     local out = {}
@@ -633,6 +664,7 @@ local function stbtt__dict_get_ints(b, key, outcount)
 end
 
 --- @param b stbtt__buf
+@native
 local function stbtt__cff_index_count(b)
     stbtt__buf_seek(b, 0)
     return stbtt__buf_get16(b)
@@ -642,6 +674,7 @@ end
 --- @param i int
 --- @return stbtt__buf
 --- @nodiscard
+@native
 local function stbtt__cff_index_get(b, i)
     local count, offsize, start, _end
     stbtt__buf_seek(b, 0)
@@ -685,17 +718,26 @@ end
 ---     stbtt_GetNumberOfFonts_internal
 ---     stbtt__get_svg
 
+@native
 local function ttUSHORT(p, offset) return stbtt_uint16(p[offset + 1] * 256 + p[offset + 2]) end
+@native
 local function ttSHORT(p, offset)  return stbtt_int16(p[offset + 1] * 256 + p[offset + 2]) end
+@native
 local function ttULONG(p, offset)  return stbtt_uint32(bit32.lshift(p[offset + 1], 24) + bit32.lshift(p[offset + 2], 16) + bit32.lshift(p[offset + 3], 8) + p[offset + 4]) end
+@native
 local function ttLONG(p, offset)   return stbtt_int32(bit32.lshift(p[offset + 1], 24) + bit32.lshift(p[offset + 2], 16) + bit32.lshift(p[offset + 3], 8) + p[offset + 4]) end
 
+@native
 local function ttBYTE(p, offset) return stbtt_uint8(p[offset + 1]) end
+@native
 local function ttCHAR(p, offset) return stbtt_int8(p[offset + 1]) end
 
+@native
 local function stbtt_tag4(p, c0, c1, c2, c3, offset) offset = offset or 0; return p[offset + 1] == c0 and p[offset + 2] == c1 and p[offset + 3] == c2 and p[offset + 4] == c3 end
+@native
 local function stbtt_tag(p, str, offset) local c0, c1, c2, c3 = string.byte(str, 1, 4); return stbtt_tag4(p, c0, c1, c2, c3, offset) end
 
+@native
 local function stbtt__isfont(font)
     -- check the version number
     if stbtt_tag4(font, 49, 0, 0, 0) then return true end -- TrueType 1
@@ -707,6 +749,7 @@ local function stbtt__isfont(font)
 end
 
 -- @OPTIMIZE: binary search
+@native
 local function stbtt__find_table(data, font_start, tag)
     local num_tables = ttUSHORT(data, font_start + 4)
     local tabledir = font_start + 12
@@ -719,6 +762,7 @@ local function stbtt__find_table(data, font_start, tag)
     return 0
 end
 
+@native
 local function stbtt_GetFontOffsetForIndex_internal(font_collection, index)
     -- if it's just a font, there's only one valid index
     if stbtt__isfont(font_collection) then
@@ -742,6 +786,7 @@ end
 
 --- @param cff      stbtt__buf
 --- @param fontdict stbtt__buf
+@native
 local function stbtt__get_subrs(cff, fontdict)
     local private_loc = stbtt__dict_get_ints(fontdict, 18, 2)
     if (private_loc[2] == 0 or private_loc[1] == 0) then
@@ -757,6 +802,7 @@ local function stbtt__get_subrs(cff, fontdict)
 end
 
 --- @return bool
+@native
 local function stbtt_InitFont_internal(info, data, fontstart)
     local cmap
     local numTables
@@ -884,6 +930,7 @@ end
 -- Returns 0 if the character codepoint is not defined in the font.
 --- @param info              stbtt_fontinfo
 --- @param unicode_codepoint int
+@native
 function stbtt_FindGlyphIndex(info, unicode_codepoint)
     local data = info.data
     local index_map = info.index_map
@@ -989,6 +1036,7 @@ end
 --- @param y        stbtt_int32
 --- @param cx       stbtt_int32
 --- @param cy       stbtt_int32
+@native
 local function stbtt_setvertex(v, vtx_type, x, y, cx, cy)
     v.type = vtx_type
     v.x = (stbtt_int16)(x)
@@ -997,6 +1045,7 @@ local function stbtt_setvertex(v, vtx_type, x, y, cx, cy)
     v.cy = (stbtt_int16)(cy)
 end
 
+@native
 local function stbtt__GetGlyfOffset(info, glyph_index)
     STBTT_assert(info.cff.size == 0)
 
@@ -1017,6 +1066,7 @@ end
 
 -- Gets the bounding box of the visible part of the glyph, in unscaled coordinates
 --- @return integer, integer?, integer?, integer?, integer?
+@native
 local function stbtt_GetGlyphBox(info, glyph_index)
     local n, x0, y0, x1, y1
 
@@ -1045,6 +1095,7 @@ end
 --- @param scy          stbtt_int32
 --- @param cx           stbtt_int32
 --- @param cy           stbtt_int32
+@native
 local function stbtt__close_shape(vertices, num_vertices, was_off, start_off, sx, sy, scx, scy, cx, cy)
     if start_off then
         if was_off then
@@ -1069,6 +1120,7 @@ end
 --- @param glyph_index int
 --- @return int             num_vertices
 --- @return stbtt_vertex[]? vertices
+@native
 local function stbtt__GetGlyphShapeTT(info, glyph_index)
     local data = info.data
     local num_vertices
@@ -1288,7 +1340,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
             n = STBTT_sqrt(mtx[3] * mtx[3] + mtx[4] * mtx[4])
 
             -- Get indexed glyph.
-            comp_num_vertices, comp_verts = stbtt_GetGlyphShape(info, gidx)
+            comp_num_vertices, comp_verts = stbtt_GetGlyphShapeUncached(info, gidx) -- [Luau] transformed in place below: must be a fresh copy
             if comp_num_vertices > 0 then
                 -- Transform vertices.
                 for i = 1, comp_num_vertices do
@@ -1326,6 +1378,7 @@ end
 --- @param c stbtt__csctx
 --- @param x stbtt_int32
 --- @param y stbtt_int32
+@native
 local function stbtt__track_vertex(c, x, y)
     if x > c.max_x or not c.started then c.max_x = x end
     if y > c.max_y or not c.started then c.max_y = y end
@@ -1342,6 +1395,7 @@ end
 --- @param cy       stbtt_int32
 --- @param cx1      stbtt_int32
 --- @param cy1      stbtt_int32
+@native
 local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
     if c.bounds then
         stbtt__track_vertex(c, x, y)
@@ -1357,6 +1411,7 @@ local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
 end
 
 --- @param ctx stbtt__csctx
+@native
 local function stbtt__csctx_close_shape(ctx)
     if ctx.first_x ~= ctx.x or ctx.first_y ~= ctx.y then
         stbtt__csctx_v(ctx, STBTT_VTX.LINE, trunc(ctx.first_x), trunc(ctx.first_y), 0, 0, 0, 0)
@@ -1366,6 +1421,7 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
+@native
 local function stbtt__csctx_rmove_to(ctx, dx, dy)
     stbtt__csctx_close_shape(ctx)
     ctx.x = ctx.x + dx
@@ -1378,6 +1434,7 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
+@native
 local function stbtt__csctx_rline_to(ctx, dx, dy)
     ctx.x = ctx.x + dx
     ctx.y = ctx.y + dy
@@ -1391,6 +1448,7 @@ end
 --- @param dy2 float
 --- @param dx3 float
 --- @param dy3 float
+@native
 local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     local cx1 = ctx.x + dx1
     local cy1 = ctx.y + dy1
@@ -1401,6 +1459,7 @@ local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     stbtt__csctx_v(ctx, STBTT_VTX.CUBIC, trunc(ctx.x), trunc(ctx.y), trunc(cx1), trunc(cy1), trunc(cx2), trunc(cy2))
 end
 
+@native
 local function stbtt__get_subr(idx, n)
     local count = stbtt__cff_index_count(idx)
     local bias = 107
@@ -1416,6 +1475,7 @@ local function stbtt__get_subr(idx, n)
     return stbtt__cff_index_get(idx, n)
 end
 
+@native
 local function stbtt__cid_get_glyph_subrs(info, glyph_index)
     local fdselect = info.fdselect
     local fdselector = -1
@@ -1446,6 +1506,7 @@ end
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
 --- @param c           stbtt__csctx
+@native
 local function stbtt__run_charstring(info, glyph_index, c)
     local in_header = true
     local maskbits = 0
@@ -1719,6 +1780,7 @@ end
 --- @param glyph_index int
 --- @return int             num_vertices
 --- @return stbtt_vertex[]? vertices
+@native
 function stbtt__GetGlyphShapeT2(info, glyph_index)
     -- runs the charstring twice, once to count and once to output (to avoid realloc)
     local vertices = nil
@@ -1744,6 +1806,7 @@ end
 --- @return int y0
 --- @return int x1
 --- @return int y1
+@native
 function stbtt__GetGlyphInfoT2(info, glyph_index)
     local c = STBTT__CSCTX_INIT(true)
     local r = stbtt__run_charstring(info, glyph_index, c)
@@ -1765,7 +1828,8 @@ end
 -- its x,y, using cx,cy as the bezier control point.
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
-function stbtt_GetGlyphShape(info, glyph_index)
+@native
+function stbtt_GetGlyphShapeUncached(info, glyph_index)
     if info.cff.size == 0 then
         return stbtt__GetGlyphShapeTT(info, glyph_index)
     else
@@ -1773,11 +1837,32 @@ function stbtt_GetGlyphShape(info, glyph_index)
     end
 end
 
+@native
+function stbtt_GetGlyphShape(info, glyph_index)
+    -- [Luau] shapes don't depend on the size: cache them per font (baking a new size re-used to re-parse every glyph).
+    -- Callers only read the vertices (stbtt_FreeShape is a no-op).
+    local cache = info._ShapeCache
+    if cache == nil then cache = {}; info._ShapeCache = cache end
+    local e = cache[glyph_index]
+    if e == nil then
+        local n, v
+        if info.cff.size == 0 then
+            n, v = stbtt__GetGlyphShapeTT(info, glyph_index)
+        else
+            n, v = stbtt__GetGlyphShapeT2(info, glyph_index)
+        end
+        e = { n, v }
+        cache[glyph_index] = e
+    end
+    return e[1], e[2]
+end
+
 -- leftSideBearing is the offset from the current horizontal position to the left edge of the character
 -- advanceWidth is the offset from the current horizontal position to the next horizontal position
 --   these are expressed in unscaled coordinates
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
+@native
 function stbtt_GetGlyphHMetrics(info, glyph_index)
     local numOfLongHorMetrics = ttUSHORT(info.data, info.hhea + 34)
 
@@ -1800,6 +1885,7 @@ end
 --   these are expressed in unscaled coordinates, so you must multiply by
 --   the scale factor for a given size
 --- @param info stbtt_fontinfo
+@native
 function stbtt_GetFontVMetrics(info)
     local ascent = ttSHORT(info.data, info.hhea + 4)
     local descent = ttSHORT(info.data, info.hhea + 6)
@@ -1816,6 +1902,7 @@ end
 -- so if you prefer to measure height by the ascent only, use a similar calculation.
 --- @param info   stbtt_fontinfo
 --- @param height float
+@native
 function stbtt_ScaleForPixelHeight(info, height)
     local fheight = ttSHORT(info.data, info.hhea + 4) - ttSHORT(info.data, info.hhea + 6)
     return height / fheight
@@ -1836,6 +1923,7 @@ end
 --- @param scale_y float
 --- @param shift_x float
 --- @param shift_y float
+@native
 function stbtt_GetGlyphBitmapBoxSubpixel(font, glyph, scale_x, scale_y, shift_x, shift_y)
     local n, x0, y0, x1, y1 = stbtt_GetGlyphBox(font, glyph)
 
@@ -1866,6 +1954,7 @@ end
 --- @param glyph   int
 --- @param scale_x float
 --- @param scale_y float
+@native
 function stbtt_GetGlyphBitmapBox(font, glyph, scale_x, scale_y)
     return stbtt_GetGlyphBitmapBoxSubpixel(font, glyph, scale_x, scale_y, 0.0, 0.0)
 end
@@ -1893,6 +1982,7 @@ end
 --- @param y0       float
 --- @param x1       float
 --- @param y1       float
+@native
 local function stbtt__handle_clipped_edge(scanline, x, e, x0, y0, x1, y1)
     if y0 == y1 then return end
     STBTT_assert(y0 < y1)
@@ -1934,6 +2024,7 @@ end
 --- @param height       float
 --- @param top_width    float
 --- @param bottom_width float
+@native
 local function stbtt__sized_trapezoid_area(height, top_width, bottom_width)
     STBTT_assert(top_width >= 0)
     STBTT_assert(bottom_width >= 0)
@@ -1945,12 +2036,14 @@ end
 --- @param tx1    float
 --- @param bx0    float
 --- @param bx1    float
+@native
 local function stbtt__position_trapezoid_area(height, tx0, tx1, bx0, bx1)
     return stbtt__sized_trapezoid_area(height, tx1 - tx0, bx1 - bx0)
 end
 
 --- @param height float
 --- @param width  float
+@native
 local function stbtt__sized_triangle_area(height, width)
     return height * width / 2
 end
@@ -1960,6 +2053,7 @@ end
 --- @param len           int
 --- @param e             stbtt__active_edge
 --- @param y_top         float
+@native
 local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_top)
     local y_bottom = y_top + 1
 
@@ -2182,11 +2276,14 @@ end
 --- @param vsubsample int
 --- @param off_x      int
 --- @param off_y      int
+local rasterize_scanline, rasterize_scanline2 = {}, {} -- [Luau] reused: fully cleared per scanline below
+@native
 local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, off_y)
     local active = nil
 
-    local scanline = {} -- [Port] size = result.w, 0-based
-    local scanline2 = {} -- [Port] size = result.w + 1, 0-based
+    active_pool_n = 0 -- every active edge of the previous call is dead
+    local scanline = rasterize_scanline -- [Port] size = result.w, 0-based
+    local scanline2 = rasterize_scanline2 -- [Port] size = result.w + 1, 0-based
 
     STBTT__NOTUSED(vsubsample)
 
@@ -2244,20 +2341,18 @@ local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, of
 
         do
             local sum = 0
+            local pixels, base = result.pixels, j * result.stride + 1
             for i = 0, result.w - 1 do
-                local k
-                local m
                 sum = sum + scanline2[i]
-                k = scanline[i] + sum
-                k = STBTT_fabs(k) * 255 + 0.5
-                m = trunc(k)
+                -- [Luau] k >= 0: trunc == floor, and m is already 0..255 (unsigned_char() is a no-op)
+                local m = math.floor(math.abs(scanline[i] + sum) * 255 + 0.5)
                 if m > 255 then m = 255 end
-                result.pixels[j * result.stride + i + 1] = unsigned_char(m)
+                pixels[base + i] = m
             end
         end
 
         -- advance all the edges
-        step = active
+        local step = active
         while step do
             step.fx = step.fx + step.fdx -- advance to position for current scanline
             step = step.next -- advance through list
@@ -2277,8 +2372,45 @@ local STBTT__COMPARE = function(a, b)
 end
 
 --- @param p stbtt__edge[]
+@native
 local function stbtt__sort_edges(p)
     STBTT_sort(p, STBTT__COMPARE)
+end
+
+-- [Luau] sorts p[lo..hi] by y0 without a comparator callback (like upstream's stbtt__sort_edges_quicksort + ins_sort)
+@native
+local function stbtt__sort_edges_range(p, lo, hi)
+    while hi - lo > 12 do
+        -- median of three -> p[lo]
+        local m = math.floor((lo + hi) / 2)
+        local a, b, c = p[lo], p[m], p[hi]
+        if b.y0 < a.y0 then a, b = b, a end
+        if c.y0 < b.y0 then b, c = c, b; if b.y0 < a.y0 then a, b = b, a end end
+        p[lo], p[m], p[hi] = b, a, c
+        local pivot = p[lo].y0
+        local i, j = lo + 1, hi
+        while true do
+            while p[i].y0 < pivot do i = i + 1 end
+            while pivot < p[j].y0 do j = j - 1 end
+            if i >= j then break end
+            p[i], p[j] = p[j], p[i]
+            i = i + 1; j = j - 1
+        end
+        p[lo], p[j] = p[j], p[lo]
+        -- recurse into the smaller side, loop on the larger
+        if j - lo < hi - j then
+            stbtt__sort_edges_range(p, lo, j - 1); lo = j + 1
+        else
+            stbtt__sort_edges_range(p, j + 1, hi); hi = j - 1
+        end
+    end
+    for i = lo + 1, hi do
+        local t = p[i]
+        local y = t.y0
+        local j = i - 1
+        while j >= lo and p[j].y0 > y do p[j + 1] = p[j]; j = j - 1 end
+        p[j + 1] = t
+    end
 end
 
 --- @param result   stbtt__bitmap
@@ -2292,6 +2424,8 @@ end
 --- @param off_x    int
 --- @param off_y    int
 --- @param invert   bool
+local rasterize_edges = {}
+@native
 local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y, shift_x, shift_y, off_x, off_y, invert)
     local y_scale_inv = (invert) and -scale_y or scale_y
     local vsubsample = 1 -- STBTT_RASTERIZER_VERSION == 2
@@ -2303,7 +2437,13 @@ local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y,
         n = n + wcount[i]
     end
 
-    local e = {} for i = 1, n + 1 do e[i] = stbtt__edge() end -- add an extra one as a sentinel
+    -- [Luau] edges reused across calls; unused entries are sentinels (y0 = nil) like the unfilled ones upstream
+    local e = rasterize_edges
+    for i = 1, n + 1 do
+        local ed = e[i]
+        if ed == nil then e[i] = stbtt__edge() else ed.y0 = nil; ed.invert = false end
+    end
+    for i = n + 2, #e do e[i].y0 = nil end
     n = 0
 
     local m = 0
@@ -2347,7 +2487,7 @@ local function stbtt__rasterize(result, pts, wcount, windings, scale_x, scale_y,
     end
 
     -- now sort the edges by their highest point (should snap to integer, and then by x)
-    stbtt__sort_edges(e)
+    stbtt__sort_edges_range(e, 1, n) -- [Luau] e[n + 1..] are y0 == nil sentinels, already last
 
     -- now, traverse the scanlines and find the intersections on each scanline, use xor winding rule
     stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, off_y)
@@ -2357,6 +2497,7 @@ end
 --- @param n       int
 --- @param x       float
 --- @param y       float
+@native
 local function stbtt__add_point(points, n, x, y)
     if points == nil then return end -- during first pass, it's unallocated
     points[n + 1].x = x
@@ -2375,6 +2516,7 @@ end
 --- @param objspace_flatness_squared float
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
+@native
 local function stbtt__tesselate_curve(points, num_points, x0, y0, x1, y1, x2, y2, objspace_flatness_squared, n)
     -- midpoint
     local mx = (x0 + 2 * x1 + x2) / 4
@@ -2411,6 +2553,7 @@ end
 --- @param objspace_flatness_squared float
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
+@native
 local function stbtt__tesselate_cubic(points, num_points, x0, y0, x1, y1, x2, y2, x3, y3, objspace_flatness_squared, n)
     -- @TODO this "flatness" calculation is just made-up nonsense that seems to work well enough
     local dx0 = x1 - x0
@@ -2462,6 +2605,8 @@ end
 --- @return stbtt__point[]? points
 --- @return int?            num_contours
 --- @return int[]?          contour_lengths
+local flatten_points = {}
+@native
 local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     local points = nil
     local num_points = 0
@@ -2486,8 +2631,8 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     for pass = 0, 1 do
         local x, y = 0, 0
         if pass == 1 then
-            points = {}
-            for i = 1, num_points do points[i] = stbtt__point() end
+            points = flatten_points -- [Luau] reused across calls (only [1..num_points] is read)
+            for i = #points + 1, num_points do points[i] = stbtt__point() end
         end
         num_points = 0
         n = -1
@@ -2544,6 +2689,7 @@ end
 --- @param x_off              int
 --- @param y_off              int
 --- @param invert             bool
+@native
 local function stbtt_Rasterize(result, flatness_in_pixels, vertices, num_verts, scale_x, scale_y, shift_x, shift_y, x_off, y_off, invert)
     local scale = (scale_x > scale_y) and scale_y or scale_x
 
@@ -2571,6 +2717,7 @@ end
 --- @param shift_x    float
 --- @param shift_y    float
 --- @param glyph      int
+@native
 local function stbtt_MakeGlyphBitmapSubpixel(info, output, out_w, out_h, out_stride, scale_x, scale_y, shift_x, shift_y, glyph)
     local num_verts, vertices = stbtt_GetGlyphShape(info, glyph)
     local gbm = stbtt__bitmap()
@@ -2624,6 +2771,7 @@ local STBTT__OVER_MASK = STBTT_MAX_OVERSAMPLE - 1
 --- @param h               int
 --- @param stride_in_bytes int
 --- @param kernel_width    unsigned_int
+@native
 local function stbtt__h_prefilter(pixels, w, h, stride_in_bytes, kernel_width)
     local buffer = {}
     local safe_w = w - kernel_width
@@ -2653,6 +2801,7 @@ end
 --- @param h               int
 --- @param stride_in_bytes int
 --- @param kernel_width    unsigned_int
+@native
 local function stbtt__v_prefilter(pixels, w, h, stride_in_bytes, kernel_width)
     local buffer = {}
     local safe_h = h - kernel_width
@@ -2679,6 +2828,7 @@ end
 
 --- @param oversample int
 --- @return float
+@native
 local function stbtt__oversample_shift(oversample)
     if oversample == 0 then
         return 0.0
@@ -2705,6 +2855,7 @@ end
 --- @param prefilter_x int
 --- @param prefilter_y int
 --- @param glyph       int
+@native
 function stbtt_MakeGlyphBitmapSubpixelPrefilter(info, output, out_w, out_h, out_stride, scale_x, scale_y, shift_x, shift_y, prefilter_x, prefilter_y, glyph)
     stbtt_MakeGlyphBitmapSubpixel(info, output, out_w - (prefilter_x - 1), out_h - (prefilter_y - 1), out_stride, scale_x, scale_y, shift_x, shift_y, glyph)
 
@@ -2758,6 +2909,7 @@ end
 -- return '0' for index 0, and -1 for all other indices.
 --- @param data  table
 --- @param index int
+@native
 function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForIndex_internal(data, index) end
 
 -- Given an offset into the file that defines a font, this function builds
@@ -2768,6 +2920,7 @@ function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForI
 --- @param info   stbtt_fontinfo
 --- @param data   table
 --- @param offset int
+@native
 function stbtt_InitFont(info, data, offset) return stbtt_InitFont_internal(info, data, offset) end
 
 return {

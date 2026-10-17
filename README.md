@@ -113,7 +113,7 @@ The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.Sh
 
 ### Getting Started & Integration (Roblox)
 
-With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.4.1"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
+With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.4.2"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
 
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out) and `build/ImGuiTyped.luau`, a small typed entry module (Luau types for the public `ImGui.*` API, `ImVec2`/`ImVec4` and the flag enums) that requires `build/ImGui.luau` as its child `Impl`. The Wally package and the Rojo projects use that layout, so you get autocomplete and type errors in `--!strict` scripts. The single-file `ImGui.luau` also works on its own, just untyped.
 2. Sync with [Rojo](https://rojo.space): [`default.project.json`](default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
@@ -181,7 +181,7 @@ Rojo layout (as in [`default.project.json`](default.project.json)):
 ```
 
 ```lua
-ImGui_ImplRoblox.EnableParallel({ Actors = 4 })   -- also: MinTiles = 4, MinPixels = 16384, MaxBytesPerPixel = 3, Worker
+ImGui_ImplRoblox.EnableParallel({ Actors = 4 })   -- also: MinTiles = 1, MinPixels = 2048, MaxBytesPerPixel = 0, Worker
 
 RunService.PreSimulation:Connect(function()          -- NOT RenderStepped (see below)
     ImGui_ImplRoblox.NewFrame()
@@ -195,7 +195,7 @@ end)
 ```
 
 **Frame ordering.** A Roblox frame runs `PreRender` (`RenderStepped`), `PreAnimation`, `PreSimulation` (`Stepped`), `PostSimulation` (`Heartbeat`). What the scripts changed up to the end of `PostSimulation` of frame N is drawn by the render that follows the next `PreRender` (N+1), together with whatever `PreRender` N+1 changes. So `RenderDrawData` in `PreSimulation` (layer `Position`/`ZIndex`/`Visible` changes) plus `Finish` in `PostSimulation` (the pixels) land in the same render: no frame shows moved layers with old pixels. Actor work requested in `PreSimulation` runs in that frame's parallel phases, and the results are back before `PostSimulation`.
-- The executor only dispatches between `PreAnimation` and its `Finish`. A `RenderDrawData` anywhere else (`RenderStepped`/`PreRender`, after `Finish`, with too little work: fewer than `MinTiles` tiles or `MinPixels` dirty pixels, or with dense primitives: more than `MaxBytesPerPixel` packed payload bytes per dirty pixel, e.g. text-heavy frames, where packing costs more than rasterizing; `0` = no limit) is rasterized and uploaded on the main thread right away, like without the executor. That is always correct, just not parallel.
+- The executor only dispatches between `PreAnimation` and its `Finish`. A `RenderDrawData` anywhere else (`RenderStepped`/`PreRender`, after `Finish`, with too little work: fewer than `MinTiles` tiles or `MinPixels` dirty pixels, or with dense primitives: more than `MaxBytesPerPixel` packed payload bytes per dirty pixel, `0` = no limit, the default: measured in Studio, packing text-heavy frames costs under 0.1 ms) is rasterized and uploaded on the main thread right away, like without the executor. That is always correct, just not parallel.
 - Minimal example: [examples/example_roblox_parallel/main.client.luau](examples/example_roblox_parallel/main.client.luau) (the demo window, 2 Actors; map it instead of `examples/example_roblox` in `default.project.json`).
 - If your frame ends elsewhere, call `ImGui_ImplRoblox.FinishParallel()` yourself. It must run before the next render, and after the parallel phase if you want the workers' results.
 - `ImGui_ImplRoblox.GetParallelStats()`: `ParallelFlushes`, `SerialFlushes`, `Tiles`, `Fallbacks` (worker results missing at `Finish`), `Late`, `Pack`/`Flush`/`Finish` (main-thread seconds, cumulative). `ImGui_ImplRoblox.GetParallelConfig()` returns the live config table (thresholds can be changed at any time; a new `Actors` count needs another `EnableParallel()`).
@@ -313,11 +313,15 @@ See [docs/PORTING.md](docs/PORTING.md) for the porting rules.
 
 Separate repos, included as submodules under `extensions/` (clone with `--recursive`):
 
-- [imguicolortextedit-luau](https://git.bug.tools/bug/imguicolortextedit-luau): [ImGuiColorTextEdit](https://github.com/goossens/ImGuiColorTextEdit) (goossens fork), a syntax-highlighting text editor.
-- [imguizmo-luau](https://git.bug.tools/bug/imguizmo-luau): [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), 3D gizmos with Roblox Camera/CFrame helpers.
-- [implot-luau](https://git.bug.tools/bug/implot-luau): [ImPlot](https://github.com/epezent/implot), 2D plotting.
-- [implot3d-luau](https://git.bug.tools/bug/implot3d-luau): [ImPlot3D](https://github.com/brenocq/implot3d), 3D plotting.
-- [imnodes-luau](https://git.bug.tools/bug/imnodes-luau): [imnodes](https://github.com/Nelarius/imnodes), a node editor.
+- [imcurveedit-luau](https://github.com/4DBug/imcurveedit-luau): ImCurveEdit (from [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo)), a curve editor.
+- [imgradient-luau](https://github.com/4DBug/imgradient-luau): ImGradient (from [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo)), a gradient editor.
+- [imguicolortextedit-luau](https://github.com/4DBug/imguicolortextedit-luau): [ImGuiColorTextEdit](https://github.com/goossens/ImGuiColorTextEdit) (goossens fork), a syntax-highlighting text editor.
+- [imguizmo-luau](https://github.com/4DBug/imguizmo-luau): [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), 3D gizmos with Roblox Camera/CFrame helpers.
+- [imgui-memory-editor-luau](https://github.com/4DBug/imgui-memory-editor-luau): [imgui_memory_editor](https://github.com/ocornut/imgui_club) (imgui_club), a hex editor for Roblox `buffer`s, LÖVE `ByteData` and byte tables.
+- [implot-luau](https://github.com/4DBug/implot-luau): [ImPlot](https://github.com/epezent/implot), 2D plotting.
+- [implot3d-luau](https://github.com/4DBug/implot3d-luau): [ImPlot3D](https://github.com/brenocq/implot3d), 3D plotting.
+- [imnodes-luau](https://github.com/4DBug/imnodes-luau): [imnodes](https://github.com/Nelarius/imnodes), a node editor.
+- [imsequencer-luau](https://github.com/4DBug/imsequencer-luau): ImSequencer (from [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo)), a timeline/sequencer.
 
 Usage: `local ImPlot = require(ImPlotModule)(require(ImGuiModule))`.
 

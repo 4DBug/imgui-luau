@@ -319,13 +319,15 @@ end
 --- @param s table # 1-based
 --- @param c any
 --- @param n int
+@native
 function ImStd.memset(s, c, n)
     for i = 1, n do s[i] = c end
 end
 
 do
 
-local _memmove = function(dest, dest_start, src, src_start, count)
+@native
+local function _memmove(dest, dest_start, src, src_start, count)
     if count <= 0 then return end
 
     local c = (dest == src and dest_start >= src_start)

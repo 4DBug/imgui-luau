@@ -110,13 +110,13 @@ function ImGui.TextEx(text, text_end, flags)
         -- [Luau] scalar text_pos, scratch bb (ItemAdd() copies it, RenderTextWrapped() only reads it)
         local text_pos_x, text_pos_y = dc.CursorPos.x, dc.CursorPos.y + dc.CurrLineTextBaseOffset
         local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(dc.CursorPos, wrap_pos_x) or 0.0
-        local text_size = ImGui.CalcTextSizeEx(text, 1, text_end, false, wrap_width)
+        local text_size_x, text_size_y = ImGui.CalcTextSizeXY(text, 1, text_end, false, wrap_width)
 
         local bb = TextEx_bb
         local bb_min, bb_max = bb.Min, bb.Max
         bb_min.x = text_pos_x; bb_min.y = text_pos_y
-        bb_max.x = text_pos_x + text_size.x; bb_max.y = text_pos_y + text_size.y
-        ImGui.ItemSize(text_size, 0.0)
+        bb_max.x = text_pos_x + text_size_x; bb_max.y = text_pos_y + text_size_y
+        ImGui.ItemSize(bb, 0.0) -- [Luau] the bb's size == text_size
         if not ImGui.ItemAdd(bb, 0) then
             return
         end
@@ -342,6 +342,8 @@ end
 -- Text with a little bullet aligned to the typical tree node.
 --- @param fmt string
 --- @param ... any
+local BulletText_bb, BulletText_pos, BulletText_size = ImRect(), ImVec2(), ImVec2() -- [Luau] scratch, only read by callees
+
 function ImGui.BulletText(fmt, ...)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -353,20 +355,26 @@ function ImGui.BulletText(fmt, ...)
 
     local text = ImFormatString(fmt, ...)
     local text_end = #text + 1
-    local label_size = ImGui.CalcTextSize(text, text_end, false)
-    local total_size = ImVec2(g.FontSize + ((label_size.x > 0.0) and (label_size.x + style.FramePadding.x * 2) or 0.0), label_size.y) -- Empty text doesn't add padding
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(text, 1, text_end, false) -- [Luau] scalar label_size/total_size
+    local total_size_x = g.FontSize + ((label_size_x > 0.0) and (label_size_x + style.FramePadding.x * 2) or 0.0) -- Empty text doesn't add padding
     -- [Luau] scalar pos, no temporary ImVec2
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset
+    local bb = BulletText_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = pos_x, pos_y, pos_x + total_size_x, pos_y + label_size_y
+    local total_size = BulletText_size
+    total_size.x, total_size.y = total_size_x, label_size_y
     ImGui.ItemSize(total_size, 0.0)
-    local bb = ImRect(pos_x, pos_y, pos_x + total_size.x, pos_y + total_size.y)
     if not ImGui.ItemAdd(bb, 0) then
         return
     end
 
     -- Render
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
-    ImGui.RenderBullet(window.DrawList, ImVec2(bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + g.FontSize * 0.5), text_col)
-    ImGui.RenderText(ImVec2(bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0), text, 1, text_end, false)
+    local p = BulletText_pos
+    p.x, p.y = bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + g.FontSize * 0.5
+    ImGui.RenderBullet(window.DrawList, p, text_col)
+    p.x, p.y = bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0
+    ImGui.RenderText(p, text, 1, text_end, false)
 end
 
 -- [Port] va_list variants: identical to the varargs versions in Lua
@@ -744,6 +752,7 @@ end
 --- @param size_arg? ImVec2
 --- @param flags?    ImGuiButtonFlags
 --- @return bool
+local ButtonEx_bb, ButtonEx_label_size, ButtonEx_size = ImRect(), ImVec2(), ImVec2()
 local ButtonEx_text_min, ButtonEx_text_max = ImVec2(), ImVec2()
 
 @native
@@ -760,7 +769,8 @@ function ImGui.ButtonEx(label, size_arg, flags)
     local style = g.Style
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size = ButtonEx_label_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
 
     -- [Luau] scalar pos, no temporary ImVec2
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y
@@ -768,9 +778,11 @@ function ImGui.ButtonEx(label, size_arg, flags)
     if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and frame_padding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
         pos_y = pos_y + window.DC.CurrLineTextBaseOffset - frame_padding.y
     end
-    local size = ImGui.CalcItemSize(size_arg, label_size.x + frame_padding.x * 2.0, label_size.y + frame_padding.y * 2.0)
+    local size = ButtonEx_size -- [Luau] scratch + scalar CalcItemSize(): ItemSize() only reads it
+    size.x, size.y = ImGui._CalcItemSizeXY(size_arg.x, size_arg.y, label_size.x + frame_padding.x * 2.0, label_size.y + frame_padding.y * 2.0)
 
-    local bb = ImRect(pos_x, pos_y, pos_x + size.x, pos_y + size.y)
+    local bb = ButtonEx_bb -- [Luau] scratch: ItemAdd() copies it, ButtonBehavior()/Render*() only read it
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = pos_x, pos_y, pos_x + size.x, pos_y + size.y
     ImGui.ItemSize(size, frame_padding.y)
     if not ImGui.ItemAdd(bb, id) then
         return false
@@ -1299,6 +1311,8 @@ end
 --- @param v     bool
 --- @return bool is_pressed
 --- @return bool is_checked # The updated `v` passed in
+local Checkbox_total_bb, Checkbox_check_bb, Checkbox_label_pos = ImRect(), ImRect(), ImVec2() -- [Luau] scratch, only read by callees
+
 @native
 function ImGui.Checkbox(label, v)
     local window = ImGui.GetCurrentWindow()
@@ -1310,18 +1324,19 @@ function ImGui.Checkbox(label, v)
     local style = g.Style
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
     local square_sz = g.FontSize + style.FramePadding.y * 2.0 -- [Luau] inline GetFrameHeight()
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos, no temporary ImVec2
 
     local total_width
-    if label_size.x > 0.0 then
-        total_width = square_sz + style.ItemInnerSpacing.x + label_size.x
+    if label_size_x > 0.0 then
+        total_width = square_sz + style.ItemInnerSpacing.x + label_size_x
     else
         total_width = square_sz
     end
-    local total_bb = ImRect(pos_x, pos_y, pos_x + total_width, pos_y + (label_size.y + style.FramePadding.y * 2.0))
+    local total_bb = Checkbox_total_bb
+    total_bb.Min.x, total_bb.Min.y, total_bb.Max.x, total_bb.Max.y = pos_x, pos_y, pos_x + total_width, pos_y + (label_size_y + style.FramePadding.y * 2.0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     local is_visible = ImGui.ItemAdd(total_bb, id)
     local is_multi_select = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.IsMultiSelect) ~= 0)
@@ -1353,7 +1368,8 @@ function ImGui.Checkbox(label, v)
         ImGui.MarkItemEdited(id)
     end
 
-    local check_bb = ImRect(pos_x, pos_y, pos_x + square_sz, pos_y + square_sz)
+    local check_bb = Checkbox_check_bb
+    check_bb.Min.x, check_bb.Min.y, check_bb.Max.x, check_bb.Max.y = pos_x, pos_y, pos_x + square_sz, pos_y + square_sz
     local mixed_value = (bit32.band(g.LastItemData.ItemFlags, ImGuiItemFlags.MixedValue) ~= 0)
     if is_visible then
         ImGui.RenderNavCursor(total_bb, id)
@@ -1378,8 +1394,9 @@ function ImGui.Checkbox(label, v)
         ImGui.LogRenderedText(ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y), mixed_value and "[~]" or (v and "[x]" or "[ ]")) -- label_pos
     end
 
-    if is_visible and label_size.x > 0.0 then
-        local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y) -- [Luau] only built when used
+    if is_visible and label_size_x > 0.0 then
+        local label_pos = Checkbox_label_pos
+        label_pos.x, label_pos.y = check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y
         ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
@@ -3502,7 +3519,8 @@ end
 -- [Luau] memo of string.format(format, value) for drag/slider value text (same values are redrawn every frame).
 
 local fmt_memo, fmt_memo_n = {}, 0
-local SliderScalar_total_bb, SliderScalar_grab_bb = ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
+local SliderScalar_total_bb, SliderScalar_grab_bb, SliderScalar_frame_bb = ImRect(), ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
+local SliderScalar_label_pos = ImVec2()
 local DRAG_TEXT_ALIGN = ImVec2(0.5, 0.5)
 function FormatCached(format, v)
     local m = fmt_memo[format]
@@ -3533,12 +3551,13 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
     local color_marker = (bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasColorMarker) ~= 0) and g.NextItemData.ColorMarker or 0
 
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
+    local frame_bb = SliderScalar_frame_bb -- [Luau] scratch: callees only read it
+    frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y = cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size_y + style.FramePadding.y * 2.0)
     local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
     total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y
-    total_bb.Max.x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0); total_bb.Max.y = frame_bb.Max.y + 0.0
+    total_bb.Max.x = frame_bb.Max.x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0); total_bb.Max.y = frame_bb.Max.y + 0.0
 
     local temp_input_allowed = (bit32.band(flags, ImGuiSliderFlags.NoInput) == 0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
@@ -3626,8 +3645,10 @@ function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, fla
         ImGui.PopStyleColor()
     end
 
-    if label_size.x > 0.0 then
-        ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    if label_size_x > 0.0 then
+        local label_pos = SliderScalar_label_pos
+        label_pos.x, label_pos.y = frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
     return data, value_changed
@@ -4238,10 +4259,11 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     local color_marker = (bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasColorMarker) ~= 0) and g.NextItemData.ColorMarker or 0
 
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size.y + style.FramePadding.y * 2.0)) -- [Luau] no temporary ImVec2
-    local total_bb_x = frame_bb.Max.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0)
+    local frame_bb = SliderScalar_frame_bb -- [Luau] scratch: callees only read it
+    frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y = cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size_y + style.FramePadding.y * 2.0)
+    local total_bb_x = frame_bb.Max.x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0)
     local total_bb = SliderScalar_total_bb -- [Luau] scratch: ItemSize()/ItemAdd() only read it
     total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y; total_bb.Max.x = total_bb_x; total_bb.Max.y = frame_bb.Max.y
 
@@ -4327,8 +4349,10 @@ function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
         ImGui.PopStyleColor()
     end
 
-    if label_size.x > 0.0 then
-        ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    if label_size_x > 0.0 then
+        local label_pos = SliderScalar_label_pos
+        label_pos.x, label_pos.y = frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
     -- IMGUI_TEST_ENGINE_ITEM_INFO()
@@ -7812,6 +7836,10 @@ end
 --- @param flags      ImGuiTreeNodeFlags
 --- @param label      string
 --- @param label_end? int
+local TreeNode_frame_bb, TreeNode_interact_bb = ImRect(), ImRect() -- [Luau] scratch for TreeNodeBehavior(), never escape
+local TreeNode_label_size, TreeNode_text_pos, TreeNode_tmp = ImVec2(), ImVec2(), ImVec2()
+local function TreeNode_tmp_pos(x, y) local v = TreeNode_tmp; v.x = x; v.y = y; return v end -- [Luau] scratch pos for Render*() args
+
 @native
 function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local window = ImGui.GetCurrentWindow()
@@ -7836,7 +7864,8 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     if label_end == nil then
         label_end = ImGui.FindRenderedTextEnd(label)
     end
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size = TreeNode_label_size -- [Luau] scratch: only read below (RenderTextClipped text_size_if_known)
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
 
     local text_offset_x = g.FontSize + (display_frame and (padding_x * 3) or (padding_x * 2)) -- Collapsing arrow width + Spacing
     local text_offset_y = use_frame_padding and ImMax(style.FramePadding.y, window.DC.CurrLineTextBaseOffset) or window.DC.CurrLineTextBaseOffset -- Latch before ItemSize changes it
@@ -7845,7 +7874,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
     local frame_height = label_size.y + padding_y * 2
     local span_all_columns = bit32.band(flags, ImGuiTreeNodeFlags.SpanAllColumns) ~= 0 and (g.CurrentTable ~= nil)
     local span_all_columns_label = bit32.band(flags, ImGuiTreeNodeFlags.LabelSpanAllColumns) ~= 0 and (g.CurrentTable ~= nil)
-    local frame_bb = ImRect()
+    local frame_bb = TreeNode_frame_bb -- [Luau] scratch, fully written here; callees copy or only read it
     frame_bb.Min.x = span_all_columns and window.ParentWorkRect.Min.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanFullWidth) ~= 0 and window.WorkRect.Min.x or window.DC.CursorPos.x)
     frame_bb.Min.y = window.DC.CursorPos.y + (text_offset_y - padding_y)
     frame_bb.Max.x = span_all_columns and window.ParentWorkRect.Max.x or (bit32.band(flags, ImGuiTreeNodeFlags.SpanLabelWidth) ~= 0 and window.DC.CursorPos.x + text_width + padding_x or window.WorkRect.Max.x)
@@ -7856,12 +7885,13 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         frame_bb.Max.x = frame_bb.Max.x + outer_extend
     end
 
-    local text_pos = ImVec2(window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y)
+    local text_pos = TreeNode_text_pos -- [Luau] scratch
+    text_pos.x, text_pos.y = window.DC.CursorPos.x + text_offset_x, window.DC.CursorPos.y + text_offset_y
     local item_size = LayoutHelpers_size; item_size.x = text_width; item_size.y = frame_height -- [Luau] scratch, ItemSize() only reads it
     ImGui.ItemSize(item_size, padding_y)
 
     -- For regular tree nodes, we arbitrary allow to click past 2 worth of ItemSpacing
-    local interact_bb = ImRect()
+    local interact_bb = TreeNode_interact_bb -- [Luau] scratch, ItemAdd()/ButtonBehavior()/SetNavID() copy or only read it
     ImRect_Copy(interact_bb, frame_bb)
     if bit32.band(flags, bit32.bor(ImGuiTreeNodeFlags.Framed, ImGuiTreeNodeFlags.SpanAvailWidth, ImGuiTreeNodeFlags.SpanFullWidth, ImGuiTreeNodeFlags.SpanLabelWidth, ImGuiTreeNodeFlags.SpanAllColumns)) == 0 then
         interact_bb.Max.x = frame_bb.Min.x + text_width + (label_size.x > 0.0 and (style.ItemSpacing.x * 2.0) or 0.0)
@@ -8055,9 +8085,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
                 ImGui.TablePopBackgroundChannel()
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.Bullet) ~= 0 then
-                ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
+                ImGui.RenderBullet(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x * 0.60, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 1.0)
+                ImGui.RenderArrow(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 1.0)
             else -- Leaf without bullet, left-adjusted text
                 text_pos.x = text_pos.x - (text_offset_x - padding_x)
             end
@@ -8078,9 +8108,9 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
                 ImGui.TablePopBackgroundChannel()
             end
             if bit32.band(flags, ImGuiTreeNodeFlags.Bullet) ~= 0 then
-                ImGui.RenderBullet(window.DrawList, ImVec2(text_pos.x - text_offset_x * 0.5, text_pos.y + g.FontSize * 0.5), text_col)
+                ImGui.RenderBullet(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x * 0.5, text_pos.y + g.FontSize * 0.5), text_col)
             elseif not is_leaf then
-                ImGui.RenderArrow(window.DrawList, ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 0.70)
+                ImGui.RenderArrow(window.DrawList, TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.15), text_col, is_open and ((bit32.band(flags, ImGuiTreeNodeFlags.UpsideDownArrow) ~= 0) and ImGuiDir.Up or ImGuiDir.Down) or ImGuiDir.Right, 0.70)
             end
             if g.LogEnabled then
                 ImGui.LogSetNextTextDecoration(">", nil)
@@ -8088,7 +8118,7 @@ function ImGui.TreeNodeBehavior(id, flags, label, label_end)
         end
 
         if draw_tree_lines then
-            ImGui.TreeNodeDrawLineToChildNode(ImVec2(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.5))
+            ImGui.TreeNodeDrawLineToChildNode(TreeNode_tmp_pos(text_pos.x - text_offset_x + padding_x, text_pos.y + g.FontSize * 0.5))
         end
 
         -- Label

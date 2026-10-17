@@ -9,11 +9,11 @@ local readi32 = buffer.readi32
 local M = {
     TILE = 128,
     -- Packed jobs (parallel executor -> worker), per Actor and flush: P = primitive records, T = tile jobs.
-    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2), tex id (-1: none), clip x0 y0 x1 y1,
-    --   bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v f64, col u32): a at REC_A,
-    --   c at REC_C, b at REC_B.
+    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2, 4 line quad), tex id (-1: none),
+    --   clip x0 y0 x1 y1, bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v f64,
+    --   col u32): a at REC_A, c at REC_C, b at REC_B, d at REC_D.
     -- T job: tox toy (f64), x0 y0 nr count (i32), nr x rect x0 y0 x1 y1 (i32, tile pixels), count x P offset (i32).
-    VTX = 36, REC = 148, REC_A = 40, REC_C = 76, REC_B = 112, JOB = 32,
+    VTX = 36, REC = 184, REC_A = 40, REC_C = 76, REC_B = 112, REC_D = 148, JOB = 32,
 }
 local TILE = M.TILE
 
@@ -39,6 +39,31 @@ local function RowRepeats(o: number, len: number, has_prev: boolean): boolean
     return false
 end
 local RectColumns = table.create(256, 0)
+
+-- Uniform region: [UX0, UX1) x [UY0, UY1) of the target holds only the pixel value UV (empty when UX0 >= UX1).
+-- Set by ClearRect and by solid rects; shrunk by everything drawn over it. A solid rect inside it blends one pixel and
+-- fills (window/frame backgrounds over backgrounds), instead of blending every pixel.
+local UX0, UY0, UX1, UY1, UV = 0, 0, 0, 0, 0
+
+-- Drawing may change [x0, x1) x [y0, y1): keep the largest uniform piece outside it
+@native
+local function Shrink(x0: number, y0: number, x1: number, y1: number)
+    if x0 >= UX1 or x1 <= UX0 or y0 >= UY1 or y1 <= UY0 or UX0 >= UX1 then return end
+    local h, w = UY1 - UY0, UX1 - UX0
+    local left, right, top, bottom = (x0 - UX0) * h, (UX1 - x1) * h, (y0 - UY0) * w, (UY1 - y1) * w
+    local best = max(left, right, top, bottom)
+    if best <= 0 then
+        UX1 = UX0
+    elseif best == left then
+        UX1 = x0
+    elseif best == right then
+        UX0 = x1
+    elseif best == top then
+        UY1 = y0
+    else
+        UY0 = y1
+    end
+end
 
 -- FillSpan and DrawTriangle's flat path inline this math with per-span constants: keep them in sync.
 @native
@@ -75,13 +100,44 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     b: number, a: number)
     if a <= 0 then return end
     local w4 = (x1 - x0 - 1) * 4
+    if x0 >= UX0 and y0 >= UY0 and x1 <= UX1 and y1 <= UY1 and a < 255 then
+        -- over one value: FillSpan's per-pixel result for d = UV, then fill
+        local d, v = UV, 0
+        if d < 16777216 then
+            v = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
+        else
+            local sa = a / 255
+            local ns = 1 - sa
+            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+            if d >= 4278190080 then
+                v = floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
+                    + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080
+            else
+                local k = rshift(d, 24) * (ns / 255)
+                local oa = sa + k
+                local inv = 1 / oa
+                v = floor((r * sa + dr * k) * inv + 0.5) + floor((g * sa + dg * k) * inv + 0.5) * 256
+                    + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+            end
+        end
+        local first = (y0 * TargetWidth + x0) * 4
+        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, v) end
+        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, v
+        return
+    end
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
         for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        -- now uniform: keep whichever region is larger
+        local area = (x1 - x0) * (y1 - y0)
+        Shrink(x0, y0, x1, y1)
+        if area > (UX1 - UX0) * (UY1 - UY0) or UX0 >= UX1 then UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, packed end
         return
     end
+    Shrink(x0, y0, x1, y1)
     local packed0 = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
     local sa = a / 255
     local ns = 1 - sa
@@ -146,11 +202,12 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
             r, g, b, a = r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255
         end
         if a <= 0 then return end
-        if a >= 255 or px1 - px0 < 32 then
+        if a >= 255 or px1 - px0 < 32 or (px0 >= UX0 and py0 >= UY0 and px1 <= UX1 and py1 <= UY1) then
             FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
             return
         end
         -- Wide translucent rect: rows usually blend over identical rows, so copy the previous row's result
+        Shrink(px0, py0, px1, py1)
         local len = (px1 - px0) * 4
         local prev_o = 0
         for y = py0, py1 - 1 do
@@ -165,11 +222,14 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         return
     end
 
+    Shrink(px0, py0, px1, py1)
     local du, dv = (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0)
     local tw: number, th: number, tbuf: buffer, dbuf: buffer = t.Width, t.Height, t.Buffer, TargetBuffer
     local r255, g255, b255, a255 = r / 255, g / 255, b / 255, a / 255
     local ncol = px1 - px0
     local cols = RectColumns
+    local ident = col == 4294967295
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
     for c = 1, ncol do
         local tx = floor((u0 + (px0 + c - 1 + 0.5 - x0) * du) * tw)
         if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
@@ -182,17 +242,47 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         local o = (y * TargetWidth + px0) * 4
         for c = 1, ncol do
             local tv = readu32(tbuf, trow4 + cols[c])
-            if tv >= 16777216 then
-                local sa = rshift(tv, 24) * a255
-                local sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255,
-                    band(rshift(tv, 16), 255) * b255
-                if sa >= 255 then
-                    writeu32(dbuf, o, floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536 + 4278190080)
+            if tv < 16777216 then
+                o += 4
+                continue
+            end
+            if ident and tv >= 4278190080 then -- white opaque vertex colour: an opaque texel is the result
+                writeu32(dbuf, o, tv)
+                o += 4
+                continue
+            end
+            -- BlendPixel inlined (same math)
+            if tv ~= last_tv then
+                last_tv = tv
+                sa = rshift(tv, 24) * a255
+                sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                fa = sa / 255
+                fn = 1 - fa
+                fk = (1 - fa) / 255
+            end
+            if sa >= 255 then
+                writeu32(dbuf, o, s_opaque + 4278190080)
+            elseif sa > 0 then
+                local d = readu32(dbuf, o)
+                if d < 16777216 then
+                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
                 else
-                    BlendPixel(dbuf, o, sr, sg, sb, sa)
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                    else
+                        local k = rshift(d, 24) * fk
+                        local oa = fa + k
+                        local inv = 1 / oa
+                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv + 0.5)
+                            + floor((sg * fa + dg * k) * inv + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                    end
                 end
             end
-            o = o + 4
+            o += 4
         end
     end
 end
@@ -214,6 +304,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local minx, maxx = max(floor(min(x0, x1, x2)), cx0), min(ceil(max(x0, x1, x2)), cx1 - 1)
     local miny, maxy = max(floor(min(y0, y1, y2)), cy0), min(ceil(max(y0, y1, y2)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
+    Shrink(minx, miny, maxx + 1, maxy + 1)
 
     local A0, B0 = y1 - y2, x2 - x1
     local C0 = -(A0 * x1 + B0 * y1)
@@ -252,6 +343,64 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         f_ns = 1 - f_sa
         f_c1 = f_ns / 255
         f_rs, f_gs, f_bs = ra * f_sa, ga * f_sa, ba * f_sa
+    end
+    local cconst = textured and ra == rb and ra == rc and ga == gb and ga == gc and ba == bb and ba == bc and aa == ab
+        and aa == ac
+    if cconst and aa <= 0 then return end
+    local tw: number, th: number, tbuf: buffer = 0, 0, dbuf
+    local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    if cconst then tw, th, tbuf = t.Width, t.Height, t.Buffer end
+
+    if not textured and (maxx - minx) * 2 < maxy - miny then
+        -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
+        -- pixel blended once, so the order does not matter): no empty-row passes
+        local m0, m1, m2 = B0 ~= 0 and -1 / B0 or 0, B1 ~= 0 and -1 / B1 or 0, B2 ~= 0 and -1 / B2 or 0
+        local stride = TargetWidth * 4
+        for x = minx, maxx do
+            local px = x + 0.5
+            local yt, yb = miny, maxy
+            local f0, f1, f2 = A0 * px + C0, A1 * px + C1, A2 * px + C2
+            if B0 > 0 then yt = max(yt, floor(f0 * m0 - 0.500001)) elseif B0 < 0 then yb = min(yb, ceil(f0 * m0 - 0.499999)) end
+            if B1 > 0 then yt = max(yt, floor(f1 * m1 - 0.500001)) elseif B1 < 0 then yb = min(yb, ceil(f1 * m1 - 0.499999)) end
+            if B2 > 0 then yt = max(yt, floor(f2 * m2 - 0.500001)) elseif B2 < 0 then yb = min(yb, ceil(f2 * m2 - 0.499999)) end
+            while yt <= yb do
+                local py = yt + 0.5
+                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
+                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
+                    break
+                end
+                yt += 1
+            end
+            while yb > yt do
+                local py = yb + 0.5
+                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
+                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
+                    break
+                end
+                yb -= 1
+            end
+            if yt > yb then continue end
+            local o = (yt * TargetWidth + x) * 4
+            if flat then
+                for _ = yt, yb do
+                    BlendPixel(dbuf, o, ra, ga, ba, aa)
+                    o += stride
+                end
+                continue
+            end
+            for y = yt, yb do
+                local py = y + 0.5
+                local w0, w1, w2 = (A0 * px + (B0 * py + C0)) * inv, (A1 * px + (B1 * py + C1)) * inv,
+                    (A2 * px + (B2 * py + C2)) * inv
+                local a = w0 * aa + w1 * ab + w2 * ac
+                if a > 0 then
+                    BlendPixel(dbuf, o, w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc, w0 * ba + w1 * bb + w2 * bc, a)
+                end
+                o += stride
+            end
+        end
+        return
     end
 
     for y = miny, maxy do
@@ -324,6 +473,50 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             continue
         end
+        if cconst then
+            -- constant vertex colour, varying uv (AA line textures): texel read as u32, blend cached per texel value
+            for x = xl, xr do
+                local px = x + 0.5
+                local w0, w1, w2 = (A0 * px + e0) * inv, (A1 * px + e1) * inv, (A2 * px + e2) * inv
+                local tx, ty = floor((w0 * ua + w1 * ub + w2 * uc) * tw), floor((w0 * vva + w1 * vvb + w2 * vvc) * th)
+                if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+                if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+                local tv = readu32(tbuf, (ty * tw + tx) * 4)
+                if tv ~= last_tv then
+                    last_tv = tv
+                    sa = rshift(tv, 24) * a255
+                    sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                    s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                    fa = sa / 255
+                    fn = 1 - fa
+                    fk = (1 - fa) / 255
+                end
+                -- BlendPixel inlined (same math)
+                if sa >= 255 then
+                    writeu32(dbuf, o, s_opaque + 4278190080)
+                elseif sa > 0 then
+                    local d = readu32(dbuf, o)
+                    if d < 16777216 then
+                        writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                    else
+                        local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                        if d >= 4278190080 then
+                            writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                                + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                        else
+                            local k = rshift(d, 24) * fk
+                            local oa = fa + k
+                            local inv2 = 1 / oa
+                            writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
+                                + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
+                                + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                        end
+                    end
+                end
+                o += 4
+            end
+            continue
+        end
         for x = xl, xr do
             local px = x + 0.5
             local w0, w1, w2 = (A0 * px + e0) * inv, (A1 * px + e1) * inv, (A2 * px + e2) * inv
@@ -343,6 +536,131 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     end
 end
 
+-- Textured line quad (triangles a b c + a c d, one colour, uv a = b and c = d: ImPlot PrimLine). Same edge functions as
+-- the two DrawTriangle calls (so the same pixels), uv from triangle a b c's barycentrics over the whole quad.
+@native
+local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, vc: number, vd: number, t,
+    cx0: number, cy0: number, cx1: number, cy1: number, ox: number, oy: number)
+    local x0, y0 = readf64(vbuf, va) - ox, readf64(vbuf, va + 8) - oy
+    local x1, y1 = readf64(vbuf, vb) - ox, readf64(vbuf, vb + 8) - oy
+    local x2, y2 = readf64(vbuf, vc) - ox, readf64(vbuf, vc + 8) - oy
+    local x3, y3 = readf64(vbuf, vd) - ox, readf64(vbuf, vd + 8) - oy
+    local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
+    local area2 = (x2 - x0) * (y3 - y0) - (y2 - y0) * (x3 - x0)
+    if area == 0 or area2 == 0 or (area < 0) ~= (area2 < 0) then -- degenerate or not convex: the two triangles
+        DrawTriangle(dbuf, vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
+        DrawTriangle(dbuf, vbuf, va, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
+        return
+    end
+    local ua, vva, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+    -- outer edges P -> Q (quad order, counter-clockwise like DrawTriangle's swap): A = yP - yQ, B = xQ - xP, C from P
+    local px_, py_, qx_, qy_ = x1, y1, x3, y3 -- b, d
+    if area < 0 then
+        px_, py_, qx_, qy_ = x3, y3, x1, y1
+        area = -area
+    end
+    -- order a -> p -> c -> q
+    local A0, B0 = y0 - py_, px_ - x0
+    local C0 = -(A0 * x0 + B0 * y0)
+    local A1, B1 = py_ - y2, x2 - px_
+    local C1 = -(A1 * px_ + B1 * py_)
+    local A2, B2 = y2 - qy_, qx_ - x2
+    local C2 = -(A2 * x2 + B2 * y2)
+    local A3, B3 = qy_ - y0, x0 - qx_
+    local C3 = -(A3 * qx_ + B3 * qy_)
+    local tl0 = A0 > 0 or (A0 == 0 and B0 > 0)
+    local tl1 = A1 > 0 or (A1 == 0 and B1 > 0)
+    local tl2 = A2 > 0 or (A2 == 0 and B2 > 0)
+    local tl3 = A3 > 0 or (A3 == 0 and B3 > 0)
+    local n0, n1, n2, n3 = A0 ~= 0 and -1 / A0 or 0, A1 ~= 0 and -1 / A1 or 0, A2 ~= 0 and -1 / A2 or 0,
+        A3 ~= 0 and -1 / A3 or 0
+    -- weight of c in triangle a b c: edge a -> b over its area (same sign whichever side b is on)
+    local WA, WB = y0 - y1, x1 - x0
+    local WC = -(WA * x0 + WB * y0)
+    local winv = 1 / ((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0))
+    WA, WB, WC = WA * winv, WB * winv, WC * winv
+    local du, dv = uc - ua, vvc - vva
+
+    local minx, maxx = max(floor(min(x0, x1, x2, x3)), cx0), min(ceil(max(x0, x1, x2, x3)), cx1 - 1)
+    local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
+    if minx > maxx or miny > maxy then return end
+    local ra, ga, ba, aa = UnpackColor(readu32(vbuf, va + 32))
+    if aa <= 0 then return end
+    Shrink(minx, miny, maxx + 1, maxy + 1)
+    local tw: number, th: number, tbuf: buffer = t.Width, t.Height, t.Buffer
+    local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
+    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    for y = miny, maxy do
+        local py = y + 0.5
+        local xl, xr = minx, maxx
+        local e0, e1, e2, e3 = B0 * py + C0, B1 * py + C1, B2 * py + C2, B3 * py + C3
+        if A0 > 0 then xl = max(xl, floor(e0 * n0 - 0.500001)) elseif A0 < 0 then xr = min(xr, ceil(e0 * n0 - 0.499999)) end
+        if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
+        if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
+        if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        while xl <= xr do
+            local px = xl + 0.5
+            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
+            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
+                and (w3 > 0 or (w3 == 0 and tl3)) then
+                break
+            end
+            xl += 1
+        end
+        while xr > xl do
+            local px = xr + 0.5
+            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
+            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
+                and (w3 > 0 or (w3 == 0 and tl3)) then
+                break
+            end
+            xr -= 1
+        end
+        if xl > xr then continue end
+        local o = (y * TargetWidth + xl) * 4
+        local wrow = WB * py + WC
+        for x = xl, xr do
+            local w = WA * (x + 0.5) + wrow
+            local tx, ty = floor((ua + w * du) * tw), floor((vva + w * dv) * th)
+            if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+            if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+            local tv = readu32(tbuf, (ty * tw + tx) * 4)
+            if tv ~= last_tv then
+                last_tv = tv
+                sa = rshift(tv, 24) * a255
+                sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                fa = sa / 255
+                fn = 1 - fa
+                fk = (1 - fa) / 255
+            end
+            -- BlendPixel inlined (same math)
+            if sa >= 255 then
+                writeu32(dbuf, o, s_opaque + 4278190080)
+            elseif sa > 0 then
+                local d = readu32(dbuf, o)
+                if d < 16777216 then
+                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                else
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                    else
+                        local k = rshift(d, 24) * fk
+                        local oa = fa + k
+                        local inv2 = 1 / oa
+                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
+                            + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                    end
+                end
+            end
+            o += 4
+        end
+    end
+end
+
 -- Linear gradient quad, constant uv. kind 1: along y (ca top, cb bottom), 2: along x. Same pixels as the triangles.
 @native
 local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1: number, y1: number, ca: number,
@@ -350,6 +668,7 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
     local px0, py0 = max(ceil(x0 - 0.5), cx0), max(ceil(y0 - 0.5), cy0)
     local px1, py1 = min(ceil(x1 - 0.5), cx1), min(ceil(y1 - 0.5), cy1)
     if px0 >= px1 or py0 >= py1 then return end
+    Shrink(px0, py0, px1, py1)
     local ra, ga, ba, aa = UnpackColor(ca)
     local rb, gb, bb, ab = UnpackColor(cb)
     if t then
@@ -391,11 +710,13 @@ end
 
 function M.SetTarget(buf: buffer, width: number)
     TargetBuffer, TargetWidth = buf, width
+    UX1 = UX0
 end
 
 @native
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
+    UX0, UY0, UX1, UY1, UV = rx0, ry0, rx1, ry1, 0
     if rw == TargetWidth then
         buffer.fill(TargetBuffer, ry0 * TargetWidth * 4, 0, (ry1 - ry0) * TargetWidth * 4)
     else
@@ -410,12 +731,15 @@ function M.CopySubRect(dst: buffer, rx0: number, ry0: number, rw: number, rh: nu
     end
 end
 
--- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2
+-- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2, 4 line quad (va vb vc vd)
 @native
-local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, vc: number, tox: number, toy: number,
-    cx0: number, cy0: number, cx1: number, cy1: number)
+local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, vc: number, vd: number, tox: number,
+    toy: number, cx0: number, cy0: number, cx1: number, cy1: number)
     if kind == 0 then
         DrawTriangle(TargetBuffer, vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, tox, toy)
+        return
+    elseif kind == 4 then
+        DrawLineQuad(TargetBuffer, vbuf, va, vb, vc, vd, t, cx0, cy0, cx1, cy1, tox, toy)
         return
     end
     local ax, ay, cx, cy = readf64(vbuf, va) - tox, readf64(vbuf, va + 8) - toy, readf64(vbuf, vc) - tox,
@@ -435,7 +759,7 @@ local Scratch = buffer.create(TILE * TILE * 4)
 @native
 function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
     local ClearRect, CopySubRect = M.ClearRect, M.CopySubRect
-    local REC_A, REC_B, REC_C = M.REC_A, M.REC_B, M.REC_C
+    local REC_A, REC_B, REC_C, REC_D = M.REC_A, M.REC_B, M.REC_C, M.REC_D
     M.SetTarget(Scratch, TILE)
     local out, no = {}, 0
     local o = 0
@@ -459,7 +783,7 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
                 end
                 local tid, t = readi32(P, q + 4), nil
                 if tid >= 0 then t = textures[tid] end
-                DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, tox, toy, cx0, cy0, cx1, cy1)
+                DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, q + REC_D, tox, toy, cx0, cy0, cx1, cy1)
             end
             local rw, rh = rx1 - rx0, ry1 - ry0
             local sub = buffer.create(rw * rh * 4)

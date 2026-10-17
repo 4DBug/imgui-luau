@@ -72,10 +72,9 @@ local function HashVertex(h1: number, h2: number, vbuf: buffer, v: number, ox: n
     local x, y = readf64(vbuf, v) - ox, readf64(vbuf, v + 8) - oy
     local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
     local c = readu32(vbuf, v + 32)
-    h1 = (h1 * 48271 + x * 4096 + y) % P1
-    h1 = (h1 * 48271 + uv * 4096 + c) % P1
-    h2 = (h2 * 16807 + y * 4093 + x) % P2
-    h2 = (h2 * 16807 + uv * 65521 + c * 3) % P2
+    -- one % per hash: h < 2^31, so h * 48271 + the terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
+    h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+    h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
     return h1, h2
 end
 
@@ -121,6 +120,10 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                 if gk then
                     h1 = (h1 * 48271 + gk) % P1
                     h2 = (h2 * 16807 + gk * 3) % P2
+                end
+                if gk == 3 then -- line quad: any shape
+                    h1, h2 = HashVertex(h1, h2, vbuf, PrimB[p], vax, vay)
+                    h1, h2 = HashVertex(h1, h2, vbuf, vd, vax, vay)
                 end
             else
                 h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
@@ -362,7 +365,7 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
         end
         local kind, gk = 0, PrimGradient[p]
         if PrimD[p] then kind = gk and gk + 1 or 1 end
-        DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], tox, toy, cx0, cy0, cx1, cy1)
+        DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0, cx1, cy1)
     end
 end
 
@@ -604,7 +607,22 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                     if i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == ic then
                         local d = (vo + idx[i + 5] - 1) * VTX_STRIDE
                         local pdx, pdy = readf64(vbuf, d), readf64(vbuf, d + 8)
-                        if pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
+                        local col = readu32(vbuf, va + 32)
+                        if t and readu32(vbuf, vb + 32) == col and readu32(vbuf, vc + 32) == col
+                            and readu32(vbuf, d + 32) == col then
+                            -- textured line quad (ImPlot PrimLine): uv a = b, c = d, u a ~= u c (else a textured rect may match)
+                            local tax, tay, tcx, tcy = readf64(vbuf, va + 16), readf64(vbuf, va + 24),
+                                readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+                            if tax ~= tcx and readf64(vbuf, vb + 16) == tax
+                                and readf64(vbuf, vb + 24) == tay and readf64(vbuf, d + 16) == tcx
+                                and readf64(vbuf, d + 24) == tcy then
+                                vd, gk = d, 3
+                                bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
+                                bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
+                                by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
+                            end
+                        end
+                        if not vd and pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
                             local col, colb, colc, cold = readu32(vbuf, va + 32), readu32(vbuf, vb + 32),
                                 readu32(vbuf, vc + 32), readu32(vbuf, d + 32)
                             local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
@@ -748,14 +766,16 @@ function M.RenderDrawData(draw_data)
     PB("ImGui RenderDrawData")
     BackendData.FrameStartTime = os.clock()
     if EditableImages.StageTiming then
-        EditableImages.StageFrame = { Compare = 0, Collect = 0, Hash = 0, Raster = 0, Upload = 0, Other = 0, Total = 0,
+        EditableImages.StageFrame = { Compare = 0, Collect = 0, Hash = 0, Raster = 0, Upload = 0, Textures = 0, Flush = 0, Other = 0, Total = 0,
         TilesRasterized = 0, PixelsRasterized = 0, Uploads = 0, TilesCreated = 0, TilesFreed = 0 } end
     BackendData.FrameTiles = 0
     -- the first dirty tile of a frame is always redrawn (progress), the rest within the budget
     BackendData.RedrawStarted = false
     BackendData.Stale = nil
 
+    if EditableImages.StageTiming then EditableImages.BeginStage() end
     UpdateTextures(draw_data)
+    if EditableImages.StageTiming then EditableImages.EndStage("Textures") end
     if not RenderRateAllows(BackendData, draw_data) then
         PE()
         return
@@ -828,13 +848,15 @@ function M.RenderDrawData(draw_data)
         BackendData.StaleHeartbeat = BackendData.HeartbeatCount
     end
     if Parallel.Active then
+        if EditableImages.StageTiming then EditableImages.BeginStage() end
         Parallel.Flush()
+        if EditableImages.StageTiming then EditableImages.EndStage("Flush") end
     end
     if EditableImages.StageTiming and EditableImages.StageFrame then
         local f = EditableImages.StageFrame
         f.Raster -= f.Upload
         f.Total = os.clock() - BackendData.FrameStartTime
-        f.Other = f.Total - f.Compare - f.Collect - f.Hash - f.Raster - f.Upload
+        f.Other = f.Total - f.Compare - f.Collect - f.Hash - f.Raster - f.Upload - f.Textures - f.Flush
         BackendData.FrameStats = f
     end
     PE()

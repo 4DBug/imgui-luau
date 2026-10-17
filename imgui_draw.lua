@@ -49,6 +49,7 @@ end
 --- @param buf  char[] # 1-based
 --- @param base int    # 1-based start index
 --- @param u32  ImU32
+@native
 local function write_u32(buf, base, u32)
     buf[base + 0] = bit32.band(u32, 0xFF)
     buf[base + 1] = bit32.band(bit32.rshift(u32, 8), 0xFF)
@@ -778,6 +779,7 @@ end
 --- @param dst_pitch       int
 --- @param w               int
 --- @param h               int
+@native
 function ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, dst_pixels, dst_pixels_base, dst_fmt, dst_pitch, w, h)
     IM_ASSERT(src_pixels ~= nil and dst_pixels ~= nil)
     local src_pixels_base = 1
@@ -795,7 +797,8 @@ function ImFontAtlasTextureBlockConvert(src_pixels, src_fmt, src_pitch, dst_pixe
                 local alpha = src_pixels[src_pixels_base + 0]
                 src_pixels_base = src_pixels_base + 1
 
-                write_u32(dst_pixels, dst_pixels_base, IM_COL32(255, 255, 255, alpha))
+                -- [Luau] inline write_u32(dst_pixels, dst_pixels_base, IM_COL32(255, 255, 255, alpha))
+                dst_pixels[dst_pixels_base] = 255; dst_pixels[dst_pixels_base + 1] = 255; dst_pixels[dst_pixels_base + 2] = 255; dst_pixels[dst_pixels_base + 3] = alpha
                 dst_pixels_base = dst_pixels_base + 4
             end
 
@@ -2701,8 +2704,13 @@ function MT.ImTextureData:Create(format, w, h)
     self.Height = h
     self.BytesPerPixel = ImTextureDataGetFormatBytesPerPixel(format)
     self.UseColors = false
-    self.Pixels = {}
-    ImStd.memset(self.Pixels, 0, self.Width * self.Height * self.BytesPerPixel)
+    local n = self.Width * self.Height * self.BytesPerPixel
+    if table.create then
+        self.Pixels = table.create(n, 0) -- [Luau] native zero fill, same contents as memset
+    else
+        self.Pixels = {}
+        ImStd.memset(self.Pixels, 0, n)
+    end
     self.UsedRect.x = 0
     self.UsedRect.y = 0
     self.UsedRect.w = 0
@@ -3466,7 +3474,8 @@ end
 local TEXT_SIZE_CACHE_MAX = 4096
 
 @native
-function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+-- [Luau] scalar core of ImFontCalcTextSizeEx(): returns size.x, size.y, remaining (no ImVec2 allocated)
+function ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
     local text_is_str = type(text) == "string"
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
     -- Advances of a baked font never change once loaded, so entries stay valid.
@@ -3483,7 +3492,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
         local e = cache[text]
         if e then
-            return ImVec2(e[1] * (size / baked.Size), e[2] * size), text_len1
+            return e[1] * (size / baked.Size), e[2] * size, text_len1
         end
         cache_key = text
     elseif cacheable and wrap_width > 0.0 then
@@ -3499,7 +3508,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         if by_wrap == nil then by_wrap = {}; by_size[wrap_width] = by_wrap end
         local e = by_wrap[text]
         if e then
-            return ImVec2(e[1], e[2]), e[3]
+            return e[1], e[2], e[3]
         end
         wrap_cache = by_wrap
     end
@@ -3514,7 +3523,7 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
     local line_height = size
     local scale = line_height / baked.Size
 
-    local text_size = ImVec2()
+    local tx, ty = 0.0, 0.0
     local line_width = 0.0
 
     local word_wrap_enabled = (wrap_width > 0.0)
@@ -3534,10 +3543,10 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
             end
 
             if s >= word_wrap_eol then
-                if text_size.x < line_width then
-                    text_size.x = line_width
+                if tx < line_width then
+                    tx = line_width
                 end
-                text_size.y = text_size.y + line_height
+                ty = ty + line_height
                 line_width = 0.0
                 s = ImTextCalcWordWrapNextLineStart(text, s, text_end, flags) -- Wrapping skips upcoming blanks
                 if bit32.band(flags, ImDrawTextFlags.StopOnNewLine) ~= 0 then
@@ -3562,8 +3571,8 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         end
 
         if c == 10 then -- '\n'
-            text_size.x = ImMax(text_size.x, line_width)
-            text_size.y = text_size.y + line_height
+            if tx < line_width then tx = line_width end
+            ty = ty + line_height
             line_width = 0.0
             if bit32.band(flags, ImDrawTextFlags.StopOnNewLine) ~= 0 then
                 stop = true; break
@@ -3595,30 +3604,36 @@ function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begi
         if stop then break end
     end
 
-    if (text_size.x < line_width) then
-        text_size.x = line_width
+    if (tx < line_width) then
+        tx = line_width
     end
 
     if out_offset then -- offset allow for the possibility of sitting after a trailing \n
         out_offset.x = line_width
-        out_offset.y = text_size.y + line_height
+        out_offset.y = ty + line_height
     end
 
-    if (line_width > 0 or text_size.y == 0.0) then -- whereas size.y will ignore the trailing \n
-        text_size.y = text_size.y + line_height
+    if (line_width > 0 or ty == 0.0) then -- whereas size.y will ignore the trailing \n
+        ty = ty + line_height
     end
 
     local out_remaining = s
 
     if cache_key then
-        baked._TextSizeCache[cache_key] = { text_size.x / scale, text_size.y / line_height }
+        baked._TextSizeCache[cache_key] = { tx / scale, ty / line_height }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     elseif wrap_cache then
-        wrap_cache[text] = { text_size.x, text_size.y, out_remaining }
+        wrap_cache[text] = { tx, ty, out_remaining }
         baked._TextSizeCacheN = baked._TextSizeCacheN + 1
     end
 
-    return text_size, out_remaining
+    return tx, ty, out_remaining
+end
+
+-- ImVec2 version (upstream signature)
+function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    local x, y, remaining = ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
+    return ImVec2(x, y), remaining
 end
 
 --- @param size       float
@@ -6988,7 +7003,15 @@ end
 
 -- Render-level scissoring. This is passed down to your render function but not used for CPU-side coarse clipping. Prefer using higher-level ImGui.PushClipRect() to affect logic (hit-testing and widget culling)
 function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_rect)
-    local cr = ImVec4(cr_min.x, cr_min.y, cr_max.x, cr_max.y)
+    -- [Luau] reuse the stack slot's ImVec4 left from earlier frames (each slot stays uniquely owned by the stack)
+    local stack = self._ClipRectStack
+    local n = stack.Size + 1
+    local cr = n <= stack.Capacity and stack.Data[n] or nil
+    if cr then
+        cr.x = cr_min.x; cr.y = cr_min.y; cr.z = cr_max.x; cr.w = cr_max.y
+    else
+        cr = ImVec4(cr_min.x, cr_min.y, cr_max.x, cr_max.y)
+    end
 
     if intersect_with_current_clip_rect then
         local current = self._CmdHeader.ClipRect
@@ -7003,8 +7026,6 @@ function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_
     cr.w = math.max(cr.y, cr.w)
 
     -- [Luau] inline self._ClipRectStack:push_back(cr)
-    local stack = self._ClipRectStack
-    local n = stack.Size + 1
     if n > stack.Capacity then stack:push_back(cr) else stack.Data[n] = cr; stack.Size = n end
     ImVec4_Copy(self._CmdHeader.ClipRect, cr)
     self:_OnChangedClipRect()

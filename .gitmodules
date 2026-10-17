@@ -1,15 +1,27 @@
 [submodule "extensions/imguicolortextedit-luau"]
 	path = extensions/imguicolortextedit-luau
-	url = https://git.bug.tools/bug/imguicolortextedit-luau.git
+	url = https://github.com/4DBug/imguicolortextedit-luau.git
 [submodule "extensions/imguizmo-luau"]
 	path = extensions/imguizmo-luau
-	url = https://git.bug.tools/bug/imguizmo-luau.git
+	url = https://github.com/4DBug/imguizmo-luau.git
 [submodule "extensions/implot-luau"]
 	path = extensions/implot-luau
-	url = https://git.bug.tools/bug/implot-luau.git
+	url = https://github.com/4DBug/implot-luau.git
 [submodule "extensions/imnodes-luau"]
 	path = extensions/imnodes-luau
-	url = https://git.bug.tools/bug/imnodes-luau.git
+	url = https://github.com/4DBug/imnodes-luau.git
 [submodule "extensions/implot3d-luau"]
 	path = extensions/implot3d-luau
-	url = https://git.bug.tools/bug/implot3d-luau.git
+	url = https://github.com/4DBug/implot3d-luau.git
+[submodule "extensions/imcurveedit-luau"]
+	path = extensions/imcurveedit-luau
+	url = https://github.com/4DBug/imcurveedit-luau.git
+[submodule "extensions/imgradient-luau"]
+	path = extensions/imgradient-luau
+	url = https://github.com/4DBug/imgradient-luau.git
+[submodule "extensions/imgui-memory-editor-luau"]
+	path = extensions/imgui-memory-editor-luau
+	url = https://github.com/4DBug/imgui-memory-editor-luau.git
+[submodule "extensions/imsequencer-luau"]
+	path = extensions/imsequencer-luau
+	url = https://github.com/4DBug/imsequencer-luau.git

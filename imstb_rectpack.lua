@@ -105,6 +105,7 @@ local STBRP__PREV_LINK_TYPE = {
 
 --- @return stbrp_rect
 --- @nodiscard
+@native
 local function stbrp_rect()
     return {
         -- reserved for your use:
@@ -128,6 +129,7 @@ end
 
 --- @return stbrp_node
 --- @nodiscard
+@native
 local function stbrp_node()
     return {
         x    = 0,
@@ -149,6 +151,7 @@ end
 
 --- @return stbrp_context
 --- @nodiscard
+@native
 local function stbrp_context()
     return {
         width     = 0,
@@ -171,6 +174,7 @@ end
 --- @field prev_link_type? int
 
 --- @return stbrp__findresult
+@native
 local function stbrp__findresult()
     return {
         x = 0,
@@ -191,6 +195,7 @@ end
 -- If you call init again, this will be reset to the default.
 --- @param context   stbrp_context
 --- @param heuristic int
+@native
 local function stbrp_setup_heuristic(context, heuristic)
     if context.init_mode == STBRP__INIT_skyline then
         STBRP_ASSERT(heuristic == STBRP_HEURISTIC_Skyline.BL_sortHeight or heuristic == STBRP_HEURISTIC_Skyline.BF_sortHeight)
@@ -205,6 +210,7 @@ end
 -- If you call init again, this will be reset to the default (false).
 --- @param context          stbrp_context
 --- @param allow_out_of_mem boolean
+@native
 local function stbrp_setup_allow_out_of_mem(context, allow_out_of_mem)
     if allow_out_of_mem then
         -- if it's ok to run out of memory, then don't bother aligning them;
@@ -248,6 +254,7 @@ end
 --- @param height    int
 --- @param nodes     stbrp_node[]
 --- @param num_nodes int
+@native
 function stbrp_init_target(context, width, height, nodes, num_nodes)
     for i = 1, num_nodes - 1 do
         nodes[i].next = nodes[i + 1]
@@ -278,6 +285,7 @@ end
 --- @param x0 int
 --- @param width int
 --- @return int, int
+@native
 local function stbrp__skyline_find_min_y(c, first, x0, width)
     local node = first
     local x1 = x0 + width
@@ -325,6 +333,7 @@ end
 --- @param width  int
 --- @param height int
 --- @return stbrp__findresult
+@native
 local function stbrp__skyline_find_best_pos(c, width, height)
     local best_waste = bit32.lshift(1, 30)
     local best_x = 0
@@ -454,6 +463,7 @@ end
 --- @param width   int
 --- @param height  int
 --- @return stbrp__findresult
+@native
 local function stbrp__skyline_pack_rectangle(context, width, height)
     -- find best position according to heuristic
     local res = stbrp__skyline_find_best_pos(context, width, height)
@@ -522,6 +532,7 @@ end
 --- @param b stbrp_rect
 --- @return bool
 --- @package
+@native
 local function rect_height_compare(a, b)
     if a.h > b.h then
         return true
@@ -536,6 +547,7 @@ end
 --- @param b stbrp_rect
 --- @return bool
 --- @package
+@native
 local function rect_original_order(a, b)
     return a.was_packed < b.was_packed
 end
@@ -567,6 +579,7 @@ end
 --- @param rects     stbrp_rect[]
 --- @param num_rects int
 --- @return int
+@native
 local function stbrp_pack_rects(context, rects, num_rects)
     local all_rects_packed = 1
 
