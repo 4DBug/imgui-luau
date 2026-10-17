@@ -1,5 +1,5 @@
 --- Dear ImGui
--- This is a Lua port of original `imstb_truetype.h`
+-- [Port] This is a Lua port of original `imstb_truetype.h`
 
 -- [DEAR IMGUI]
 -- This is a slightly modified version of stb_truetype.h 1.26.
@@ -76,7 +76,7 @@
 --   accurately measures pixel coverage for anti-aliasing, except in the case
 --   where multiple shapes overlap, in which case it overestimates the AA pixel
 --   coverage. Thus, anti-aliasing of intersecting shapes may look wrong.
---   (This port only implements the new rasterizer.)
+-- [Port] (This port only implements the new rasterizer.)
 --
 -- ADDITIONAL DOCUMENTATION
 --
@@ -194,7 +194,7 @@ local STBTT_MS_EID = { -- encodingID for STBTT_PLATFORM_ID_MICROSOFT
     UNICODE_FULL = 10
 }
 
--- original enum doesn't have a name, so we name it
+-- [Port] original enum doesn't have a name, so we name it
 --- @enum STBTT_VTX
 local STBTT_VTX = {
     MOVE = 1,
@@ -793,7 +793,7 @@ local function stbtt_InitFont_internal(info, data, fontstart)
         info.fdselect = stbtt__new_buf(nil, 0)
 
         -- @TODO this should use size from table (not 512MB)
-        info.cff = stbtt__new_buf(data, 64 * 1024 * 1024, cff) -- PORT: 64MB here instead of 512MB
+        info.cff = stbtt__new_buf(data, 64 * 1024 * 1024, cff) -- [Port] 64MB here instead of 512MB
         local b = info.cff
 
         -- read the header
@@ -1084,7 +1084,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
     if numberOfContours > 0 then
         local endPtsOfContours = g + 10
         local ins = ttUSHORT(data, endPtsOfContours + numberOfContours * 2)
-        local points = (endPtsOfContours + numberOfContours * 2 + 2 + ins) + 1 -- 1-based idx
+        local points = (endPtsOfContours + numberOfContours * 2 + 2 + ins) + 1 -- [Port] 1-based idx
 
         local n = 1 + ttUSHORT(data, endPtsOfContours + numberOfContours * 2 - 2)
         local m = n + 2 * numberOfContours -- a loose bound on how many vertices we might need
@@ -1304,7 +1304,7 @@ local function stbtt__GetGlyphShapeTT(info, glyph_index)
                 end
 
                 -- Append vertices.
-                if num_vertices == 0 then -- LUA: No malloc
+                if num_vertices == 0 then -- [Port] No malloc
                     vertices = comp_verts
                 else
                     for i = 1, comp_num_vertices do
@@ -1454,7 +1454,7 @@ local function stbtt__run_charstring(info, glyph_index, c)
     local has_subrs = 0
     local clear_stack
 
-    local s = {} -- size = 48, 0-based
+    local s = {} -- [Port] size = 48, 0-based
 
     local subr_stack = {} for i = 1, 10 do subr_stack[i] = stbtt__buf() end
 
@@ -2185,8 +2185,8 @@ end
 local function stbtt__rasterize_sorted_edges(result, e, n, vsubsample, off_x, off_y)
     local active = nil
 
-    local scanline = {} -- size = result.w, 0-based
-    local scanline2 = {} -- size = result.w + 1, 0-based
+    local scanline = {} -- [Port] size = result.w, 0-based
+    local scanline2 = {} -- [Port] size = result.w + 1, 0-based
 
     STBTT__NOTUSED(vsubsample)
 
@@ -2271,7 +2271,7 @@ end
 --- @param a stbtt__edge
 --- @param b stbtt__edge
 local STBTT__COMPARE = function(a, b)
-    if a.y0 == nil then return false end -- sentinels on the back
+    if a.y0 == nil then return false end -- [Port] sentinels on the back
     if b.y0 == nil then return true  end
     return a.y0 < b.y0
 end
@@ -2480,7 +2480,7 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     local num_contours = n
     if n == 0 then return nil end
 
-    local contour_lengths = {} -- size = n
+    local contour_lengths = {} -- [Port] size = n
 
     -- make two passes through the points so we don't need to realloc
     for pass = 0, 1 do

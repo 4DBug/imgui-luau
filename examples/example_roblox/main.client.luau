@@ -83,6 +83,7 @@ local function StyleColorsCatppuccinMocha(Style)
 		{ "ScrollbarGrabActive", Overlay0 },
 
 		{ "CheckMark", Mauve },
+		{ "CheckboxSelectedBg", Surface0 },
 		{ "SliderGrab", Mauve, 0.8 },
 		{ "SliderGrabActive", Mauve },
 

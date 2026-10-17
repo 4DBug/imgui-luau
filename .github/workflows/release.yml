@@ -34,7 +34,7 @@ jobs:
           IMGUI_BUNDLE_STRICT: "1" # fail if enum folding (needs the luau CLI above) can't run
         run: |
           mkdir -p dist
-          python3 tools/bundle.py dist/roblox                       # ImGui.luau (library + demo)
+          python3 tools/bundle.py dist/roblox                       # ImGui.luau (library + demo), ImGuiTyped.luau, ImGuiWorker.client.luau
           python3 tools/bundle.py --target love dist/love             # imgui_love.lua (library + demo)
           # minified variants (comments/whitespace stripped, same code): tools/minify.py
           python3 tools/minify.py dist/roblox/ImGui.luau dist/ImGui.min.luau
@@ -44,6 +44,8 @@ jobs:
         run: |
           python3 tools/sync_github_readme.py --check
           luau-compile --null dist/roblox/ImGui.luau
+          luau-compile --null dist/roblox/ImGuiWorker.client.luau
+          ! grep -n "require" dist/roblox/ImGuiWorker.client.luau   # parallel worker: self-contained (worker.luau + raster.lua inlined)
           sed 's|require(script:WaitForChild("Impl"))|nil|' dist/roblox/ImGuiTyped.luau > /tmp/ImGuiTyped.luau && luau-analyze /tmp/ImGuiTyped.luau
           luajit -bl dist/love/imgui_love.lua > /dev/null
           python3 tools/minify.py --test
@@ -71,9 +73,10 @@ jobs:
           cd dist
           cp roblox/ImGui.luau ImGui.luau
           cp love/imgui_love.lua imgui_love.lua
+          cp roblox/ImGuiWorker.client.luau ImGuiWorker.client.luau
           # Roblox: module + example LocalScript + Rojo project
-          mkdir -p pkg-roblox/build && cp ImGui.luau roblox/ImGuiTyped.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
-          mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox pkg-roblox/examples/
+          mkdir -p pkg-roblox/build && cp ImGui.luau roblox/ImGuiTyped.luau ImGuiWorker.client.luau pkg-roblox/build/ && cp ../default.project.json pkg-roblox/
+          mkdir -p pkg-roblox/examples && cp -r ../examples/example_roblox ../examples/example_roblox_parallel pkg-roblox/examples/
           (cd pkg-roblox && zip -qr ../imgui-luau-roblox-$V.zip .)
           # LÖVE: bundle + fonts + examples (run: love examples/example_love)
           mkdir -p pkg-love/build && cp imgui_love.lua pkg-love/build/ && cp -r ../fonts pkg-love/ && rm -f pkg-love/fonts/*.lua
@@ -87,6 +90,7 @@ jobs:
         with:
           files: |
             dist/ImGui.luau
+            dist/ImGuiWorker.client.luau
             dist/imgui_love.lua
             dist/*.min.luau
             dist/*.min.lua
@@ -102,7 +106,7 @@ jobs:
           grep -q "^version = \"${GITHUB_REF_NAME#v}\"" wally.toml || { echo "wally.toml version != tag"; exit 1; }
           curl -fsSL -o wally.zip https://github.com/UpliftGames/wally/releases/download/v0.3.2/wally-v0.3.2-linux.zip
           unzip -q wally.zip -d wallybin && chmod +x wallybin/wally
-          mkdir -p dist/wally/src && cp wally.toml dist/wally/ && cp dist/roblox/ImGuiTyped.luau dist/wally/src/init.luau && cp dist/roblox/ImGui.luau dist/wally/src/Impl.luau
+          mkdir -p dist/wally/src && cp wally.toml dist/wally/ && cp dist/roblox/ImGuiTyped.luau dist/wally/src/init.luau && cp dist/roblox/ImGui.luau dist/wally/src/Impl.luau && cp dist/roblox/ImGuiWorker.client.luau dist/wally/src/Worker.client.luau
           echo '{"name":"imgui-luau","tree":{"$path":"src"}}' > dist/wally/default.project.json
           wallybin/wally login --token "$WALLY_TOKEN"
           wallybin/wally publish --project-path dist/wally
@@ -115,4 +119,4 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest --latest --title "Latest build (${GITHUB_SHA::7})" \
             --notes "Automatic build of ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Tag a commit v* for a versioned release." \
-            dist/ImGui.luau dist/imgui_love.lua dist/*.min.luau dist/*.min.lua dist/*.zip
+            dist/ImGui.luau dist/ImGuiWorker.client.luau dist/imgui_love.lua dist/*.min.luau dist/*.min.lua dist/*.zip

@@ -3,11 +3,15 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "ImGui": { "$path": "build/ImGuiTyped.luau", "Impl": { "$path": "build/ImGui.luau" } }
+      "ImGui": {
+        "$path": "build/ImGuiTyped.luau",
+        "Impl": { "$path": "build/ImGui.luau" },
+        "Worker": { "$path": "build/ImGuiWorker.client.luau" }
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "ImGuiMain": { "$path": "examples/example_roblox/main.client.luau" }
+        "ImGuiMain": { "$path": "examples/example_roblox_parallel/main.client.luau" }
       }
     }
   }

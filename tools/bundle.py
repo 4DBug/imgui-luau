@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-# Bundles the root *.lua (library + imgui_demo.lua), backends/ and fonts/ into ONE ModuleScript: build/ImGui.luau
+# Bundles the root *.lua (library + imgui_demo.lua), the target's backend folder (backends/roblox/*.lua, or
+# backends/love/*.lua) and fonts/ (Roblox) into ONE ModuleScript: build/ImGui.luau
 # --no-demo: library only (imgui_demo.lua left out, like not compiling imgui_demo.cpp)
 # --target love: build/imgui_love.lua for LÖVE/LuaJIT instead (LÖVE backend, shims from the LÖVE backend's COMPAT section, @native stripped).
 #                The default (roblox) build is unaffected by it.
 # Why: ModuleScripts don't share globals, and the setfenv() alternative turns off Luau's fast paths / native codegen.
 # Each source file becomes a function in __FILES; IM_INCLUDE(name) runs it once and caches the result.
 # The module returns a table with every global the library defines (ImGui, ImVec2, ImGuiConfigFlags, ImGui_ImplRoblox, ...).
-# Roblox target also writes ImGuiTyped.luau (types + require(script.Impl), see tools/gen_types.py).
+# Roblox target also writes ImGuiTyped.luau (types + require(script.Impl), see tools/gen_types.py) and
+# ImGuiWorker.client.luau: the parallel raster Actor LocalScript (backends/roblox/worker.luau with its
+# `require(...Raster...)` line replaced by backends/roblox/raster.lua itself: self-contained, no require).
+# The Roblox backend's modules are inlined into one function (see "Backend modules" below).
 #
 # Build-time optimizations (token rewrites with minify.py's lexer: strings/comments are never touched, every source line
 # stays on its line so linemap.json still maps errors). IMGUI_BUNDLE_NOOPT=1 turns all off, IMGUI_BUNDLE_NO_<X>=1 one:
@@ -35,15 +39,39 @@ OPT = {x: os.environ.get("IMGUI_BUNDLE_NOOPT") != "1" and os.environ.get("IMGUI_
 # A limits: Luau 200 locals in the main chunk (+ helpers, __FILES, ...), 200 upvalues per function; LuaJIT 60 upvalues
 # per function (margin left for nested functions that also capture file locals)
 MAX_LOCALS, MAX_UPVALUES = 160, (45 if LOVE else 150)
-BACKEND = "imgui_impl_love.lua" if LOVE else "imgui_impl_roblox.lua"
-SKIP = {"imgui_impl_roblox.lua", "imgui_impl_roblox_fonts.lua"} if LOVE else {"imgui_impl_love.lua"}
+TARGET = "love" if LOVE else "roblox"
+BACKEND = "imgui_impl_%s.lua" % TARGET
+BACKEND_DIR = os.path.join(ROOT, "backends", TARGET)  # every *.lua in it is bundled (*.luau, e.g. the worker, is not)
 FILES = {}
-for d in (ROOT, os.path.join(ROOT, "backends"), os.path.join(ROOT, "fonts")):
+for d in [ROOT, BACKEND_DIR] + ([] if LOVE else [os.path.join(ROOT, "fonts")]):
     for f in sorted(os.listdir(d)):
-        if f.endswith(".lua") and not (NO_DEMO and f == "imgui_demo.lua") and f not in SKIP:
+        if f.endswith(".lua") and not (NO_DEMO and f == "imgui_demo.lua"):
             src = open(os.path.join(d, f)).read()
             if LOVE: src = re.sub(r"^@native$", "", src, flags=re.M)  # keep line numbers
-            FILES[f] = src
+            FILES[f if d != BACKEND_DIR or f == BACKEND else TARGET + "/" + f] = src
+
+# Backend modules (backends/<target>/*.lua besides the main file, keyed "<target>/x.lua") are inlined into the main
+# file's __FILES function: `local X = IM_INCLUDE("<target>/x.lua")` lines become blank (X is declared once at the top of
+# the function), each module body goes in its own do ... end in dependency order, its final `return M` becomes `X = M`.
+# Cross-module access is then a local of the same function, no IM_INCLUDE at load time. In source, the same files work
+# with plain IM_INCLUDE (each a function returning its table).
+INCLUDE = re.compile(r'^local (\w+) = IM_INCLUDE\("(%s/\w+\.lua)"\)[ \t]*$' % TARGET, re.M)
+MODULES, EXPORT = [], {}  # inline order, key -> local name
+def visit(f, stack=()):
+    assert f not in stack, "backend modules: circular IM_INCLUDE %s" % " -> ".join(stack + (f,))
+    for name, key in INCLUDE.findall(FILES[f]):
+        assert EXPORT.setdefault(key, name) == name, "%s is included as both %s and %s" % (key, EXPORT[key], name)
+        if key not in MODULES: visit(key, stack + (f,)); MODULES.append(key)
+visit(BACKEND)
+unused = [f for f in FILES if f.startswith(TARGET + "/") and f not in MODULES]
+assert not unused, "backend modules never included: %s" % unused
+GROUP = {f: BACKEND for f in MODULES}  # file -> __FILES function it is emitted in
+
+def inline_module(key, src):
+    src = INCLUDE.sub("", src)
+    m = re.search(r"^return (\w+)[ \t]*\n*\Z", src, re.M)
+    assert m and m.group(1) != EXPORT[key], "%s must end with `return M` (a name other than %s)" % (key, EXPORT[key])
+    return src[:m.start()] + "%s = %s\n" % (EXPORT[key], m.group(1))
 
 ORIG = dict(FILES)  # for gen_types
 ENTRY = ["imgui.lua", BACKEND] + ([] if NO_DEMO else ["imgui_demo.lua"])  # run order
@@ -52,6 +80,7 @@ names = set()
 for src in FILES.values():
     names.update(re.findall(r"^function ([A-Za-z_]\w*)\s*\(", src, re.M))
     names.update(re.findall(r"^([A-Za-z_]\w*)\s*=[^=]", src, re.M))
+assert not names & set(EXPORT.values()), "backend module names clash with globals: %s" % (names & set(EXPORT.values()))
 
 # ---- lexer helpers ----
 KW = set("and break do else elseif end false for function goto if in local nil not or repeat return then true until while".split())
@@ -147,7 +176,7 @@ if OPT["E"]:
     hoisted = [rewrite_assert(s) for s in hoisted]
 
 # ---- B: enum / constant folding ----
-LUAU = shutil.which("luau") or "/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau-0.734/bin/luau"
+LUAU = shutil.which("luau") or (sorted(__import__("glob").glob("/nix/store/*-luau-*/bin/luau")) or ["luau"])[-1]
 
 def header():
     return ["local __FILES, __LOADED = {}, {}",
@@ -234,13 +263,14 @@ if OPT["B"]:
 # ---- A: hot globals -> bundle locals ----
 hot = []
 if OPT["A"]:
-    count, used = {}, []
-    for src in FILES.values():
+    count, used = {}, {}
+    for f, src in FILES.items():
         toks = lex(src)
-        used.append({t for i, (k, t, _) in enumerate(toks) if isref(toks, i)})
+        used.setdefault(GROUP.get(f, f), set()).update(t for i, (k, t, _) in enumerate(toks) if isref(toks, i))
         for i, (k, t, _) in enumerate(toks):
             if t in names and isref(toks, i): count[t] = count.get(t, 0) + 1
     # greedy by reference count; each file function's upvalues (hoisted names it uses) stay <= MAX_UPVALUES
+    used = list(used.values())
     taken = [len(u & set(hoisted_names + re.findall(r"\w+", HOIST_DEPS.split("=")[0]))) for u in used]
     for n in sorted((n for n in count if n not in hoisted_names), key=lambda n: (-count[n], n)):
         if len(hot) == MAX_LOCALS: break
@@ -250,14 +280,24 @@ if OPT["A"]:
 
 out = ["--!optimize 2", "-- GENERATED by tools/bundle.py from *.lua, backends/, fonts/ - do not edit", ""]
 if LOVE:
-    out = ["-- GENERATED by tools/bundle.py --target love - do not edit", re.search(r"--@compat-begin\n(.*?)--@compat-end", open(os.path.join(ROOT, "backends", "imgui_impl_love.lua")).read(), re.S).group(1), ""]
+    out = ["-- GENERATED by tools/bundle.py --target love - do not edit", re.search(r"--@compat-begin\n(.*?)--@compat-end", open(os.path.join(BACKEND_DIR, BACKEND)).read(), re.S).group(1), ""]
 if hot: out.append("local " + ", ".join(hot))
 if hoisted: out += [HOIST_DEPS] + hoisted
 out += header()
 linemap = []  # (first bundle line, file) for error -> source mapping (tools/test/run.py)
+def nextline(): return sum(x.count("\n") + 1 for x in out) + 1
 for name, src in sorted(FILES.items()):
+    if name in GROUP: continue
     out.append("__FILES[%r] = function()" % name)
-    linemap.append((sum(x.count("\n") + 1 for x in out) + 1, name))
+    if name == BACKEND and MODULES:
+        out.append("local " + ", ".join(EXPORT[k] for k in MODULES))
+        for k in MODULES:
+            out.append("do")
+            linemap.append((nextline(), k))
+            out.append(inline_module(k, FILES[k]).rstrip("\n"))
+            out.append("end")
+        src = INCLUDE.sub("", src)
+    linemap.append((nextline(), name))
     out.append(src.rstrip("\n"))
     out.append("end")
     out.append("")
@@ -277,4 +317,11 @@ json.dump(linemap, open(os.path.join(OUT, NAME.rsplit(".", 1)[0] + ".linemap.jso
 if not LOVE:
     from gen_types import wrapper
     open(os.path.join(OUT, "ImGuiTyped.luau"), "w").write(wrapper(ORIG))
+    worker = open(os.path.join(BACKEND_DIR, "worker.luau")).read()
+    req = re.search(r"^local Raster = require\(.*\)$", worker, re.M)
+    assert req, "worker: no `local Raster = require(...)` line"
+    raster = ORIG["roblox/raster.lua"].rstrip("\n")
+    open(os.path.join(OUT, "ImGuiWorker.client.luau"), "w").write(
+        "--!optimize 2\n-- GENERATED by tools/bundle.py from backends/roblox/worker.luau + raster.lua - do not edit\n"
+        + worker[:req.start()] + "local Raster = (function()\n" + raster + "\nend)()" + worker[req.end():])
 print("wrote build/%s (%d files, %d exports)" % (NAME, len(FILES), len(names)))

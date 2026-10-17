@@ -239,7 +239,7 @@
 --  - See https://github.com/ocornut/imgui/wiki/Getting-Started, and README.md of this repository.
 --  - Run and study the examples and demo in imgui_demo.lua to get acquainted with the library.
 --  - In the majority of cases you should be able to use unmodified backends files available in the backends/ folder
---    (backends/imgui_impl_roblox.lua for Roblox, backends/imgui_impl_love.lua for LÖVE).
+--    (backends/roblox/imgui_impl_roblox.lua for Roblox, backends/love/imgui_impl_love.lua for LÖVE).
 --  - Build a single file with tools/bundle.py: build/ImGui.luau (Roblox ModuleScript) or build/imgui_love.lua (LÖVE),
 --    then require() / load it. All exported names (ImGui, ImVec2, ImVec4, IM_COL32, every ImGui*Flags enum...) are fields of the returned table.
 --  - When using Dear ImGui, your programming IDE is your friend: follow the declaration of variables, functions and types to find comments about them.
@@ -342,9 +342,9 @@
 -- ------------------------------------
 --
 -- A backend implements the usual Dear ImGui contract: Init, NewFrame, RenderDrawData, inputs -> io:AddXXXEvent(),
--- texture updates via ImTextureData. Adding another Lua host means a new backends/imgui_impl_<name>.lua.
+-- texture updates via ImTextureData. Adding another Lua host means a new backends/<name>/imgui_impl_<name>.lua.
 --  -> see https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md for basic instructions.
---  -> the backends in backends/imgui_impl_roblox.lua and backends/imgui_impl_love.lua are complete implementations.
+--  -> the backends in backends/roblox/imgui_impl_roblox.lua and backends/love/imgui_impl_love.lua are complete implementations.
 --
 --  Basic application/backend skeleton:
 --
@@ -418,13 +418,12 @@
 -- (Core Code)
 
 --- Flags:
--- IMGUI_DISABLE_OBSOLETE_FUNCTIONS = true -- This flag is not implemented
+-- [Port] IMGUI_DISABLE_OBSOLETE_FUNCTIONS = true -- This flag is not implemented
 
--- NOTE: you must implement ImStd.ImFileOpen if you are not in GMod
 IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS = true -- Don't implement ImStd.ImFileOpen/ImStd.ImFileClose/ImStd.ImFileRead/ImFileWrite so you can implement them yourself
 
 IMGUI_DISABLE_DEBUG_TOOLS = false -- Disable metrics/debugger and other debug tools: ShowMetricsWindow(), ShowDebugLogWindow() and ShowIDStackToolWindow() will be empty
-IMGUI_DISABLE_TIME_FUNCTIONS = false -- Disable setting platform_io.Platform_SessionDate from os.date() in Initialize()
+IMGUI_DISABLE_TIME_FUNCTIONS = false -- [Port] Disable setting platform_io.Platform_SessionDate from os.date() in Initialize()
 
 -- Current context pointer. Implicitly used by all Dear ImGui functions. Always assumed to be ~= nil.
 -- - ImGui.CreateContext() will automatically set this pointer if it is nil.
@@ -443,9 +442,9 @@ end
 
 ImGui = {}
 
-ImStd = {} -- Contains functions that originally don't belong to cpp namespaces
+ImStd = {} -- [Port] Contains functions that originally don't belong to cpp namespaces
 
--- IM_INCLUDE(name) is provided by the bundle (see tools/bundle.py): runs the bundled file once, returns its result.
+-- [Port] IM_INCLUDE(name) is provided by the bundle (see tools/bundle.py): runs the bundled file once, returns its result.
 
 function ImGui._GetTypeFunc() return type end
 
@@ -474,7 +473,7 @@ function ImGui.MemAlloc(constructor, size)
 end
 
 -- IM_FREE() == ImGui.MemFree()
--- This does not set `owner[field]` to nil!
+-- [Port] This does not set `owner[field]` to nil!
 --- @param owner table
 --- @param field string|int
 function ImGui.MemFree(owner, field)
@@ -536,8 +535,8 @@ IM_INCLUDE"imgui_tables.lua"
 
 do --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
 --- Dear ImGui
--- Drag and drop: 1:1 port of imgui.cpp [SECTION] DRAG AND DROP (docking branch)
--- Payload `Data` is any Lua value (no copy is made). `data_size` is optional and only kept for API parity.
+-- [Port] Drag and drop: 1:1 port of imgui.cpp [SECTION] DRAG AND DROP (docking branch)
+-- [Port] Payload `Data` is any Lua value (no copy is made). `data_size` is optional and only kept for API parity.
 
 -------------------------------------------------------------------------------
 -- [SECTION] DRAG AND DROP
@@ -868,15 +867,15 @@ function ImGui.EndDragDropTarget()
     if g.DragDropPayload.Delivery then ImGui.ClearDragDrop() end
 end
 
--- Payload methods (C++ ImGuiPayload members): payload:IsDataType(t) etc. also work through these globals
+-- [Port] Payload methods (C++ ImGuiPayload members): payload:IsDataType(t) etc. also work through these globals
 function ImGui.PayloadIsDataType(payload, t) return ImGuiPayload_IsDataType(payload, t) end
 end --[[ [SECTION] imgui_dragdrop (was imgui_dragdrop.lua) ]]
 
 do --[[ [SECTION] imgui_docking (was imgui_docking.lua) ]]
 --- Dear ImGui
--- Docking: 1:1 port of imgui.cpp [SECTION] DOCKING (docking branch, 1.93 WIP)
+-- [Port] Docking: 1:1 port of imgui.cpp [SECTION] DOCKING (docking branch, 1.93 WIP)
 --
--- Port notes:
+-- [Port] Port notes:
 -- - Main viewport only (no multi-viewports on Roblox): viewport creation/merging code paths are kept where cheap, but
 --   windows always live in the main viewport.
 -- - ImGuiDockContext.Nodes (ImGuiStorage in C++) is a Lua table ID -> node. Iterations that upstream does over the
@@ -1145,7 +1144,7 @@ end
 
 local function IsRectInverted(r) return r.Min.x > r.Max.x or r.Min.y > r.Max.y end
 
---- Sorted snapshot of node IDs (upstream iterates ImGuiStorage which is sorted by key)
+--- [Port] Sorted snapshot of node IDs (upstream iterates ImGuiStorage which is sorted by key)
 local function DockContextNodesSorted(ctx)
     local ids = {}
     for id in pairs(ctx.DockContext.Nodes) do ids[#ids + 1] = id end
@@ -1680,7 +1679,7 @@ local function FixLargeWindowsWhenUndocking(size, ref_viewport)
 end
 
 function ImGui.DockContextProcessUndockWindow(ctx, window, clear_persistent_docking_ref)
-    if clear_persistent_docking_ref == nil then clear_persistent_docking_ref = true end -- C++ default argument
+    if clear_persistent_docking_ref == nil then clear_persistent_docking_ref = true end -- [Port] C++ default argument
     if window.DockNode then
         ImGui.DockNodeRemoveWindow(window.DockNode, window, clear_persistent_docking_ref and 0 or window.DockId)
     else
@@ -1926,7 +1925,7 @@ function ImGui.DockNodeMoveWindows(dst_node, src_node)
     end
 
     -- Tab order is not important here, it is preserved by sorting in DockNodeUpdateTabBar().
-    -- Snapshot: DockNodeAddWindow() won't touch src_node.Windows since window.DockNode is cleared first
+    -- [Port] Snapshot: DockNodeAddWindow() won't touch src_node.Windows since window.DockNode is cleared first
     local windows = {}
     for i = 1, src_node.Windows.Size do windows[i] = src_node.Windows.Data[i] end
     for _, window in ipairs(windows) do
@@ -2625,7 +2624,7 @@ function ImGui.DockNodeUpdateTabBar(node, host_window)
     end
 
     -- If multiple tabs are appearing on the same frame, sort them based on their persistent DockOrder value
-    local tabs_unsorted_start = tab_bar.Tabs.Size -- 0-based
+    local tabs_unsorted_start = tab_bar.Tabs.Size -- [Port] 0-based
     local tab_n = tab_bar.Tabs.Size - 1
     while tab_n >= 0 and bit32.band(tab_bar.Tabs.Data[tab_n + 1].Flags, ImGuiTabItemFlags.Unsorted) ~= 0 do
         -- FIXME-DOCK: Consider only clearing the flag after the tab has been alive for a few consecutive frames, allowing late comers to not break sorting?
@@ -2872,12 +2871,12 @@ function ImGui.DockNodeCalcTabBarLayout(node)
     return out_title_rect, r, window_menu_button_pos, out_close_button_pos
 end
 
---- Modifies pos_old/size_old/pos_new/size_new in place (ImVec2 tables)
+--- [Port] Modifies pos_old/size_old/pos_new/size_new in place (ImVec2 tables)
 function ImGui.DockNodeCalcSplitRects(pos_old, size_old, pos_new, size_new, dir, size_new_desired)
     local g = ImGui.GetCurrentContext()
     local dock_spacing = g.Style.ItemInnerSpacing.x
     local axis = (dir == ImGuiDir.Left or dir == ImGuiDir.Right) and ImGuiAxis.X or ImGuiAxis.Y
-    local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
+    local a, o = axis, 3 - axis -- [Port] the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
     pos_new[o] = pos_old[o]
     size_new[o] = size_old[o]
 
@@ -3362,7 +3361,7 @@ function ImGui.DockNodeTreeUpdateSplitter(node)
         -- Bounding box of the splitter cover the space between both nodes (w = Spacing, h = Size[xy^1] for when splitting horizontally)
         local axis = node.SplitAxis
         IM_ASSERT(axis ~= ImGuiAxis.None)
-        local a, o = axis, 3 - axis -- the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
+        local a, o = axis, 3 - axis -- [Port] the port's ImGuiAxis is 1-based (X=1,Y=2): it is directly the ImVec2 index
         local bb = ImRect(ImVec2(child_0.Pos.x, child_0.Pos.y), ImVec2(child_1.Pos.x, child_1.Pos.y))
         bb.Min[a] = bb.Min[a] + child_0.Size[a]
         bb.Max[o] = bb.Max[o] + child_1.Size[o]
@@ -4516,7 +4515,7 @@ DockSettingsHandler_WriteAll = function(ctx, handler, buf)
 end
 
 -------------------------------------------------------------------------------
--- Docking: helpers (imgui_internal.h inlines) + widgets used by docking
+-- [Port] Docking: helpers (imgui_internal.h inlines) + widgets used by docking
 -------------------------------------------------------------------------------
 
 function ImGui.DockNodeGetRootNode(node)
@@ -4587,7 +4586,7 @@ function ImGui.RenderArrowDockMenu(draw_list, p_min, sz, col)
     ImGui.RenderArrowPointingAt(draw_list, p_min + ImVec2(sz * 0.50, sz * 0.85), ImVec2(sz * 0.30, sz * 0.40), ImGuiDir.Down, col)
 end
 
--- Upstream CollapseButton (docking branch): replaces the port's simpler version
+-- [Port] Upstream CollapseButton (docking branch): replaces the port's simpler version
 -- The Collapse button also functions as a Dock Menu button.
 function ImGui.CollapseButton(id, pos, dock_node)
     local g = ImGui.GetCurrentContext()
@@ -4599,7 +4598,6 @@ function ImGui.CollapseButton(id, pos, dock_node)
     if is_clipped then return pressed end
 
     -- Render
-    --local is_dock_menu = (window.DockNodeAsHost and not window.Collapsed)
     local bg_col = ImGui.GetColorU32((held and hovered) and ImGuiCol.ButtonActive or (hovered and ImGuiCol.ButtonHovered or ImGuiCol.Button))
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
     if hovered or held then
@@ -4697,7 +4695,7 @@ local TOOLTIP_DEFAULT_PIVOT_TOUCH  = ImVec2(0.5, 1.0) -- Multiplied by g.Style.M
 local IMGUI_VIEWPORT_DEFAULT_ID = 0x11111111 -- Using an arbitrary constant instead of e.g. ImHashStr("ViewportDefault", 0); so it's easier to spot in the debugger. The exact value doesn't matter.
 
 local string = string
-ImFormatString = string.format -- TODO: an simplified version that operates on byte tables directly?
+ImFormatString = string.format
 
 --- @module "imstd_minstdio"
 ImStd.sscanf = IM_INCLUDE"imstd_minstdio.lua"
@@ -4709,47 +4707,34 @@ local bit32 = bit32
 -- [SECTION] MISC HELPERS/UTILITIES (File functions)
 -------------------------------------------------------------------------------
 
---- This closes the _file.
+--- [Port] This closes the _file.
 --- @param _file any # File object
 function IM_FILE_CLOSE(_file) end
 
---- This returns the size of _file in bytes.
+--- [Port] This returns the size of _file in bytes.
 --- @param _file any # File object
 --- @return int
 function IM_FILE_SIZE(_file) return -1 end
 
---- This writes _str into _file.
+--- [Port] This writes _str into _file.
 --- @param _file any    # File object
 --- @param _str  string
 function IM_FILE_WRITE(_file, _str) end
 
---- This reads the specified _count of chars and returns them as a binary string.
+--- [Port] This reads the specified _count of chars and returns them as a binary string.
 --- @param _file any  # File object
 --- @param _count int
 --- @return string
 function IM_FILE_READ(_file, _count) return "" end
 
---- This opens the file at _filename in _mode and returns the File object.
+--- [Port] This opens the file at _filename in _mode and returns the File object.
 --- @param _filename string
 --- @param _mode     string # e.g. "rb"
 --- @return any
 function ImStd.ImFileOpen(_filename, _mode) end
 
---- [GMod] Platform specific
-if gmod then
-    IM_FILE_CLOSE = FindMetaTable("File").Close --- @type function
-    IM_FILE_SIZE  = FindMetaTable("File").Size  --- @type function
-    IM_FILE_WRITE = FindMetaTable("File").Write --- @type function
-    IM_FILE_READ  = FindMetaTable("File").Read  --- @type function
-end
-
 -- Default file functions
 if not IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS then
-    --- [GMod] Another Platform specific
-    if gmod then
-        function ImStd.ImFileOpen(filename, mode) return file.Open(filename, mode, "GAME") end
-    end
-
     function ImStd.ImFileClose(f) IM_FILE_CLOSE(f) end
     function ImStd.ImFileGetSize(f) return IM_FILE_SIZE(f) end
 
@@ -4757,7 +4742,7 @@ if not IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS then
     --- @param data  table # 1-based table to store result data
     --- @param count int   # Amount of bytes to read from `f`
     function ImStd.ImFileRead(f, data, count)
-        local CHUNK_SIZE = 8000 -- We don't read byte by byte
+        local CHUNK_SIZE = 8000 -- [Port] We don't read byte by byte
         local offset = 0
 
         while offset < count do
@@ -4873,7 +4858,7 @@ local ImGuiResizeGripDef = {
 
 -- Data for resizing from borders
 -- InnerDir: Normal toward inside, SegmentN1/SegmentN2: End positions, normalized (0,0: upper left), OuterAngle: Angle toward outside
---- [1] Left, [2] Right, [3] Up, [4] Down
+--- [Port] [1] Left, [2] Right, [3] Up, [4] Down
 local ImGuiResizeBorderDef = {
     {InnerDir = ImVec2( 1,  0), SegmentN1 = ImVec2( 0,  1), SegmentN2 = ImVec2( 0,  0), OuterAngle = IM_PI * 1.00}, -- Left
     {InnerDir = ImVec2(-1,  0), SegmentN1 = ImVec2( 1,  0), SegmentN2 = ImVec2( 1,  1), OuterAngle = IM_PI * 0.00}, -- Right
@@ -4938,13 +4923,12 @@ end
 
 -- Zero-terminated string hash, with support for ### to reset back to seed value.
 -- e.g. "label###id" outputs the same hash as "id" (and "label" is generally displayed by the UI functions)
--- Use FNV1a, as one ImGui FIXME suggested
+-- [Port] Use FNV1a, as one ImGui FIXME suggested
 --- @param str  string
 --- @param size int?
 --- @param seed int?
 --- @return int
 -- [Luau] memo for whole-string hashes: labels are re-hashed with the same seed every frame.
--- ponytail: whole-memo reset at HASH_MEMO_MAX entries, LRU if ID churn makes it thrash
 local hash_memo, hash_memo_n, HASH_MEMO_MAX = {}, 0, 16384
 local ImHashStrRaw
 
@@ -4969,7 +4953,7 @@ end
 function ImHashStrRaw(str, size, seed)
 
     if str == "" or size == 0 then
-        return seed -- need to match cpp code edge case behavior while using FNV ourselves
+        return seed -- [Port] need to match cpp code edge case behavior while using FNV ourselves
     end
 
     local FNV_OFFSET_BASIS = 0x811C9DC5
@@ -5149,7 +5133,6 @@ function ImStd.ImTextFindValidUtf8CodepointEnd(text, in_text_start, in_text_end,
     local prev = ImStd.ImTextFindPreviousUtf8Codepoint(text, in_text_start, in_p)
     local prev_c_len, prev_c = ImStd.ImTextCharFromUtf8(text, prev, in_text_end)
 
-    -- Check if the previous character is valid and fits within the range
     if prev_c ~= IM_UNICODE_CODEPOINT_INVALID and prev_c_len <= (in_p - prev) then
         return in_p
     end
@@ -5333,7 +5316,7 @@ end
 -- Trim str by offsetting contents when there's leading data + writing a \0 at the trailing position. We use this in situation where the cost is negligible.
 --- @param buf char[]
 function ImStd.ImStrTrimBlanks(buf)
-    local p = 1 -- buf_begin
+    local p = 1 -- [Port] buf_begin
     while buf[p] == 32 or buf[p] == 9 do -- Leading blanks
         p = p + 1
     end
@@ -5672,7 +5655,7 @@ local GLocalizationEntriesEnUS = {
 }
 
 -- [Luau] Default platform handlers (upstream: next to the metrics section; defined here so Initialize() can see the local).
--- Roblox has no shell: IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS path. Default clipboard/IME handlers are OS-specific: left nil
+-- [Port] Roblox has no shell: IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS path. Default clipboard/IME handlers are OS-specific: left nil
 -- (the backends install their own clipboard handlers).
 local function Platform_OpenInShellFn_DefaultImpl(ctx, path) return false end
 
@@ -5906,7 +5889,7 @@ end
 
 -------------------------------------------------------------------------------
 -- [SECTION] SETTINGS
--- (in-memory .ini; Roblox has no disk)
+-- [Port] (in-memory .ini; Roblox has no disk)
 -------------------------------------------------------------------------------
 -- - UpdateSettings() [Internal]
 -- - MarkIniSettingsDirty() [Internal]
@@ -5937,7 +5920,7 @@ function ImGui.UpdateSettings()
     if g.SettingsDirtyTimer > 0.0 then
         g.SettingsDirtyTimer = g.SettingsDirtyTimer - g.IO.DeltaTime
         if g.SettingsDirtyTimer <= 0.0 then
-            -- No disk: always let the user know they can call SaveIniSettingsToMemory()
+            -- [Port] No disk: always let the user know they can call SaveIniSettingsToMemory()
             g.IO.WantSaveIniSettings = true -- Let user know they can call SaveIniSettingsToMemory(). user will need to clear io.WantSaveIniSettings themselves.
             g.SettingsDirtyTimer = 0.0
         end
@@ -6015,7 +5998,7 @@ function ImGui.LoadIniSettingsFromDisk(ini_filename)
 end
 
 -- Zero-tolerance, no error reporting, cheap .ini parsing
--- Set ini_size==0 (or nil) to use the whole string (Lua strings know their length).
+-- [Port] Set ini_size==0 (or nil) to use the whole string (Lua strings know their length).
 function ImGui.LoadIniSettingsFromMemory(ini_data, ini_size)
     local g = GImGui
     IM_ASSERT(g.Initialized)
@@ -6067,7 +6050,7 @@ end
 function ImGui.SaveIniSettingsToDisk(ini_filename)
     local g = GImGui
     g.SettingsDirtyTimer = 0.0
-    -- Roblox: no disk. Call SaveIniSettingsToMemory() and persist the string yourself (e.g. DataStore).
+    -- [Port] Roblox: no disk. Call SaveIniSettingsToMemory() and persist the string yourself (e.g. DataStore).
 end
 
 -- Call registered handlers (e.g. SettingsHandlerWindow_WriteAll() + custom handlers) to write their stuff into a text buffer
@@ -6088,7 +6071,7 @@ function ImGui.CreateNewWindowSettings(name)
 
     -- Preserve the full string when ConfigDebugVerboseIniSettings is set to make .ini inspection easier.
     if not g.IO.ConfigDebugIniSettings then
-        -- ImHashSkipUncontributingPrefix: skip everything up to the last "###"
+        -- [Port] ImHashSkipUncontributingPrefix: skip everything up to the last "###"
         local p = name:match("^.*()###")
         if p then name = name:sub(p) end
     end
@@ -6273,7 +6256,7 @@ end
 local function LogTextV_Internal(g, fmt, ...)
     local s = (select("#", ...) > 0) and string.format(fmt, ...) or fmt
     if g.LogFile then
-        print(s) -- TTY (the only "file" available on Roblox)
+        print(s) -- [Port] TTY (the only "file" available on Roblox)
     else
         g.LogBuffer:append(s)
     end
@@ -6289,7 +6272,7 @@ ImGui.LogTextV = ImGui.LogText
 -- Internal version that takes a position to decide on newline placement and pad items according to their depth.
 -- We split text into individual lines to add current tree level padding
 -- FIXME: This code is a little complicated perhaps, considering simplifying the whole system.
---- `text` is a Lua string, `text_begin/text_end` optional 1-based byte range (text_end exclusive).
+--- [Port] `text` is a Lua string, `text_begin/text_end` optional 1-based byte range (text_end exclusive).
 function ImGui.LogRenderedText(ref_pos, text, text_end, text_begin)
     local g = GImGui
     local window = g.CurrentWindow
@@ -6369,7 +6352,7 @@ end
 
 -- Start logging/capturing text output to given file
 function ImGui.LogToFile(auto_open_depth, filename)
-    -- Roblox: no file access. Falls back to TTY (output window).
+    -- [Port] Roblox: no file access. Falls back to TTY (output window).
     ImGui.LogToTTY(auto_open_depth)
 end
 
@@ -6994,7 +6977,7 @@ function ImGui.GetWindowContentRegionMax()
     return window.ContentRegionRect.Max - window.Pos
 end
 
--- Overloads: IsRectVisible(size) / IsRectVisible(rect_min, rect_max)
+-- [Port] Overloads: IsRectVisible(size) / IsRectVisible(rect_min, rect_max)
 function ImGui.IsRectVisible(a, b)
     local window = GImGui.CurrentWindow
     if b == nil then
@@ -7515,14 +7498,14 @@ function ImGui.BringWindowToDisplayBehind(window, behind_window)
     local g = GImGui
     window = window.RootWindow
     behind_window = behind_window.RootWindow
-    local pos_wnd = ImGui.FindWindowDisplayIndex(window) + 1 -- 1-based
+    local pos_wnd = ImGui.FindWindowDisplayIndex(window) + 1 -- [Port] 1-based
     local pos_beh = ImGui.FindWindowDisplayIndex(behind_window) + 1
     local data = g.Windows.Data
     if pos_wnd < pos_beh then
-        for i = pos_wnd, pos_beh - 2 do data[i] = data[i + 1] end -- memmove
+        for i = pos_wnd, pos_beh - 2 do data[i] = data[i + 1] end -- [Port] memmove
         data[pos_beh - 1] = window
     else
-        for i = pos_wnd, pos_beh + 1, -1 do data[i] = data[i - 1] end -- memmove
+        for i = pos_wnd, pos_beh + 1, -1 do data[i] = data[i - 1] end -- [Port] memmove
         data[pos_beh] = window
     end
 end
@@ -7787,7 +7770,7 @@ function MT.ImGuiWindow:GetIDFromRectangle(r_abs)
     return ImHashData({ math.floor(r_rel.Min.x), math.floor(r_rel.Min.y), math.floor(r_rel.Max.x), math.floor(r_rel.Max.y) }, 4, seed)
 end
 
--- Overloads: GetID(str_id) / GetID(str_id_begin, str_id_end) / GetID(int_id)
+-- [Port] Overloads: GetID(str_id) / GetID(str_id_begin, str_id_end) / GetID(int_id)
 --- @param str_or_int string|int
 --- @param str_end?   int # exclusive end (1-based byte position)
 --- @return ImGuiID
@@ -7802,7 +7785,7 @@ end
 -- Helper to avoid a common series of PushOverrideID -> GetID() -> PopID() call
 -- (note that when using this pattern, ID Stack Tool will tend to not display the intermediate stack level.
 --  for that to work we would need to do PushOverrideID() -> ItemAdd() -> PopID() which would alter widget code a little more)
--- Overloads: GetIDWithSeed(str, str_end, seed) / GetIDWithSeed(n, seed)
+-- [Port] Overloads: GetIDWithSeed(str, str_end, seed) / GetIDWithSeed(n, seed)
 function ImGui.GetIDWithSeed(a, b, c)
     local id
     if type(a) == "number" then
@@ -9170,7 +9153,7 @@ local function IsKeyChordPotentiallyCharInput(key_chord)
     if key == ImGuiKey.None then
         return false
     end
-    return g.KeysMayBeCharInput:TestBit(key + 1) -- TestBit requires 1-based index
+    return g.KeysMayBeCharInput:TestBit(key + 1) -- [Port] TestBit requires 1-based index
 end
 
 -- Request a desired route for an input chord (key + mods).
@@ -9625,7 +9608,7 @@ function ImGui.UpdateInputEvents(trickle_fast_inputs)
             local key = e.Key.Key
             IM_ASSERT(key ~= ImGuiKey.None)
 
-            -- TODO: Also gets 0-based index here, consider making key_data storage 1-based
+            -- [Port] TODO: Also gets 0-based index here, consider making key_data storage 1-based
             local key_data, key_data_index = ImGui.GetKeyData(g, key)
 
             if trickle_fast_inputs and key_data.Down ~= e.Key.Down and (key_changed_mask:TestBit(key_data_index + 1) or mouse_button_changed ~= 0) then
@@ -10110,7 +10093,7 @@ end
 
 -- Handle resize for: Resize Grips, Borders, Gamepad
 -- Return true when using auto-fit (double-click on resize grip)
--- Returns (ret_auto_fit_mask, border_hovered, border_held)
+-- [Port] Returns (ret_auto_fit_mask, border_hovered, border_held)
 --- @param window            ImGuiWindow
 --- @param resize_grip_count int
 --- @param resize_grip_col   table
@@ -10968,7 +10951,7 @@ ImGui.RenderWindowOuterBorders = RenderWindowOuterBorders
 
 -- When inside a dock node, this is handled in DockNodeCalcTabBarLayout() instead.
 -- Render title text, collapse button, close button
--- Returns the updated 'open' value (nil when there is no close button)
+-- [Port] Returns the updated 'open' value (nil when there is no close button)
 --- @param window         ImGuiWindow
 --- @param title_bar_rect ImRect
 --- @param name           string
@@ -11125,7 +11108,7 @@ function ImGui.UpdateWindowSkipRefresh(window)
                 c.ScrollX, c.ScrollY, c.DisplayX, c.DisplayY = window.Scroll.x, window.Scroll.y, ds.x, ds.y
                 return
             end
-            -- skip: widgets early-out on SkipItems and Begin() returns visible=false; End() restores it
+            -- [Port] skip: widgets early-out on SkipItems and Begin() returns visible=false; End() restores it
             window.CacheSkipItemsBackup = window.SkipItems
             window.SkipItems = true
         end
@@ -11235,7 +11218,7 @@ end
 --- @param pos    ImVec2
 --- @param cond?  ImGuiCond
 function ImGui.SetWindowPos(window, pos, cond)
-    -- Overloads: SetWindowPos(pos, cond) / SetWindowPos(name, pos, cond) / SetWindowPos(window, pos, cond)
+    -- [Port] Overloads: SetWindowPos(pos, cond) / SetWindowPos(name, pos, cond) / SetWindowPos(window, pos, cond)
     if type(window) == "string" then
         window = ImGui.FindWindowByName(window)
         if window == nil then return end
@@ -11373,7 +11356,7 @@ function ImGui.GetWindowSize()
     return ImGui.GetCurrentWindowRead().Size
 end
 
--- Overloads: SetWindowFocus() / SetWindowFocus(name). Passing nil name removes focus.
+-- [Port] Overloads: SetWindowFocus() / SetWindowFocus(name). Passing nil name removes focus.
 --- @param name? string
 function ImGui.SetWindowFocus(...)
     if select("#", ...) == 0 then
@@ -11518,7 +11501,6 @@ function ImGui.BeginChildEx(name, id, size_arg, child_flags, window_flags)
 
     -- Sanity check as it is likely that some user will accidentally pass ImGuiWindowFlags into the ImGuiChildFlags argument.
     local ImGuiChildFlags_SupportedMask_ = bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.AlwaysUseWindowPadding, ImGuiChildFlags.ResizeX, ImGuiChildFlags.ResizeY, ImGuiChildFlags.AutoResizeX, ImGuiChildFlags.AutoResizeY, ImGuiChildFlags.AlwaysAutoResize, ImGuiChildFlags.FrameStyle, ImGuiChildFlags.NavFlattened)
-    -- IM_UNUSED(ImGuiChildFlags_SupportedMask_)
     IM_ASSERT(bit32.band(child_flags, bit32.bnot(ImGuiChildFlags_SupportedMask_)) == 0, "Illegal ImGuiChildFlags value. Did you pass ImGuiWindowFlags values instead of ImGuiChildFlags?")
     IM_ASSERT(bit32.band(window_flags, ImGuiWindowFlags.AlwaysAutoResize) == 0, "Cannot specify ImGuiWindowFlags.AlwaysAutoResize for BeginChild(). Use ImGuiChildFlags.AlwaysAutoResize!")
     if bit32.band(child_flags, ImGuiChildFlags.AlwaysAutoResize) ~= 0 then
@@ -11632,7 +11614,7 @@ end
 
 -- Prior to v1.90 2023/10/16, the BeginChild() function took a 'bool border = false' parameter instead of 'ImGuiChildFlags child_flags = 0'.
 -- ImGuiChildFlags.Borders is defined as always == 1 in order to allow old code passing 'true'. Read comments in imgui.h for details!
--- `true` is accepted as ImGuiChildFlags.Borders for legacy code.
+-- [Port] `true` is accepted as ImGuiChildFlags.Borders for legacy code.
 --- @param str_id_or_id string|ImGuiID
 --- @param size_arg?     ImVec2
 --- @param child_flags?  ImGuiChildFlags|bool
@@ -11781,7 +11763,7 @@ function ImGui.SetNextWindowClass(window_class)
     local g = GImGui
     g.NextWindowData.HasFlags = bit32.bor(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasWindowClass)
     local wc = ImGuiWindowClass()
-    for k, v in pairs(window_class) do wc[k] = v end -- C++ copies the struct
+    for k, v in pairs(window_class) do wc[k] = v end -- [Port] C++ copies the struct
     g.NextWindowData.WindowClass = wc
 end
 
@@ -11808,7 +11790,7 @@ function ImGui.SetNextWindowCached(key)
 end
 
 function ImGui.GetWindowDpiScale()
-    return 1.0 -- Roblox: single viewport, no DPI scaling
+    return 1.0 -- [Port] Roblox: single viewport, no DPI scaling
 end
 
 function ImGui.GetWindowViewport()
@@ -11908,7 +11890,7 @@ function ImGui.IsPopupOpen(id, popup_flags)
     local g = GImGui
     if popup_flags == nil then popup_flags = 0 end
     if type(id) == "string" then
-        -- str_id overload: with AnyPopupId the id must be 0, otherwise it is hashed with the current window's ID stack
+        -- [Port] str_id overload: with AnyPopupId the id must be 0, otherwise it is hashed with the current window's ID stack
         id = (bit32.band(popup_flags, ImGuiPopupFlags.AnyPopupId) ~= 0) and 0 or g.CurrentWindow:GetID(id)
     end
 
@@ -12038,7 +12020,6 @@ function ImGui.TranslateWindow(window, delta)
     ImVec2_Copy(window.DC.IdealMaxPos, window.DC.IdealMaxPos + delta)
 end
 
---- ImGui::FindWindowByID
 function ImGui.FindWindowByID(id)
     local g = GImGui
 
@@ -13043,7 +13024,7 @@ end
 
     if bit32.band(flags, ImGuiWindowFlags.DockNodeHost) == 0 and not window.SkipRefresh then
         ImGui.PushClipRect(window.InnerClipRect.Min, window.InnerClipRect.Max, true)
-        -- [Roblox backend] content clip + scroll origin: lets the backend move scrolled content instead of redrawing it
+        -- [Port] [Roblox backend] content clip + scroll origin: lets the backend move scrolled content instead of redrawing it
         local dl, cr = window.DrawList, window.DrawList._CmdHeader.ClipRect
         dl._ContentClipX0, dl._ContentClipY0, dl._ContentClipX1, dl._ContentClipY1 = cr.x, cr.y, cr.z, cr.w
         dl._ScrollOriginX, dl._ScrollOriginY = window.Pos.x - window.Scroll.x, window.Pos.y - window.Scroll.y
@@ -13217,8 +13198,8 @@ function ImGui.End()
 
     g.CurrentWindowStack:pop_back()
 
-    -- LUA: No "Ternary Operator", since lua (... and (1) or (2)) will eval (1) and (2) no matter what
-    -- so something like `SetCurrentWindow((g.CurrentWindowStack.Size == 0) and nil or g.CurrentWindowStack:back().Window)` will error
+    -- [Port] No "Ternary Operator", since lua (... and (1) or (2)) will eval (1) and (2) no matter what
+    -- [Port] so something like `SetCurrentWindow((g.CurrentWindowStack.Size == 0) and nil or g.CurrentWindowStack:back().Window)` will error
     if (g.CurrentWindowStack.Size == 0) then
         SetCurrentWindow(nil)
     else
@@ -13374,7 +13355,7 @@ local function FindHoveredWindowEx(pos, find_first_and_in_any_viewport)
         if window.HitTestHoleSize.x ~= 0 then
             local hx, hy = window.Pos.x + window.HitTestHoleOffset.x, window.Pos.y + window.HitTestHoleOffset.y
             if pos.x >= hx and pos.y >= hy and pos.x < hx + window.HitTestHoleSize.x and pos.y < hy + window.HitTestHoleSize.y then
-                break -- continue
+                break -- [Port] continue
             end
         end
 
@@ -13718,7 +13699,7 @@ local function LockWheelingWindow(window, wheel_amount)
     if (g.WheelingWindow == window) then
         return
     end
-    -- IMGUI_DEBUG_LOG_IO("[io] LockWheelingWindow() \"%s\"\n", window ? window->Name : "NULL")
+    -- [Port] IMGUI_DEBUG_LOG_IO("[io] LockWheelingWindow() \"%s\"\n", window ? window->Name : "NULL")
     g.WheelingWindow = window
     ImVec2_Copy(g.WheelingWindowRefMousePos, g.IO.MousePos)
     if window == nil then
@@ -13820,7 +13801,6 @@ function ImGui.UpdateMouseWheel()
         if window == window.RootWindow then
             local offset = window.Size * (1.0 - scale) * (g.IO.MousePos - window.Pos) / window.Size
             ImGui.SetWindowPos(window, window.Pos + offset, 0)
-            -- MarkIniSettingsDirty(window)
         end
         return
     end
@@ -14012,7 +13992,7 @@ end
 local function GetViewportBgFgDrawList(viewport, drawlist_no, drawlist_name)
     -- Create the draw list on demand, because they are not frequently used for all viewports
     local g = GImGui
-    IM_ASSERT(drawlist_no <= 2) -- IM_COUNTOF(viewport->BgFgDrawLists)
+    IM_ASSERT(drawlist_no <= 2) -- [Port] IM_COUNTOF(viewport->BgFgDrawLists)
     local draw_list = viewport.BgFgDrawLists[drawlist_no]
     if draw_list == nil then
         draw_list = ImDrawList(g.DrawListSharedData)
@@ -14171,7 +14151,6 @@ function ImGui.NewFrame()
     g.MenusIdSubmittedThisFrame:resize(0)
 
     -- Calculate frame-rate for the user, as a purely luxurious feature
-    -- FIXME: are lines below correct and necessary
     g.FramerateSecPerFrameAccum = g.FramerateSecPerFrameAccum + (g.IO.DeltaTime - g.FramerateSecPerFrame[g.FramerateSecPerFrameIdx])
     g.FramerateSecPerFrame[g.FramerateSecPerFrameIdx] = g.IO.DeltaTime
     g.FramerateSecPerFrameIdx = (g.FramerateSecPerFrameIdx + 1) % 60
@@ -14505,7 +14484,7 @@ function ImGui.EndFrame()
         if viewport == nil then
             viewport = ImGui.GetMainViewport()
         end
-        -- IMGUI_DEBUG_LOG_IO("[io] Calling Platform_SetImeDataFn(): WantVisible: %d, InputPos (%.2f,%.2f) for Viewport 0x%08X", ime_data.WantVisible, ime_data.InputPos.x, ime_data.InputPos.y, viewport.ID)
+        -- [Port] IMGUI_DEBUG_LOG_IO("[io] Calling Platform_SetImeDataFn(): WantVisible: %d, InputPos (%.2f,%.2f) for Viewport 0x%08X", ime_data.WantVisible, ime_data.InputPos.x, ime_data.InputPos.y, viewport.ID)
         g.PlatformIO.Platform_SetImeDataFn(g, viewport, ime_data)
     end
     g.WantTextInputNextFrame = ime_data.WantTextInput
@@ -14726,7 +14705,6 @@ function ImGui.Shutdown()
     IM_ASSERT_USER_ERROR(g.IO.BackendPlatformUserData == nil, "Forgot to shutdown Platform backend?")
     IM_ASSERT_USER_ERROR(g.IO.BackendRendererUserData == nil, "Forgot to shutdown Renderer backend?")
     for _, viewport in g.Viewports:iter() do
-        -- IM_UNUSED(viewport)
         IM_ASSERT_USER_ERROR(viewport.RendererUserData == nil and viewport.PlatformUserData == nil and viewport.PlatformHandle == nil, "Backend or app forgot to call DestroyPlatformWindows()?")
     end
 
@@ -14999,7 +14977,7 @@ function ImGui.ColorConvertHSVtoRGB(h, s, v)
         return p, q, v
     elseif i == 4 then
         return t, p, v
-    else -- i == 5 or default
+    else -- [Port] i == 5 or default
         return v, p, q
     end
 end
@@ -15153,7 +15131,7 @@ local GStyleVarsInfo = {
     ImGuiStyleVarInfo(2, ImGuiDataType.Float, "SeparatorTextPadding"), -- ImGuiStyleVar.SeparatorTextPadding
     ImGuiStyleVarInfo(1, ImGuiDataType.Float, "DockingSeparatorSize"), -- ImGuiStyleVar.DockingSeparatorSize
 }
-IM_ASSERT(#GStyleVarsInfo == ImGuiStyleVar.COUNT) -- IM_STATIC_ASSERT(IM_COUNTOF(GStyleVarsInfo) == ImGuiStyleVar_COUNT)
+IM_ASSERT(#GStyleVarsInfo == ImGuiStyleVar.COUNT) -- [Port] IM_STATIC_ASSERT(IM_COUNTOF(GStyleVarsInfo) == ImGuiStyleVar_COUNT)
 
 --- @param idx ImGuiStyleVar
 --- @return ImGuiStyleVarInfo
@@ -15176,7 +15154,7 @@ function ImGui.PushStyleVar(idx, val)
     g.StyleVarStack:push_back(ImGuiStyleMod(idx, var))
     if type(val) == "number" then
         g.Style[var_info.Key] = val
-    else -- copy into the style's own ImVec2: storing the caller's vector would alias it into the style forever
+    else -- [Port] copy into the style's own ImVec2: storing the caller's vector would alias it into the style forever
         var.x = val.x; var.y = val.y
     end
 end
@@ -15648,7 +15626,7 @@ function ImGui.SetScrollHereY(center_y_ratio)
     window.ScrollTargetEdgeSnapDist.y = ImMax(0.0, window.WindowPadding.y - spacing_y)
 end
 
--- Overloads: SetScrollX(scroll_x) / SetScrollX(window, scroll_x)
+-- [Port] Overloads: SetScrollX(scroll_x) / SetScrollX(window, scroll_x)
 --- @param window   ImGuiWindow|float
 --- @param scroll_x float?
 function ImGui.SetScrollX(window, scroll_x)
@@ -15901,7 +15879,7 @@ function ImGui.OpenPopupEx(id, popup_flags)
         ImVec2_Copy(popup_ref.OpenMousePos, popup_ref.OpenPopupPos)
     end
 
-    -- IMGUI_DEBUG_LOG_POPUP("[popup] OpenPopupEx(0x%08X)\n", id)
+    -- [Port] IMGUI_DEBUG_LOG_POPUP("[popup] OpenPopupEx(0x%08X)\n", id)
     if g.OpenPopupStack.Size < current_stack_size + 1 then
         g.OpenPopupStack:push_back(popup_ref)
         return true
@@ -15991,7 +15969,7 @@ function ImGui.ClosePopupsOverWindow(ref_window, restore_focus_to_window_under_p
         end
     end
     if popup_count_to_keep < g.OpenPopupStack.Size then -- This test is not required but it allows to set a convenient breakpoint on the statement below
-        -- IMGUI_DEBUG_LOG_POPUP("[popup] ClosePopupsOverWindow(\"%s\")\n", ref_window and ref_window.Name or "<NULL>")
+        -- [Port] IMGUI_DEBUG_LOG_POPUP("[popup] ClosePopupsOverWindow(\"%s\")\n", ref_window and ref_window.Name or "<NULL>")
         ImGui.ClosePopupToLevel(popup_count_to_keep, restore_focus_to_window_under_popup)
     end
 end
@@ -16000,17 +15978,16 @@ end
 --- @param restore_focus_to_window_under_popup bool
 function ImGui.ClosePopupToLevel(remaining, restore_focus_to_window_under_popup)
     local g = GImGui
-    -- IMGUI_DEBUG_LOG_POPUP("[popup] ClosePopupToLevel(%d), restore_under=%d\n", remaining, restore_focus_to_window_under_popup)
+    -- [Port] IMGUI_DEBUG_LOG_POPUP("[popup] ClosePopupToLevel(%d), restore_under=%d\n", remaining, restore_focus_to_window_under_popup)
     IM_ASSERT(remaining >= 0 and remaining < g.OpenPopupStack.Size)
-    -- if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.EventPopup) ~= 0 then
-    --     for n = remaining + 1, g.OpenPopupStack.Size do
-    --         local popup = g.OpenPopupStack.Data[n]
-    --         IMGUI_DEBUG_LOG_POPUP("[popup] - Closing PopupID 0x%08X Window \"%s\"", popup.PopupId, popup.Window and popup.Window.Name or nil)
-    --     end
-    -- end
+    -- [Port] if bit32.band(g.DebugLogFlags, ImGuiDebugLogFlags.EventPopup) ~= 0 then
+    -- [Port]     for n = remaining + 1, g.OpenPopupStack.Size do
+    -- [Port]         local popup = g.OpenPopupStack.Data[n]
+    -- [Port]         IMGUI_DEBUG_LOG_POPUP("[popup] - Closing PopupID 0x%08X Window \"%s\"", popup.PopupId, popup.Window and popup.Window.Name or nil)
+    -- [Port]     end
+    -- [Port] end
 
     -- Trim open popup stack
-    -- FIXME: is it safer to full copy here?
     local prev_popup = g.OpenPopupStack.Data[remaining + 1]
     g.OpenPopupStack:resize(remaining)
 
@@ -16059,7 +16036,7 @@ function ImGui.CloseCurrentPopup()
         popup_idx = popup_idx - 1
     end
 
-    -- IMGUI_DEBUG_LOG_POPUP("[popup] CloseCurrentPopup %d -> %d\n", g.BeginPopupStack.Size, popup_idx)
+    -- [Port] IMGUI_DEBUG_LOG_POPUP("[popup] CloseCurrentPopup %d -> %d\n", g.BeginPopupStack.Size, popup_idx)
     ImGui.ClosePopupToLevel(popup_idx - 1, true)
 
     -- A common pattern is to close a popup when selecting a menu item/selectable that will open another window.
@@ -16561,7 +16538,7 @@ end
 function ImGui.SetNavWindow(window)
     local g = GImGui
     if g.NavWindow ~= window then
-        -- IMGUI_DEBUG_LOG_FOCUS("[focus] SetNavWindow(\"%s\")", window and window.Name or "<NULL>")
+        -- [Port] IMGUI_DEBUG_LOG_FOCUS("[focus] SetNavWindow(\"%s\")", window and window.Name or "<NULL>")
         g.NavWindow = window
         g.NavLastValidSelectionUserData = ImGuiSelectionUserData_Invalid
     end
@@ -16626,7 +16603,7 @@ function ImGui.NavRestoreLayer(layer)
         local prev_nav_window = g.NavWindow
         g.NavWindow = ImGui.NavRestoreLastChildNavWindow(g.NavWindow) -- FIXME-NAV: Should clear ongoing nav requests?
         g.NavLastValidSelectionUserData = ImGuiSelectionUserData_Invalid
-        -- if (prev_nav_window) IMGUI_DEBUG_LOG_FOCUS("[focus] NavRestoreLayer: from \"%s\" to SetNavWindow(\"%s\")\n", prev_nav_window->Name, g.NavWindow->Name)
+        -- [Port] if (prev_nav_window) IMGUI_DEBUG_LOG_FOCUS("[focus] NavRestoreLayer: from \"%s\" to SetNavWindow(\"%s\")\n", prev_nav_window->Name, g.NavWindow->Name)
     end
     local window = g.NavWindow
     if window.NavLastIds[layer] ~= 0 then
@@ -16670,7 +16647,7 @@ function ImGui.NavInitWindow(window, force_reinit)
     if window == window.RootWindow or bit32.band(window.Flags, ImGuiWindowFlags.Popup) ~= 0 or window.NavLastIds[0] == 0 or force_reinit then
         init_for_nav = true
     end
-    -- IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: from NavInitWindow(), init_for_nav=%d, window=\"%s\", layer=%d", init_for_nav, window->Name, g.NavLayer)
+    -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: from NavInitWindow(), init_for_nav=%d, window=\"%s\", layer=%d", init_for_nav, window->Name, g.NavLayer)
     if init_for_nav then
         ImGui.SetNavID(0, g.NavLayer, window.NavRootFocusScopeId, ImRect())
         g.NavInitRequest = true
@@ -17223,7 +17200,7 @@ function ImGui.NavUpdateCreateMoveRequest()
         -- (preserve most state, which were already set by the NavMoveRequestForward() function)
         IM_ASSERT(g.NavMoveDir ~= ImGuiDir.None and g.NavMoveClipDir ~= ImGuiDir.None)
         IM_ASSERT(bit32.band(g.NavMoveFlags, ImGuiNavMoveFlags.Forwarded) ~= 0)
-        -- IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequestForward %d\n", g.NavMoveDir)
+        -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequestForward %d\n", g.NavMoveDir)
     else
         -- Initiate directional inputs request
         g.NavMoveDir = ImGuiDir.None
@@ -17255,7 +17232,7 @@ function ImGui.NavUpdateCreateMoveRequest()
 
     -- Moving with no reference triggers an init request (will be used as a fallback if the direction fails to find a match)
     if g.NavMoveSubmitted and g.NavId == 0 then
-        -- IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: from move, window \"%s\", layer=%d\n", window ? window->Name : "<NULL>", g.NavLayer)
+        -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: from move, window \"%s\", layer=%d\n", window ? window->Name : "<NULL>", g.NavLayer)
         g.NavInitRequest = true; g.NavInitRequestFromMove = true
         g.NavInitResult.ID = 0
         if g.IO.ConfigNavCursorVisibleAuto then -- NO check for _NoNavInputs here as we assume MoveRequests cannot be created.
@@ -17277,7 +17254,7 @@ function ImGui.NavUpdateCreateMoveRequest()
         inner_rect_rel:Translate(ImVec2(next_scroll.x - window.Scroll.x, next_scroll.y - window.Scroll.y))
 
         if (clamp_x or clamp_y) and not inner_rect_rel:Contains(window.NavRectRel[g.NavLayer]) then
-            -- IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequest: clamp NavRectRel for gamepad move\n")
+            -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequest: clamp NavRectRel for gamepad move\n")
             local pad_x = ImMin(inner_rect_rel:GetWidth(), window.FontRefSize * 0.5)
             local pad_y = ImMin(inner_rect_rel:GetHeight(), window.FontRefSize * 0.5) -- Terrible approximation for the intent of starting navigation from first fully visible item
             inner_rect_rel.Min.x = clamp_x and (inner_rect_rel.Min.x + pad_x) or -FLT_MAX
@@ -17921,7 +17898,7 @@ function ImGui.NavInitRequestApplyResult()
 
     -- Apply result from previous navigation init request (will typically select the first item, unless SetItemDefaultFocus() has been called)
     -- FIXME-NAV: On _NavFlattened windows, g.NavWindow will only be updated during subsequent frame. Not a problem currently.
-    -- IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: ApplyResult: NavID 0x%08X in Layer %d Window \"%s\"\n", result->ID, g.NavLayer, g.NavWindow->Name)
+    -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavInitRequest: ApplyResult: NavID 0x%08X in Layer %d Window \"%s\"\n", result->ID, g.NavLayer, g.NavWindow->Name)
     ImGui.SetNavID(result.ID, g.NavLayer, result.FocusScopeId, result.RectRel)
     g.NavIdIsAlive = true -- Mark as alive from previous frame as we got a result
     if result.SelectionUserData ~= ImGuiSelectionUserData_Invalid then
@@ -17963,7 +17940,7 @@ function ImGui.NavMoveRequestApplyResult()
             ImGui.SetNavCursorVisibleAfterMove()
         end
         ImGui.NavClearPreferredPosForAxis(axis) -- On a failed move, clear preferred pos for this axis.
-        -- IMGUI_DEBUG_LOG_NAV("[nav] NavMoveSubmitted but not led to a result!\n")
+        -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavMoveSubmitted but not led to a result!\n")
         return
     end
 
@@ -17995,7 +17972,7 @@ function ImGui.NavMoveRequestApplyResult()
     end
 
     if g.NavWindow ~= result.Window then
-        -- IMGUI_DEBUG_LOG_FOCUS("[focus] NavMoveRequest: SetNavWindow(\"%s\")\n", result->Window->Name)
+        -- [Port] IMGUI_DEBUG_LOG_FOCUS("[focus] NavMoveRequest: SetNavWindow(\"%s\")\n", result->Window->Name)
         g.NavWindow = result.Window
         g.NavLastValidSelectionUserData = ImGuiSelectionUserData_Invalid
     end
@@ -18022,7 +17999,7 @@ function ImGui.NavMoveRequestApplyResult()
     end
 
     -- Apply new NavID/Focus
-    -- IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequest: result NavID 0x%08X in Layer %d Window \"%s\"\n", result->ID, g.NavLayer, g.NavWindow->Name)
+    -- [Port] IMGUI_DEBUG_LOG_NAV("[nav] NavMoveRequest: result NavID 0x%08X in Layer %d Window \"%s\"\n", result->ID, g.NavLayer, g.NavWindow->Name)
     local root_for_nav = g.NavWindow.RootWindowForNav
     local preferred_scoring_pos_rel = ImVec2()
     ImVec2_Copy(preferred_scoring_pos_rel, root_for_nav.NavPreferredScoringPosRel[g.NavLayer])
@@ -18246,7 +18223,7 @@ function ImGui.SetCurrentViewport(current_window, viewport)
     g.CurrentDpiScale = viewport and viewport.DpiScale or 1.0
     g.CurrentViewport = viewport
     IM_ASSERT(g.CurrentDpiScale > 0.0 and g.CurrentDpiScale < 99.0)  -- Typical correct values would be between 1.0f and 4.0f
-    -- IMGUI_DEBUG_LOG_VIEWPORT("[viewport] SetCurrentViewport changed '%s' 0x%08X", current_window and current_window.Name or "NULL", viewport and viewport.ID or 0)
+    -- [Port] IMGUI_DEBUG_LOG_VIEWPORT("[viewport] SetCurrentViewport changed '%s' 0x%08X", current_window and current_window.Name or "NULL", viewport and viewport.ID or 0)
 
     if g.IO.ConfigDpiScaleFonts then
         g.Style.FontScaleDpi = g.CurrentDpiScale
@@ -18550,7 +18527,7 @@ function ImGui.UpdateViewportsNewFrame()
         -- Erase unused viewports
         if n > 1 and viewport.LastFrameActive < g.FrameCount - 2 then
             ImGui.DestroyViewport(viewport)
-            -- n stays the same because we removed an element
+            -- [Port] n stays the same because we removed an element
         else
             local platform_funcs_available = viewport.PlatformWindowCreated
 
@@ -18593,7 +18570,7 @@ function ImGui.UpdateViewportsNewFrame()
             viewport:UpdateWorkRect()
 
             -- Garbage collect transient buffers of recently BG/FG drawlists
-            for dl_n = 1, 2 do -- IM_COUNTOF(viewport->BgFgDrawLists)
+            for dl_n = 1, 2 do -- [Port] IM_COUNTOF(viewport->BgFgDrawLists)
                 if viewport.BgFgDrawListsLastTimeActive[dl_n] < memory_compact_start_time and viewport.BgFgDrawLists[dl_n] ~= nil then
                     IM_DELETE(viewport.BgFgDrawLists, dl_n)
                 end
@@ -18865,7 +18842,6 @@ function ImGui.DestroyViewport(viewport)
     IM_ASSERT(not g.PlatformIO.Viewports:contains(viewport))
     IM_ASSERT(g.Viewports.Data[viewport.Idx] == viewport)
     g.Viewports:erase(viewport.Idx)
-    -- IM_DELETE(viewport)
 end
 
 -- FIXME-VIEWPORT: This is all super messy and ought to be clarified or rewritten.
@@ -19004,7 +18980,6 @@ function ImGui.WindowSyncOwnedViewport(window, parent_window_in_stack)
     -- Synchronize viewport -> window in case the platform window has been moved or resized from the OS/WM
     if window.Viewport.PlatformRequestMove then
         ImVec2_Copy(window.Pos, window.Viewport.Pos)
-        -- ImGui.MarkIniSettingsDirty(window)
     elseif window.Viewport.Pos.x ~= window.Pos.x or window.Viewport.Pos.y ~= window.Pos.y then
         viewport_rect_changed = true
         ImVec2_Copy(window.Viewport.Pos, window.Pos)
@@ -19013,7 +18988,6 @@ function ImGui.WindowSyncOwnedViewport(window, parent_window_in_stack)
     if window.Viewport.PlatformRequestResize then
         ImVec2_Copy(window.Size, window.Viewport.Size)
         ImVec2_Copy(window.SizeFull, window.Viewport.Size)
-        -- ImGui.MarkIniSettingsDirty(window)
     elseif window.Viewport.Size.x ~= window.Size.x or window.Viewport.Size.y ~= window.Size.y then
         viewport_rect_changed = true
         ImVec2_Copy(window.Viewport.Size, window.Size)
@@ -19170,7 +19144,7 @@ function ImGui.UpdatePlatformWindows()
             local title_end = ImGui.FindRenderedTextEnd(title)
             local title_hash = ImHashStr(title, title_end - title_begin)
             if viewport.LastNameHash ~= title_hash then
-                -- This still creates new strings
+                -- [Port] This still creates new strings
                 g.PlatformIO.Platform_SetWindowTitle(viewport, string.sub(title, title_begin, title_end - 1))
                 viewport.LastNameHash = title_hash
             end
@@ -19224,7 +19198,6 @@ function ImGui.RenderPlatformWindowsDefault(platform_render_arg, renderer_render
     -- Skip the main viewport (index 1 in Lua), which is always fully handled by the application!
     local platform_io = ImGui.GetPlatformIO()
 
-    -- First pass: render all windows
     for i = 2, platform_io.Viewports.Size do
         local viewport = platform_io.Viewports.Data[i]
         if bit32.band(viewport.Flags, ImGuiViewportFlags.IsMinimized) == 0 then
@@ -19237,7 +19210,6 @@ function ImGui.RenderPlatformWindowsDefault(platform_render_arg, renderer_render
         end
     end
 
-    -- Second pass: swap buffers for all windows
     for i = 2, platform_io.Viewports.Size do
         local viewport = platform_io.Viewports.Data[i]
         if bit32.band(viewport.Flags, ImGuiViewportFlags.IsMinimized) == 0 then
@@ -19930,7 +19902,7 @@ function MT.ImGuiTextFilter:Clear() self.InputBuf[1] = 0; self:Build() end
 function MT.ImGuiTextFilter:IsActive() return self._Items.Size ~= 0 end
 
 -- Parse filter and split into a format optimal for PassFilter()
--- Items are { Text = string (lowercased), CountInclude = int }
+-- [Port] Items are { Text = string (lowercased), CountInclude = int }
 function MT.ImGuiTextFilter:Build()
     local items = self._Items
     items:resize(0)
@@ -19939,9 +19911,9 @@ function MT.ImGuiTextFilter:Build()
     local n = 0
     while self.InputBuf[n + 1] ~= nil and self.InputBuf[n + 1] ~= 0 do n = n + 1 end
     local buf = ImGui._ByteArrayToString(self.InputBuf, 1, n + 1)
-    local buf_e = n + 1 -- exclusive, 1-based
+    local buf_e = n + 1 -- [Port] exclusive, 1-based
     local word_b = 1
-    local seq_start_idx = -1 -- 1-based index into items, -1 = none
+    local seq_start_idx = -1 -- [Port] 1-based index into items, -1 = none
     while word_b < buf_e do
         -- Trim blanks
         while word_b < buf_e and ImCharIsBlankA(string.byte(buf, word_b)) do
@@ -20035,7 +20007,7 @@ local function GetSkipItemForListClipping()
 end
 
 
--- `offset` is a 0-based count of leading ranges to leave alone
+-- [Port] `offset` is a 0-based count of leading ranges to leave alone
 local function ImGuiListClipper_SortAndFuseRanges(ranges, offset)
     if offset == nil then offset = 0 end
     if ranges.Size - offset <= 1 then return end
@@ -20218,7 +20190,7 @@ local function ImGuiListClipper_StepInternal(clipper)
     -- Step 1: Let the clipper infer height from first range
     if clipper.ItemsHeight <= 0.0 then
         IM_ASSERT(data.StepNo == 1)
-        -- (no float precision mitigation needed: Luau numbers are doubles)
+        -- [Port] (no float precision mitigation needed: Luau numbers are doubles)
         clipper.ItemsHeight = (window.DC.CursorPos.y - clipper.StartPosY) / (clipper.DisplayEnd - clipper.DisplayStart)
         if clipper.ItemsHeight == 0.0 and clipper.ItemsCount == INT_MAX then -- Accept that no item have been submitted if in indeterminate mode.
             return false
@@ -20558,7 +20530,7 @@ function ImGui.ErrorRecoveryTryToRecoverWindowState(state_in)
     -- IM_ASSERT(g.FocusScopeStack.Size == state_in.SizeOfFocusScopeStack)
 end
 
--- Lines are stored in g.DebugLogBuf (one chunk per call)
+-- [Port] Lines are stored in g.DebugLogBuf (one chunk per call)
 function ImGui.DebugLog(fmt, ...)
     ImGui.DebugLogV(fmt, ...)
 end
@@ -20574,7 +20546,7 @@ function ImGui.DebugLogV(fmt, ...)
     end
     local str = prefix .. ((select("#", ...) > 0) and string.format(fmt, ...) or fmt)
     g.DebugLogBuf:append(str)
-    -- Line index (upstream: g.DebugLogIndex). Lines are complete strings without '\n'.
+    -- [Port] Line index (upstream: g.DebugLogIndex). Lines are complete strings without '\n'.
     local lines = g.DebugLogLines
     for part, nl in string.gmatch(str, "([^\n]*)(\n?)") do
         lines[#lines] = lines[#lines] .. part
@@ -20712,7 +20684,7 @@ do --[[ [SECTION] METRICS/DEBUGGER WINDOW, DEBUG LOG, ID STACK TOOL, FONT DEBUG 
 -- [SECTION] Font atlas / font debugging
 -------------------------------------------------------------------------------
 
--- byte buffers for InputText (same as the demo's DemoBuf/DemoBufStr; kept here so the library doesn't need the demo)
+-- [Port] byte buffers for InputText (same as the demo's DemoBuf/DemoBufStr; kept here so the library doesn't need the demo)
 local function DemoBuf(str, size)
     local t = {}
     for i = 1, #str do t[i] = string.byte(str, i) end
@@ -20766,7 +20738,7 @@ function ImGui.DebugRenderKeyboardPreview(draw_list)
     local start_pos = ImVec2(board_min.x + 5.0 - key_step.x, board_min.y)
 
     local K = ImGuiKey
-    local keys_to_display = { -- { Row, Col, Label, Key }
+    local keys_to_display = { -- [Port] { Row, Col, Label, Key }
         { 0, 0, "", K.Tab },       { 0, 1, "Q", K.Q }, { 0, 2, "W", K.W }, { 0, 3, "E", K.E }, { 0, 4, "R", K.R },
         { 1, 0, "", K.CapsLock },  { 1, 1, "A", K.A }, { 1, 2, "S", K.S }, { 1, 3, "D", K.D }, { 1, 4, "F", K.F },
         { 2, 0, "", K.LeftShift }, { 2, 1, "Z", K.Z }, { 2, 2, "X", K.X }, { 2, 3, "C", K.C }, { 2, 4, "V", K.V },
@@ -20888,7 +20860,7 @@ function ImGui.DebugNodeFontGlyphsForSrcMask(font, baked, src_mask)
     local glyph_col = ImGui.GetColorU32(ImGuiCol.Text)
     local cell_size = baked.Size * 1
     local cell_spacing = ImGui.GetStyle().ItemSpacing.y
-    -- [port] only scans loaded codepoints (IndexLookup range) instead of the whole 0..0xFFFF range
+    -- [Port] only scans loaded codepoints (IndexLookup range) instead of the whole 0..0xFFFF range
     local max_c = baked.IndexLookup.Size - 1
     local base = 0
     while base <= max_c do
@@ -20946,7 +20918,7 @@ local function CalcFontGlyphSrcOverlapMask(atlas, font, codepoint)
         local src = font.Sources.Data[src_n + 1]
         local loader = src.FontLoader or atlas.FontLoader
         if not (loader.FontSrcContainsGlyph ~= nil and loader.FontSrcContainsGlyph(atlas, src, codepoint)) then
-            break -- continue
+            break -- [Port] continue
         end
         mask = bit32.bor(mask, bit32.lshift(1, src_n))
         count = count + 1
@@ -21041,7 +21013,7 @@ function ImGui.DebugNodeFont(font)
                 if ImGui.TreeNode("Glyphs", "Baked at { %.2fpx, d.%.2f }: %d glyphs%s", baked.Size, baked.RasterizerDensity, baked.Glyphs.Size,
                     (baked.LastUsedFrame < (builder.FrameCount or 0) - 1) and " *Unused*" or "") then
                     if ImGui.SmallButton("Load all") then
-                        for c = 0, 0x7F do baked:FindGlyph(c) end -- [port] ASCII only: loading the whole BMP in Luau stalls for seconds
+                        for c = 0, 0x7F do baked:FindGlyph(c) end -- [Port] ASCII only: loading the whole BMP in Luau stalls for seconds
                     end
                     local surface_sqrt = math.floor(math.sqrt(baked.MetricsTotalSurface))
                     ImGui.Text("Ascent: %f, Descent: %f, Ascent-Descent: %f", baked.Ascent, baked.Descent, baked.Ascent - baked.Descent)
@@ -21231,7 +21203,7 @@ function ImGui.ShowDebugLogWindow(p_open)
     g.DebugLogFlags = bit32.band(g.DebugLogFlags, bit32.bnot(L.EventClipper))
     local lines = g.DebugLogLines
     local count = #lines
-    if lines[count] == "" then count = count - 1 end -- trailing partial line
+    if lines[count] == "" then count = count - 1 end -- [Port] trailing partial line
     local clipper = ImGuiListClipper()
     clipper:Begin(count)
     while clipper:Step() do
@@ -21258,9 +21230,9 @@ function ImGui.DebugTextUnformattedWithLocateItem(line_begin, line_end)
     while p <= line_end - 10 do repeat -- [Luau] 1-based (C: p <= line_end - 10 with 0-based offsets)
         local b0, b1 = string.byte(line_begin, p, p + 1)
         local hex = string.match(line_begin, "^%x+", p + 2)
-        if b0 ~= 48 or (b1 ~= 120 and b1 ~= 88) or hex == nil or string.find(string.sub(line_begin, p + 10, p + 10), "^%x") then -- '0', 'x', 'X'
+        if b0 ~= 48 or (b1 ~= 120 and b1 ~= 88) or hex == nil or string.find(string.sub(line_begin, p + 10, p + 10), "^%x") then -- [Port] '0', 'x', 'X'
             p = p + 1
-            break -- continue
+            break -- [Port] continue
         end
         local id = tonumber(hex, 16) -- [Luau] sscanf("%X")
         local p0 = ImGui.CalcTextSizeEx(line_begin, 1, p)
@@ -21269,7 +21241,7 @@ function ImGui.DebugTextUnformattedWithLocateItem(line_begin, line_end)
         if ImGui.IsMouseHoveringRect(g.LastItemData.Rect.Min, g.LastItemData.Rect.Max, true) then
             ImGui.DebugLocateItemOnHover(id)
         end
-        p = p + 11 -- p += 10, then the loop's p++
+        p = p + 11 -- [Port] p += 10, then the loop's p++
     until true end
 end
 
@@ -21449,7 +21421,7 @@ function ImGui.UpdateDebugToolItemPathQuery()
 end
 
 -- [DEBUG] ID Stack tool: hooks called by GetID() family functions
--- `data_id` is the string/number that was hashed.
+-- [Port] `data_id` is the string/number that was hashed.
 function ImGui.DebugHookIdInfo(id, data_type, data_id)
     local g = ImGui.GetCurrentContext()
     local query = PathQuery(g)
@@ -21641,7 +21613,7 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
         local pcmd = draw_list.CmdBuffer.Data[cmd_n]
         if pcmd.UserCallback then
             ImGui.BulletText("Callback %s, user_data %s", tostring(pcmd.UserCallback), tostring(pcmd.UserCallbackData))
-            break -- continue
+            break -- [Port] continue
         end
 
         local texid_desc = FormatTextureRefForDebugDisplay(pcmd.TexRef)
@@ -21653,7 +21625,7 @@ function ImGui.DebugNodeDrawList(window, viewport, draw_list, label)
             ImGui.DebugNodeDrawCmdShowMeshAndBoundingBox(fg_draw_list, draw_list, pcmd, cfg.ShowDrawCmdMesh, cfg.ShowDrawCmdBoundingBoxes)
         end
         if not pcmd_node_open then
-            break -- continue
+            break -- [Port] continue
         end
 
         -- Calculate approximate coverage area (touched pixel count)
@@ -22227,7 +22199,7 @@ function ImGui.ShowMetricsWindow(p_open)
             for i = 1, g.PlatformIO.Monitors.Size do
                 ImGui.DebugNodePlatformMonitor(g.PlatformIO.Monitors.Data[i], "Monitor", i - 1)
                 if ImGui.IsItemHovered() then
-                    cfg.HighlightMonitorIdx = i - 1 -- 0-based, like Monitors:index_from_ptr()
+                    cfg.HighlightMonitorIdx = i - 1 -- [Port] 0-based, like Monitors:index_from_ptr()
                 end
             end
             if g.FallbackMonitor then ImGui.DebugNodePlatformMonitor(g.FallbackMonitor, "Fallback", 0) end
@@ -22462,7 +22434,7 @@ function ImGui.ShowMetricsWindow(p_open)
         if ImGui.IsMousePosValid() then ImGui.Text("Mouse pos: (%g, %g)", io.MousePos.x, io.MousePos.y) else ImGui.Text("Mouse pos: <INVALID>") end
         ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
         ImGui.Text("Mouse down:")
-        local count = ImGuiMouseButton.COUNT -- IM_COUNTOF(io.MouseDown)
+        local count = ImGuiMouseButton.COUNT -- [Port] IM_COUNTOF(io.MouseDown)
         for i = 0, count - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end
         ImGui.Text("Mouse clicked:")
         for i = 0, count - 1 do if ImGui.IsMouseClicked(i) then ImGui.SameLine(); ImGui.Text("b%d (%d)", i, io.MouseClickedCount[i]) end end
@@ -22623,4 +22595,4 @@ function ImGui.DebugBreakButton(label, description_of_location)
 end
 end --[[ [SECTION] METRICS/DEBUGGER WINDOW, DEBUG LOG, ID STACK TOOL, FONT DEBUG ]]
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+return true -- [Port] [Roblox] ModuleScripts must return exactly one value

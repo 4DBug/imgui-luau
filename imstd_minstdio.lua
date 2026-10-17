@@ -1,13 +1,13 @@
 --- Dear ImGui
--- This is a minimal Lua impl of C-like sscanf, sprintf sub-set
+-- [Port] This is a minimal Lua impl of C-like sscanf, sprintf sub-set
 
--- Supports:
+-- [Port] Supports:
 -- - %x, %X, %nx, %nX (where n is a number)
 -- - %d, %nd, %u, %nu (where n is a number)
 -- - length modifiers h, hh, l, ll, I64 on integers: ll/I64 = 64-bit range (doubles: exact only within +-2^53)
 -- - %f, %lf (very limited)
 --
--- Returns items_matched instead of EOF on error
+-- [Port] Returns items_matched instead of EOF on error
 
 local _byte = string.byte
 
@@ -40,7 +40,7 @@ local function hex_digit_to_int(c)
     if c >= CHAR_A and c <= CHAR_F then return c - CHAR_A + 10 end
 end
 
--- we force this behavior by default
+-- [Port] we force this behavior by default
 local function clamp_if_overflow(spec, val, is_64)
     if spec == CHAR_d or spec == CHAR_x or spec == CHAR_X then
         local max = is_64 and 9223372036854775807 or INT_MAX
@@ -61,7 +61,7 @@ end
 --- @param result       table  # table to store parsed values
 local function sscanf(buffer, buffer_begin, format, result)
     local p = buffer_begin
-    local f = 1 -- format_begin
+    local f = 1 -- [Port] format_begin
     local format_len = #format
     local assigned = 0
     local items_matched = 0
@@ -88,10 +88,10 @@ local function sscanf(buffer, buffer_begin, format, result)
             break
         end
 
-        -- encountered % in fmt
+        -- [Port] encountered % in fmt
         f = f + 1
 
-        -- %%
+        -- [Port] %%
         if _byte(format, f, f) == CHAR_PERCENT then
             if buffer[p] == CHAR_PERCENT then
                 p = p + 1
@@ -103,7 +103,7 @@ local function sscanf(buffer, buffer_begin, format, result)
             break
         end
 
-        -- handle optional width
+        -- [Port] handle optional width
         local width = 0
         while isdigit(_byte(format, f, f)) do
             width = width * 10 + _byte(format, f, f) - CHAR_0
@@ -113,7 +113,7 @@ local function sscanf(buffer, buffer_begin, format, result)
             width = math.huge
         end
 
-        -- length modifiers
+        -- [Port] length modifiers
         local n_l = 0
         while _byte(format, f, f) == CHAR_l or _byte(format, f, f) == CHAR_h do
             if _byte(format, f, f) == CHAR_l then n_l = n_l + 1 end
@@ -133,7 +133,7 @@ local function sscanf(buffer, buffer_begin, format, result)
         elseif spec == CHAR_d or spec == CHAR_u then
             base = 10
         elseif spec == CHAR_f or spec == CHAR_F then
-            is_float = true -- TODO: distinguish %lf from %f?
+            is_float = true -- [Port] TODO: distinguish %lf from %f?
         else
             return items_matched
         end
@@ -153,7 +153,7 @@ local function sscanf(buffer, buffer_begin, format, result)
                 p = p + 1
             end
 
-            -- inf, nan are not handled
+            -- [Port] inf, nan are not handled
 
             local p_start = p
             local int_part = 0
@@ -181,7 +181,7 @@ local function sscanf(buffer, buffer_begin, format, result)
             val = sign * (int_part + frac_part / frac_div)
         else
             local sign = 1
-            -- optional sign
+            -- [Port] optional sign
             if base == 10 then
                 if     buffer[p] == CHAR_PLUS then
                     p = p + 1
@@ -200,7 +200,6 @@ local function sscanf(buffer, buffer_begin, format, result)
             end
 
             if p == p_start then
-                -- failed to match
                 return items_matched
             end
 
@@ -217,7 +216,7 @@ local function sscanf(buffer, buffer_begin, format, result)
                 end
             end
             if spec == CHAR_u and val < 0 then
-                val = val + (is_64 and 18446744073709551616 or 4294967296) -- unsigned wrap-around like strtoul()
+                val = val + (is_64 and 18446744073709551616 or 4294967296) -- [Port] unsigned wrap-around like strtoul()
             end
         end
 

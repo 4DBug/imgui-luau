@@ -11,7 +11,7 @@ TMP = tempfile.mkdtemp(prefix="imgui_test_")  # per process: parallel runs must 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-LUAU = shutil.which("luau") or "/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau-0.734/bin/luau"
+LUAU = shutil.which("luau") or (sorted(__import__("glob").glob("/nix/store/*-luau-*/bin/luau")) or ["luau"])[-1]
 G = "game, workspace, Instance, Enum, Vector2, Vector3, UDim2, Color3, Content, UDim, CFrame, warn, require, script, os"
 
 def build_run(args, flags):
@@ -25,8 +25,10 @@ def build_run(args, flags):
     add("ImGui.luau", os.path.join(TMP, "ImGui.luau"))
     add("main.client.luau", args.main)
     out.append(open(os.path.join(HERE, "roblox_mock.luau")).read())
-    global OFFSET, LAST_LINE
-    LAST_LINE = open(os.path.join(TMP, "ImGui.luau")).read().count("\n")
+    global OFFSET, LAST_LINE, STRIPPED
+    bundle = open(os.path.join(TMP, "ImGui.luau")).read()
+    LAST_LINE = bundle.count("\n")
+    STRIPPED = sum(l.startswith("--!") for l in bundle.split("\n"))  # removed by add() (all at the top)
     OFFSET = 5  # lines before the ImGui function body in run.luau (flags/header lines + "function(...)" line)
     path = os.path.join(TMP, "run.luau")
     open(path, "w").write("\n".join(out))
@@ -45,8 +47,7 @@ def remap(text):
     import json, re
     lm = json.load(open(os.path.join(TMP, "ImGui.linemap.json")))
     def sub(m):
-        n = int(m.group(1)) - OFFSET  # line inside build/ImGui.luau (minus its 2 stripped --! lines)
-        n += 2
+        n = int(m.group(1)) - OFFSET + STRIPPED  # line inside build/ImGui.luau
         best = None
         if n > LAST_LINE: return "<harness>:%d" % n
         for start, name in lm:

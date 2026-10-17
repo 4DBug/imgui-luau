@@ -4,11 +4,12 @@
 """
 import os, re, collections
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SRC = ROOT  # library *.lua at the root + backends/ (--no-demo: leave imgui_demo.lua out to check the library never needs it)
+SRC = ROOT  # library *.lua at the root + backends/roblox, backends/love (--no-demo: leave imgui_demo.lua out to check the library never needs it)
 import sys
 NO_DEMO = "--no-demo" in sys.argv
 files = {}
-for dp, fn in ((ROOT, os.listdir(ROOT)), (os.path.join(ROOT, "backends"), os.listdir(os.path.join(ROOT, "backends")))):
+for dp in (ROOT, os.path.join(ROOT, "backends", "roblox"), os.path.join(ROOT, "backends", "love")):
+    fn = os.listdir(dp)
     for f in fn:
         if f.endswith(".lua") and not (NO_DEMO and f == "imgui_demo.lua"):
             files[os.path.relpath(os.path.join(dp, f), SRC)] = open(os.path.join(dp, f)).read()

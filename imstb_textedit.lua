@@ -1,5 +1,5 @@
 --- Dear ImGui
--- This is a Lua port of original `imstb_textedit.h`
+-- [Port] This is a Lua port of original `imstb_textedit.h`
 
 -- [DEAR IMGUI]
 -- This is a slightly modified version of stb_textedit.h 1.14.
@@ -38,7 +38,7 @@
 --
 -- Uses the C runtime function 'memmove', which you can override
 -- by defining IMSTB_TEXTEDIT_memmove before the implementation.
--- (In this port: ImStb.TEXTEDIT_memmove.)
+-- [Port] (In this port: ImStb.TEXTEDIT_memmove.)
 --
 --
 -- VERSION HISTORY
@@ -216,7 +216,7 @@
 -- efficient, but it's not horrible on modern computers. But you wouldn't
 -- want to edit million-line files with it.
 
--- ALL TABLES IN THIS FILE ARE 1-BASED!
+-- [Port] ALL TABLES IN THIS FILE ARE 1-BASED!
 -- Character Indexing:
 --     idx=n, the n'th char (1-based)
 -- Cursor Indexing:
@@ -455,7 +455,7 @@ end
 
 local stb_text_locate_coord do
 
--- only create once, reuse later
+-- [Port] only create once, reuse later
 local r = StbTexteditRow()
 
 --- traverse the layout to locate the nearest character to a display position
@@ -964,7 +964,7 @@ function stb_textedit_key(str, state, key)
         if not is_page and state.single_line then
             -- on windows, up&down in single-line behave like left&right
             key = bit32.bor(STB_TEXTEDIT_K_RIGHT, bit32.band(key, STB_TEXTEDIT_K_SHIFT))
-            return stb_textedit_key(str, state, key) -- was `goto retry`
+            return stb_textedit_key(str, state, key) -- [Port] was `goto retry`
         end
 
         if sel then
@@ -1037,7 +1037,7 @@ function stb_textedit_key(str, state, key)
         if not is_page and state.single_line then
             -- on windows, up&down become left&right
             key = bit32.bor(STB_TEXTEDIT_K_LEFT, bit32.band(key, STB_TEXTEDIT_K_SHIFT))
-            return stb_textedit_key(str, state, key) -- was `goto retry`
+            return stb_textedit_key(str, state, key) -- [Port] was `goto retry`
         end
 
         if sel then

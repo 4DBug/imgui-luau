@@ -22,7 +22,7 @@ This port brings that to Roblox (and LÖVE): debug overlays, admin panels, in-ga
 
 ### Usage
 
-**The core of Dear ImGui is a set of files with no dependencies**, plus one platform backend from [backends/](backends/). `tools/bundle.py` combines them into a single file: `build/ImGui.luau` (ModuleScript, Roblox backend) or, with `--target love`, `build/imgui_love.lua` (LÖVE backend). Your UI code is the same for both.
+**The core of Dear ImGui is a set of files with no dependencies**, plus one platform backend from [backends/](backends/) (`backends/roblox/`, `backends/love/`). `tools/bundle.py` combines them into a single file: `build/ImGui.luau` (ModuleScript, Roblox backend) or, with `--target love`, `build/imgui_love.lua` (LÖVE backend). Your UI code is the same for both.
 
 Dear ImGui is **immediate mode**: you call widget functions every frame, and their return values tell you what the user did. There is no widget object to keep in sync with your state.
 
@@ -113,7 +113,7 @@ The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.Sh
 
 ### Getting Started & Integration (Roblox)
 
-With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.3.0"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
+With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.4.0"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
 
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out) and `build/ImGuiTyped.luau`, a small typed entry module (Luau types for the public `ImGui.*` API, `ImVec2`/`ImVec4` and the flag enums) that requires `build/ImGui.luau` as its child `Impl`. The Wally package and the Rojo projects use that layout, so you get autocomplete and type errors in `--!strict` scripts. The single-file `ImGui.luau` also works on its own, just untyped.
 2. Sync with [Rojo](https://rojo.space): [`default.project.json`](default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
@@ -152,6 +152,8 @@ Backend options:
 | `ImGui_ImplRoblox.SetRedrawBudget(ms)` | Max milliseconds per frame spent redrawing changed tiles (opt-in; default `0` = no limit, every change is drawn the same frame). With a budget, tiles over it keep their old pixels for a few frames, so big changes are spread over frames instead of one long frame (parts of the UI may update a frame or two apart). |
 | `ImGui_ImplRoblox.SetBusyRenderRate(hz)` | Optional lower redraw rate while scrolling, resizing or moving windows (default off). |
 | `ImGui_ImplRoblox.SetProfiling(true)` | MicroProfiler (Ctrl+F6) labels for every backend stage. |
+| `ImGui_ImplRoblox.GetStats()` | Live resource counts: `Tiles`, `EditableImages`, `EditableImageBytes`, `EditableImageCap` (all EditableImages share a 64 MB budget; scrolled-away tiles are freed/recycled), `Instances`. |
+| `ImGui_ImplRoblox.SetStageTiming(on)` | Opt-in per-stage timing of the last rendered frame in `GetStats().Frame`: seconds for `Compare`, `Collect`, `Hash`, `Raster`, `Upload`, `Other`, `Total`, plus `TilesRasterized`, `PixelsRasterized` (dirty-rect area), `Uploads`, `TilesCreated`, `TilesFreed`. Off by default (one boolean check per stage). |
 | `ImGui_ImplRoblox.AddFile(path, bytes)` | Register a file (e.g. a `.ttf`) so `io.Fonts:AddFontFromFileTTF(path, size)` can load it. |
 
 Fonts: ProggyClean (default), ProggyTiny, ProggyForever, Cousine, DroidSans, Karla and Roboto are embedded from [fonts/](fonts/):
@@ -161,9 +163,46 @@ io.Fonts:AddFontDefault()
 io.Fonts:AddFontFromFileTTF("fonts/Roboto-Medium.ttf", 16.0)
 ```
 
+### Parallel rendering (opt-in, Roblox)
+
+Changed tiles can be rasterized on Actors (parallel Luau) instead of the main thread, still uploaded **in the same frame**. It is part of the backend but off until you call `ImGui_ImplRoblox.EnableParallel` (when off, the backend only checks one field per redrawn tile).
+
+- The rasterizer is [backends/roblox/raster.lua](backends/roblox/raster.lua): pure buffer code used by both the backend and the worker, so the pixels are identical (tested by `tools/test/scripts/t_parallel.luau`).
+- `build/ImGuiWorker.client.luau` (LocalScript): the Actor script, with the rasterizer pasted in by `bundle.py` (self-contained, no `require`). It must be the child `Worker` of the `ImGui` module (or pass `{ Worker = ... }`). Scripts can't be created at runtime, so the backend clones it into each Actor it creates (under `PlayerScripts`). The template does nothing where it sits.
+
+Rojo layout (as in [`default.project.json`](default.project.json)):
+
+```json
+"ImGui": {
+  "$path": "build/ImGuiTyped.luau",
+  "Impl": { "$path": "build/ImGui.luau" },
+  "Worker": { "$path": "build/ImGuiWorker.client.luau" }
+}
+```
+
+```lua
+ImGui_ImplRoblox.EnableParallel({ Actors = 4 })   -- also: MinTiles = 4, MinPixels = 16384, MaxBytesPerPixel = 3, Worker
+
+RunService.PreSimulation:Connect(function()          -- NOT RenderStepped (see below)
+    ImGui_ImplRoblox.NewFrame()
+    ImGui.NewFrame()
+    -- ... your windows ...
+    ImGui.Render()
+    ImGui_ImplRoblox.RenderDrawData(ImGui.GetDrawData()) -- collects, hashes, packs and dispatches the dirty tiles
+end)
+-- PostSimulation (connected by EnableParallel): FinishParallel() uploads every result, and rasterizes on the main
+-- thread whatever didn't come back. ImGui_ImplRoblox.DisableParallel() goes back to inline rasterization.
+```
+
+**Frame ordering.** A Roblox frame runs `PreRender` (`RenderStepped`), `PreAnimation`, `PreSimulation` (`Stepped`), `PostSimulation` (`Heartbeat`). What the scripts changed up to the end of `PostSimulation` of frame N is drawn by the render that follows the next `PreRender` (N+1), together with whatever `PreRender` N+1 changes. So `RenderDrawData` in `PreSimulation` (layer `Position`/`ZIndex`/`Visible` changes) plus `Finish` in `PostSimulation` (the pixels) land in the same render: no frame shows moved layers with old pixels. Actor work requested in `PreSimulation` runs in that frame's parallel phases, and the results are back before `PostSimulation`.
+- The executor only dispatches between `PreAnimation` and its `Finish`. A `RenderDrawData` anywhere else (`RenderStepped`/`PreRender`, after `Finish`, with too little work: fewer than `MinTiles` tiles or `MinPixels` dirty pixels, or with dense primitives: more than `MaxBytesPerPixel` packed payload bytes per dirty pixel, e.g. text-heavy frames, where packing costs more than rasterizing; `0` = no limit) is rasterized and uploaded on the main thread right away, like without the executor. That is always correct, just not parallel.
+- Minimal example: [examples/example_roblox_parallel/main.client.luau](examples/example_roblox_parallel/main.client.luau) (the demo window, 2 Actors; map it instead of `examples/example_roblox` in `default.project.json`).
+- If your frame ends elsewhere, call `ImGui_ImplRoblox.FinishParallel()` yourself. It must run before the next render, and after the parallel phase if you want the workers' results.
+- `ImGui_ImplRoblox.GetParallelStats()`: `ParallelFlushes`, `SerialFlushes`, `Tiles`, `Fallbacks` (worker results missing at `Finish`), `Late`, `Pack`/`Flush`/`Finish` (main-thread seconds, cumulative). `ImGui_ImplRoblox.GetParallelConfig()` returns the live config table (thresholds can be changed at any time; a new `Actors` count needs another `EnableParallel()`).
+
 ### How it works (Roblox backend)
 
-Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua)) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
+Dear ImGui itself never draws anything: every frame it produces `ImDrawData`, a list of textured, coloured triangles plus clip rectangles, and expects the backend to put them on screen. On desktop that is a few GPU draw calls. Roblox has no API to draw arbitrary triangles in 2D, so the Roblox backend ([backends/roblox/](backends/roblox): `imgui_impl_roblox.lua` + its modules `textures`, `layers`, `render`, `parallel`, `overlays`, `raster`) does what a GPU would do, in Luau, and pushes the result into **EditableImages**.
 
 **Why software rasterization?** The alternatives don't fit Dear ImGui:
 - *One GUI Instance per widget/shape* (what most Roblox UI libraries do) means re-creating, re-parenting or diffing thousands of Instances every frame, can't express anti-aliased curves, per-vertex gradients or font-atlas glyphs, and would no longer be Dear ImGui's renderer output.
@@ -186,21 +225,21 @@ The cost is CPU time in Luau, so the backend is built around **not drawing**:
 
 | Backend | File | Build | Renderer | Example |
 | --- | --- | --- | --- | --- |
-| Roblox (primary) | [backends/imgui_impl_roblox.lua](backends/imgui_impl_roblox.lua) | `python3 tools/bundle.py` | Luau software rasterizer into EditableImage tiles | [examples/example_roblox](examples/example_roblox) |
-| LÖVE 11.x | [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua) | `python3 tools/bundle.py --target love` | GPU, one `Mesh` per draw list | [examples/example_love](examples/example_love) |
+| Roblox (primary) | [backends/roblox/imgui_impl_roblox.lua](backends/roblox/imgui_impl_roblox.lua) | `python3 tools/bundle.py` | Luau software rasterizer into EditableImage tiles | [examples/example_roblox](examples/example_roblox) |
+| LÖVE 11.x | [backends/love/imgui_impl_love.lua](backends/love/imgui_impl_love.lua) | `python3 tools/bundle.py --target love` | GPU, one `Mesh` per draw list | [examples/example_love](examples/example_love) |
 
-A backend implements the usual Dear ImGui contract (`Init`, `NewFrame`, `RenderDrawData`, input → `io:Add*Event`, texture updates via `ImTextureData`). Adding another Lua host means a new `backends/imgui_impl_<name>.lua` plus a `--target` in `tools/bundle.py`.
+A backend implements the usual Dear ImGui contract (`Init`, `NewFrame`, `RenderDrawData`, input → `io:Add*Event`, texture updates via `ImTextureData`). Adding another Lua host means a new `backends/<name>/imgui_impl_<name>.lua` plus a `--target` in `tools/bundle.py`.
 
 #### LÖVE
 
-The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua):
+The same sources also build for [LÖVE](https://love2d.org) (LuaJIT), with a GPU renderer in [backends/love/imgui_impl_love.lua](backends/love/imgui_impl_love.lua):
 
 ```
 python3 tools/bundle.py --target love      # -> build/imgui_love.lua (LÖVE backend + shims from the LÖVE backend)
 love examples/example_love
 ```
 
-Roblox stays the primary target: the Roblox build is untouched by this (no shims, `@native` kept); the LÖVE build strips `@native` and adds small `bit32`/`buffer`/`utf8`/`table` shims (the COMPAT section of [backends/imgui_impl_love.lua](backends/imgui_impl_love.lua)). `tools/test/love/run.sh` checks that LuaJIT produces exactly the same draw data as Luau.
+Roblox stays the primary target: the Roblox build is untouched by this (no shims, `@native` kept); the LÖVE build strips `@native` and adds small `bit32`/`buffer`/`utf8`/`table` shims (the COMPAT section of [backends/love/imgui_impl_love.lua](backends/love/imgui_impl_love.lua)). `tools/test/love/run.sh` checks that LuaJIT produces exactly the same draw data as Luau.
 
 #### Prebuilt releases
 

@@ -14,7 +14,7 @@
 
 -- Index of this file:
 -- [SECTION] Forward declarations and basic types
--- [SECTION] METATABLE MANAGEMENT
+-- [Port] [SECTION] METATABLE MANAGEMENT
 -- [SECTION] Helpers: Debug log, memory allocations macros, ImVector<>
 -- [SECTION] Drawing API (ImDrawCmd, ImDrawIdx, ImDrawVert, ImDrawChannel, ImDrawListSplitter, ImDrawFlags, ImDrawList, ImDrawData)
 -- [SECTION] Texture API (ImTextureFormat, ImTextureStatus, ImTextureRect, ImTextureData)
@@ -33,7 +33,7 @@
 local type   = type -- [Luau] builtin (FASTCALL); ImGui._GetTypeFunc() kept for compatibility
 local rawget = rawget; local rawset = rawset
 
--- [LuaBitOp](https://bitop.luajit.org/semantics.html)
+-- [Port] [LuaBitOp](https://bitop.luajit.org/semantics.html)
 local bitAnd    = bit32.band; local bitOr = bit32.bor
 local bitLShift = bit32.lshift
 
@@ -138,10 +138,10 @@ IM_FREE = ImGui.MemFree
 IM_DELETE = function(owner, field) if owner[field] ~= nil then owner[field] = nil; ImGui.MemFree(owner, field); end end
 
 -------------------------------------------------------------------------------
--- [SECTION] METATABLE MANAGEMENT
+-- [Port] [SECTION] METATABLE MANAGEMENT
 -------------------------------------------------------------------------------
 
---- File-scope metatable storage
+--- [Port] File-scope metatable storage
 local MT = {}
 
 function ImGui.GetMetatables() return MT end
@@ -153,7 +153,7 @@ function IM_ASSERT(_EXPR, _MSG) assert((_EXPR), _MSG) end
 IM_ASSERT_PARANOID = IM_ASSERT
 
 -- A primary data type
---- Note that `S64` and `U64` are not supported
+--- [Port] Note that `S64` and `U64` are not supported
 --- @enum ImGuiDataType
 ImGuiDataType =
 {
@@ -334,7 +334,7 @@ function ImVec2_SubVA(v, sub_x, sub_y) return v.x - sub_x, v.y - sub_y end
 
 function ImVec2_MulVX(a, scalar) return a.x * scalar, a.y * scalar end
 
---- An inlined version of `ImVec2_Copy` currently for use in certain ImVector<ImVec2> `push_back`
+--- [Port] An inlined version of `ImVec2_Copy` currently for use in certain ImVector<ImVec2> `push_back`
 local function ImVec2_TCopy(t, k, v) local dest = t[k]; dest.x = v.x; dest.y = v.y; end
 
 -- ImVec4: 4D vector used to store clipping rectangles, colors etc. [Compile-time configurable type]
@@ -383,7 +383,7 @@ function ImVec4_Copy(dest, src) dest.x = src.x; dest.y = src.y; dest.z = src.z; 
 -------------------------------------------------------------------------------
 
 -- ImVector<>
---- A compact ImVector clone
+--- [Port] A compact ImVector clone
 --- @class ImVector<T>
 --- @field Data          T[] # 1-based table
 --- @field Size          int # >= 0
@@ -391,22 +391,22 @@ function ImVec4_Copy(dest, src) dest.x = src.x; dest.y = src.y; dest.z = src.z; 
 --- @field _CopyFunc     function
 local IM_VECTOR = {}
 
--- Support 1-based number key indexing while keep method accessing speed
+-- [Port] Support 1-based number key indexing while keep method accessing speed
 --- @param t ImVector
 --- @param k string|int
 --- @return any
 IM_VECTOR.__index = function(t, k)
-    local m = IM_VECTOR[k] -- methods first (hot path)
+    local m = IM_VECTOR[k] -- [Port] methods first (hot path)
     if m ~= nil then return m end
-    if k == "Data" then return nil end -- Data has already been discarded
-    return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- if the mt access turns out nil, the k must be int index into Data
+    if k == "Data" then return nil end -- [Port] Data has already been discarded
+    return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- [Port] if the mt access turns out nil, the k must be int index into Data
 end
 
 --- @param t ImVector
 --- @param k int
 --- @param v any
 IM_VECTOR.__newindex = function(t, k, v)
-    if k == "Data" then rawset(t, "Data", v); return; end -- set new Data. old Data is already discarded
+    if k == "Data" then rawset(t, "Data", v); return; end -- [Port] set new Data. old Data is already discarded
     IM_ASSERT(k >= 1 and k <= t.Size)
     t.Data[k] = v
 end
@@ -469,10 +469,10 @@ end
 function IM_VECTOR:swap(other) self.Size, other.Size = other.Size, self.Size; self.Capacity, other.Capacity = other.Capacity, self.Capacity; self.Data, other.Data = other.Data, self.Data end
 function IM_VECTOR:contains(v) for i = 1, self.Size do if self.Data[i] == v then return true end end return false end
 
--- NOTE: This currently does not use type-aware copy!
+-- [Port] NOTE: This currently does not use type-aware copy!
 function IM_VECTOR:insert(pos, value) IM_ASSERT(pos >= 1 and pos <= self.Size + 1); if self.Size == self.Capacity then self:reserve(_grow_capacity(self, self.Size + 1)) end; for i = self.Size, pos, -1 do self.Data[i + 1] = self.Data[i] end self.Data[pos] = value self.Size = self.Size + 1 return value end
 
--- NOTE: This currently does not copy type related info!
+-- [Port] NOTE: This currently does not copy type related info!
 --- @nodiscard
 function IM_VECTOR:copy()
     local v = ImVector(); v:resize(self.Size)
@@ -481,7 +481,7 @@ function IM_VECTOR:copy()
     return v
 end
 
--- Not keeping value-key records inside `ImVector`, instead just find it
+-- [Port] Not keeping value-key records inside `ImVector`, instead just find it
 --- @return int # 0-based index
 function IM_VECTOR:index_from_ptr(p)
     local data = self.Data; for i = 1, self.Size do if p == data[i] then return i - 1 end end
@@ -599,7 +599,7 @@ function ImDrawChannel() return { _CmdBuffer = ImVector(), _IdxBuffer = ImVector
 
 --- @return ImDrawListSplitter
 --- @nodiscard
-MT.ImDrawListSplitter = {} -- methods in imgui_draw.lua
+MT.ImDrawListSplitter = {} -- [Port] methods in imgui_draw.lua
 MT.ImDrawListSplitter.__index = MT.ImDrawListSplitter
 function ImDrawListSplitter() return setmetatable({ _Current = 0, _Count = 0, _Channels = ImVector() }, MT.ImDrawListSplitter) end
 
@@ -1345,7 +1345,7 @@ function ImGuiIO()
         -- - Suggested use, e.g. io.ConfigDebugDrawListDefaultsToStrokeLegacy = io.KeyShift; // Map to SHIFT modifier
         ConfigDebugDrawListDefaultsToStrokeLegacy = false, -- false -- Default all ImDrawList to ImDrawList_StrokeLegacy mode, mimicking pre-1.93.0 rendering.
 
-        IniFilename = "imgui.ini", -- Roblox: no disk access, only used as a flag (nil disables .ini handling)
+        IniFilename = "imgui.ini", -- [Port] no disk access, only used as a flag (nil disables .ini handling)
         IniSavingRate = 5.0, -- = 5.0f           -- Minimum time between saving positions/sizes to .ini file, in seconds.
         LogFilename = "imgui_log.txt", -- = "imgui_log.txt"-- Path to .log file (default parameter to ImGui.LogToFile when no file is specified).
         WantSaveIniSettings = false, -- When manual .ini load/save is active (io.IniFilename == nil), this will be set to notify your application that you can call SaveIniSettingsToMemory() and save yourself. Important: clear io.WantSaveIniSettings yourself after saving!
@@ -2112,7 +2112,7 @@ ImGuiKey = {
     RightCtrl  = 531, RightShift = 532, RightAlt = 533, RightSuper = 534,
     Menu       = 535,
 
-    -- 0 ~ 9 (upstream ImGuiKey_0..ImGuiKey_9: K0..K9 in this port, ImGuiKey["0"]..ImGuiKey["9"] are aliases)
+    -- [Port] 0 ~ 9 (upstream ImGuiKey_0..ImGuiKey_9: K0..K9 in this port, ImGuiKey["0"]..ImGuiKey["9"] are aliases)
     K0 = 536, K1 = 537, K2 = 538, K3 = 539, K4 = 540, K5 = 541, K6 = 542, K7 = 543, K8 = 544, K9 = 545,
     ["0"] = 536, ["1"] = 537, ["2"] = 538, ["3"] = 539, ["4"] = 540, ["5"] = 541, ["6"] = 542, ["7"] = 543, ["8"] = 544, ["9"] = 545,
 
@@ -2534,7 +2534,7 @@ ImGuiInputTextFlags = {
 --- @class ImGuiInputTextCallbackData
 
 --- @return ImGuiInputTextCallbackData
--- Buf is a 1-based zero-terminated byte table; positions (CursorPos, pos...) are 0-based byte offsets like upstream.
+-- [Port] Buf is a 1-based zero-terminated byte table; positions (CursorPos, pos...) are 0-based byte offsets like upstream.
 MT.ImGuiInputTextCallbackData = {}
 MT.ImGuiInputTextCallbackData.__index = MT.ImGuiInputTextCallbackData
 function ImGuiInputTextCallbackData()
@@ -2544,7 +2544,7 @@ end
 function MT.ImGuiInputTextCallbackData:DeleteChars(pos, bytes_count)
     IM_ASSERT(pos + bytes_count <= self.BufTextLen)
     local buf = self.Buf
-    local n = self.BufTextLen - bytes_count - pos + 1 -- includes zero terminator
+    local n = self.BufTextLen - bytes_count - pos + 1 -- [Port] includes zero terminator
     for i = 1, n do buf[pos + i] = buf[pos + bytes_count + i] end
 
     if self.CursorPos >= pos + bytes_count then
@@ -2565,10 +2565,10 @@ function MT.ImGuiInputTextCallbackData:InsertChars(pos, new_text)
     -- We support partial insertion
     local avail = self.BufSize - 1 - self.BufTextLen
     if not is_resizable and new_text_len > avail then
-        new_text_len = avail -- ponytail: truncates by bytes, not to the closest UTF-8 codepoint
+        new_text_len = avail
     end
     if new_text_len <= 0 then return end
-    -- ponytail: CallbackResize buffer growth not supported, text is truncated at BufSize instead
+
     if self.BufTextLen + new_text_len + 1 > self.BufSize then
         new_text_len = self.BufSize - 1 - self.BufTextLen
         if new_text_len <= 0 then return end
@@ -2802,7 +2802,7 @@ end
 
 -- Data payload for Drag and Drop operations: AcceptDragDropPayload(), GetDragDropPayload()
 --- @class ImGuiPayload
---- Drag and drop payload. `Data` is any Lua value (C++ stores raw bytes); `DataSize` kept for API parity.
+--- [Port] Drag and drop payload. `Data` is any Lua value (C++ stores raw bytes); `DataSize` kept for API parity.
 local IM_PAYLOAD = {}
 IM_PAYLOAD.__index = IM_PAYLOAD
 function IM_PAYLOAD:Clear() ImGuiPayload_Clear(self) end
@@ -2980,15 +2980,15 @@ function ImGuiMultiSelectIO()
     return { Requests = ImVector(ImGuiSelectionRequest, ImGuiSelectionRequest_Copy), RangeSrcItem = -1, NavIdItem = -1, NavIdSelected = false, RangeSrcReset = false, ItemsCount = 0 }
 end
 
--- ImGuiSelectionBasicStorage, ImGuiSelectionExternalStorage: see [SECTION] Widgets: Multi-Select helpers in imgui_widgets.lua
+-- [Port] ImGuiSelectionBasicStorage, ImGuiSelectionExternalStorage: see [SECTION] Widgets: Multi-Select helpers in imgui_widgets.lua
 -- (constructors and methods are defined there, like upstream's out-of-line definitions in imgui_widgets.cpp).
 
 --- @class ImGuiSettingsHandler
---- Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
+--- [Port] Fns take (ctx, handler, ...) like upstream. ReadOpenFn(ctx, handler, name) returns entry; ReadLineFn(ctx, handler, entry, line);
 --- WriteAllFn(ctx, handler, buf: ImGuiTextBuffer)
 function ImGuiSettingsHandler()
     return { TypeName = nil, TypeHash = 0, ClearAllFn = nil, ReadInitFn = nil, ReadOpenFn = nil, ReadLineFn = nil,
              ApplyAllFn = nil, WriteAllFn = nil, CleanupFn = nil, UserData = nil }
 end
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+return true -- [Port] [Roblox] ModuleScripts must return exactly one value

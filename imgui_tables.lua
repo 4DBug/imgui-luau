@@ -176,22 +176,22 @@
 -- - Scrolling tables with a known outer size can be clipped earlier as BeginTable() will return false.
 -------------------------------------------------------------------------------
 
--- Port notes:
--- - Column indices / display orders / draw channel indices are 0-based VALUES like upstream.
---   Per-column arrays (table.Columns, table.DisplayOrderToIndex, table.RowCellData) are Lua tables with 0-based keys.
---   table.ColumnsSize mirrors upstream `table->Columns.size()`.
--- - ImBitArray masks are Lua tables { [n] = true }.
--- - table.ColumnsNames is a Lua array of strings, column.NameOffset is a 0-based index into it (-1 = none).
--- - g.SettingsTables is a plain vector of ImGuiTableSettings; table.SettingsOffset is a 1-based index into it (-1 = none).
---   Each settings entry owns `Columns` (0-based Lua table of ImGuiTableColumnSettings).
--- - ImGuiTableSortSpecs.Specs is a 1-based Lua array of ImGuiTableColumnSortSpecs.
+-- [Port] Port notes:
+-- [Port] - Column indices / display orders / draw channel indices are 0-based VALUES like upstream.
+-- [Port]   Per-column arrays (table.Columns, table.DisplayOrderToIndex, table.RowCellData) are Lua tables with 0-based keys.
+-- [Port]   table.ColumnsSize mirrors upstream `table->Columns.size()`.
+-- [Port] - ImBitArray masks are Lua tables { [n] = true }.
+-- [Port] - table.ColumnsNames is a Lua array of strings, column.NameOffset is a 0-based index into it (-1 = none).
+-- [Port] - g.SettingsTables is a plain vector of ImGuiTableSettings; table.SettingsOffset is a 1-based index into it (-1 = none).
+-- [Port]   Each settings entry owns `Columns` (0-based Lua table of ImGuiTableColumnSettings).
+-- [Port] - ImGuiTableSortSpecs.Specs is a 1-based Lua array of ImGuiTableColumnSortSpecs.
 
 --- @type ImGuiContext?
 local GImGui
 
 local MT = ImGui.GetMetatables()
 
--- Sets local `GImGui` in this file(imgui_tables.lua).
+-- [Port] Sets local `GImGui` in this file(imgui_tables.lua).
 -- This is currently only used in main code `ImGui.SetCurrentContext()`
 --- @param ctx ImGuiContext?
 function ImGui._SetCurrentContext_Tables(ctx)
@@ -489,7 +489,7 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
 
     -- Acquire storage for the table
     local table_ = g.Tables:GetOrAddByKey(id)
-    if table_.Columns == nil then -- pool created a plain table
+    if table_.Columns == nil then -- [Port] pool created a plain table
         for k, v in pairs(ImGuiTable()) do table_[k] = v end
     end
 
@@ -1993,7 +1993,7 @@ function ImGui.TableReconcileColumns(table_)
     end
 
     -- Remaining entries are matched sequentially.
-    local dst_idx = 1 -- index in reconcile array (1-based)
+    local dst_idx = 1 -- [Port] index in reconcile array (1-based)
     if matches ~= reconcile_requests.Size then
         for src_n = 0, src_count - 1 do
             local src_column = src_columns[src_n]
@@ -2085,7 +2085,7 @@ function ImGui.TableGetColumnCount()
     return table_ and table_.ColumnsCount or 0
 end
 
--- Overloads: TableGetColumnName(column_n?) / TableGetColumnName(table, column_n)
+-- [Port] Overloads: TableGetColumnName(column_n?) / TableGetColumnName(table, column_n)
 function ImGui.TableGetColumnName(a, b)
     local table_, column_n
     if type(a) == "table" then
@@ -3003,7 +3003,7 @@ end
 -- Columns for which the draw channel(s) haven't been merged with other will use their own ImDrawCmd.
 --
 -- This function is particularly tricky to understand.. take a breath.
--- (Lua: splitter channel n lives in splitter._Channels.Data[n + 1]; bit arrays are Lua sets)
+-- [Port] (Lua: splitter channel n lives in splitter._Channels.Data[n + 1]; bit arrays are Lua sets)
 local TableMergeDrawChannels_MergeGroups = {}
 for n = 0, 3 do
     TableMergeDrawChannels_MergeGroups[n] = { ClipRect = ImRect(), ChannelsCount = 0, ChannelsMask = {} }
@@ -3301,7 +3301,7 @@ end
 -- changed since last call, or the first time. Make sure to set 'SpecsDirty = false' after sorting,
 -- else you may wastefully sort your data every frame!
 -- Lifetime: don't hold on this table over multiple frames or past any subsequent call to BeginTable()!
--- PORT: Specs is a 1-based Lua array.
+-- [Port] Specs is a 1-based Lua array.
 function ImGui.TableGetSortSpecs()
     local g = GImGui
     local table_ = g.CurrentTable
@@ -3393,7 +3393,7 @@ function ImGui.TableSortSpecsSanitize(table_)
 
     -- Clear SortOrder from hidden column and verify that there's no gap or duplicate.
     local sort_order_count = 0
-    local sort_order_set = {} -- C++: ImU64 sort_order_mask
+    local sort_order_set = {} -- [Port] C++: ImU64 sort_order_mask
     local sort_order_dup = false
     for column_n = 0, table_.ColumnsCount - 1 do
         local column = table_.Columns[column_n]
@@ -3408,7 +3408,7 @@ function ImGui.TableSortSpecsSanitize(table_)
         end
     end
 
-    -- need_fix_linearize: (1 << count) != (mask + 1) <=> the set of sort orders isn't exactly {0..count-1}
+    -- [Port] need_fix_linearize: (1 << count) != (mask + 1) <=> the set of sort orders isn't exactly {0..count-1}
     local need_fix_linearize = sort_order_dup
     for n = 0, sort_order_count - 1 do
         if not sort_order_set[n] then need_fix_linearize = true end
@@ -4592,7 +4592,7 @@ function ImGui.TableRemove(table_)
 end
 
 -- Free up/compact internal Table buffers for when it gets unused
--- Overloads: (ImGuiTable) / (ImGuiTableTempData)
+-- [Port] Overloads: (ImGuiTable) / (ImGuiTableTempData)
 function ImGui.TableGcCompactTransientBuffers(t)
     if not t then return end
     if t.TableIndex ~= nil then -- ImGuiTableTempData
@@ -4670,7 +4670,7 @@ end
 -- - EndColumns()
 -- - Columns()
 -------------------------------------------------------------------------------
--- (Lua: columns.Columns is an ImVector, column n lives in .Data[n + 1])
+-- [Port] (Lua: columns.Columns is an ImVector, column n lives in .Data[n + 1])
 
 function ImGui.GetColumnIndex()
     local window = ImGui.GetCurrentWindowRead()
@@ -5086,4 +5086,4 @@ function ImGui.Columns(columns_count, id, borders)
     end
 end
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+return true -- [Port] [Roblox] ModuleScripts must return exactly one value
