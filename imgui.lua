@@ -14373,6 +14373,7 @@ function ImGui.NewFrame()
     ImGuiPlatformImeData_Copy(g.PlatformImeDataPrev, g.PlatformImeData)
     g.PlatformImeData.WantVisible = false
     g.PlatformImeData.WantTextInput = false
+    g.PlatformImeData.SelectedText = "" -- [Port]
 
     -- Mouse wheel scrolling, scale
     ImGui.UpdateMouseWheel()

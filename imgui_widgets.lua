@@ -6408,6 +6408,10 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             ImVec2_Copy(ime_data.InputPos, ImVec2(cursor_screen_pos.x - 1.0, cursor_screen_pos.y - g.FontSize))
             ime_data.InputLineHeight = g.FontSize
             ime_data.ViewportId = window.Viewport.ID
+            -- [Port] selection for backends (stb positions are 1-based in this port)
+            if state.Stb and state:HasSelection() then
+                ime_data.SelectedText = ImGui._ByteArrayToString(state.TextA.Data, ImMin(state.Stb.select_start, state.Stb.select_end), ImMax(state.Stb.select_start, state.Stb.select_end))
+            end
         end
     end
 

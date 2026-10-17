@@ -14555,6 +14555,7 @@ function ImGui.NewFrame()
     ImGuiPlatformImeData_Copy(g.PlatformImeDataPrev, g.PlatformImeData)
     g.PlatformImeData.WantVisible = false
     g.PlatformImeData.WantTextInput = false
+    g.PlatformImeData.SelectedText = "" -- [Port]
 
     -- Mouse wheel scrolling, scale
     ImGui.UpdateMouseWheel()
@@ -40785,6 +40786,10 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         return
     end
 
+    -- [Port] reversed corners (min > max, e.g. a box selection dragged up/left): upstream's min_dim checks drop them, older ImGui drew them
+    if p_min.x > p_max.x or p_min.y > p_max.y then
+        p_min, p_max = ImVec2(ImMin(p_min.x, p_max.x), ImMin(p_min.y, p_max.y)), ImVec2(ImMax(p_min.x, p_max.x), ImMax(p_min.y, p_max.y))
+    end
     flags = bit32.bor(flags, self.Flags)
     local stroke_pos = _GetStrokePos(flags, 131072 --[[ImDrawFlags.StrokeInside]])
     if stroke_pos == 917504 --[[ImDrawFlags.StrokeLegacy]] then
@@ -41002,6 +41007,8 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     end
 
     local ax, ay, bx, by = p_min.x, p_min.y, p_max.x, p_max.y
+    if ax > bx then ax, bx = bx, ax end -- [Port] reversed corners: see AddRect
+    if ay > by then ay, by = by, ay end
     local width = bx - ax
     local height = by - ay
     local min_dim = ImMin(width, height)
@@ -44402,6 +44409,7 @@ end
 --- @field InputPos        ImVec2
 --- @field InputLineHeight float
 --- @field ViewportId      ImGuiID
+--- @field SelectedText    string
 
 --- @return ImGuiPlatformImeData
 --- @nodiscard
@@ -44411,7 +44419,8 @@ function ImGuiPlatformImeData()
         WantTextInput   = false, -- A widget wants text input, not necessarily IME to be visible. This is automatically set to the upcoming value of io.WantTextInput.
         InputPos        = ImVec2(), -- Position of input cursor (for IME).
         InputLineHeight = 0.0, -- Line height (for IME).
-        ViewportId      = 0 -- ID of platform window/viewport.
+        ViewportId      = 0, -- ID of platform window/viewport.
+        SelectedText    = "" -- [Port] Text currently selected in the widget wanting text input (backends may mirror it, e.g. for native copy).
     }
 end
 
@@ -44423,6 +44432,7 @@ function ImGuiPlatformImeData_Copy(dest, src)
     ImVec2_Copy(dest.InputPos, src.InputPos)
     dest.InputLineHeight = src.InputLineHeight
     dest.ViewportId = src.ViewportId
+    dest.SelectedText = src.SelectedText -- [Port]
 end
 
 --- @param data1 ImGuiPlatformImeData
@@ -44432,7 +44442,8 @@ function ImGuiPlatformImeData_Compare(data1, data2)
         data1.WantTextInput ~= data2.WantTextInput or
         data1.InputPos ~= data2.InputPos or
         data1.InputLineHeight ~= data2.InputLineHeight or
-        data1.ViewportId ~= data2.ViewportId then
+        data1.ViewportId ~= data2.ViewportId or
+        data1.SelectedText ~= data2.SelectedText then
         return false
     end
 
@@ -61971,6 +61982,10 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             ImVec2_Copy(ime_data.InputPos, ImVec2(cursor_screen_pos.x - 1.0, cursor_screen_pos.y - g.FontSize))
             ime_data.InputLineHeight = g.FontSize
             ime_data.ViewportId = window.Viewport.ID
+            -- [Port] selection for backends (stb positions are 1-based in this port)
+            if state.Stb and state:HasSelection() then
+                ime_data.SelectedText = ImGui._ByteArrayToString(state.TextA.Data, ImMin(state.Stb.select_start, state.Stb.select_end), ImMax(state.Stb.select_start, state.Stb.select_end))
+            end
         end
     end
 

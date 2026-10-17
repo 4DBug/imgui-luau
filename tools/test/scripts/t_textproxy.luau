@@ -64,7 +64,7 @@ game:GetService("RunService").Stepped:Connect(function()
         assert(st.TextLen == 0, "backspace should delete imgui's whole selection, len " .. st.TextLen)
         print("BACKSPACE OK")
     end
-    if f == 27 then
+    if f == 30 then -- (key-code fallback waits a few frames for the TextBox first)
         local st = ImGui.GetCurrentContext().InputTextState
         local got = G.ImGui._ByteArrayToString(st.TextA.Data, 1, st.TextLen + 1)
         assert(got:find("z"), "key fallback while proxy focused: " .. got)

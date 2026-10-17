@@ -192,6 +192,7 @@ ROBLOX = setmetatable({
 }, { __index = realG })
 
 local mod = newInst("ModuleScript", "ImGui", ReplicatedStorage); rawset(mod, "_src", "ImGui.luau")
+for _, name in EXTRA_MODULES or {} do rawset(newInst("ModuleScript", name, ReplicatedStorage), "_src", name) end
 -- Run main.lua as a LocalScript
 local main = loadAsScript("main.client.luau", newInst("LocalScript", "main"))
 main()

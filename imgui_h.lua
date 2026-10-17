@@ -1438,6 +1438,7 @@ end
 --- @field InputPos        ImVec2
 --- @field InputLineHeight float
 --- @field ViewportId      ImGuiID
+--- @field SelectedText    string
 
 --- @return ImGuiPlatformImeData
 --- @nodiscard
@@ -1447,7 +1448,8 @@ function ImGuiPlatformImeData()
         WantTextInput   = false, -- A widget wants text input, not necessarily IME to be visible. This is automatically set to the upcoming value of io.WantTextInput.
         InputPos        = ImVec2(), -- Position of input cursor (for IME).
         InputLineHeight = 0.0, -- Line height (for IME).
-        ViewportId      = 0 -- ID of platform window/viewport.
+        ViewportId      = 0, -- ID of platform window/viewport.
+        SelectedText    = "" -- [Port] Text currently selected in the widget wanting text input (backends may mirror it, e.g. for native copy).
     }
 end
 
@@ -1459,6 +1461,7 @@ function ImGuiPlatformImeData_Copy(dest, src)
     ImVec2_Copy(dest.InputPos, src.InputPos)
     dest.InputLineHeight = src.InputLineHeight
     dest.ViewportId = src.ViewportId
+    dest.SelectedText = src.SelectedText -- [Port]
 end
 
 --- @param data1 ImGuiPlatformImeData
@@ -1468,7 +1471,8 @@ function ImGuiPlatformImeData_Compare(data1, data2)
         data1.WantTextInput ~= data2.WantTextInput or
         data1.InputPos ~= data2.InputPos or
         data1.InputLineHeight ~= data2.InputLineHeight or
-        data1.ViewportId ~= data2.ViewportId then
+        data1.ViewportId ~= data2.ViewportId or
+        data1.SelectedText ~= data2.SelectedText then
         return false
     end
 

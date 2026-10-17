@@ -251,9 +251,13 @@ function ImGui_ImplRoblox_SetTextProxy(enabled)
             BackendData.ProxyLostId = nil
             return
         end
-        BackendData.ProxyLostId = BackendData.ProxyActiveId
+        BackendData.ProxyLostId = BackendData.ProxyActiveId -- don't recapture for the same field
         local g = ImGui.GetCurrentContext()
-        if g and g.ActiveId ~= 0 and g.ActiveId == BackendData.ProxyActiveId then ImGui.ClearActiveID() end
+        if g and g.ActiveId ~= 0 and g.ActiveId == BackendData.ProxyActiveId then
+            ImGui.ClearActiveID()
+            -- the key falls back to the focused window next: the "don't recapture" covers it too
+            if g.NavWindow then BackendData.ProxyActiveId = g.NavWindow.ID; BackendData.ProxyLostId = g.NavWindow.ID end
+        end
     end)
 end
 
@@ -307,14 +311,18 @@ function ImGui_ImplRoblox_NewFrame()
     local proxy = BackendData.Proxy
     local g = ImGui.GetCurrentContext()
     local focused_box = proxy and UserInputService:GetFocusedTextBox()
+    -- key: the active item (InputText), else the focused window (custom widgets setting PlatformImeData.WantTextInput)
+    local proxy_key = g.ActiveId
+    if proxy_key == 0 and g.NavWindow then proxy_key = g.NavWindow.ID end
+    if proxy_key ~= BackendData.ProxyActiveId then BackendData.ProxyLostId = nil end -- (a "don't recapture" never outlives its field)
     if not proxy then
-    elseif io.WantTextInput and g.ActiveId ~= 0 then
-        if g.ActiveId ~= BackendData.ProxyActiveId or g.ActiveIdIsJustActivated or g.IO.MouseClicked[0] then
-            BackendData.ProxyActiveId = g.ActiveId
+    elseif io.WantTextInput and proxy_key ~= 0 then
+        if proxy_key ~= BackendData.ProxyActiveId or (g.ActiveId ~= 0 and g.ActiveIdIsJustActivated) or g.IO.MouseClicked[0] then
+            BackendData.ProxyActiveId = proxy_key
             BackendData.ProxyLostId = nil
         end
         local mouse_up = not (io.MouseDown[0] or io.MouseDown[1] or io.MouseDown[2])
-        if focused_box ~= proxy and mouse_up and BackendData.ProxyLostId ~= g.ActiveId
+        if focused_box ~= proxy and mouse_up and BackendData.ProxyLostId ~= proxy_key and proxy.Parent
             and (focused_box == nil or not focused_box:IsDescendantOf(game)) then
             -- what it already holds is not new input (else re-typing it would collapse imgui's selection)
             BackendData.ProxyText = proxy.Text
@@ -352,17 +360,15 @@ function ImGui_ImplRoblox_NewFrame()
                     for _, cp in utf8.codes(text:sub(#prev + 1)) do io:AddInputCharacter(cp) end
                 end
             end
-            if ctrl then io:AddKeyEvent(ImGuiMod_Ctrl, true) end
+            -- re-press only if still physically held: the text can arrive after Ctrl's InputEnded, and re-pressing
+            -- then left Ctrl stuck down in imgui (typing ignored, shortcuts broken until Ctrl was pressed again)
+            if ctrl and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+                io:AddKeyEvent(ImGuiMod_Ctrl, true)
+            end
             used_proxy_text = true
             BackendData.ProxyText = nil
         end
-        local st = g.InputTextState
-        local sel = ""
-        if st and st.ID ~= 0 and st.ID == g.ActiveId and st.Stb and st:HasSelection() then
-            local a, b = math.min(st.Stb.select_start, st.Stb.select_end),
-                math.max(st.Stb.select_start, st.Stb.select_end)
-            sel = ImGui._ByteArrayToString(st.TextA.Data, a, b) -- stb positions are 1-based in this port
-        end
+        local sel = g.PlatformImeData.SelectedText or "" -- (last frame's widget selection: ImGui.NewFrame() not run yet)
         if sel ~= BackendData.ProxyText then
             proxy.Text = sel
             BackendData.ProxyLastRaw = nil
@@ -377,9 +383,17 @@ function ImGui_ImplRoblox_NewFrame()
     BackendData.DeleteKeySeen = false
 
     local pending = BackendData.PendingChars
-    if #pending > 0 then
-        if not used_proxy_text then for _, c in ipairs(pending) do io:AddInputCharacter(c) end end
-        table.clear(pending)
+    if used_proxy_text then
+        table.clear(pending) -- the proxy delivered the text: the key-code copies would double it
+        BackendData.PendingAge = 0
+    elseif #pending > 0 then
+        -- the TextBox's Text can update a frame or two after InputBegan: wait before falling back to key codes
+        BackendData.PendingAge = (BackendData.PendingAge or 0) + 1
+        if not ProxyFocused or BackendData.PendingAge > 3 then
+            for _, c in ipairs(pending) do io:AddInputCharacter(c) end
+            table.clear(pending)
+            BackendData.PendingAge = 0
+        end
     end
 
     -- Tiles Active while over imgui, so Roblox stops passing clicks/wheel to the game (camera zoom etc.)
