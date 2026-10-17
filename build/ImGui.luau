@@ -14418,6 +14418,7 @@ function ImGui.NewFrame()
     ImGuiPlatformImeData_Copy(g.PlatformImeDataPrev, g.PlatformImeData)
     g.PlatformImeData.WantVisible = false
     g.PlatformImeData.WantTextInput = false
+    g.PlatformImeData.SelectedText = "" -- [Port]
 
     -- Mouse wheel scrolling, scale
     ImGui.UpdateMouseWheel()
@@ -40648,6 +40649,10 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         return
     end
 
+    -- [Port] reversed corners (min > max, e.g. a box selection dragged up/left): upstream's min_dim checks drop them, older ImGui drew them
+    if p_min.x > p_max.x or p_min.y > p_max.y then
+        p_min, p_max = ImVec2(ImMin(p_min.x, p_max.x), ImMin(p_min.y, p_max.y)), ImVec2(ImMax(p_min.x, p_max.x), ImMax(p_min.y, p_max.y))
+    end
     flags = bit32.bor(flags, self.Flags)
     local stroke_pos = _GetStrokePos(flags, 131072 --[[ImDrawFlags.StrokeInside]])
     if stroke_pos == 917504 --[[ImDrawFlags.StrokeLegacy]] then
@@ -40865,6 +40870,8 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     end
 
     local ax, ay, bx, by = p_min.x, p_min.y, p_max.x, p_max.y
+    if ax > bx then ax, bx = bx, ax end -- [Port] reversed corners: see AddRect
+    if ay > by then ay, by = by, ay end
     local width = bx - ax
     local height = by - ay
     local min_dim = ImMin(width, height)
@@ -44265,6 +44272,7 @@ end
 --- @field InputPos        ImVec2
 --- @field InputLineHeight float
 --- @field ViewportId      ImGuiID
+--- @field SelectedText    string
 
 --- @return ImGuiPlatformImeData
 --- @nodiscard
@@ -44274,7 +44282,8 @@ function ImGuiPlatformImeData()
         WantTextInput   = false, -- A widget wants text input, not necessarily IME to be visible. This is automatically set to the upcoming value of io.WantTextInput.
         InputPos        = ImVec2(), -- Position of input cursor (for IME).
         InputLineHeight = 0.0, -- Line height (for IME).
-        ViewportId      = 0 -- ID of platform window/viewport.
+        ViewportId      = 0, -- ID of platform window/viewport.
+        SelectedText    = "" -- [Port] Text currently selected in the widget wanting text input (backends may mirror it, e.g. for native copy).
     }
 end
 
@@ -44286,6 +44295,7 @@ function ImGuiPlatformImeData_Copy(dest, src)
     ImVec2_Copy(dest.InputPos, src.InputPos)
     dest.InputLineHeight = src.InputLineHeight
     dest.ViewportId = src.ViewportId
+    dest.SelectedText = src.SelectedText -- [Port]
 end
 
 --- @param data1 ImGuiPlatformImeData
@@ -44295,7 +44305,8 @@ function ImGuiPlatformImeData_Compare(data1, data2)
         data1.WantTextInput ~= data2.WantTextInput or
         data1.InputPos ~= data2.InputPos or
         data1.InputLineHeight ~= data2.InputLineHeight or
-        data1.ViewportId ~= data2.ViewportId then
+        data1.ViewportId ~= data2.ViewportId or
+        data1.SelectedText ~= data2.SelectedText then
         return false
     end
 
@@ -48386,9 +48397,13 @@ function ImGui_ImplRoblox_SetTextProxy(enabled)
             BackendData.ProxyLostId = nil
             return
         end
-        BackendData.ProxyLostId = BackendData.ProxyActiveId
+        BackendData.ProxyLostId = BackendData.ProxyActiveId -- don't recapture for the same field
         local g = ImGui.GetCurrentContext()
-        if g and g.ActiveId ~= 0 and g.ActiveId == BackendData.ProxyActiveId then ImGui.ClearActiveID() end
+        if g and g.ActiveId ~= 0 and g.ActiveId == BackendData.ProxyActiveId then
+            ImGui.ClearActiveID()
+            -- the key falls back to the focused window next: the "don't recapture" covers it too
+            if g.NavWindow then BackendData.ProxyActiveId = g.NavWindow.ID; BackendData.ProxyLostId = g.NavWindow.ID end
+        end
     end)
 end
 
@@ -48442,14 +48457,18 @@ function ImGui_ImplRoblox_NewFrame()
     local proxy = BackendData.Proxy
     local g = ImGui.GetCurrentContext()
     local focused_box = proxy and UserInputService:GetFocusedTextBox()
+    -- key: the active item (InputText), else the focused window (custom widgets setting PlatformImeData.WantTextInput)
+    local proxy_key = g.ActiveId
+    if proxy_key == 0 and g.NavWindow then proxy_key = g.NavWindow.ID end
+    if proxy_key ~= BackendData.ProxyActiveId then BackendData.ProxyLostId = nil end -- (a "don't recapture" never outlives its field)
     if not proxy then
-    elseif io.WantTextInput and g.ActiveId ~= 0 then
-        if g.ActiveId ~= BackendData.ProxyActiveId or g.ActiveIdIsJustActivated or g.IO.MouseClicked[0] then
-            BackendData.ProxyActiveId = g.ActiveId
+    elseif io.WantTextInput and proxy_key ~= 0 then
+        if proxy_key ~= BackendData.ProxyActiveId or (g.ActiveId ~= 0 and g.ActiveIdIsJustActivated) or g.IO.MouseClicked[0] then
+            BackendData.ProxyActiveId = proxy_key
             BackendData.ProxyLostId = nil
         end
         local mouse_up = not (io.MouseDown[0] or io.MouseDown[1] or io.MouseDown[2])
-        if focused_box ~= proxy and mouse_up and BackendData.ProxyLostId ~= g.ActiveId
+        if focused_box ~= proxy and mouse_up and BackendData.ProxyLostId ~= proxy_key and proxy.Parent
             and (focused_box == nil or not focused_box:IsDescendantOf(game)) then
             -- what it already holds is not new input (else re-typing it would collapse imgui's selection)
             BackendData.ProxyText = proxy.Text
@@ -48487,17 +48506,15 @@ function ImGui_ImplRoblox_NewFrame()
                     for _, cp in utf8.codes(text:sub(#prev + 1)) do io:AddInputCharacter(cp) end
                 end
             end
-            if ctrl then io:AddKeyEvent(4096 --[[ImGuiMod_Ctrl]], true) end
+            -- re-press only if still physically held: the text can arrive after Ctrl's InputEnded, and re-pressing
+            -- then left Ctrl stuck down in imgui (typing ignored, shortcuts broken until Ctrl was pressed again)
+            if ctrl and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+                io:AddKeyEvent(4096 --[[ImGuiMod_Ctrl]], true)
+            end
             used_proxy_text = true
             BackendData.ProxyText = nil
         end
-        local st = g.InputTextState
-        local sel = ""
-        if st and st.ID ~= 0 and st.ID == g.ActiveId and st.Stb and st:HasSelection() then
-            local a, b = math.min(st.Stb.select_start, st.Stb.select_end),
-                math.max(st.Stb.select_start, st.Stb.select_end)
-            sel = ImGui._ByteArrayToString(st.TextA.Data, a, b) -- stb positions are 1-based in this port
-        end
+        local sel = g.PlatformImeData.SelectedText or "" -- (last frame's widget selection: ImGui.NewFrame() not run yet)
         if sel ~= BackendData.ProxyText then
             proxy.Text = sel
             BackendData.ProxyLastRaw = nil
@@ -48512,9 +48529,17 @@ function ImGui_ImplRoblox_NewFrame()
     BackendData.DeleteKeySeen = false
 
     local pending = BackendData.PendingChars
-    if #pending > 0 then
-        if not used_proxy_text then for _, c in ipairs(pending) do io:AddInputCharacter(c) end end
-        table.clear(pending)
+    if used_proxy_text then
+        table.clear(pending) -- the proxy delivered the text: the key-code copies would double it
+        BackendData.PendingAge = 0
+    elseif #pending > 0 then
+        -- the TextBox's Text can update a frame or two after InputBegan: wait before falling back to key codes
+        BackendData.PendingAge = (BackendData.PendingAge or 0) + 1
+        if not ProxyFocused or BackendData.PendingAge > 3 then
+            for _, c in ipairs(pending) do io:AddInputCharacter(c) end
+            table.clear(pending)
+            BackendData.PendingAge = 0
+        end
     end
 
     -- Tiles Active while over imgui, so Roblox stops passing clicks/wheel to the game (camera zoom etc.)
@@ -70491,6 +70516,10 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
             ImVec2_Copy(ime_data.InputPos, ImVec2(cursor_screen_pos.x - 1.0, cursor_screen_pos.y - g.FontSize))
             ime_data.InputLineHeight = g.FontSize
             ime_data.ViewportId = window.Viewport.ID
+            -- [Port] selection for backends (stb positions are 1-based in this port)
+            if state.Stb and state:HasSelection() then
+                ime_data.SelectedText = ImGui._ByteArrayToString(state.TextA.Data, ImMin(state.Stb.select_start, state.Stb.select_end), ImMax(state.Stb.select_start, state.Stb.select_end))
+            end
         end
     end
 

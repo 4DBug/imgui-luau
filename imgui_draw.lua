@@ -6145,6 +6145,10 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         return
     end
 
+    -- [Port] reversed corners (min > max, e.g. a box selection dragged up/left): upstream's min_dim checks drop them, older ImGui drew them
+    if p_min.x > p_max.x or p_min.y > p_max.y then
+        p_min, p_max = ImVec2(ImMin(p_min.x, p_max.x), ImMin(p_min.y, p_max.y)), ImVec2(ImMax(p_min.x, p_max.x), ImMax(p_min.y, p_max.y))
+    end
     flags = bit32.bor(flags, self.Flags)
     local stroke_pos = _GetStrokePos(flags, ImDrawFlags.StrokeInside)
     if stroke_pos == ImDrawFlags.StrokeLegacy then
@@ -6362,6 +6366,8 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     end
 
     local ax, ay, bx, by = p_min.x, p_min.y, p_max.x, p_max.y
+    if ax > bx then ax, bx = bx, ax end -- [Port] reversed corners: see AddRect
+    if ay > by then ay, by = by, ay end
     local width = bx - ax
     local height = by - ay
     local min_dim = ImMin(width, height)

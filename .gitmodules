@@ -1,0 +1,15 @@
+[submodule "extensions/imguicolortextedit-luau"]
+	path = extensions/imguicolortextedit-luau
+	url = https://git.bug.tools/bug/imguicolortextedit-luau.git
+[submodule "extensions/imguizmo-luau"]
+	path = extensions/imguizmo-luau
+	url = https://git.bug.tools/bug/imguizmo-luau.git
+[submodule "extensions/implot-luau"]
+	path = extensions/implot-luau
+	url = https://git.bug.tools/bug/implot-luau.git
+[submodule "extensions/imnodes-luau"]
+	path = extensions/imnodes-luau
+	url = https://git.bug.tools/bug/imnodes-luau.git
+[submodule "extensions/implot3d-luau"]
+	path = extensions/implot3d-luau
+	url = https://git.bug.tools/bug/implot3d-luau.git

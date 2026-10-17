@@ -24,6 +24,10 @@ def build_run(args, flags):
         out.append("SOURCE_FNS[%r] = function(%s)\n%s\nend" % (key, G, s))
     add("ImGui.luau", os.path.join(TMP, "ImGui.luau"))
     add("main.client.luau", args.main)
+    for m in args.module:  # [extensions] NAME=path -> ReplicatedStorage.NAME ModuleScript
+        name, path = m.split("=", 1)
+        add(name, path)
+    out.append("EXTRA_MODULES = {%s}" % ",".join(repr(m.split("=", 1)[0]) for m in args.module))
     out.append(open(os.path.join(HERE, "roblox_mock.luau")).read())
     global OFFSET, LAST_LINE, STRIPPED
     bundle = open(os.path.join(TMP, "ImGui.luau")).read()
@@ -66,6 +70,7 @@ def main():
     ap.add_argument("--profile", action="store_true", help="sampling profile (no codegen) -> profile.out; see tools/test/prof.py")
     ap.add_argument("--open", action="store_true", help="force all CollapsingHeader/TreeNode open")
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--module", action="append", default=[], help="NAME=path: extra ModuleScript in ReplicatedStorage (extension repos)")
     ap.add_argument("--quiet", action="store_true", help="no random input (scripted tests drive io themselves)")
     args = ap.parse_args()
 

@@ -116,7 +116,7 @@ The Style Editor (`ImGui.ShowStyleEditor()`) and the Metrics/Debugger (`ImGui.Sh
 
 ### Getting Started & Integration (Roblox)
 
-With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.4.0"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
+With [Wally](https://wally.run) ([4dbug/imgui-luau](https://wally.run/package/4dbug/imgui-luau)): add `ImGui = "4dbug/imgui-luau@0.4.1"` under `[dependencies]` in your `wally.toml`, run `wally install`, then `require(ReplicatedStorage.Packages.ImGui)`. Or from source:
 
 1. Build the module: `python3 tools/bundle.py` writes `build/ImGui.luau` (`--no-demo` leaves the demo out) and `build/ImGuiTyped.luau`, a small typed entry module (Luau types for the public `ImGui.*` API, `ImVec2`/`ImVec4` and the flag enums) that requires `build/ImGui.luau` as its child `Impl`. The Wally package and the Rojo projects use that layout, so you get autocomplete and type errors in `--!strict` scripts. The single-file `ImGui.luau` also works on its own, just untyped.
 2. Sync with [Rojo](https://rojo.space): [`default.project.json`](/default.project.json) puts the module in `ReplicatedStorage.ImGui` and the example LocalScript in `StarterPlayerScripts`.
@@ -311,6 +311,18 @@ python3 tools/test/run.py --main tools/test/scripts/t_tables.luau --frames 120 -
 - `tools/test/love/run.sh`: builds the LÖVE target, checks LuaJIT produces the same draw checksums as Luau, runs the LÖVE examples headless. `--profile` + `tools/test/prof.py` for profiling.
 
 See [docs/PORTING.md](/docs/PORTING.md) for the porting rules.
+
+### Extensions (work in progress)
+
+Separate repos, included as submodules under `extensions/` (clone with `--recursive`):
+
+- [imguicolortextedit-luau](https://git.bug.tools/bug/imguicolortextedit-luau): [ImGuiColorTextEdit](https://github.com/goossens/ImGuiColorTextEdit) (goossens fork), a syntax-highlighting text editor.
+- [imguizmo-luau](https://git.bug.tools/bug/imguizmo-luau): [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), 3D gizmos with Roblox Camera/CFrame helpers.
+- [implot-luau](https://git.bug.tools/bug/implot-luau): [ImPlot](https://github.com/epezent/implot), 2D plotting.
+- [implot3d-luau](https://git.bug.tools/bug/implot3d-luau): [ImPlot3D](https://github.com/brenocq/implot3d), 3D plotting.
+- [imnodes-luau](https://git.bug.tools/bug/imnodes-luau): [imnodes](https://github.com/Nelarius/imnodes), a node editor.
+
+Usage: `local ImPlot = require(ImPlotModule)(require(ImGuiModule))`.
 
 ### Not ported yet
 
