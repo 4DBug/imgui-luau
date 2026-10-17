@@ -6,7 +6,7 @@ tmp = max(glob.glob("/tmp/imgui_test_*/ImGui.linemap.json"), key=os.path.getmtim
 lm = json.load(open(tmp))
 def loc(n):
     if not n.isdigit(): return "C"
-    n = int(n) - 5 + 2; best = None
+    n = int(n) - 5 + 1; best = None  # run.luau header lines, 1 stripped --! line (see run.py)
     for start, name in lm:
         if start <= n: best = (start, name)
     return "%s:%d" % (best[1], n - best[0] + 1) if best else "?"

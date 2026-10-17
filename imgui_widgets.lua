@@ -27,7 +27,7 @@
 --- @type ImGuiContext?
 local GImGui
 
--- Sets local `GImGui` in this file(imgui_widgets.lua).
+-- [Port] Sets local `GImGui` in this file(imgui_widgets.lua).
 -- This is currently only used in main code `ImGui.SetCurrentContext()`
 --- @param ctx ImGuiContext?
 function ImGui._SetCurrentContext_Widgets(ctx)
@@ -369,7 +369,7 @@ function ImGui.BulletText(fmt, ...)
     ImGui.RenderText(ImVec2(bb.Min.x + (g.FontSize + style.FramePadding.x * 2), bb.Min.y + 0.0), text, 1, text_end, false)
 end
 
--- va_list variants: identical to the varargs versions in Lua
+-- [Port] va_list variants: identical to the varargs versions in Lua
 ImGui.TextColoredV = ImGui.TextColored
 ImGui.TextDisabledV = ImGui.TextDisabled
 ImGui.TextWrappedV = ImGui.TextWrapped
@@ -384,8 +384,8 @@ ImGui.BulletTextV = ImGui.BulletText
 -- - Value()
 -------------------------------------------------------------------------------
 
--- Value(prefix, b) / Value(prefix, int) / Value(prefix, float, float_format)
--- Lua can't tell int from float: integers without float_format print as %d, otherwise %.3f
+-- [Port] Value(prefix, b) / Value(prefix, int) / Value(prefix, float, float_format)
+-- [Port] Lua can't tell int from float: integers without float_format print as %d, otherwise %.3f
 function ImGui.Value(prefix, v, float_format)
     if type(v) == "boolean" then
         ImGui.Text("%s: %s", prefix, v and "true" or "false")
@@ -485,7 +485,7 @@ end
 --   with same ID and different MouseButton (see #8030). You can fix it by:
 --       (1) switching to use a single ButtonBehavior() with multiple _MouseButton flags.
 --    or (2) surrounding those calls with PushItemFlag(ImGuiItemFlags.AllowDuplicateId, true); ... PopItemFlag()
--- Returns (pressed, hovered, held).
+-- [Port] Returns (pressed, hovered, held).
 --- @param bb     ImRect
 --- @param id     ImGuiID
 --- @param flags? ImGuiButtonFlags
@@ -763,7 +763,7 @@ function ImGui.ButtonEx(label, size_arg, flags)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
 
     -- [Luau] scalar pos, no temporary ImVec2
-    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- Don't modify the cursor!
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y
     local frame_padding = style.FramePadding
     if bit32.band(flags, ImGuiButtonFlags.AlignTextBaseLine) ~= 0 and frame_padding.y < window.DC.CurrLineTextBaseOffset then -- Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
         pos_y = pos_y + window.DC.CurrLineTextBaseOffset - frame_padding.y
@@ -1071,7 +1071,7 @@ function ImGui.ScrollbarEx(bb_frame, id, axis, p_scroll_v, size_visible_v, size_
     -- As a special thing, we allow scrollbar near the edge of a screen/viewport to be reachable with mouse at the extreme edge (#9276)
     local bb_hit = ImRect()
     ImRect_Copy(bb_hit, bb_frame)
-    ImGui.ExtendHitBoxWhenNearViewportEdge(window, bb_hit, g.Style.WindowBorderSize, ImGuiAxis.X + ImGuiAxis.Y - axis) -- swap axis here
+    ImGui.ExtendHitBoxWhenNearViewportEdge(window, bb_hit, g.Style.WindowBorderSize, ImGuiAxis.X + ImGuiAxis.Y - axis) -- [Port] swap axis here
 
     -- Handle input right away. None of the code of Begin() is relying on scrolling position before calling Scrollbar().
     ImGui.ItemAdd(bb_frame, id, nil, ImGuiItemFlags.NoNav)
@@ -1481,7 +1481,7 @@ function ImGui.RadioButtonEx(label, active)
     return pressed
 end
 
--- `rawequal` is used here to check if v == v_button
+-- [Port] `rawequal` is used here to check if v == v_button
 --- @param label    string
 --- @param v        any
 --- @param v_button any
@@ -2211,7 +2211,7 @@ function ImGui.EndComboPreview()
     preview_data.WithinPreview = false
 end
 
--- Getter for the old Combo() API: Lua array of strings (1-based), `idx` is 0-based
+-- [Port] Getter for the old Combo() API: Lua array of strings (1-based), `idx` is 0-based
 local function Items_ArrayGetter(data, idx)
     return data[idx + 1]
 end
@@ -2241,7 +2241,7 @@ local function Items_SingleStringCount(data)
     return items_count
 end
 
--- Normalizes the 3 upstream overloads to (getter, user_data, items_count, height)
+-- [Port] Normalizes the 3 upstream overloads to (getter, user_data, items_count, height)
 -- - (items: string[], items_count?, height?)
 -- - (items_separated_by_zeros: string, height?)
 -- - (getter: fun(user_data, idx): string?, user_data, items_count, height?)
@@ -2368,9 +2368,9 @@ function ImGui.DataTypeGetInfo(data_type)
 end
 
 -- [Luau] string.format() has no length modifiers (%lld, %I64d...) and formats negative numbers as 64-bit for %u/%x/%X/%o:
--- strip modifiers and re-apply C's integer promotion/two's complement for signed types.
+-- [Port] strip modifiers and re-apply C's integer promotion/two's complement for signed types.
 local DataTypeFormatStringCached do
-local fmt_info_memo = {} -- format -> { stripped format, is unsigned conversion }
+local fmt_info_memo = {} -- [Port] format -> { stripped format, is unsigned conversion }
 local function GetFormatInfo(format)
     local info = fmt_info_memo[format]
     if info == nil then
@@ -2382,7 +2382,7 @@ local function GetFormatInfo(format)
     return info
 end
 
---- Lua-string version of DataTypeFormatString() (memoized), used for display.
+--- [Port] Lua-string version of DataTypeFormatString() (memoized), used for display.
 --- @param data_type ImGuiDataType
 --- @param data      number
 --- @param format    string
@@ -2396,14 +2396,14 @@ function DataTypeFormatStringCached(data_type, data, format)
     elseif data_type == ImGuiDataType.U8  then data = (ImU8)(data)
     elseif data_type == ImGuiDataType.S16 then data = (ImS16)(data)
     elseif data_type == ImGuiDataType.U16 then data = (ImU16)(data)
-    elseif data_type == ImGuiDataType.S32 then -- (signed values are already stored signed)
+    elseif data_type == ImGuiDataType.S32 then -- [Port] (signed values are already stored signed)
     elseif data_type == ImGuiDataType.U32 then data = (ImU32)(data)
     elseif data_type == ImGuiDataType.S64 or data_type == ImGuiDataType.U64 then
-        -- (string.format() already prints negative numbers as 64-bit two's complement for %u/%x/%X/%o)
+        -- [Port] (string.format() already prints negative numbers as 64-bit two's complement for %u/%x/%X/%o)
         if info[2] then
-            if data >= 18446744073709551616 then data = -1 end -- (ImU64)-1 rounds to 2^64 in a double: print ULLONG_MAX
+            if data >= 18446744073709551616 then data = -1 end -- [Port] (ImU64)-1 rounds to 2^64 in a double: print ULLONG_MAX
         elseif data >= 9223372036854775808 then
-            data = 9223372036854774784 -- largest double below 2^63 (LLONG_MAX isn't representable)
+            data = 9223372036854774784 -- [Port] largest double below 2^63 (LLONG_MAX isn't representable)
         end
         return FormatCached(info[1], data)
     else
@@ -2422,7 +2422,7 @@ end
 --- @return int
 function ImGui.DataTypeFormatString(buf, buf_size, data_type, data, format)
     local str = DataTypeFormatStringCached(data_type, data, format)
-    local len = ImMin(#str, buf_size - 1) -- ImFormatString(): truncate and return the written length
+    local len = ImMin(#str, buf_size - 1) -- [Port] ImFormatString(): truncate and return the written length
     ImStd.ImStrncpy(buf, 1, { string.byte(str, 1, len) }, 1, len + 1)
     return len
 end
@@ -2975,7 +2975,7 @@ function ImGui.TempInputScalar(bb, id, label, data_type, data, format, clamp_min
     return data, value_changed
 end
 
--- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For an Input widget, step and step_fast are optional.
+-- [Port] Note: data is passed by value and the new value is returned: Returns (data, value_changed). For an Input widget, step and step_fast are optional.
 -- Read code of e.g. InputFloat(), InputInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 --- @param label      string
 --- @param data_type  ImGuiDataType
@@ -3002,7 +3002,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
 
     local data_default = (bit32.band(g.NextItemData.HasFlags, ImGuiNextItemDataFlags.HasRefVal) ~= 0) and g.NextItemData.RefVal or g.DataTypeZeroValue
 
-    local buf, buf_size = {}, 64 -- char buf[64]; IM_COUNTOF(buf)
+    local buf, buf_size = {}, 64 -- [Port] char buf[64]; IM_COUNTOF(buf)
     if bit32.band(flags, ImGuiInputTextFlags.DisplayEmptyRefVal) ~= 0 and ImGui.DataTypeCompare(data_type, data, data_default) == 0 then
         buf[1] = 0
     else
@@ -3479,7 +3479,7 @@ local function TempInputIsClampEnabled(flags, data_type, min, max)
     if bit32.band(flags, ImGuiSliderFlags.ClampOnInput) ~= 0 and (min ~= nil or max ~= nil) then
         local clamp_range_dir = 0
         if min ~= nil and max ~= nil then
-            clamp_range_dir = ImGui.DataTypeCompare(data_type, min, max) -- -1 when min < max, == 0 when min == max
+            clamp_range_dir = ImGui.DataTypeCompare(data_type, min, max)
         end
         if min == nil or max == nil or clamp_range_dir < 0 then
             return true
@@ -3500,7 +3500,7 @@ end
 --- @param format    string
 --- @param flags     ImGuiSliderFlags
 -- [Luau] memo of string.format(format, value) for drag/slider value text (same values are redrawn every frame).
--- ponytail: whole-memo reset at 4096 entries, LRU if values churn
+
 local fmt_memo, fmt_memo_n = {}, 0
 local SliderScalar_total_bb, SliderScalar_grab_bb = ImRect(), ImRect() -- [Luau] scratch for SliderScalar()/DragScalar(), never escape
 local DRAG_TEXT_ALIGN = ImVec2(0.5, 0.5)
@@ -3515,7 +3515,7 @@ function FormatCached(format, v)
     return r
 end
 
--- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a Drag widget, min and max are optional.
+-- [Port] Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a Drag widget, min and max are optional.
 -- Read code of e.g. DragFloat(), DragInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 @native
 function ImGui.DragScalar(label, data_type, data, v_speed, min, max, format, flags)
@@ -3669,7 +3669,7 @@ function ImGui.DragInt(label, v, v_speed, v_min, v_max, format, flags)
     return ImGui.DragScalar(label, ImGuiDataType.S32, v, v_speed, v_min, v_max, format, flags)
 end
 
--- `v` is mutated in place (1-based), returns value_changed
+-- [Port] `v` is mutated in place (1-based), returns value_changed
 function ImGui.DragScalarN(label, data_type, v, components, v_speed, v_min, v_max, format, flags)
     if v_speed == nil then v_speed = 1.0 end
     if flags == nil then flags = 0 end
@@ -3948,7 +3948,7 @@ function ImGui.ScaleValueFromRatioT(TYPE, SIGNEDTYPE, data_type, t, v_min, v_max
             -- - Not doing a *1.0 multiply at the end of a range as it tends to be lossy. While absolute aiming at a large s64/u64
             --   range is going to be imprecise anyway, with this check we at least make the edge values matches expected limits.
             local v_new_off_f = (SIGNEDTYPE)((v_max - v_min)) * t
-            result = (TYPE)((SIGNEDTYPE)(v_min) + (SIGNEDTYPE)(v_new_off_f + 0)) -- LUA: + 0 instead of + ((v_min > v_max) and -0.5 or 0.5)
+            result = (TYPE)((SIGNEDTYPE)(v_min) + (SIGNEDTYPE)(v_new_off_f + 0)) -- [Port] + 0 instead of + ((v_min > v_max) and -0.5 or 0.5)
         end
     end
 
@@ -4213,7 +4213,7 @@ function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out
     return v, false
 end
 
--- Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a slider, min and max are required.
+-- [Port] Note: data is passed by value and the new value is returned: Returns (data, value_changed). For a slider, min and max are required.
 -- Read code of e.g. SliderFloat(), SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 --- @generic T : number
 --- @param label     string
@@ -5256,7 +5256,7 @@ function ImGui.InputTextDeactivateHook(id)
         IM_ASSERT(state.TextA.Data ~= nil)
         -- IM_ASSERT(state.TextA[state.TextLen + 1] == 0)
         g.InputTextDeactivatedState.TextA:resize(state.TextLen + 1)
-        ImStd.memmove(g.InputTextDeactivatedState.TextA.Data, 1, state.TextA.Data, 1, state.TextLen) -- state.TextLen + 1
+        ImStd.memmove(g.InputTextDeactivatedState.TextA.Data, 1, state.TextA.Data, 1, state.TextLen) -- [Port] state.TextLen + 1
     end
 end
 
@@ -5381,7 +5381,7 @@ local function InputTextLineIndexGetPosOffset(g, state, line_index, buf, buf_end
         end
     end
 
-    local line_no = (it == it_begin) and 0 or (it - 1) -- 0-based (index_from_ptr)
+    local line_no = (it == it_begin) and 0 or (it - 1) -- [Port] 0-based (index_from_ptr)
     local line_start = line_index:get_line_begin(1, line_no)
     local offset = ImVec2()
     offset.x = InputTextCalcTextSize(g, buf, line_start, cursor_ptr, buf_end, nil, ImDrawTextFlags.WrapKeepBlanks).x
@@ -5603,7 +5603,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         -- Find initial scroll position for right alignment
         ImVec2_Copy(state.Scroll, ImVec2(0.0, 0.0))
         if bit32.band(flags, ImGuiInputTextFlags.ElideLeft) ~= 0 then
-            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui.CalcTextSize(table.concat(buf)).x - frame_size.x + style.FramePadding.x * 2.0) -- FIXME: no table.concat here
+            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui.CalcTextSize(table.concat(buf)).x - frame_size.x + style.FramePadding.x * 2.0) -- [Port] FIXME: no table.concat here
         end
 
         -- Recycle existing cursor/selection/undo stack but clamp position
@@ -6235,7 +6235,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     end
 
     -- Calculate visibility
-    local line_visible_n0, line_visible_n1 = 0, 1 -- 0-based like upstream
+    local line_visible_n0, line_visible_n1 = 0, 1 -- [Port] 0-based like upstream
     if is_multiline then
         line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
     end
@@ -6735,7 +6735,7 @@ function ImGui.ColorEdit4(label, col, flags)
         end
     elseif bit32.band(flags, ImGuiColorEditFlags.DisplayHex) ~= 0 and bit32.band(flags, ImGuiColorEditFlags.NoInputs) == 0 then
         -- RGB Hexadecimal Input
-        -- TODO: resolve sprintf, sscanf requirement. currently this section creates a lot of temp tables and strings...
+        -- [Port] TODO: resolve sprintf, sscanf requirement. currently this section creates a lot of temp tables and strings...
         local buf, buf_size = nil, 64
         if alpha then
             local str = ImFormatString("#%02X%02X%02X%02X", ImClamp(i[1], 0, 255), ImClamp(i[2], 0, 255), ImClamp(i[3], 0, 255), ImClamp(i[4], 0, 255))
@@ -6893,7 +6893,7 @@ function ImGui.ColorEdit3(label, col, flags)
     return ImGui.ColorEdit4(label, col, bit32.bor(flags, ImGuiColorEditFlags.NoAlpha))
 end
 
--- `col` mutated in place, returns value_changed
+-- [Port] `col` mutated in place, returns value_changed
 function ImGui.ColorPicker3(label, col, flags)
     if flags == nil then flags = 0 end
     local col4 = { col[1], col[2], col[3], 1.0 }
@@ -7156,7 +7156,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
     -- Convert back color to RGB
     if value_changed_h or value_changed_sv then
         if bit32.band(flags, ImGuiColorEditFlags.InputRGB) ~= 0 then
-            col[1], col[2], col[3] = ImGui.ColorConvertHSVtoRGB(H, S, V)  -- Lua 1-based indexing
+            col[1], col[2], col[3] = ImGui.ColorConvertHSVtoRGB(H, S, V)  -- [Port] Lua 1-based indexing
             g.ColorEditSavedHue = H
             g.ColorEditSavedSat = S
             g.ColorEditSavedID = g.ColorEditCurrentID
@@ -7202,7 +7202,7 @@ function ImGui.ColorPicker4(label, col, flags, ref_col)
 
     -- Try to cancel hue wrap (after ColorEdit4 call), if any
     if value_changed_fix_hue_wrap and bit32.band(flags, ImGuiColorEditFlags.InputRGB) ~= 0 then
-        local new_H, new_S, new_V = ImGui.ColorConvertRGBtoHSV(col[1], col[2], col[3])  -- Lua 1-based indexing
+        local new_H, new_S, new_V = ImGui.ColorConvertRGBtoHSV(col[1], col[2], col[3])  -- [Port] Lua 1-based indexing
 
         if new_H <= 0 and H > 0 then
             if new_V <= 0 and V ~= new_V then
@@ -7658,7 +7658,7 @@ end
 -- - CollapsingHeader()
 -------------------------------------------------------------------------------
 
--- va_list variants: identical in Lua (varargs)
+-- [Port] va_list variants: identical in Lua (varargs)
 ImGui.TextColoredV = function(...) return ImGui.TextColored(...) end
 ImGui.TextDisabledV = function(...) return ImGui.TextDisabled(...) end
 ImGui.TextWrappedV = function(...) return ImGui.TextWrapped(...) end
@@ -7674,7 +7674,7 @@ function ImGui.SetNextItemRefVal(data_type, v)
     g.NextItemData.RefVal = v
 end
 
--- Overloads: TreeNode(label) / TreeNode(str_id, fmt, ...)
+-- [Port] Overloads: TreeNode(label) / TreeNode(str_id, fmt, ...)
 --- @param label string
 @native
 function ImGui.TreeNode(label, fmt, ...)
@@ -7693,7 +7693,7 @@ function ImGui.TreeNodeV(str_id, fmt, ...)
     return ImGui.TreeNodeExV(str_id, 0, fmt, ...)
 end
 
--- Overloads: TreeNodeEx(label, flags) / TreeNodeEx(str_id, flags, fmt, ...)
+-- [Port] Overloads: TreeNodeEx(label, flags) / TreeNodeEx(str_id, flags, fmt, ...)
 --- @param label  string
 --- @param flags? ImGuiTreeNodeFlags
 function ImGui.TreeNodeEx(label, flags, fmt, ...)
@@ -8263,7 +8263,7 @@ end
 
 -- CollapsingHeader returns true when opened but do not indent nor push into the ID stack (because of the ImGuiTreeNodeFlags.NoTreePushOnOpen flag).
 -- This is basically the same as calling TreeNodeEx(label, ImGuiTreeNodeFlags.CollapsingHeader). You can remove the _NoTreePushOnOpen flag if you want behavior closer to normal TreeNode().
--- Overloads: CollapsingHeader(label, flags?) -> is_open
+-- [Port] Overloads: CollapsingHeader(label, flags?) -> is_open
 --            CollapsingHeader(label, p_visible: bool, flags?) -> is_open, p_visible
 -- p_visible == nil   : regular collapsing header
 -- p_visible == true  : show a small close button on the corner of the header, clicking the button will set p_visible = false (returned as 2nd value)
@@ -8613,7 +8613,7 @@ function ImGui.GetTypingSelectRequest(flags)
 
     -- Handle backspace
     if bit32.band(flags, ImGuiTypingSelectFlags.AllowBackspace) ~= 0 and ImGui.IsKeyPressedEx(ImGuiKey.Backspace, ImGuiInputFlags.Repeat) then
-        local p = ImStd.ImTextFindPreviousUtf8Codepoint(data.SearchBuffer, 1, buffer_len + 1) -- 1-based byte position
+        local p = ImStd.ImTextFindPreviousUtf8Codepoint(data.SearchBuffer, 1, buffer_len + 1) -- [Port] 1-based byte position
         data.SearchBuffer = string.sub(data.SearchBuffer, 1, p - 1)
         buffer_len = p - 1
     end
@@ -8906,7 +8906,7 @@ function ImGui.BeginBoxSelect(scope_rect, window, box_select_id, ms_flags)
             end
         end
 
-        -- box_select_intersection = BoxSelectRectPrev + BoxSelectRectCurr
+        -- [Port] box_select_intersection = BoxSelectRectPrev + BoxSelectRectCurr
         local box_select_intersection_min_x, box_select_intersection_min_y = ImMin(prev.Min.x, curr.Min.x), ImMin(prev.Min.y, curr.Min.y)
         local box_select_intersection_max_x, box_select_intersection_max_y = ImMax(prev.Max.x, curr.Max.x), ImMax(prev.Max.y, curr.Max.y)
         if bit32.band(ms_flags, ImGuiMultiSelectFlags.BoxSelect2d) ~= 0 then
@@ -9593,7 +9593,7 @@ function ImGui.MultiSelectAddSetRange(ms, selected, range_dir, first_item, last_
     -- FIXME-OPT: Disabled on 2026/04/09 as this would break with any form of coarse clipping that we don't know about (e.g. TableNextColumn() return value).
     -- The low-hanging fruit would be to know that ImGuiSelectionUserData are sequential indices, in which case we can trivially compare PrevSubmittedItem + RangeDir == FirstItem.
     -- User can always perform this merge if required.
-    -- (#if 0 block not ported)
+    -- [Port] (#if 0 block not ported)
 
     local req = MultiSelectScratchRequest -- ImGuiSelectionRequest req = { ImGuiSelectionRequestType_SetRange, selected, (ImS8)range_dir, (range_dir > 0) ? first_item : last_item, (range_dir > 0) ? last_item : first_item }
     req.Type = ImGuiSelectionRequestType.SetRange; req.Selected = selected; req.RangeDirection = range_dir
@@ -9705,7 +9705,7 @@ function MT.ImGuiSelectionBasicStorage:GetNextSelectedItem(opaque_it)
             table.sort(keys, PairComparerByValueInt) -- ~ImGuiStorage::BuildSortByValueInt()
             PairComparerStorage = nil
         else
-            table.sort(keys) -- ImGuiStorage is sorted by key
+            table.sort(keys) -- [Port] ImGuiStorage is sorted by key
         end
         it = 1
     end
@@ -9862,7 +9862,7 @@ function MT.ImGuiSelectionExternalStorage:ApplyRequests(ms_io)
     end
 end
 
-end -- do (Typing-Select, Box-Select, Multi-Select)
+end -- [Port] do (Typing-Select, Box-Select, Multi-Select)
 
 -------------------------------------------------------------------------------
 -- [SECTION] Widgets: ListBox
@@ -9931,7 +9931,7 @@ end
 
 -- This is merely a helper around BeginListBox(), EndListBox().
 -- Considering using those directly to submit custom data or store selection differently.
--- Overloads: (label, current_item, items[], items_count?, height_in_items?) or (label, current_item, getter, user_data, items_count, height_in_items?)
+-- [Port] Overloads: (label, current_item, items[], items_count?, height_in_items?) or (label, current_item, getter, user_data, items_count, height_in_items?)
 --- @param current_item int # 0-based
 --- @return int  current_item
 --- @return bool value_changed
@@ -10036,7 +10036,7 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
         local v_min = FLT_MAX
         local v_max = -FLT_MAX
         for i = 1, values_count do
-            local v = values_getter(data, i) -- NaN isn't checked here
+            local v = values_getter(data, i) -- [Port] NaN isn't checked here
 
             v_min = ImMin(v_min, v)
             v_max = ImMax(v_max, v)
@@ -10855,7 +10855,7 @@ end
 
 do --[[ [SECTION] Widgets: BeginTabBar, EndTabBar, etc. (was imgui_tabs.lua) ]]
 --- Dear ImGui
--- Tab bars & tab items: 1:1 port of imgui_widgets.cpp [SECTION] Widgets: BeginTabBar/BeginTabItem (docking branch)
+-- [Port] Tab bars & tab items: 1:1 port of imgui_widgets.cpp [SECTION] Widgets: BeginTabBar/BeginTabItem (docking branch)
 --
 -- Port notes:
 -- - tab_bar.Tabs is an ImVector of ImGuiTabItem tables (references). C++ pointer arithmetic on the array is replaced by
@@ -10908,7 +10908,7 @@ local function GetTabBarRefFromTabBar(tab_bar)
     return ImGuiPtrOrIndex(tab_bar)
 end
 
--- Stable sorts (C++ ImQsort is not stable, but the comparers are total orders in practice)
+-- [Port] Stable sorts (C++ ImQsort is not stable, but the comparers are total orders in practice)
 local function SortTabsBySection(tab_bar)
     table.sort(tab_bar.Tabs.Data, TabItemComparerBySection)
 end
@@ -10940,7 +10940,7 @@ end
 
 -- Shrink excess width from a set of item, by removing width from the larger items first.
 -- Set items Width to -1.0f to disable shrinking this item.
--- items: 1-based array of ImGuiShrinkWidthItem, `first` = 1-based index of first item, `count` items
+-- [Port] items: 1-based array of ImGuiShrinkWidthItem, `first` = 1-based index of first item, `count` items
 function ImGui.ShrinkWidths(items, first, count, width_excess, width_min)
     if count <= 0 then return end
     if count == 1 then
@@ -11163,7 +11163,7 @@ function ImGui.TabBarLayout(tab_bar)
     local tabs = tab_bar.Tabs
     local tab_dst_n = 0
     local need_sort_by_section = false
-    local sections = { ImGuiTabBarSection(), ImGuiTabBarSection(), ImGuiTabBarSection() } -- Layout sections: Leading, Central, Trailing (1-based: [1]=Leading,[2]=Central,[3]=Trailing)
+    local sections = { ImGuiTabBarSection(), ImGuiTabBarSection(), ImGuiTabBarSection() } -- [Port] Layout sections: Leading, Central, Trailing (1-based: [1]=Leading,[2]=Central,[3]=Trailing)
     for tab_src_n = 0, tabs.Size - 1 do
         local tab = tabs.Data[tab_src_n + 1]
         if tab.LastFrameVisible < tab_bar.PrevFrameVisible or tab.WantClose then
@@ -11233,7 +11233,7 @@ function ImGui.TabBarLayout(tab_bar)
 
     -- Leading/Trailing tabs will be shrink only if central one aren't visible anymore, so layout the shrink data as: leading, trailing, central
     -- (whereas our tabs are stored as: leading, central, trailing)
-    -- (shrink_buffer_indexes holds 0-based offsets)
+    -- [Port] (shrink_buffer_indexes holds 0-based offsets)
     local shrink_buffer_indexes = { 0, sections[1].TabCount + sections[3].TabCount, sections[1].TabCount }
     local swb = g.ShrinkWidthBuffer
     swb:resize(tabs.Size)
@@ -11642,7 +11642,7 @@ function ImGui.TabBarProcessReorder(tab_bar)
     if bit32.band(tab2.Flags, ImGuiTabItemFlags.NoReorder) ~= 0 then return false end
     if bit32.band(tab1.Flags, ImGuiTabItemFlags.SectionMask_) ~= bit32.band(tab2.Flags, ImGuiTabItemFlags.SectionMask_) then return false end
 
-    -- Move tab1 to tab2's position, shifting the tabs in between
+    -- [Port] Move tab1 to tab2's position, shifting the tabs in between
     table.remove(tab_bar.Tabs.Data, tab1_order + 1)
     table.insert(tab_bar.Tabs.Data, tab2_order + 1, tab1)
 

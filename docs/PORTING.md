@@ -8,11 +8,16 @@ there, but keep this port's existing data structures and conventions. Read the s
   file shares one global namespace. Globals defined by one file are visible to the others at call time.
 - Layout mirrors upstream: library at the repo root (`imgui.lua` incl. docking, drag & drop and the debug tools,
   `imgui_widgets.lua` incl. tab bars, `imgui_draw.lua`, `imgui_tables.lua`, `imgui_internal.lua`, `imgui_h.lua`,
-  `imstb_*.lua`), demo in `imgui_demo.lua` only, backend in `backends/`, fonts in `fonts/`, the example LocalScript in
+  `imstb_*.lua`), demo in `imgui_demo.lua` only, backends in `backends/<target>/` (`bundle.py` bundles every `*.lua` of the
+  target's folder: `roblox/` = `imgui_impl_roblox.lua` + its modules, `love/`), fonts in `fonts/`, the example LocalScript in
   `examples/example_roblox/`. The library must never call into `imgui_demo.lua` (`tools/bundle.py --no-demo`,
   `tools/test/undefined.py --no-demo`, `NO_DEMO=1 run.py --main tools/test/scripts/t_nodemo.luau`).
 - Each `.lua` file is a function body in the bundle. New files must be loaded with `IM_INCLUDE"file.lua"` from an
   existing file. Merged-in sections are wrapped in `do ... end` so their locals stay private.
+- Roblox backend modules (`backends/roblox/*.lua`) start with `local X = IM_INCLUDE("roblox/x.lua")` lines and end with
+  `return M`; `bundle.py` inlines them into the `imgui_impl_roblox.lua` function (one `do ... end` each, in dependency
+  order, `X` a local of that function). Use one name per module everywhere; no circular includes (late-bind a field on
+  a shared table instead, e.g. `EditableImages.FreeTile`).
 - No `goto`, no `::labels::`, no `setfenv/getfenv`, no LuaJIT `bit`/`ffi`. Use `bit32`. For `continue` use
   `repeat ... until true` with `break`, and an explicit flag when the loop itself must break out of the wrapper.
 - Luau has a limit of 200 locals per function and 255 upvalues; split huge functions (like demo sections) into
@@ -21,7 +26,7 @@ there, but keep this port's existing data structures and conventions. Read the s
 ## Portability (LÖVE build)
 - Library code must stay valid **Lua 5.1/LuaJIT syntax** apart from `@native` lines (stripped for LÖVE): no `+=`, `//`,
   `continue`, type annotations, `if`-expressions or string interpolation. Luau library calls are fine only if
-  the COMPAT section of `backends/imgui_impl_love.lua` shims them (`bit32`, `buffer`, `table.clear/find/move/unpack`, `utf8`).
+  the COMPAT section of `backends/love/imgui_impl_love.lua` shims them (`bit32`, `buffer`, `table.clear/find/move/unpack`, `utf8`).
 - Check with `tools/test/love/run.sh` (LuaJIT draw checksums must equal the Luau ones).
 
 ## Conventions (follow what the port already does)

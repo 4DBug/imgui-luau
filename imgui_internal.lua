@@ -26,7 +26,7 @@
 -- [SECTION] ImFontLoader
 -- [SECTION] ImFontAtlas internal API
 --
--- PORT: the order of declarations in this file does not strictly follow upstream's imgui_internal.h.
+-- [Port] the order of declarations in this file does not strictly follow upstream's imgui_internal.h.
 
 --- @meta
 
@@ -44,11 +44,10 @@ local t_sort = table.sort
 
 --- @alias ImGuiTableColumnIdx ImS16
 
--- TODO: Implement actual ImString type
+-- [Port] TODO: Implement actual ImString type
 --- @alias ImString char[]|string
 --- @alias ImStringBuffer char[]
 
--- NOTE: temporary solution
 --- @param buf       char[]
 --- @param buf_begin int
 --- @param buf_end   int    # exclusive
@@ -64,7 +63,7 @@ end
 -- Helper: ImPool<>
 -- Basic keyed storage for contiguous instances, slow/amortized insertion, O(1) indexable, O(Log N) queries by ID over a dense/hot buffer,
 -- Indexes have the same lifetime as the associated object.
---- ImPool<T>: pool of objects keyed by ID. Public indices are 0-based like upstream (Buf is stored 1-based).
+--- [Port] ImPool<T>: pool of objects keyed by ID. Public indices are 0-based like upstream (Buf is stored 1-based).
 --- `ctor` creates a new element. Removed slots are recycled via FreeIdx (-1 = none; free slots chain through `_NextFree`).
 local IM_POOL = {}
 IM_POOL.__index = IM_POOL
@@ -99,7 +98,7 @@ function IM_POOL:Remove(key, p)
     self.AliveCount = self.AliveCount - 1
 end
 function IM_POOL:Reserve(n) end
--- NOTE: removed slots hold `false`; iterate with `for i = 0, pool:GetMapSize() - 1 do local t = pool:GetByIndex(i) if t then ... end end`
+-- [Port] NOTE: removed slots hold `false`; iterate with `for i = 0, pool:GetMapSize() - 1 do local t = pool:GetByIndex(i) if t then ... end end`
 
 -------------------------------------------------------------------------------
 -- [SECTION] Context pointer
@@ -109,7 +108,7 @@ function IM_POOL:Reserve(n) end
 --- @type ImGuiContext?
 local GImGui -- Current implicit context pointer
 
--- Sets local `GImGui` in this file(imgui_internal.lua).
+-- [Port] Sets local `GImGui` in this file(imgui_internal.lua).
 -- This is currently only used in main code `ImGui.SetCurrentContext()`
 --- @param ctx ImGuiContext?
 function ImGui._SetCurrentContext_Internal(ctx)
@@ -251,7 +250,7 @@ ImTrunc64 = _Trunc
 --- @param f float
 function ImCeilFast(f)
     local i
-    if f >= 0 then i = math.floor(f) else i = math.ceil(f) end -- same as `ImTrunc()`
+    if f >= 0 then i = math.floor(f) else i = math.ceil(f) end -- [Port] same as `ImTrunc()`
     if f > i then return i + 1 end
     return i
 end
@@ -311,7 +310,7 @@ function ImStd.ImExponentialMovingAverage(avg, sample, n)
     return avg
 end
 
--- Uses `string.match` internally
+-- [Port] Uses `string.match` internally
 --- @param str string
 function ImAtof(str)
     return tonumber(string.match(str, "[+-]?%d*%.?%d+"))
@@ -329,7 +328,6 @@ do
 local _memmove = function(dest, dest_start, src, src_start, count)
     if count <= 0 then return end
 
-    -- more compact instead of writing separate if-else and for loops
     local c = (dest == src and dest_start >= src_start)
     for i = (c and count - 1 or 0), (c and 0 or count - 1), (c and -1 or 1) do
         dest[dest_start + i] = src[src_start + i]
@@ -337,12 +335,8 @@ local _memmove = function(dest, dest_start, src, src_start, count)
 end
 
 if table.move then
-    --- [GMod] Platform specific: the `table.move` polyfill in non-x86-64 currently uses `unpack` which will break if too many elements
-    -- Remove this check when the polyfill is fixed or removed
-    if not gmod or (gmod and BRANCH == "x86-64") then
-        _memmove = function(dest, dest_start, src, src_start, count)
-            table.move(src, src_start, src_start + count - 1, dest_start, dest)
-        end
+    _memmove = function(dest, dest_start, src, src_start, count)
+        table.move(src, src_start, src_start + count - 1, dest_start, dest)
     end
 end
 
@@ -489,9 +483,9 @@ function ImStd.ImStrlen(str, begin)
     IM_ASSERT(false)
 end
 
--- FIXME: should also accept count?
--- FIXME: avoid dynamic type checking?
--- string.find with patterns disabled
+-- [Port] FIXME: should also accept count?
+-- [Port] FIXME: avoid dynamic type checking?
+-- [Port] string.find with patterns disabled
 --- @param str        string|char[]
 --- @param s          string|char
 --- @param start_pos? int
@@ -539,7 +533,7 @@ IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = ((IM_DRAWLIST_TEX_LINES_DETAILED_WI
 -- - The message will always be a string literal, in order to increase likelihood of being display by an assert handler.
 -- - See 'Demo->Configuration->Error Handling' and ImGuiIO definitions for details on error handling.
 -- - Read https://github.com/ocornut/imgui/wiki/Error-Handling for details on error handling.
--- Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
+-- [Port] Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
 function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end -- Recoverable User Error
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
@@ -1052,7 +1046,7 @@ end
 
 -- Helper: ImBitArray class (wrapper over ImBitArray functions)
 -- Store 1-bit per value.
---- NOTE: This struct is expensive to create
+--- [Port] NOTE: This struct is expensive to create
 --- @class ImBitArray<BITCOUNT, OFFSET>
 --- @field Data ImU32[]
 
@@ -1276,7 +1270,7 @@ function ImFontAtlasBuilder()
     this.PreloadedAllGlyphsRanges = false -- Set when missing ImGuiBackendFlags.RendererHasTextures features forces atlas to preload everything.
 
     -- Cache of all ImFontBaked
-    this.BakedPool           = ImVector() -- ImStableVector<ImFontBaked,32>
+    this.BakedPool           = ImVector() -- [Port] ImStableVector<ImFontBaked,32>
     this.BakedMap            = {} -- BakedId --> ImFontBaked
     this.BakedDiscardedCount = 0
 
@@ -1317,7 +1311,7 @@ end
 -- [SECTION] Style support
 -------------------------------------------------------------------------------
 
---- `GetVarPtr()` is currently only used on `g.Style` in Dear ImGui, and we don't have pointers!
+--- [Port] `GetVarPtr()` is currently only used on `g.Style` in Dear ImGui, and we don't have pointers!
 --- @class ImGuiStyleVarInfo
 --- @field Count    ImU32         # 1+
 --- @field DataType ImGuiDataType
@@ -1832,7 +1826,7 @@ local function ImGuiInputTextState()
         SelectedAllMouseLock = false, -- after a double-click to select all, we ignore further mouse drags to update selection
         EditedBefore = false,    -- edited since activated
         EditedThisFrame = false, -- edited this frame
-        ValidatedThisFrame = false, -- validated this frame (e.g. Enter pressed)
+        ValidatedThisFrame = false,
         WantReloadUserBuf = false, -- force a reload of user buf so it may be modified externally. may be automatic in future version.
         LastMoveDirectionLR = ImGuiDir.Left, -- ImGuiDir_Left or ImGuiDir_Right. track last movement direction so when cursor cross over a word-wrapping boundaries we can display it on either line depending on last move.s
         ReloadSelectionStart = 0,
@@ -2125,7 +2119,7 @@ end
 -------------------------------------------------------------------------------
 
 -- We always assume that -1 is an invalid value (which works for indices and pointers)
--- (ImGuiSelectionUserData_Invalid is defined above with the ImGuiSelectionUserData alias)
+-- [Port] (ImGuiSelectionUserData_Invalid is defined above with the ImGuiSelectionUserData alias)
 
 -- Temporary storage for multi-select
 --- @class ImGuiMultiSelectTempData
@@ -2266,7 +2260,7 @@ function ImGui.GetMultiSelectState(id) local g = GImGui; return g.MultiSelectSto
 
 -------------------------------------------------------------------------------
 -- [SECTION] Tab bar, Tab item support
--- PORT: public flags from imgui.h + private extensions
+-- [Port] public flags from imgui.h + private extensions
 -------------------------------------------------------------------------------
 
 -- Flags for ImGui.BeginTabBar()
@@ -2315,7 +2309,7 @@ ImGuiTabItemFlags = {
 }
 ImGuiTabItemFlags.SectionMask_ = bitOr(ImGuiTabItemFlags.Leading, ImGuiTabItemFlags.Trailing)
 
--- Storage for one active tab item. In this port the label is stored in `Name` (C++ uses NameOffset into TabBar.TabsNames)
+-- [Port] Storage for one active tab item. In this port the label is stored in `Name` (C++ uses NameOffset into TabBar.TabsNames)
 --- @class ImGuiTabItem
 --- @return ImGuiTabItem
 function ImGuiTabItem()
@@ -2334,7 +2328,7 @@ function ImGuiTabItem()
     }
 end
 
--- Storage for a tab bar. Tabs: ImVector of ImGuiTabItem tables (references; "pointers" stay valid across reorders)
+-- [Port] Storage for a tab bar. Tabs: ImVector of ImGuiTabItem tables (references; "pointers" stay valid across reorders)
 --- @class ImGuiTabBar
 --- @return ImGuiTabBar
 function ImGuiTabBar()
@@ -2366,7 +2360,7 @@ function ImGuiShrinkWidthItem() return { Index = 0, Width = 0.0, InitialWidth = 
 --- @param shared_font_atlas? ImFontAtlas
 --- @return ImGuiContext
 --- @nodiscard
-function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this structure
+function ImGuiContext(shared_font_atlas)
     local this = {
         Style = ImGuiStyle(),
         ColorStack = ImVector(), -- Stack for PushStyleColor()/PopStyleColor() - inherited by Begin()
@@ -2604,20 +2598,20 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         ComboPreviewData = ImGuiComboPreviewData(),
 
         CurrentTabBar = nil,
-        TabBars = ImPool(ImGuiTabBar),   -- ImPool<ImGuiTabBar>
+        TabBars = ImPool(ImGuiTabBar),   -- [Port] ImPool<ImGuiTabBar>
         -- Docking
         DockContext = ImGuiDockContext(),
         DockNodeWindowMenuHandler = nil,
         DebugHoveredDockNode = nil, -- Hovered dock node.
-        CurrentTabBarStack = ImVector(), -- ImVector<ImGuiPtrOrIndex>
-        ShrinkWidthBuffer = ImVector(),  -- ImGuiShrinkWidthItem
+        CurrentTabBarStack = ImVector(), -- [Port] ImVector<ImGuiPtrOrIndex>
+        ShrinkWidthBuffer = ImVector(),  -- [Port] ImGuiShrinkWidthItem
 
         -- Multi-Select state
         BoxSelectState = ImGuiBoxSelectState(),
         CurrentMultiSelect = nil,
         MultiSelectTempDataStacked = 0, -- Temporary multi-select data size (because we leave previous instances undestructed, we generally don't use MultiSelectTempData.Size)
-        MultiSelectTempData = ImVector(), -- ImVector<ImGuiMultiSelectTempData>, 1-based
-        MultiSelectStorage = ImPool(ImGuiMultiSelectState), -- ImPool<ImGuiMultiSelectState>
+        MultiSelectTempData = ImVector(), -- [Port] ImVector<ImGuiMultiSelectTempData>, 1-based
+        MultiSelectStorage = ImPool(ImGuiMultiSelectState), -- [Port] ImPool<ImGuiMultiSelectState>
 
         WindowResizeBorderExpectedRect = ImRect(), -- Expected border rect, switch to relative edit if moving
         WindowResizeRelativeMode = false,
@@ -2739,7 +2733,7 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         DebugAllocInfo = ImGuiDebugAllocInfo(),
 
         --- Misc
-        FramerateSecPerFrame = {}, -- size = 60
+        FramerateSecPerFrame = {}, -- [Port] size = 60
         FramerateSecPerFrameIdx = 0,
         FramerateSecPerFrameCount = 0,
         FramerateSecPerFrameAccum = 0,
@@ -2749,15 +2743,15 @@ function ImGuiContext(shared_font_atlas) -- TODO: tidy up / complete this struct
         WantTextInputNextFrame = -1, -- Copied in EndFrame() from g.PlatformImeData.WantTextInput. Needs to be set for some backends (SDL3) to emit character inputs.
         TempBuffer = ImVector(), -- Temporary text buffer
 
-        -- Tables (imgui_tables.lua)
+        -- [Port] Tables (imgui_tables.lua)
         CurrentTable = nil,
         DebugBreakInTable = 0, -- Set to break in BeginTable() call.
         TablesTempDataStacked = 0, -- Temporary table data size (because we leave previous instances undestructed, we generally don't use TablesTempData.Size)
         TablesTempData = ImVector(), -- Temporary table data (buffers reused/shared across instances, support nesting)
-        Tables = ImPool(),                 -- ImPool<ImGuiTable>, 0-based indices (imgui_tables.lua)
-        TablesLastTimeActive = ImVector(), -- [table_idx + 1] = float
+        Tables = ImPool(),                 -- [Port] ImPool<ImGuiTable>, 0-based indices (imgui_tables.lua)
+        TablesLastTimeActive = ImVector(), -- [Port] [table_idx + 1] = float
         DrawChannelsTempMergeBuffer = ImVector(),
-        SettingsTables = ImVector(),       -- ImChunkStream<ImGuiTableSettings>: plain vector, SettingsOffset = 1-based index
+        SettingsTables = ImVector(),       -- [Port] ImChunkStream<ImGuiTableSettings>: plain vector, SettingsOffset = 1-based index
     }
 
     for i = 0, 59 do this.FramerateSecPerFrame[i] = 0 end
@@ -2932,7 +2926,7 @@ local function ImGuiWindowTempData()
         TreeRecordsClippedNodesY2Mask = nil, -- Store whether we should keep recording Y2. Cleared when passing clip max. Equivalent TreeHasStackDataDepthMask value should always be set.
 
         ChildWindows = ImVector(),
-        CurrentTableIdx = -1,  -- 0-based index into g.Tables, -1 if none
+        CurrentTableIdx = -1,  -- [Port] 0-based index into g.Tables, -1 if none
         CurrentColumns = nil,  -- ImGuiOldColumns (legacy Columns API)
         StateStorage = nil, -- Current persistent per-window storage (store e.g. tree node open/close state)
 
@@ -3130,7 +3124,7 @@ function ImGuiWindow(ctx, name)
         LastTimeActive = -1.0, -- Last timestamp the window was Active (using float as we don't need high precision there)
 
         StateStorage = {},
-        ColumnsStorage = ImVector(), -- ImVector<ImGuiOldColumns>
+        ColumnsStorage = ImVector(), -- [Port] ImVector<ImGuiOldColumns>
 
         WriteAccessed = false, -- Set to true when any widget access the current window
 
@@ -3140,7 +3134,7 @@ function ImGuiWindow(ctx, name)
         HitTestHoleSize = ImVec2(), -- Define an optional rectangular hole where mouse will pass-through the window.
 
         NavLastChildNavWindow = nil, -- When going to the menu bar, we remember the child window we came from. (This could probably be made implicit if we kept g.Windows sorted by last focused including child window.)
-        NavLastIds = {[0] = 0, [1] = 0}, -- FIXME: 1-based instead
+        NavLastIds = {[0] = 0, [1] = 0}, -- [Port] FIXME: 1-based instead
         NavRectRel = {[0] = ImRect(), [1] = ImRect()}, -- Reference rectangle, in window relative space
         NavPreferredScoringPosRel = {[0] = ImVec2(), [1] = ImVec2()}, -- Preferred X/Y position updated when moving on a given axis, reset to FLT_MAX.
         NavRootFocusScopeId = 0 -- Focus Scope ID at the time of Begin()
@@ -3966,4 +3960,4 @@ function ImGui.GetCurrentTabBar() local g = GImGui; return g.CurrentTabBar end
 function ImGui.IsItemActiveAsInputText() local g = GImGui; return g.ActiveId ~= 0 and g.ActiveId == g.LastItemData.ID and g.InputTextState.ID == g.LastItemData.ID end
 
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+return true -- [Port] [Roblox] ModuleScripts must return exactly one value

@@ -1191,7 +1191,7 @@ S.DemoWindowWidgetsColorAndPickers = {
     color = ImVec4(114.0 / 255.0, 144.0 / 255.0, 154.0 / 255.0, 200.0 / 255.0),
     base_flags = ImGuiColorEditFlags.None,
     saved_palette_init = true,
-    saved_palette = {}, -- 32 x ImVec4, 1-based
+    saved_palette = {}, -- [Port] 32 x ImVec4, 1-based
     backup_color = ImVec4(),
     no_border = false,
     ref_color = false,
@@ -1401,7 +1401,7 @@ end
 S.DemoWindowWidgetsComboBoxes = {
     flags = 0,
     item_selected_idx = 0, -- Here we store our selection data as an index.
-    filter = nil, -- ImGuiTextFilter, created lazily
+    filter = nil, -- [Port] ImGuiTextFilter, created lazily
     item_current_2 = 0,
     item_current_3 = -1, -- If the selection isn't within 0..count, Combo won't display a preview
     item_current_4 = 0,
@@ -1519,7 +1519,7 @@ S.DemoWindowWidgetsDataTypes = {
     s16_v = 32767,
     u16_v = 65535,
     s32_v = -1,
-    u32_v = 4294967295, -- (ImU32)-1
+    u32_v = 4294967295, -- [Port] (ImU32)-1
     s64_v = -1,
     u64_v = 18446744073709551615, -- (ImU64)-1 [Port] Lua numbers are doubles: 64-bit values are exact only within +-2^53
     f32_v = 0.123,
@@ -1557,15 +1557,15 @@ function DemoWindowWidgetsDataTypes()
         local u8_zero,  u8_one,  u8_fifty,  u8_min,  u8_max  = 0, 1, 50, 0, 255
         local s16_zero, s16_one, s16_fifty, s16_min, s16_max = 0, 1, 50, -32768, 32767
         local u16_zero, u16_one, u16_fifty, u16_min, u16_max = 0, 1, 50, 0, 65535
-        local s32_zero, s32_one, s32_fifty, s32_min, s32_max, s32_hi_a, s32_hi_b = 0, 1, 50, -1073741824, 1073741823, 1073741823 - 100, 1073741823 -- INT_MIN/2, INT_MAX/2
-        local u32_zero, u32_one, u32_fifty, u32_min, u32_max, u32_hi_a, u32_hi_b = 0, 1, 50, 0, 2147483647, 2147483647 - 100, 2147483647 -- UINT_MAX/2
+        local s32_zero, s32_one, s32_fifty, s32_min, s32_max, s32_hi_a, s32_hi_b = 0, 1, 50, -1073741824, 1073741823, 1073741823 - 100, 1073741823 -- [Port] INT_MIN/2, INT_MAX/2
+        local u32_zero, u32_one, u32_fifty, u32_min, u32_max, u32_hi_a, u32_hi_b = 0, 1, 50, 0, 2147483647, 2147483647 - 100, 2147483647 -- [Port] UINT_MAX/2
         local s64_zero, s64_one, s64_fifty, s64_min, s64_max, s64_hi_a, s64_hi_b = 0, 1, 50, LLONG_MIN / 2, LLONG_MAX / 2, LLONG_MAX / 2 - 100, LLONG_MAX / 2
         local u64_zero, u64_one, u64_fifty, u64_min, u64_max, u64_hi_a, u64_hi_b = 0, 1, 50, 0, ULLONG_MAX / 2, ULLONG_MAX / 2 - 100, ULLONG_MAX / 2
         local f32_zero, f32_one, f32_lo_a, f32_hi_a = 0.0, 1.0, -10000000000.0, 10000000000.0
         local f64_zero, f64_one, f64_lo_a, f64_hi_a = 0.0, 1.0, -1000000000000000.0, 1000000000000000.0
 
         -- State
-        -- (see S.DemoWindowWidgetsDataTypes)
+        -- [Port] (see S.DemoWindowWidgetsDataTypes)
 
         local drag_speed = 0.2
         IMGUI_DEMO_MARKER("Widgets/Data Types/Drags")
@@ -1784,7 +1784,6 @@ function DemoWindowWidgetsDragAndDrop()
                     local drop_target_flags = bit32.bor(ImGuiDragDropFlags.AcceptBeforeDelivery, ImGuiDragDropFlags.AcceptNoPreviewTooltip)
                     local payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F, drop_target_flags)
                     if payload then
-                        -- IM_UNUSED(payload)
                         ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
                         ImGui.SetTooltip("Cannot drop here!")
                     end
@@ -2200,7 +2199,7 @@ end
 S.DemoWindowWidgetsPlotting = {
     animate = true,
     arr = { 0.6, 0.1, 1.0, 0.5, 0.92, 0.1, 0.2 },
-    values = {}, -- 90 zeros, filled below
+    values = {}, -- [Port] 90 zeros, filled below
     values_offset = 0,
     refresh_time = 0.0,
     phase = 0.0,
@@ -3124,7 +3123,7 @@ S.DemoWindowWidgetsSelectionAndMultiSelect = {
         show_in_table = false,
         show_color_button = true,
         flags = bit32.bor(ImGuiMultiSelectFlags.ClearOnEscape, ImGuiMultiSelectFlags.BoxSelect1d),
-        widget_type = 0, -- WidgetType_Selectable
+        widget_type = 0, -- [Port] WidgetType_Selectable
         items = ImVector(),
         items_next_id = 0,
         selection = ExampleSelectionWithDeletion(),
@@ -3516,7 +3515,7 @@ function DemoWindowWidgetsSelectionAndMultiSelect(demo_data)
         if ImGui.TreeNode("Multi-Select (advanced)") then
             IMGUI_DEMO_MARKER("Widgets/Selection State/Multi-Select (advanced)")
             -- Options
-            local WidgetType_Selectable, WidgetType_TreeNode = 0, 1 -- enum WidgetType
+            local WidgetType_Selectable, WidgetType_TreeNode = 0, 1 -- [Port] enum WidgetType
             local st = s.advanced
 
             if ImGui.TreeNode("Options") then
@@ -4113,22 +4112,22 @@ S.DemoWindowWidgetsTextInput = {
             "\tlock cmpxchg8b eax\n", 1024 * 16),
         flags = ImGuiInputTextFlags.AllowTabInput,
     },
-    -- "Filtered Text Input"
+    -- [Port] "Filtered Text Input"
     filtered = {
         buf1 = ImGui.NewTextBuffer("", 32), buf2 = ImGui.NewTextBuffer("", 32), buf3 = ImGui.NewTextBuffer("", 32),
         buf4 = ImGui.NewTextBuffer("", 32), buf5 = ImGui.NewTextBuffer("", 32), buf6 = ImGui.NewTextBuffer("", 32),
         buf7 = ImGui.NewTextBuffer("", 32),
     },
-    -- "Password Input"
+    -- [Port] "Password Input"
     password = { password = ImGui.NewTextBuffer("password123", 64) },
-    -- "Completion, History, Edit Callbacks"
+    -- [Port] "Completion, History, Edit Callbacks"
     callbacks = {
         buf1 = ImGui.NewTextBuffer("", 64), buf2 = ImGui.NewTextBuffer("", 64), buf3 = ImGui.NewTextBuffer("", 64),
         edit_count = 0,
     },
     -- "Resize Callback"
     resize = { flags = ImGuiInputTextFlags.None, my_str = ImVector() },
-    -- "Eliding, Alignment"
+    -- [Port] "Eliding, Alignment"
     eliding = { buf1 = ImGui.NewTextBuffer("/path/to/some/folder/with/long/filename.cpp", 128), flags = ImGuiInputTextFlags.ElideLeft },
     -- "Miscellaneous"
     misc = { buf1 = ImGui.NewTextBuffer("", 16), flags = ImGuiInputTextFlags.EscapeClearsAll },
@@ -4418,7 +4417,7 @@ end
 -------------------------------------------------------------------------------
 
 S.DemoWindowWidgetsTreeNodes = {
-    base_flags = bit32.bor(ImGuiTreeNodeFlags.DrawLinesFull, ImGuiTreeNodeFlags.DefaultOpen), -- "Hierarchy Lines"
+    base_flags = bit32.bor(ImGuiTreeNodeFlags.DrawLinesFull, ImGuiTreeNodeFlags.DefaultOpen), -- [Port] "Hierarchy Lines"
     selection_mask = 0x00,
     base_flags_2 = bit32.bor(ImGuiTreeNodeFlags.OpenOnArrow, ImGuiTreeNodeFlags.OpenOnDoubleClick, ImGuiTreeNodeFlags.SpanAvailWidth), -- "Advanced"
     align_label_with_current_x_position = false,
@@ -4751,7 +4750,7 @@ S.DemoWindowLayout = {
     -- Widgets Width
     f = 0.0,
     show_indented_items = true,
-    -- Basic Horizontal Layout
+    -- [Port] Basic Horizontal Layout
     c1 = false, c2 = false, c3 = false, c4 = false,
     f0 = 1.0, f1 = 2.0, f2 = 3.0,
     item = -1,
@@ -4776,7 +4775,7 @@ S.DemoWindowLayout = {
     -- Text Clipping
     size = ImVec2(100.0, 100.0),
     offset = ImVec2(30.0, 30.0),
-    -- Overlap Mode
+    -- [Port] Overlap Mode
     enable_allow_overlap = true,
 }
 
@@ -5615,14 +5614,14 @@ end
 -------------------------------------------------------------------------------
 
 S.DemoWindowPopups = {
-    selected_fish = -1,                                 -- static int selected_fish = -1;
-    toggles = { true, false, false, false, false },     -- static bool toggles[] = { true, false, false, false, false };
-    selected = -1,                                      -- static int selected = -1;
-    value = 0.5,                                        -- static float value = 0.5f;
-    name = ImGui.NewTextBuffer("Label1", 32),           -- static char name[32] = "Label1";
-    dont_ask_me_next_time = false,                      -- static bool dont_ask_me_next_time = false;
-    item = 1,                                           -- static int item = 1;
-    color = { 0.4, 0.7, 0.0, 0.5 },                     -- static float color[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
+    selected_fish = -1,                                 -- [Port] static int selected_fish = -1;
+    toggles = { true, false, false, false, false },     -- [Port] static bool toggles[] = { true, false, false, false, false };
+    selected = -1,                                      -- [Port] static int selected = -1;
+    value = 0.5,                                        -- [Port] static float value = 0.5f;
+    name = ImGui.NewTextBuffer("Label1", 32),           -- [Port] static char name[32] = "Label1";
+    dont_ask_me_next_time = false,                      -- [Port] static bool dont_ask_me_next_time = false;
+    item = 1,                                           -- [Port] static int item = 1;
+    color = { 0.4, 0.7, 0.0, 0.5 },                     -- [Port] static float color[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
 }
 function DemoWindowPopups()
     local s = S.DemoWindowPopups
@@ -5919,7 +5918,7 @@ end
 -- This identifier will be passed down into ImGuiTableSortSpec::ColumnUserID.
 -- But it is possible to omit the user id parameter of TableSetupColumn() and just use the column index instead! (ImGuiTableSortSpec::ColumnIndex)
 -- If you don't use sorting, you will generally never care about giving column an ID!
--- enum MyItemColumnID
+-- [Port] enum MyItemColumnID
 MyItemColumnID_ID = 0
 MyItemColumnID_Name = 1
 MyItemColumnID_Action = 2
@@ -6001,7 +6000,7 @@ S.EditTableSizingFlags = { policies = nil }
 -- [Port] p_flags -> takes flags, returns the new flags.
 function EditTableSizingFlags(p_flags)
     local s = S.EditTableSizingFlags
-    -- struct EnumDesc { ImGuiTableFlags Value; const char* Name; const char* Tooltip; };
+    -- [Port] struct EnumDesc { ImGuiTableFlags Value; const char* Name; const char* Tooltip; };
     if s.policies == nil then
         s.policies =
         {
@@ -6092,7 +6091,7 @@ end
 -- [SECTION] DemoWindowTables()
 -------------------------------------------------------------------------------
 
-S.DemoWindowTables = {                  -- statics of DemoWindowTables(), one sub-table per TreeNode
+S.DemoWindowTables = {                  -- [Port] statics of DemoWindowTables(), one sub-table per TreeNode
     disable_indent = false,
     BordersBackground = {
         flags = bit32.bor(ImGuiTableFlags.Borders, ImGuiTableFlags.RowBg),
@@ -6117,14 +6116,14 @@ S.DemoWindowTables = {                  -- statics of DemoWindowTables(), one su
         flags2 = bit32.bor(ImGuiTableFlags.Borders, ImGuiTableFlags.RowBg),
         cell_padding = ImVec2(0.0, 0.0),
         show_widget_frame_bg = true,
-        text_bufs = {},                 -- 1-based, cell + 1
+        text_bufs = {},                 -- [Port] 1-based, cell + 1
         init = true,
     },
     SizingPolicies = {
         flags1 = bit32.bor(ImGuiTableFlags.BordersV, ImGuiTableFlags.BordersOuterH, ImGuiTableFlags.RowBg, ImGuiTableFlags.ContextMenuInBody),
         sizing_policy_flags = { ImGuiTableFlags.SizingFixedFit, ImGuiTableFlags.SizingFixedSame, ImGuiTableFlags.SizingStretchProp, ImGuiTableFlags.SizingStretchSame },
         flags = bit32.bor(ImGuiTableFlags.ScrollY, ImGuiTableFlags.Borders, ImGuiTableFlags.RowBg, ImGuiTableFlags.Resizable),
-        contents_type = 0,              -- CT_ShowWidth
+        contents_type = 0,              -- [Port] CT_ShowWidth
         column_count = 3,
         text_buf = ImGui.NewTextBuffer("", 32),
     },
@@ -6159,7 +6158,7 @@ S.DemoWindowTables = {                  -- statics of DemoWindowTables(), one su
         table_flags = bit32.bor(ImGuiTableFlags.BordersV, ImGuiTableFlags.BordersOuterH, ImGuiTableFlags.Resizable, ImGuiTableFlags.RowBg, ImGuiTableFlags.NoBordersInBody),
         tree_node_flags_base = bit32.bor(ImGuiTreeNodeFlags.SpanAllColumns, ImGuiTreeNodeFlags.DefaultOpen, ImGuiTreeNodeFlags.DrawLinesFull),
         MyTreeNode = nil,               -- [Port] local struct, created once on first use
-        nodes = {                       -- 1-based; ChildIdx stays 0-based like upstream
+        nodes = {                       -- [Port] 1-based; ChildIdx stays 0-based like upstream
             { Name = "Root with Long Name",           Type = "Folder",      Size = -1,     ChildIdx = 1,  ChildCount = 3  }, -- 0
             { Name = "Music",                         Type = "Folder",      Size = -1,     ChildIdx = 4,  ChildCount = 2  }, -- 1
             { Name = "Textures",                      Type = "Folder",      Size = -1,     ChildIdx = 6,  ChildCount = 3  }, -- 2
@@ -6180,7 +6179,7 @@ S.DemoWindowTables = {                  -- statics of DemoWindowTables(), one su
     AngledHeaders = {
         table_flags = bit32.bor(ImGuiTableFlags.SizingFixedFit, ImGuiTableFlags.ScrollX, ImGuiTableFlags.ScrollY, ImGuiTableFlags.BordersOuter, ImGuiTableFlags.BordersInnerH, ImGuiTableFlags.Hideable, ImGuiTableFlags.Resizable, ImGuiTableFlags.Reorderable, ImGuiTableFlags.HighlightHoveredColumn),
         column_flags = bit32.bor(ImGuiTableColumnFlags.AngledHeader, ImGuiTableColumnFlags.WidthFixed),
-        bools = {},                     -- 1-based, filled with false on first use
+        bools = {},                     -- [Port] 1-based, filled with false on first use
         frozen_cols = 1,
         frozen_rows = 2,
     },
@@ -6209,11 +6208,11 @@ S.DemoWindowTables = {                  -- statics of DemoWindowTables(), one su
             ImGuiTableFlags.ScrollX, ImGuiTableFlags.ScrollY,
             ImGuiTableFlags.SizingFixedFit),
         columns_base_flags = ImGuiTableColumnFlags.None,
-        contents_type = 5,              -- CT_SelectableSpanRow
+        contents_type = 5,              -- [Port] CT_SelectableSpanRow
         freeze_cols = 1,
         freeze_rows = 1,
-        items_count = 0,                -- IM_COUNTOF(template_items_names) * 2, set below
-        outer_size_value = nil,         -- ImVec2(0.0f, TEXT_BASE_HEIGHT * 12), set lazily (needs font)
+        items_count = 0,                -- [Port] IM_COUNTOF(template_items_names) * 2, set below
+        outer_size_value = nil,         -- [Port] ImVec2(0.0f, TEXT_BASE_HEIGHT * 12), set lazily (needs font)
         row_min_height = 0.0,           -- Auto
         inner_width_with_scroll = 0.0,  -- Auto-extend
         outer_size_enabled = true,
@@ -6333,7 +6332,7 @@ function DemoWindowTables()
     if ImGui.TreeNode("Borders, background") then
         IMGUI_DEMO_MARKER("Tables/Borders, background")
         -- Expose a few Borders related flags interactively
-        local CT_Text, CT_FillButton = 0, 1 -- enum ContentsType
+        local CT_Text, CT_FillButton = 0, 1 -- [Port] enum ContentsType
         local s = s.BordersBackground
 
         PushStyleCompact()
@@ -6696,7 +6695,7 @@ function DemoWindowTables()
             "This section allows you to interact and see the effect of various sizing policies " ..
             "depending on whether Scroll is enabled and the contents of your columns.")
 
-        local CT_ShowWidth, CT_ShortText, CT_LongText, CT_Button, CT_FillButton, CT_InputText = 0, 1, 2, 3, 4, 5 -- enum ContentsType
+        local CT_ShowWidth, CT_ShortText, CT_LongText, CT_Button, CT_FillButton, CT_InputText = 0, 1, 2, 3, 4, 5 -- [Port] enum ContentsType
 
         PushStyleCompact()
         ImGui.PushID("Advanced")
@@ -7239,7 +7238,7 @@ function DemoWindowTables()
             ImGui.TableHeadersRow()
 
             -- Simple storage to output a dummy file-system.
-            -- struct MyTreeNode { Name, Type, Size, ChildIdx, ChildCount } (see s.nodes)
+            -- [Port] struct MyTreeNode { Name, Type, Size, ChildIdx, ChildCount } (see s.nodes)
             local MyTreeNode = s.MyTreeNode
             if MyTreeNode == nil then -- [Port] local struct with a static method, created once and kept in statics
                 MyTreeNode = {}
@@ -7675,7 +7674,7 @@ function DemoWindowTables()
         IMGUI_DEMO_MARKER("Tables/Advanced")
         local s = s.Advanced
 
-        local CT_Text, CT_Button, CT_SmallButton, CT_FillButton, CT_Selectable, CT_SelectableSpanRow = 0, 1, 2, 3, 4, 5 -- enum ContentsType
+        local CT_Text, CT_Button, CT_SmallButton, CT_FillButton, CT_Selectable, CT_SelectableSpanRow = 0, 1, 2, 3, 4, 5 -- [Port] enum ContentsType
         local contents_type_names = { "Text", "Button", "SmallButton", "FillButton", "Selectable", "Selectable (span row)" }
         if s.outer_size_value == nil then s.outer_size_value = ImVec2(0.0, TEXT_BASE_HEIGHT * 12) end
         -- static float row_min_height = 0.0f -- Auto
@@ -8195,7 +8194,7 @@ function DemoWindowInputs()
             end
             ImGui.Text("Mouse delta: (%g, %g)", io.MouseDelta.x, io.MouseDelta.y)
             ImGui.Text("Mouse down:")
-            for i = 0, ImGuiMouseButton.COUNT - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- IM_COUNTOF(io.MouseDown), 0-based
+            for i = 0, ImGuiMouseButton.COUNT - 1 do if ImGui.IsMouseDown(i) then ImGui.SameLine(); ImGui.Text("b%d (%.02f secs)", i, io.MouseDownDuration[i]) end end -- [Port] IM_COUNTOF(io.MouseDown), 0-based
             ImGui.Text("Mouse wheel: %.1f", io.MouseWheel)
             ImGui.Text("Mouse clicked count:")
             for i = 0, ImGuiMouseButton.COUNT - 1 do if io.MouseClickedCount[i] > 0 then ImGui.SameLine(); ImGui.Text("b%d: %d", i, io.MouseClickedCount[i]) end end
@@ -8669,12 +8668,12 @@ function GetTreeLinesFlagsName(flags)
 end
 
 S.ShowStyleEditor = {
-    ref_saved_style = nil, -- static ImGuiStyle ref_saved_style; (created lazily)
+    ref_saved_style = nil, -- [Port] static ImGuiStyle ref_saved_style; (created lazily)
     init = true,
     output_dest = 0,
     output_only_modified = true,
     alpha_flags = 0,
-    filter = nil, -- static ImGuiTextFilter filter; (created lazily)
+    filter = nil, -- [Port] static ImGuiTextFilter filter; (created lazily)
 }
 -- We omit the ImGui:: prefix in this function, as we don't expect user to be copy and pasting this code.
 -- [Port] Lua has no `using namespace`: calls keep the ImGui. prefix
@@ -9203,17 +9202,17 @@ ExampleAppConsoleMT = {}
 ExampleAppConsoleMT.__index = ExampleAppConsoleMT
 function ExampleAppConsole()
     local self = setmetatable({}, ExampleAppConsoleMT)
-    self.InputBuf = nil          -- char InputBuf[256]
-    self.Items = ImVector()      -- ImVector<char*>
-    self.Commands = ImVector()   -- ImVector<const char*>
-    self.History = ImVector()    -- ImVector<char*>
+    self.InputBuf = nil          -- [Port] char InputBuf[256]
+    self.Items = ImVector()      -- [Port] ImVector<char*>
+    self.Commands = ImVector()   -- [Port] ImVector<const char*>
+    self.History = ImVector()    -- [Port] ImVector<char*>
     self.HistoryPos = 0          -- -1: new line, 0..History.Size-1 browsing history.
     self.Filter = ImGuiTextFilter()
     self.AutoScroll = false
     self.ScrollToBottom = false
 
     self:ClearLog()
-    self.InputBuf = ImGui.NewTextBuffer("", 256) -- memset(InputBuf, 0, sizeof(InputBuf))
+    self.InputBuf = ImGui.NewTextBuffer("", 256) -- [Port] memset(InputBuf, 0, sizeof(InputBuf))
     self.HistoryPos = -1
 
     -- "CLASSIFY" is here to provide the test case where "C"+[tab] completes to "CL" and display multiple matches.
@@ -9454,7 +9453,7 @@ function ExampleAppConsoleMT:TextEditCallback(data)
         local word_end = data.CursorPos
         local word_start = word_end
         while word_start > 0 do
-            local c = data.Buf[word_start] -- word_start[-1]
+            local c = data.Buf[word_start] -- [Port] word_start[-1]
             if c == 32 or c == 9 or c == 44 or c == 59 then -- ' ', '\t', ',', ';'
                 break
             end
@@ -9542,7 +9541,7 @@ function ExampleAppConsoleMT:TextEditCallback(data)
 end
 
 S.ShowExampleAppConsole = {
-    console = nil, -- ExampleAppConsole, created on first use
+    console = nil, -- [Port] ExampleAppConsole, created on first use
 }
 function ShowExampleAppConsole(p_open)
     local s = S.ShowExampleAppConsole
@@ -9555,7 +9554,7 @@ end
 -------------------------------------------------------------------------------
 
 S.ShowExampleAppImageViewer = {
-    image_viewer = nil, -- ExampleImageViewerData, created on first use
+    image_viewer = nil, -- [Port] ExampleImageViewerData, created on first use
 }
 function ShowExampleAppImageViewer(p_open)
     local s = S.ShowExampleAppImageViewer
@@ -9715,7 +9714,7 @@ end
 
 -- Demonstrate creating a simple log window with basic filtering.
 S.ShowExampleAppLog = {
-    log = nil, -- ExampleAppLog, created on first use
+    log = nil, -- [Port] ExampleAppLog, created on first use
     counter = 0,
 }
 function ShowExampleAppLog(p_open)
@@ -10036,7 +10035,7 @@ end
 
 -- Demonstrate creating a simple property editor.
 S.ShowExampleAppPropertyEditor = {
-    property_editor = nil, -- ExampleAppPropertyEditor, created on first use
+    property_editor = nil, -- [Port] ExampleAppPropertyEditor, created on first use
     demo_data = nil,       -- [Port] fallback when called without demo_data
 }
 function ShowExampleAppPropertyEditor(p_open, demo_data)
@@ -10428,7 +10427,7 @@ S.ShowExampleAppCustomRendering = {
     opt_enable_grid = true,
     opt_enable_context_menu = true,
     adding_line = false,
-    -- BG/FG draw lists
+    -- [Port] BG/FG draw lists
     draw_bg = true,
     draw_fg = true,
 }
@@ -11149,9 +11148,9 @@ end
 
 S.ShowExampleAppDocuments = {
     app = ExampleAppDocuments(),
-    opt_target = nil,           -- set below to Target_Tab
+    opt_target = nil,           -- [Port] set below to Target_Tab
     opt_reorderable = true,
-    opt_fitting_flags = nil,    -- set below to ImGuiTabBarFlags.FittingPolicyDefault_
+    opt_fitting_flags = nil,    -- [Port] set below to ImGuiTabBarFlags.FittingPolicyDefault_
 }
 function ShowExampleAppDocuments(p_open)
     local s = S.ShowExampleAppDocuments

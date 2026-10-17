@@ -58,6 +58,8 @@ end })
 -- Instances
 local InstMethods = {}
 local InstMT = {}
+local MOCK = { Sets = 0, Parents = 0, News = 0, EIs = 0, Uploads = 0, UploadPx = 0 } -- engine call counters (global MOCK), for perf benches
+MOCK_STATS = MOCK
 InstMT.__index = function(t, k)
     if k == "Parent" then return rawget(t, "_parent") end
     local pv = rawget(t, "_props")[k]; if pv ~= nil then return pv end
@@ -67,11 +69,13 @@ InstMT.__index = function(t, k)
 end
 InstMT.__newindex = function(t, k, v)
     if k == "Parent" then
+        MOCK.Parents += 1
         local old = rawget(t, "_parent")
         if old then local ch = rawget(old, "_children"); for i, c in ipairs(ch) do if c == t then table.remove(ch, i) break end end end
         rawset(t, "_parent", v)
         if v then table.insert(rawget(v, "_children"), t) end
     else
+        MOCK.Sets += 1
         local props = rawget(t, "_props")
         local old = props[k]
         props[k] = v
@@ -96,6 +100,11 @@ end
 function InstMethods:WaitForChild(name) return assert(self:FindFirstChild(name), "WaitForChild would hang: " .. name) end
 function InstMethods:FindFirstChildOfClass(class) for _, c in ipairs(rawget(self, "_children")) do if c.ClassName == class then return c end end end
 function InstMethods:GetChildren() return table.clone(rawget(self, "_children")) end
+function InstMethods:GetDescendants()
+    local out = {}
+    for _, c in ipairs(rawget(self, "_children")) do table.insert(out, c); for _, d in ipairs(c:GetDescendants()) do table.insert(out, d) end end
+    return out
+end
 function InstMethods:IsA(class)
     if class == "GuiObject" then return self.ClassName == "Frame" or self.ClassName == "ImageLabel" end
     return self.ClassName == class
@@ -124,12 +133,14 @@ local RunService = { Heartbeat = Signal(), Stepped = Signal(), PreAnimation = Si
 local last_pixels -- last buffer written to an EditableImage
 local AssetService = {}
 function AssetService:CreateEditableImage(opts)
+    MOCK.EIs += 1
     local img = { Size = opts.Size, Pixels = buffer.create(opts.Size.X * opts.Size.Y * 4) }
     UPLOADS = 0
     function img:WritePixelsBuffer(origin, size, buf)
         assert(buffer.len(buf) == size.X * size.Y * 4, "WritePixelsBuffer: buffer size mismatch")
         assert(origin.X >= 0 and origin.Y >= 0 and origin.X + size.X <= opts.Size.X and origin.Y + size.Y <= opts.Size.Y, "WritePixelsBuffer: out of bounds")
         for y = 0, size.Y - 1 do buffer.copy(img.Pixels, ((origin.Y + y) * opts.Size.X + origin.X) * 4, buf, y * size.X * 4, size.X * 4) end
+        MOCK.Uploads += 1; MOCK.UploadPx += size.X * size.Y
         _G_UPLOADS = (_G_UPLOADS or 0) + 1; _G_UPLOAD_PX = (_G_UPLOAD_PX or 0) + size.X * size.Y
     end
     function img:Destroy() end
@@ -168,7 +179,7 @@ end
 
 ROBLOX = setmetatable({
     game = game, workspace = { CurrentCamera = { ViewportSize = v2(SCREEN_W, SCREEN_H) } }, require = rbxrequire, _G = fakeG,
-    Instance = { new = function(class) return newInst(class) end },
+    Instance = { new = function(class) MOCK.News += 1; return newInst(class) end },
     Enum = Enum, Vector2 = Vector2,
     Vector3 = { new = function(x, y, z) return { X = x, Y = y, Z = z } end },
     UDim2 = { new = function(...) return { ... } end, fromScale = function(...) return { ... } end, fromOffset = function(x, y) return { X = x, Y = y } end },

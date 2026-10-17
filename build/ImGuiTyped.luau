@@ -991,8 +991,38 @@ export type ImGuiStyleVar = { Alpha: number, DisabledAlpha: number, WindowPaddin
 export type ImGuiTreeNodeFlags = { None: number, Selected: number, Framed: number, AllowOverlap: number, NoTreePushOnOpen: number, NoAutoOpenOnLog: number, DefaultOpen: number, OpenOnDoubleClick: number, OpenOnArrow: number, Leaf: number, Bullet: number, FramePadding: number, SpanAvailWidth: number, SpanFullWidth: number, SpanLabelWidth: number, SpanAllColumns: number, LabelSpanAllColumns: number, NavLeftJumpsToParent: number, DrawLinesNone: number, DrawLinesFull: number, DrawLinesToNodes: number, NoNavFocus: number, ClipLabelForTrailingButton: number, UpsideDownArrow: number, CollapsingHeader: number, OpenOnMask_: number, DrawLinesMask_: number, [string]: number }
 export type ImGuiViewportFlags = { None: number, IsPlatformWindow: number, IsPlatformMonitor: number, OwnedByApp: number, NoDecoration: number, NoTaskBarIcon: number, NoFocusOnAppearing: number, NoFocusOnClick: number, NoInputs: number, NoRendererClear: number, NoAutoMerge: number, TopMost: number, CanHostOtherWindows: number, IsMinimized: number, IsFocused: number, [string]: number }
 export type ImGuiWindowFlags = { None: number, NoTitleBar: number, NoResize: number, NoMove: number, NoScrollbar: number, NoScrollWithMouse: number, NoCollapse: number, AlwaysAutoResize: number, NoBackground: number, NoSavedSettings: number, NoMouseInputs: number, MenuBar: number, HorizontalScrollbar: number, NoFocusOnAppearing: number, NoBringToFrontOnFocus: number, AlwaysVerticalScrollbar: number, AlwaysHorizontalScrollbar: number, NoNavInputs: number, NoNavFocus: number, UnsavedDocument: number, NoDocking: number, DockNodeHost: number, ChildWindow: number, Tooltip: number, Popup: number, Modal: number, ChildMenu: number, NoNav: number, NoDecoration: number, NoInputs: number, [string]: number }
+export type ImGuiParallelConfig = { Actors: number?, MinTiles: number?, MinPixels: number?, MaxBytesPerPixel: number?, Worker: any, Sync: boolean?, SyncDrop: boolean?, Inline: boolean?, [string]: any }
+export type ImGuiImplRoblox = {
+    Init: (...any) -> ...any,
+    Shutdown: (...any) -> ...any,
+    NewFrame: (...any) -> ...any,
+    RenderDrawData: (...any) -> ...any,
+    AddFile: (...any) -> ...any,
+    CreateTexture: (...any) -> ...any,
+    DestroyTexture: (...any) -> ...any,
+    SetOverlay: (...any) -> ...any,
+    SetTextProxy: (...any) -> ...any,
+    SetRenderScale: (...any) -> ...any,
+    GetRenderScale: (...any) -> ...any,
+    SetRenderRate: (...any) -> ...any,
+    SetBusyRenderRate: (...any) -> ...any,
+    SetRedrawBudget: (...any) -> ...any,
+    SetProfiling: (...any) -> ...any,
+    IsProfiling: (...any) -> ...any,
+    SetStageTiming: (...any) -> ...any,
+    GetStats: (...any) -> ...any,
+    SetEditableImageCap: (...any) -> ...any,
+    EnableParallel: (opts: ImGuiParallelConfig?) -> (),
+    DisableParallel: () -> (),
+    FinishParallel: () -> (),
+    BeginParallelFrame: () -> (),
+    GetParallelStats: () -> { [string]: number },
+    GetParallelConfig: () -> ImGuiParallelConfig,
+    [string]: any,
+}
 export type ImGuiModule = {
     ImGui: ImGuiAPI,
+    ImGui_ImplRoblox: ImGuiImplRoblox,
     ImVec2: (x: number?, y: number?, z: number?, w: number?) -> ImVec2,
     ImVec4: (x: number?, y: number?, z: number?, w: number?) -> ImVec4,
     ImDrawFlags: ImDrawFlags,

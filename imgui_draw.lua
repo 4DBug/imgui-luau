@@ -29,14 +29,14 @@ FONT_ATLAS_DEFAULT_TEX_DATA_H = 27
 local IM_DRAWLIST_TEX_LINES_WIDTH_MAX = 32 -- The maximum line width to bake anti-aliased textures for.
 
 local writef64, writeu32, readf64, readu32 = buffer.writef64, buffer.writeu32, buffer.readf64, buffer.readu32
--- Write vertex i (1-based) of a VtxBuffer.Buf
+-- [Port] Write vertex i (1-based) of a VtxBuffer.Buf
 local function WV(b, i, x, y, u, v, col)
     local o = (i - 1) * 36
     writef64(b, o, x); writef64(b, o + 8, y); writef64(b, o + 16, u); writef64(b, o + 24, v); writeu32(b, o + 32, col)
 end
 
-local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF -- ((ImU16)-1)
-local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE -- ((ImU16)-2)
+local IM_FONTGLYPH_INDEX_UNUSED    = 0xFFFF -- [Port] ((ImU16)-1)
+local IM_FONTGLYPH_INDEX_NOT_FOUND = 0xFFFE -- [Port] ((ImU16)-2)
 
 --- @param str string
 --- @return table
@@ -374,7 +374,7 @@ function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx,
     end
 end
 
--- Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
+-- [Port] Rotate and translate vertices [vert_start_idx, vert_end_idx) (1-based, like _VtxCurrentIdx)
 function ImGui.ShadeVertsTransformPos(draw_list, vert_start_idx, vert_end_idx, pivot_in, cos_a, sin_a, pivot_out)
     local data = draw_list.VtxBuffer.Buf
     local pix, piy, pox, poy = pivot_in.x, pivot_in.y, pivot_out.x, pivot_out.y
@@ -1363,7 +1363,7 @@ local function ImGui_ImplStbTrueType_FontSrcData()
     }
 end
 
--- Need this in Lua since I don't want to include 'stbrp' just for context constructor
+-- [Port] Need this in Lua since I don't want to include 'stbrp' just for context constructor
 -- in ImFontAtlasBuilder def code. The cpp code has 'stbrp_context_opaque' which I don't/can't have here
 --- @param atlas ImFontAtlas
 local function ImGui_ImplStbTrueType_LoaderInit(atlas)
@@ -1371,7 +1371,7 @@ local function ImGui_ImplStbTrueType_LoaderInit(atlas)
 end
 
 local function ImGui_ImplStbTrueType_FontSrcInit(atlas, src)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
 
     --- @type ImGui_ImplStbTrueType_FontSrcData?
     local bd_font_data = ImGui_ImplStbTrueType_FontSrcData()
@@ -1406,12 +1406,12 @@ local function ImGui_ImplStbTrueType_FontSrcInit(atlas, src)
 end
 
 local function ImGui_ImplStbTrueType_FontSrcDestroy(atlas, src)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
     src.FontLoaderData = nil
 end
 
 local function ImGui_ImplStbTrueType_FontSrcContainsGlyph(atlas, src, codepoint)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
     local bd_font_data = src.FontLoaderData
     IM_ASSERT(bd_font_data ~= nil)
 
@@ -1420,7 +1420,7 @@ local function ImGui_ImplStbTrueType_FontSrcContainsGlyph(atlas, src, codepoint)
 end
 
 local function ImGui_ImplStbTrueType_FontBakedInit(atlas, src, baked)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
 
     local bd_font_data = src.FontLoaderData
     if (src.MergeMode == false) then
@@ -1599,14 +1599,14 @@ function ImFontAtlasBakedAdd(atlas, font, font_size, font_rasterizer_density, ba
         local loader = src.FontLoader and src.FontLoader or atlas.FontLoader
         loader_data_size = loader_data_size + loader.FontBakedSrcLoaderDataSize
     end
-    -- baked.FontLoaderDatas = (loader_data_size > 0) and IM_ALLOC(loader_data_size) or nil
+    -- [Port] baked.FontLoaderDatas = (loader_data_size > 0) and IM_ALLOC(loader_data_size) or nil
     -- local loader_data_p = baked->FontLoaderDatas
     for _, src in font.Sources:iter() do
         local loader = src.FontLoader and src.FontLoader or atlas.FontLoader
         if (loader.FontBakedInit) then
             loader.FontBakedInit(atlas, src, baked--[[, loader_data_p--]])
         end
-        -- loader_data_p += loader->FontBakedSrcLoaderDataSize
+        -- [Port] loader_data_p += loader->FontBakedSrcLoaderDataSize
     end
 
     ImFontAtlasBuildSetupFontBakedBlanks(atlas, baked)
@@ -1670,7 +1670,7 @@ function ImFontAtlasBakedDiscard(atlas, font, baked)
         end
     end
 
-    -- char* loader_data_p = (char*)baked->FontLoaderDatas
+    -- [Port] char* loader_data_p = (char*)baked->FontLoaderDatas
     for _, src in font.Sources:iter() do
         local loader = src.FontLoader and src.FontLoader or atlas.FontLoader
         if loader.FontBakedDestroy then
@@ -1767,13 +1767,13 @@ end
 --- @param atlas ImFontAtlas
 --- @param src ImFontConfig
 function ImFontAtlasFontDestroySourceData(atlas, src)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
 
-    -- if src.FontDataOwnedByAtlas then
+    -- [Port] if src.FontDataOwnedByAtlas then
     --     IM_FREE(src.FontData)
     -- end
     src.FontData = nil
-    -- if src.GlyphExcludeRanges then
+    -- [Port] if src.GlyphExcludeRanges then
     --     IM_FREE(src.GlyphExcludeRanges)
     -- end
     src.GlyphExcludeRanges = nil
@@ -1785,7 +1785,7 @@ end
 --- @param font ImFont
 --- @param src ImFontConfig
 function ImFontAtlasBuildSetupFontSpecialGlyphs(atlas, font, src)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
     IM_ASSERT(font.Sources:contains(src))
 
     -- Find Fallback character. Actual glyph loaded in GetFontBaked().
@@ -1940,7 +1940,7 @@ local function ImFontAtlasBuildUpdateRendererHasTexturesFromContext(atlas)
 end
 
 local function ImFontAtlasBuildUpdatePointers(atlas)
-    -- for _, font in atlas.Fonts:iter() do
+    -- [Port] for _, font in atlas.Fonts:iter() do
     --     font.Sources:resize(0)
     -- end
     -- for _, src in atlas.Sources:iter() do
@@ -2118,7 +2118,7 @@ function ImFontAtlasPackInit(atlas)
 end
 
 --- @param atlas ImFontAtlas
--- #define IM_DRAWLIST_CORNER_POINTS_MAX (IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4 + 3) // Max number of points in corner profiles
+-- [Port] #define IM_DRAWLIST_CORNER_POINTS_MAX (IM_DRAWLIST_ARCFAST_TABLE_SIZE / 4 + 3) // Max number of points in corner profiles
 -- [Luau] ImVec2 line_normals[] / float line_distances[] / ImVec2 points[] are flat 1-based scratch arrays (x, y, distance).
 local corner_points_x, corner_points_y = {}, {}
 local corner_normals_x, corner_normals_y, corner_distances = {}, {}, {}
@@ -2164,7 +2164,7 @@ local function InitCornerGeometry(cx, cy, rounding, circle_segment_max_error, li
         local inv_d = ImRsqrtPrecise(d2)
         line_normals_x[i] = diff_y * inv_d -- Normal points outwards
         line_normals_y[i] = -diff_x * inv_d
-        line_distances[i] = -(points_x[i] * line_normals_x[i] + points_y[i] * line_normals_y[i]) -- -ImDot()
+        line_distances[i] = -(points_x[i] * line_normals_x[i] + points_y[i] * line_normals_y[i]) -- [Port] -ImDot()
     end
 
     return num_points - 1
@@ -2187,12 +2187,12 @@ local function SampleCornerFillOrStroke(x, y, thickness, line_normals_x, line_no
     local aa_width = 1.0
     if thickness == 0.0 then
         -- Fill
-        return math.floor(ImClamp(1.0 - (d + aa_width * 0.5) / aa_width, 0.0, 1.0) * 255.0) -- (ImU8)
+        return math.floor(ImClamp(1.0 - (d + aa_width * 0.5) / aa_width, 0.0, 1.0) * 255.0) -- [Port] (ImU8)
     else
         -- Stroke
         local outer = 1.0 - (d + aa_width * 0.5) / aa_width
         local inner = (d + thickness + aa_width * 0.5) / aa_width
-        return math.floor(ImClamp(ImMin(inner, outer), 0.0, 1.0) * 255.0) -- (ImU8)
+        return math.floor(ImClamp(ImMin(inner, outer), 0.0, 1.0) * 255.0) -- [Port] (ImU8)
     end
 end
 
@@ -2356,7 +2356,7 @@ function ImFontAtlasBuildUpdateTexDataLines(atlas)
         -- Calculate super sampled line textures for smaller line widths to make transition between sizes smoother.
 
         -- Calculate ramp used for all the textures.
-        local ramp = {} -- ImU8[IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT], 0-based
+        local ramp = {} -- [Port] ImU8[IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT], 0-based
         for n = 0, IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT - 1 do
             ramp[n] = math.floor((n / IM_DRAWLIST_TEX_LINES_SAMPLE_COUNT) * 255.0)
         end
@@ -2617,7 +2617,7 @@ function ImFontAtlasBuildMain(atlas)
     end
 
     -- [LEGACY] For backends not supporting RendererHasTextures: preload all glyphs
-    -- ImFontAtlasBuildUpdateRendererHasTexturesFromContext(atlas);
+    -- [Port] ImFontAtlasBuildUpdateRendererHasTexturesFromContext(atlas);
     -- if atlas.RendererHasTextures == false then -- ~ImGuiBackendFlags.RendererHasTextures
     --     ImFontAtlasBuildLegacyPreloadAllGlyphRanges(atlas)
     -- end
@@ -2823,7 +2823,7 @@ end
 --- @param c ImWchar
 --- @return ImFontGlyph?
 function MT.ImFontBaked:FindGlyphNoFallback(c)
-    if c < self.IndexLookup.Size then -- IM_LIKELY
+    if c < self.IndexLookup.Size then -- [Port] IM_LIKELY
         local i = self.IndexLookup.Data[c + 1]
         if i == IM_FONTGLYPH_INDEX_NOT_FOUND then
             return nil
@@ -2856,7 +2856,7 @@ function MT.ImFont:IsGlyphRangeUnused(c_begin, c_last)
     local page_begin = math.floor(c_begin / 8192)
     local page_last = math.floor(c_last / 8192)
     for page_n = page_begin, page_last do
-        if bit32.rshift(page_n, 3) < (IM_UNICODE_CODEPOINT_MAX + 1) / 8192 / 8 then -- sizeof(Used8kPagesMap)
+        if bit32.rshift(page_n, 3) < (IM_UNICODE_CODEPOINT_MAX + 1) / 8192 / 8 then -- [Port] sizeof(Used8kPagesMap)
             if bit32.band(self.Used8kPagesMap[bit32.rshift(page_n, 3) + 1] or 0, bit32.lshift(1, bit32.band(page_n, 7))) ~= 0 then
                 return false
             end
@@ -2965,7 +2965,7 @@ function ImFontAtlasBakedAddFontGlyph(atlas, baked, src, in_glyph)
     local codepoint = glyph.Codepoint
     ImFontBaked_BuildGrowIndex(baked, codepoint + 1)
     baked.IndexAdvanceX.Data[codepoint + 1] = glyph.AdvanceX
-    baked.IndexLookup.Data[codepoint + 1] = glyph_idx -- (ImU16)
+    baked.IndexLookup.Data[codepoint + 1] = glyph_idx -- [Port] (ImU16)
     local page_n = math.floor(codepoint / 8192)
     baked.OwnerFont.Used8kPagesMap[bit32.rshift(page_n, 3) + 1] = bit32.bor(baked.OwnerFont.Used8kPagesMap[bit32.rshift(page_n, 3) + 1], bit32.lshift(1, bit32.band(page_n, 7)))
 
@@ -2979,7 +2979,7 @@ end
 --- @param codepoint ImWchar
 --- @param advance_x float
 function ImFontAtlasBakedAddFontGlyphAdvancedX(atlas, baked, src, codepoint, advance_x)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
     if (src ~= nil) then
         -- Clamp & recenter if needed
         local ref_size = baked.OwnerFont.Sources[1].SizePixels
@@ -3046,7 +3046,7 @@ end
 --- @return ImWchar
 --- @nodiscard
 local function ImFontAtlas_FontHookRemapCodepoint(atlas, font, c)
-    -- IM_UNUSED(atlas)
+    -- [Port] IM_UNUSED(atlas)
     if next(font.RemapPairs) ~= nil then -- [Luau] font->RemapPairs.Data.Size != 0 (RemapPairs is a hash table)
         local ret = font.RemapPairs[c]
         return (ret ~= nil) and ret or c
@@ -3117,7 +3117,7 @@ function ImFontBaked_BuildLoadGlyph(baked, codepoint, only_load_advance_x)
             end
         end
 
-        -- loader_user_data_p = loader_user_data_p + loader.FontBakedSrcLoaderDataSize
+        -- [Port] loader_user_data_p = loader_user_data_p + loader.FontBakedSrcLoaderDataSize
         src_n = src_n + 1
     end
 
@@ -3228,7 +3228,7 @@ end
 --- @param c             unsigned_int
 function ImTextClassifierSetCharClass(bits, codepoint_min, codepoint_end, char_class, c)
     IM_ASSERT(c >= codepoint_min and c < codepoint_end)
-    -- IM_UNUSED(codepoint_end)
+    -- [Port] IM_UNUSED(codepoint_end)
     c = c - codepoint_min
     local shift = bit32.lshift(bit32.band(c, 15), 1)
     bits[bit32.rshift(c, 4) + 1] = bit32.bor(bit32.band(bits[bit32.rshift(c, 4) + 1], bit32.bnot(bit32.lshift(0x03, shift))), bit32.lshift(char_class, shift))
@@ -3290,7 +3290,6 @@ function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_widt
     end
     -- [Luau] memo per baked font and string: CalcTextSize() and RenderText() of wrapped text ask for the same wrap points
     -- (same text/pos/width) every frame. The result only depends on these inputs and the (immutable once loaded) glyph advances.
-    -- ponytail: whole-memo reset at WRAP_MEMO_MAX strings, LRU if dynamic text churns it
     local memo = baked._WrapMemo
     if memo == nil or baked._WrapMemoN >= WRAP_MEMO_MAX then
         memo = {}; baked._WrapMemo = memo; baked._WrapMemoN = 0
@@ -3470,7 +3469,7 @@ local TEXT_SIZE_CACHE_MAX = 4096
 function ImFontCalcTextSizeEx(font, size, max_width, wrap_width, text, text_begin, text_end_display, text_end, out_offset, flags)
     local text_is_str = type(text) == "string"
     -- [Luau] cache for the common case (whole string, single pass, no wrap/limit): per baked font, text -> unscaled width, line count.
-    -- Advances of a baked font never change once loaded, so entries stay valid. ponytail: whole-cache reset at TEXT_SIZE_CACHE_MAX entries, LRU if dynamic text churns it
+    -- Advances of a baked font never change once loaded, so entries stay valid.
     local cache_key = nil
     local wrap_cache = nil
     local text_len1 = text_is_str and #text + 1 or -1
@@ -3901,7 +3900,7 @@ function MT.ImFontAtlas:AddFontFromFileTTF(filename, size_pixels, font_cfg_templ
     local data, data_size = ImStd.ImFileLoadToMemory(filename, "rb")
     if not data then
         if (font_cfg_template == nil or (bit32.band(font_cfg_template.Flags, ImFontFlags.NoLoadError) == 0)) then
-            -- IMGUI_DEBUG_LOG("While loading '%s'\n", filename)
+            -- [Port] IMGUI_DEBUG_LOG("While loading '%s'\n", filename)
             IM_ASSERT_USER_ERROR(0, "Could not load font file!")
         end
 
@@ -4104,7 +4103,7 @@ local function ImAlphaMultiply(col, alpha_mul)
     return bit32.bor(bit32.band(col, bit32.bnot(IM_COL32_A_MASK)), bit32.lshift(a, IM_COL32_A_SHIFT))
 end
 
--- #define _GetStrokePos(_FLAGS, _DEFAULT_STROKE_POS)
+-- [Port] #define _GetStrokePos(_FLAGS, _DEFAULT_STROKE_POS)
 local function _GetStrokePos(flags, default_stroke_pos)
     local stroke_pos = bit32.band(flags, ImDrawFlags.StrokeMask_)
     if stroke_pos ~= 0 then return stroke_pos end
@@ -4239,7 +4238,7 @@ function MT.ImDrawListSharedData:SetCircleTessellationMaxError(max_error)
     IM_ASSERT(max_error > 0)
 
     self.CircleTessellationMaxError = max_error
-    for i = 1, 64 do -- IM_COUNTOF(CircleSegmentCounts)
+    for i = 1, 64 do -- [Port] IM_COUNTOF(CircleSegmentCounts)
         local radius = (i - 1)
         self.CircleSegmentCounts[i] = (i > 1) and IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, self.CircleTessellationMaxError) or IM_DRAWLIST_ARCFAST_SAMPLE_MAX
     end
@@ -4261,7 +4260,7 @@ end
 -- Initialize before use in a new frame. We always have a command ready in the buffer.
 -- In the majority of cases, you would want to call PushClipRect() and PushTexture() after this.
 function MT.ImDrawList:_ResetForNewFrame()
-    self._ContentClipX0 = nil -- set again by Begin() (Roblox backend scroll reuse)
+    self._ContentClipX0 = nil -- [Port] set again by Begin() (Roblox backend scroll reuse)
     if self._Splitter._Count > 1 then
         self._Splitter:Merge(self)
     end
@@ -4282,7 +4281,7 @@ function MT.ImDrawList:_ResetForNewFrame()
     self._ClipRectStack:resize(0)
     self._TextureStack:resize(0)
     self._CallbacksDataBuf:resize(0)
-    self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
+    self._DrawFlagsStack.Size = 0 -- [Port] _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:resize(0)
 
     self.CmdBuffer:push_back(ImDrawCmd())
@@ -4303,7 +4302,7 @@ function MT.ImDrawList:_ClearFreeMemory()
     self._ClipRectStack:clear()
     self._TextureStack:clear()
     self._CallbacksDataBuf:clear()
-    self._DrawFlagsStack.Size = 0 -- _DrawFlagsStack.clear() (ImSmallStack_)
+    self._DrawFlagsStack.Size = 0 -- [Port] _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:clear()
     self._Splitter:ClearFreeMemory()
 end
@@ -4385,7 +4384,7 @@ function MT.ImDrawList:AddCallback(callback, userdata, userdata_size)
         -- [Lua] No raw bytes: the "copy" is a shallow copy of a table userdata (other values are immutable and stored as is),
         -- so later changes to the caller's table don't affect this command. userdata_size is only recorded.
         IM_ASSERT(userdata ~= nil)
-        IM_ASSERT(userdata_size < 2147483648) -- (1u << 31)
+        IM_ASSERT(userdata_size < 2147483648) -- [Port] (1u << 31)
         curr_cmd.UserCallbackData = nil -- Will be resolved during Render()
         curr_cmd.UserCallbackDataSize = userdata_size
         curr_cmd.UserCallbackDataOffset = self._CallbacksDataBuf.Size -- 0-based
@@ -4534,7 +4533,7 @@ end
 -------------------------------------------------------------------------------
 -- FIXME: This may be a little confusing, trying to be a little too low-level/optimal instead of just doing vector swap..
 -------------------------------------------------------------------------------
--- Lua: channels swap ImVector objects with the draw list (C++ memcpy of the vector headers).
+-- [Port] channels swap ImVector objects with the draw list (C++ memcpy of the vector headers).
 -- Channel 0 holds nothing while it is the current channel (its buffers live in the draw list).
 
 -- Copy ClipRect, TexRef, VtxOffset (TexRef is assigned by reference, never mutated)
@@ -4579,7 +4578,7 @@ function MT.ImDrawListSplitter:Split(draw_list, channels_count)
     -- Channels[] hold storage that we'll swap with draw_list._CmdBuffer/_IdxBuffer
     -- The content of Channels[0] at this point doesn't matter. We clear it to make state tidy in a debugger but we don't strictly need to.
     -- When we switch to the next channel, we'll copy draw_list._CmdBuffer/_IdxBuffer into Channels[0] and then Channels[1] into draw_list.CmdBuffer/_IdxBuffer
-    -- Channel 0 is the draw list itself (memset to 0 in C++)
+    -- [Port] Channel 0 is the draw list itself (memset to 0 in C++)
     local channels = self._Channels.Data
     channels[1] = { _CmdBuffer = nil, _IdxBuffer = nil }
     for i = 2, channels_count do
@@ -4651,7 +4650,7 @@ function MT.ImDrawListSplitter:Merge(draw_list)
             local src_cmds = ch._CmdBuffer.Data
             for n = 1, ch._CmdBuffer.Size do
                 dst_cmds[cmd_write] = src_cmds[n]
-                src_cmds[n] = nil -- ownership moved to the draw list
+                src_cmds[n] = nil -- [Port] ownership moved to the draw list
                 cmd_write = cmd_write + 1
             end
         end
@@ -4751,7 +4750,7 @@ end
 function MT.ImDrawList:PushDrawFlag(flags, enabled)
     IM_ASSERT(bit32.band(flags, bit32.bnot(ImDrawFlags.AllowInPushScope_)) == 0)
     IM_ASSERT(bit32.band(flags, ImDrawFlags.StrokeMask_) == 0 or bit32.band(flags, ImDrawFlags.StrokeMask_) == ImDrawFlags.StrokeLegacy)
-    IM_ASSERT_USER_ERROR_RET(self._DrawFlagsStack.Size < 3, "PushDrawFlag() has a depth limit. Contact us.") -- _DrawFlagsStack.capacity() == 3
+    IM_ASSERT_USER_ERROR_RET(self._DrawFlagsStack.Size < 3, "PushDrawFlag() has a depth limit. Contact us.") -- [Port] _DrawFlagsStack.capacity() == 3
     self._DrawFlagsStack:push_back(self.Flags)
     if enabled then
         self.Flags = bit32.bor(self.Flags, flags)
@@ -4957,7 +4956,7 @@ local function _SelectLineTexture(self, screen_thickness, flags)
         end
 
         -- Scale the fringe so that the texture matches the line thickness.
-        local tex_uvs = self._Data.TexUvLines[texture_idx] -- 0-based table
+        local tex_uvs = self._Data.TexUvLines[texture_idx] -- [Port] 0-based table
         return tex_uvs.x, tex_uvs.z, tex_uvs.y, tex_uvs.z, self._FringeScale * screen_thickness * tex_uvs.w -- tex_uvs.w = 1 / thickness
     else
         -- For no anti-alias we use fully opaque texture, and no fringe expansion.
@@ -5011,7 +5010,7 @@ function MT.ImDrawList:_AddPolyline(points, points_count, col, thickness, flags,
         local dy = p1.y - p0.y
         local d2 = dx * dx + dy * dy
         local inv_len = 0.0
-        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- [Port] ImRsqrtPrecise()
         normals_x[i] = -dy * inv_len
         normals_y[i] = dx * inv_len
         sqr_lengths[i] = d2
@@ -5023,7 +5022,7 @@ function MT.ImDrawList:_AddPolyline(points, points_count, col, thickness, flags,
         local dy = p1.y - p0.y
         local d2 = dx * dx + dy * dy
         local inv_len = 0.0
-        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+        if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- [Port] ImRsqrtPrecise()
         normals_x[points_count] = -dy * inv_len
         normals_y[points_count] = dx * inv_len
         sqr_lengths[points_count] = d2
@@ -5086,8 +5085,8 @@ function MT.ImDrawList:_AddPolyline(points, points_count, col, thickness, flags,
 
     local vb = self.VtxBuffer.Buf
     local ib = self.IdxBuffer.Data
-    local vw = self._VtxWritePtr     -- 1-based write position in VtxBuffer
-    local iw = self._IdxWritePtr     -- 1-based write position in IdxBuffer
+    local vw = self._VtxWritePtr     -- [Port] 1-based write position in VtxBuffer
+    local iw = self._IdxWritePtr     -- [Port] 1-based write position in IdxBuffer
     local vtx_idx = self._VtxCurrentIdx
     local first_vtx_offset = vw
     local first_vtx_idx = vtx_idx    -- [Luau] VtxBuffer position of index 'n' is first_vtx_offset + (n - first_vtx_idx)
@@ -5382,7 +5381,7 @@ function MT.ImDrawList:AddConvexPolyFilled(points, points_count, col, flags)
             local dy = p1.y - p0.y
             local d2 = dx * dx + dy * dy
             if d2 > 0.0 then
-                local inv_len = 1.0 / math.sqrt(d2) -- ImRsqrtPrecise()
+                local inv_len = 1.0 / math.sqrt(d2) -- [Port] ImRsqrtPrecise()
                 dx = dx * inv_len
                 dy = dy * inv_len
             end
@@ -5571,7 +5570,7 @@ local function PathRectXY(self, ax, ay, bx, by, rounding, flags)
     if not rounding then rounding = 0.0 end
     if not flags    then flags    = 0   end
 
-    local has_rounding = rounding >= 0.25 * self._FringeScale -- IM_HAS_ROUNDING(rounding)
+    local has_rounding = rounding >= 0.25 * self._FringeScale -- [Port] IM_HAS_ROUNDING(rounding)
     if has_rounding then
         if bit32.band(flags, ImDrawFlags.RoundMask_) == 0 then
             flags = bit32.bor(flags, ImDrawFlags.RoundAll)
@@ -5626,7 +5625,7 @@ local function _AddLineXY(self, p1x, p1y, p2x, p2y, col, thickness, flags)
     local dir_y = p2y - p1y
     local d2 = dir_x * dir_x + dir_y * dir_y
     local inv_len = 0.0
-    if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- ImRsqrtPrecise()
+    if d2 > 0.0 then inv_len = 1.0 / math.sqrt(d2) end -- [Port] ImRsqrtPrecise()
     dir_x = dir_x * inv_len
     dir_y = dir_y * inv_len
     local norm_x = -dir_y
@@ -5791,7 +5790,7 @@ function MT.ImDrawList:AddLineH(min_x, max_x, y, col, thickness, flags)
         top_y = top_y - thickness
     end
 
-    local is_truncated = min_x % 1 == 0 and max_x % 1 == 0 and top_y % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4()
+    local is_truncated = min_x % 1 == 0 and max_x % 1 == 0 and top_y % 1 == 0 and thickness % 1 == 0 -- [Port] IM_IS_TRUNCATED4()
     if self._FringeScaleIsInteger and is_truncated and bit32.band(flags, ImDrawFlags.CapSquare) == 0 then
         if thickness < self._FringeScale then
             if thickness < (1.0 / 255.0) * self._FringeScale then
@@ -5847,7 +5846,7 @@ function MT.ImDrawList:AddLineV(x, min_y, max_y, col, thickness, flags)
         left_x = left_x - thickness
     end
 
-    local is_truncated = left_x % 1 == 0 and min_y % 1 == 0 and max_y % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4()
+    local is_truncated = left_x % 1 == 0 and min_y % 1 == 0 and max_y % 1 == 0 and thickness % 1 == 0 -- [Port] IM_IS_TRUNCATED4()
     if self._FringeScaleIsInteger and is_truncated and bit32.band(flags, ImDrawFlags.CapSquare) == 0 then
         if thickness < self._FringeScale then
             if thickness < (1.0 / 255.0) * self._FringeScale then
@@ -5891,7 +5890,7 @@ end
 -- [Luau] _AddRectBaked() taking p_min/p_max as scalars
 @native
 local function _AddRectBakedXY(self, p_min_x, p_min_y, p_max_x, p_max_y, col, r, t, tex_uvs, flags)
-    local uv_l, uv_t, uv_r, uv_b = tex_uvs.x, tex_uvs.y, tex_uvs.z, tex_uvs.w -- uv_tl = (l,t), uv_tr = (r,t), uv_br = (r,b), uv_bl = (l,b)
+    local uv_l, uv_t, uv_r, uv_b = tex_uvs.x, tex_uvs.y, tex_uvs.z, tex_uvs.w -- [Port] uv_tl = (l,t), uv_tr = (r,t), uv_br = (r,b), uv_bl = (l,b)
 
     local idx_allocated = 8 * 2 * 3
     local vtx_allocated = 8 * 4
@@ -5987,7 +5986,7 @@ function MT.ImDrawList:_AddRectBaked(p_min, p_max, col, r, t, tex_uvs, flags)
     _AddRectBakedXY(self, p_min.x, p_min.y, p_max.x, p_max.y, col, r, t, tex_uvs, flags)
 end
 
-local corner_offset_x = { 1, -1, -1,  1 } -- static const ImVec2 corner_offset[4] = { {1,1}, {-1,1}, {-1,-1}, {1,-1} };
+local corner_offset_x = { 1, -1, -1,  1 } -- [Port] static const ImVec2 corner_offset[4] = { {1,1}, {-1,1}, {-1,-1}, {1,-1} };
 local corner_offset_y = { 1,  1, -1, -1 }
 local corner_flags = { ImDrawFlags.RoundTopLeft, ImDrawFlags.RoundTopRight, ImDrawFlags.RoundBottomRight, ImDrawFlags.RoundBottomLeft }
 local corner_pos_x, corner_pos_y = { 0, 0, 0, 0 }, { 0, 0, 0, 0 } -- [Luau] scratch
@@ -6159,7 +6158,7 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
     end
 
     local fringe_scale = self._FringeScale
-    local has_rounding = rounding >= 0.25 * fringe_scale -- IM_HAS_ROUNDING(rounding)
+    local has_rounding = rounding >= 0.25 * fringe_scale -- [Port] IM_HAS_ROUNDING(rounding)
 
     -- Calculate the outer boundary of the rectangle based on the stroke position.
     local offset = 0.0 -- Inside
@@ -6194,7 +6193,7 @@ function MT.ImDrawList:AddRect(p_min, p_max, col, rounding, thickness, flags)
         outer_rounding = ImMin(outer_rounding, ImAbs(height) * (((bit32.band(flags, ImDrawFlags.RoundLeft) == ImDrawFlags.RoundLeft) or (bit32.band(flags, ImDrawFlags.RoundRight) == ImDrawFlags.RoundRight)) and 0.5 or 1.0) - 1.0)
     end
 
-    local is_truncated = outer_min_x % 1 == 0 and outer_min_y % 1 == 0 and outer_max_x % 1 == 0 and outer_max_y % 1 == 0 and outer_rounding % 1 == 0 and thickness % 1 == 0 -- IM_IS_TRUNCATED4() x2
+    local is_truncated = outer_min_x % 1 == 0 and outer_min_y % 1 == 0 and outer_max_x % 1 == 0 and outer_max_y % 1 == 0 and outer_rounding % 1 == 0 and thickness % 1 == 0 -- [Port] IM_IS_TRUNCATED4() x2
     if self._FringeScaleIsInteger and is_truncated then
         local s_rounding = ImTrunc64(outer_rounding * self._InvFringeScale)
         local s_thickness = ImTrunc64(thickness * self._InvFringeScale)
@@ -6290,7 +6289,7 @@ end
 @native
 local function _AddRectFilledBakedXY(self, p_min_x, p_min_y, p_max_x, p_max_y, col, r, tex_uvs, flags)
     -- 9-slice with corner mirroring
-    local uv_l, uv_t, uv_r, uv_b = tex_uvs.x, tex_uvs.y, tex_uvs.z, tex_uvs.w -- uv_tl = (l,t), uv_tr = (r,t), uv_br = (r,b), uv_bl = (l,b)
+    local uv_l, uv_t, uv_r, uv_b = tex_uvs.x, tex_uvs.y, tex_uvs.z, tex_uvs.w -- [Port] uv_tl = (l,t), uv_tr = (r,t), uv_br = (r,b), uv_bl = (l,b)
 
     PrimReserve(self, 9 * 2 * 3, 4 * 4)
 
@@ -6398,8 +6397,8 @@ function MT.ImDrawList:AddRectFilled(p_min, p_max, col, rounding, flags)
     end
 
     -- When rounding non-integer and under threshold, has_rounding may be false but still affect is_truncated. Likely not worth catering for.
-    local has_rounding = bit32.band(flags, ImDrawFlags.RoundMask_) ~= ImDrawFlags.RoundNone and rounding >= 0.25 * fringe_scale -- IM_HAS_ROUNDING(rounding)
-    local is_truncated = ax % 1 == 0 and ay % 1 == 0 and bx % 1 == 0 and by % 1 == 0 and rounding % 1 == 0 -- IM_IS_TRUNCATED4() && IM_IS_TRUNCATED()
+    local has_rounding = bit32.band(flags, ImDrawFlags.RoundMask_) ~= ImDrawFlags.RoundNone and rounding >= 0.25 * fringe_scale -- [Port] IM_HAS_ROUNDING(rounding)
+    local is_truncated = ax % 1 == 0 and ay % 1 == 0 and bx % 1 == 0 and by % 1 == 0 and rounding % 1 == 0 -- [Port] IM_IS_TRUNCATED4() && IM_IS_TRUNCATED()
 
     if self._FringeScaleIsInteger and is_truncated then
         -- Fast path for the non-AA non-rounded rect.
@@ -6841,7 +6840,7 @@ local AddText_clip_rect = ImVec4()
 
 @native
 function MT.ImDrawList:AddText(font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect)
-    -- Overload: AddText(pos, col, text, text_end?)
+    -- [Port] Overload: AddText(pos, col, text, text_end?)
     if type(font) == "table" and type(font[1]) == "number" then
         font, font_size, pos, col, text, text_begin, text_end, wrap_width, cpu_fine_clip_rect = nil, 0.0, font, font_size, pos, 1, col, 0.0, nil
         if text_end == nil then text_end = #text + 1 end
@@ -6974,7 +6973,7 @@ function MT.ImDrawList:_CalcCircleAutoSegmentCount(radius)
     -- Automatic segment count
     local radius_idx = ImFloor(radius + 0.999) + 1 -- ceil to never reduce accuracy
 
-    if radius_idx >= 1 and radius_idx <= 64 then -- IM_COUNTOF(_Data->CircleSegmentCounts)
+    if radius_idx >= 1 and radius_idx <= 64 then -- [Port] IM_COUNTOF(_Data->CircleSegmentCounts)
         return self._Data.CircleSegmentCounts[radius_idx] -- Use cached value
     else
         return IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, self._Data.CircleTessellationMaxError)
@@ -7014,7 +7013,7 @@ function MT.ImDrawList:PopClipRect()
     local stack = self._ClipRectStack
     IM_ASSERT(stack.Size > 0)
     stack.Size = stack.Size - 1 -- [Luau] inline pop_back()
-    if (stack.Size == 0) then -- LUA: No "Ternary Operator"
+    if (stack.Size == 0) then -- [Port] No "Ternary Operator"
         ImVec4_Copy(self._CmdHeader.ClipRect, self._Data.ClipRectFullscreen)
     else
         ImVec4_Copy(self._CmdHeader.ClipRect, stack.Data[stack.Size])
@@ -7033,7 +7032,7 @@ function MT.ImDrawList:GetClipRectMax() local cr = self._ClipRectStack:back(); r
 -- [Luau] scalar center (cx, cy); assigned to the forward-declared local, _PathArcToFastEx() wraps it
 @native
 function _PathArcToFastExXY(self, cx, cy, radius, a_min_sample, a_max_sample, a_step)
-    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
+    if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         PathLineToXY(self, cx, cy)
         return
     end
@@ -7139,7 +7138,7 @@ end
 -- 0: East, 3: South, 6: West, 9: North, 12: East
 @native
 function MT.ImDrawList:PathArcToFast(center, radius, a_min_of_12, a_max_of_12)
-    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
+    if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -7153,7 +7152,7 @@ end
 --- @param a_max        float
 --- @param num_segments int
 function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
-    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
+    if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -7181,7 +7180,7 @@ end
 function MT.ImDrawList:PathArcTo(center, radius, a_min, a_max, num_segments)
     if num_segments == nil then num_segments = 0 end
 
-    if not (radius >= 0.25 * self._FringeScale) then -- !IM_HAS_ROUNDING(radius)
+    if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
         return
     end
@@ -7260,8 +7259,6 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         y = IM_TRUNC(y)
     end
 
-    -- if not text_end then
-    -- end
 
     local line_height = size
     local baked = self:GetFontBaked(size)
@@ -7381,7 +7378,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         if gi ~= nil and gi ~= IM_FONTGLYPH_INDEX_NOT_FOUND and gi ~= IM_FONTGLYPH_INDEX_UNUSED then
             glyph = glyphs[gi]
         else
-            glyph = baked:FindGlyph(c) -- may load the glyph and grow the tables
+            glyph = baked:FindGlyph(c) -- [Port] may load the glyph and grow the tables
             lookup, lookup_n, glyphs = baked.IndexLookup.Data, baked.IndexLookup.Size, baked.Glyphs.Data
         end
 
@@ -7456,7 +7453,7 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
         draw_list:PrimUnreserve(idx_count_max, vtx_count_max)
         draw_list:AddDrawCmd()
 
-        return self:RenderText(draw_list, size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, flags) -- was `goto begin`
+        return self:RenderText(draw_list, size, pos, col, clip_rect, text, text_begin, text_end, wrap_width, flags) -- [Port] was `goto begin`
     end
 
     -- Give back unused vertices (clipped ones, blanks) ~ this is essentially a PrimUnreserve() action.
@@ -7489,7 +7486,7 @@ end
 --- @param color     ImU32
 --- @param dir       ImGuiDir
 --- @param scale?    float
-local arrow_a, arrow_b, arrow_c = ImVec2(), ImVec2(), ImVec2() -- scratch: the path is consumed by AddTriangleFilled before returning
+local arrow_a, arrow_b, arrow_c = ImVec2(), ImVec2(), ImVec2() -- [Port] scratch: the path is consumed by AddTriangleFilled before returning
 
 function ImGui.RenderArrow(draw_list, pos, color, dir, scale)
     if scale == nil then scale = 1.0 end
@@ -7765,7 +7762,7 @@ function ImGui.RenderRectFilledWithHole(draw_list, outer, inner, col, rounding)
 end
 
 -------------------------------------------------------------------------------
--- Extra path functions (elliptical arc, bezier curves) and concave fill
+-- [Port] Extra path functions (elliptical arc, bezier curves) and concave fill
 -------------------------------------------------------------------------------
 
 function MT.ImDrawList:PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments)
@@ -7878,7 +7875,7 @@ local function ImTriangulatorNode_Unlink(tri, n) tri.Prev[tri.Next[n]] = tri.Pre
 local function ImTriangulator_IsReflex(a, b, c) return ((b.x - a.x) * (c.y - b.y)) - ((c.x - b.x) * (b.y - a.y)) < 0.0 end
 
 local function ImTriangulatorNodeSpan()
-    return { Data = {}, Size = 0 } -- Data: node handles, 1-based
+    return { Data = {}, Size = 0 } -- [Port] Data: node handles, 1-based
 end
 MT.ImTriangulatorNodeSpan = {}
 MT.ImTriangulatorNodeSpan.__index = MT.ImTriangulatorNodeSpan
@@ -7890,7 +7887,7 @@ function MT.ImTriangulatorNodeSpan:find_erase_unsorted(idx) for i = self.Size, 1
 local function ImTriangulator()
     return setmetatable({
         _TrianglesLeft = 0,
-        _Nodes         = 0, -- node handle (head of the circular list)
+        _Nodes         = 0, -- [Port] node handle (head of the circular list)
         _Ears          = setmetatable(ImTriangulatorNodeSpan(), MT.ImTriangulatorNodeSpan),
         _Reflexes      = setmetatable(ImTriangulatorNodeSpan(), MT.ImTriangulatorNodeSpan),
         Type = {}, Index = {}, Pos = {}, Next = {}, Prev = {}, -- [Luau] ImTriangulatorNode fields, one array each
@@ -8321,4 +8318,4 @@ function stb_decompress(output, i, length)
 end
 end
 
-return true -- [Roblox] ModuleScripts must return exactly one value
+return true -- [Port] [Roblox] ModuleScripts must return exactly one value

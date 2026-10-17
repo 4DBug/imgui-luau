@@ -1,0 +1,20 @@
+-- Parallel raster worker (Actor LocalScript). The build inlines raster.lua for the Raster line.
+local Actor = script:GetActor()
+if not Actor then
+	return
+end
+
+local Raster = require(script.Parent:WaitForChild("Raster"))
+local Done = Actor:WaitForChild("Done")
+local Textures = {}
+
+Actor:BindToMessageParallel("job", function(Id, Prims, Tiles, TexUpdates, TileLength)
+	for _, Texture in TexUpdates do
+		Textures[Texture[1]] = { Buffer = Texture[2], Width = Texture[3], Height = Texture[4] }
+	end
+	local Results = Raster.RasterJobs(Prims, Tiles, TileLength, Textures)
+	task.synchronize()
+	Done:Fire(Id, Results)
+end)
+
+Actor:SetAttribute("Ready", true)

@@ -4,6 +4,8 @@
 #        HASHES=1 tools/test/check_all.sh   (also prints the draw-data checksums, see hashes.sh)
 cd "$(dirname "$0")/../.."
 export PATH="$PATH:/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau-0.734/bin:/nix/store/4qxq4arv32ly13kl3g0m5q80gm3a35xr-luajit-2.1.1741730670/bin"
+command -v luau >/dev/null || { l=$(ls -d /nix/store/*-luau-*/bin 2>/dev/null | tail -1); [ -n "$l" ] && export PATH="$PATH:$l"; }
+command -v luajit >/dev/null || { l=$(ls -d /nix/store/*-luajit-2*/bin 2>/dev/null | grep -v -- -env | tail -1); [ -n "$l" ] && export PATH="$PATH:$l"; }
 T=$(mktemp -d /tmp/imgui_check.XXXX)
 R="python3 tools/test/run.py --quiet --roblox --timeout 600"
 
@@ -36,7 +38,12 @@ CHECKS=(
 "demo_open|DRAWHASH|$R --main tools/test/scripts/t_drawhash.luau --frames 150 --open"
 "demo_random|^|python3 tools/test/run.py --roblox --timeout 600 --frames 400 --open"
 "pixels|PIXELS SAME|a=\$($R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo PIXELS SAME"
+"tile_bound|TILEBOUND OK|$R --main tools/test/scripts/t_tile_bound.luau --frames 200"
+"parallel|PARALLEL OK|$R --main tools/test/scripts/t_parallel.luau --frames 500"
+"pool_ctx|POOLCTX OK|$R --main tools/test/scripts/t_pool_ctx.luau --frames 60"
+"assets_scroll|ASSETS OK|$R --main tools/test/scripts/t_assets_scroll.luau --frames 1010"
 "shot|wrote|python3 tools/test/shot.py /tmp/imgui_shot.png --app"
+"registers|REGS OK|mkdir -p $T/regs && python3 tools/bundle.py $T/regs >/dev/null && h=\"\$(printf 'local _h%d = {} ' \$(seq 20))\" && grep -q \"^__FILES\\['imgui_impl_roblox.lua'\\] = function()\$\" $T/regs/ImGui.luau && for f in $T/regs/*.luau; do { echo \"\$h\"; sed \"/^__FILES\\['imgui_impl_roblox.lua'\\] = function()\$/a \$h\" \$f; } > \$f.h && luau-compile -O0 --null \$f.h || exit 1; done && ! grep -q require $T/regs/ImGuiWorker.client.luau && echo REGS OK"
 "love|DRAWHASH|python3 tools/bundle.py --target love >/dev/null && luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic && luajit tools/test/love/t_examples.lua"
 )
 

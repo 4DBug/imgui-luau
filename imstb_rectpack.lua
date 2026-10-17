@@ -1,8 +1,8 @@
 --- Dear ImGui
--- This is a Lua port of original `imstb_rectpack.h`
+-- [Port] This is a Lua port of original `imstb_rectpack.h`
 
--- ALL TABLES IN THIS FILE ARE 1-BASED!
--- Avoids table creation when possible
+-- [Port] ALL TABLES IN THIS FILE ARE 1-BASED!
+-- [Port] Avoids table creation when possible
 
 -- [DEAR IMGUI]
 -- This is a slightly modified version of stb_rect_pack.h 1.01.
@@ -272,7 +272,7 @@ function stbrp_init_target(context, width, height, nodes, num_nodes)
 end
 
 -- find minimum y position if it starts at x1
--- Returns (min_y, waste_area)
+-- [Port] Returns (min_y, waste_area)
 --- @param c stbrp_context
 --- @param first stbrp_node
 --- @param x0 int
