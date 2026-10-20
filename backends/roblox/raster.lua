@@ -49,10 +49,10 @@ local GlyphCol, GlyphGen = -1, 0
 
 -- Uniform rows: [RowX0[y], RowX1[y]) of target row y holds only the pixel value RowV[y] (empty when RowX0 >= RowX1).
 -- Set by ClearRect and by solid spans; shrunk by everything drawn over it. A solid span inside it blends one pixel and
--- fills (window/frame backgrounds over backgrounds), instead of blending every pixel. Rows [RowLo, RowHi) are set.
+-- fills (window/frame backgrounds over backgrounds), instead of blending every pixel. Only the rows of the last
+-- ClearRect are valid: drawing must stay inside it (callers clip every primitive to the cleared rect).
 local RowX0, RowX1, RowV = table.create(TILE, 0), table.create(TILE, 0), table.create(TILE, 0)
 RowX0[0], RowX1[0], RowV[0] = 0, 0, 0
-local RowLo, RowHi = 0, 0
 
 -- Drawing may change [x0, x1) x [y0, y1): keep the larger uniform piece of each row outside it
 @native
@@ -764,16 +764,12 @@ end
 -- x0 y0: target pixel stored at buf's byte 0 (a sub-rectangle target: width = its width)
 function M.SetTarget(buf: buffer, width: number, x0: number?, y0: number?)
     TargetBuffer, TargetWidth, TargetBase = buf, width, -((y0 or 0) * width + (x0 or 0)) * 4
-    for y = RowLo, RowHi - 1 do RowX1[y] = RowX0[y] end
-    RowLo, RowHi = 0, 0
 end
 
 @native
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
-    for y = RowLo, RowHi - 1 do RowX1[y] = RowX0[y] end
     for y = ry0, ry1 - 1 do RowX0[y], RowX1[y], RowV[y] = rx0, rx1, 0 end
-    RowLo, RowHi = ry0, ry1
     if rw == TargetWidth then
         buffer.fill(TargetBuffer, (ry0 * TargetWidth + rx0) * 4 + TargetBase, 0, (ry1 - ry0) * TargetWidth * 4)
     else
