@@ -222,6 +222,37 @@ function M.Snapshot(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     set.SnapOK = true
 end
 
+-- The snapshot of a list CompareDrawList found moved by (dx, dy): only its vertices, clip rects, content clip,
+-- scroll origin, primitive bounds and extents move (counts, indices, kinds are equal; Cmd* describe another list now)
+@native
+function M.ShiftSnapshot(set, draw_list, dx, dy)
+    buffer.copy(set.SnapVtx, 0, draw_list.VtxBuffer.Buf, 0, set.SnapVtxBytes)
+    local sc, o = set.SnapCmds, 0
+    for _, pcmd in draw_list.CmdBuffer:iter() do
+        local c = pcmd.ClipRect
+        writef64(sc, o, c.x)
+        writef64(sc, o + 8, c.y)
+        writef64(sc, o + 16, c.z)
+        writef64(sc, o + 24, c.w)
+        if buffer.readu8(sc, o + 53) ~= 0 then
+            buffer.writei32(sc, o + 54, buffer.readi32(sc, o + 54) + dx)
+            buffer.writei32(sc, o + 58, buffer.readi32(sc, o + 58) + dy)
+            buffer.writei32(sc, o + 62, buffer.readi32(sc, o + 62) + dx)
+            buffer.writei32(sc, o + 66, buffer.readi32(sc, o + 66) + dy)
+        end
+        o += CMD_STRIDE
+    end
+    if set.SnapHasContent then
+        set.SnapContentX0, set.SnapContentY0, set.SnapContentX1, set.SnapContentY1 = draw_list._ContentClipX0,
+            draw_list._ContentClipY0, draw_list._ContentClipX1, draw_list._ContentClipY1
+        set.SnapScrollX, set.SnapScrollY = draw_list._ScrollOriginX, draw_list._ScrollOriginY
+    end
+    set.SnapExtentX0 += dx
+    set.SnapExtentY0 += dy
+    set.SnapExtentX1 += dx
+    set.SnapExtentY1 += dy
+end
+
 -- a + d == b exactly, with no rounding in a + d (so every later "x - origin" gives the same result as before the move)
 @native
 local function ShiftedExact(a, d, b)
@@ -247,8 +278,18 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     local dx, dy = readf64(vb, 0) - readf64(sv, 0), readf64(vb, 8) - readf64(sv, 8)
     if dx ~= dx or dy ~= dy then return 0 end
     if dx == 0 and dy == 0 then
-        -- u32 loop, not readstring ==: that allocated 2 vertex-buffer strings per list per frame (GC spikes)
-        for o = 0, nv - 4, 4 do if readu32(vb, o) ~= readu32(sv, o) then return 0 end end
+        -- per vertex: x y u v as f64s + col, not readstring == (that allocated 2 vertex-buffer strings per list per
+        -- frame: GC spikes) or 9 u32s (3x slower). Equal f64s have equal bits except +-0: their sign words decide.
+        for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
+            local x, y, u, w = readf64(vb, v), readf64(vb, v + 8), readf64(vb, v + 16), readf64(vb, v + 24)
+            if x ~= readf64(sv, v) or y ~= readf64(sv, v + 8) or u ~= readf64(sv, v + 16)
+                or w ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32) then
+                return 0
+            end
+            if x == 0 or y == 0 or u == 0 or w == 0 then
+                for p = v + 4, v + 28, 8 do if readu32(vb, p) ~= readu32(sv, p) then return 0 end end
+            end
+        end
     else
         if dx ~= floor(dx) or dy ~= floor(dy) or ox ~= 0 or oy ~= 0 or not set.SnapLimitFree then return 0 end
         -- everything must stay as far from the clip limits as before (nothing newly clamped)
@@ -258,7 +299,13 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
         end
     end
     local idx, si = draw_list.IdxBuffer.Data, set.SnapIdx
-    for i = 1, ni do if idx[i] ~= si[i] then return 0 end end
+    local n4 = ni - ni % 4
+    for i = 1, n4, 4 do
+        if idx[i] ~= si[i] or idx[i + 1] ~= si[i + 1] or idx[i + 2] ~= si[i + 2] or idx[i + 3] ~= si[i + 3] then
+            return 0
+        end
+    end
+    for i = n4 + 1, ni do if idx[i] ~= si[i] then return 0 end end
     local sc, o = set.SnapCmds, 0
     local ccx0, ccy0, ccx1, ccy1 = draw_list._ContentClipX0, draw_list._ContentClipY0, draw_list._ContentClipX1,
         draw_list._ContentClipY1

@@ -14,6 +14,7 @@ local EditableImages, PB, PE, GetBackendData, UpdateTexture = Textures.EditableI
     Textures.GetBackendData, Textures.UpdateTexture
 local GetLayer, HideLayer, GetTile, DestroyLayerSet, Snapshot, CompareDrawList, ShiftLayer = Layers.GetLayer,
     Layers.HideLayer, Layers.GetTile, Layers.DestroyLayerSet, Layers.Snapshot, Layers.CompareDrawList, Layers.ShiftLayer
+local ShiftSnapshot = Layers.ShiftSnapshot
 local CmdUnclipped, CmdKind, CmdBoundsX0, CmdBoundsY0, CmdBoundsX1, CmdBoundsY1 = Layers.CmdUnclipped, Layers.CmdKind,
     Layers.CmdBoundsX0, Layers.CmdBoundsY0, Layers.CmdBoundsX1, Layers.CmdBoundsY1
 local CLIP_PAD = Layers.CLIP_PAD
@@ -533,13 +534,7 @@ local function ReuseDrawList(BackendData, set, draw_list, same, sdx, sdy, z, ox,
             end
         end
     end
-    if same == 2 then
-        Snapshot(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
-        set.SnapExtentX0 += sdx
-        set.SnapExtentY0 += sdy
-        set.SnapExtentX1 += sdx
-        set.SnapExtentY1 += sdy
-    end
+    if same == 2 then ShiftSnapshot(set, draw_list, sdx, sdy) end
     set.LastUsed = BackendData.FrameNo
     return PlaceOverlays(BackendData, draw_list, z, ox, oy)
 end
