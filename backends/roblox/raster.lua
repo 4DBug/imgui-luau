@@ -41,6 +41,11 @@ local function RowRepeats(o: number, len: number, has_prev: boolean): boolean
     return false
 end
 local RectColumns = table.create(256, 0)
+-- DrawRect's per-alpha blend cache: GlyphKey[alpha] = GlyphGen + destination value -> GlyphValue[alpha]. GlyphGen
+-- (a multiple of 2^32) changes with the vertex colour.
+local GlyphKey, GlyphValue = table.create(256, -1), table.create(256, 0)
+GlyphKey[0], GlyphValue[0] = -1, 0
+local GlyphCol, GlyphGen = -1, 0
 
 -- Uniform rows: [RowX0[y], RowX1[y]) of target row y holds only the pixel value RowV[y] (empty when RowX0 >= RowX1).
 -- Set by ClearRect and by solid spans; shrunk by everything drawn over it. A solid span inside it blends one pixel and
@@ -242,18 +247,31 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
     local cols = RectColumns
     local ident = col == 4294967295
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    local step = true
     for c = 1, ncol do
         local tx = floor((u0 + (px0 + c - 1 + 0.5 - x0) * du) * tw)
         if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
         cols[c] = tx * 4
+        if c > 1 and tx * 4 ~= cols[c - 1] + 4 then step = false end
     end
+    -- white translucent texels (font atlas): blend result cached per alpha for one destination value and colour
+    if col ~= GlyphCol then
+        GlyphCol = col
+        GlyphGen += 4294967296
+        if GlyphGen >= 4503599627370496 then -- 2^52: keys must stay exact
+            GlyphGen = 4294967296
+            for k = 0, 255 do GlyphKey[k] = -1 end
+        end
+    end
+    local gen = GlyphGen
     for y = py0, py1 - 1 do
         local ty = floor((v0 + (y + 0.5 - y0) * dv) * th)
         if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
         local trow4 = ty * tw * 4
         local o = (y * TargetWidth + px0) * 4 + TargetBase
+        local tb0 = trow4 + cols[1] - 4
         for c = 1, ncol do
-            local tv = readu32(tbuf, trow4 + cols[c])
+            local tv = readu32(tbuf, step and tb0 + c * 4 or trow4 + cols[c])
             if tv < 16777216 then
                 o += 4
                 continue
@@ -262,6 +280,17 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 writeu32(dbuf, o, tv)
                 o += 4
                 continue
+            end
+            local d, key, al = 0, -1, 0
+            if tv % 16777216 == 16777215 then
+                al = rshift(tv, 24)
+                d = readu32(dbuf, o)
+                key = gen + d
+                if GlyphKey[al] == key then
+                    writeu32(dbuf, o, GlyphValue[al])
+                    o += 4
+                    continue
+                end
             end
             -- BlendPixel inlined (same math)
             if tv ~= last_tv then
@@ -273,26 +302,34 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 fn = 1 - fa
                 fk = (1 - fa) / 255
             end
+            local v = -1
             if sa >= 255 then
-                writeu32(dbuf, o, s_opaque + 4278190080)
+                v = s_opaque + 4278190080
             elseif sa > 0 then
-                local d = readu32(dbuf, o)
+                if key < 0 then d = readu32(dbuf, o) end
                 if d < 16777216 then
-                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                    v = s_opaque + floor(sa + 0.5) * 16777216
                 else
                     local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
                     if d >= 4278190080 then
-                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
-                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                        v = floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080
                     else
                         local k = rshift(d, 24) * fk
                         local oa = fa + k
                         local inv = 1 / oa
-                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv + 0.5)
-                            + floor((sg * fa + dg * k) * inv + 0.5) * 256
-                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                        v = floor((sr * fa + dr * k) * inv + 0.5) + floor((sg * fa + dg * k) * inv + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
                     end
                 end
+            end
+            if v >= 0 then
+                writeu32(dbuf, o, v)
+            elseif key >= 0 then
+                v = d -- unchanged
+            end
+            if key >= 0 then
+                GlyphKey[al], GlyphValue[al] = key, v
             end
             o += 4
         end
