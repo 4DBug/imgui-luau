@@ -8985,6 +8985,7 @@ end
 --   Index     A:1 B:2 C:5 D:0   --> A:0 B:2 C:5 D:6
 -- See 'Metrics->Key Owners & Shortcut Routing' to visualize the result of that operation.
 --- @param rt ImGuiKeyRoutingTable
+@native
 function ImGui.UpdateKeyRoutingTable(rt)
     local g = GImGui --[[@as ImGuiContext]]
     rt.EntriesNext:resize(0)
@@ -10369,6 +10370,7 @@ end
 --- @param pos        ImVec2
 --- @param wrap_pos_x float
 --- @return float
+@native
 function ImGui.CalcWrapWidthForPos(pos, wrap_pos_x)
     if wrap_pos_x < 0.0 then
         return 0.0
@@ -10452,6 +10454,7 @@ end
 --- @param text       string
 --- @param text_end   int?
 --- @param wrap_width float
+@native
 function ImGui.RenderTextWrapped(pos, text, text_end, wrap_width)
     local g = GImGui
     local window = g.CurrentWindow
@@ -10530,6 +10533,7 @@ end
 --- @param text_size_if_known? ImVec2
 --- @param align?              ImVec2
 --- @param clip_rect?          ImRect
+@native
 function ImGui.RenderTextClipped(pos_min, pos_max, text, text_end, text_size_if_known, align, clip_rect)
     if not align then align = RenderTextClipped_align0 end
 
@@ -12078,6 +12082,7 @@ end
 --- @param flags?   ImGuiWindowFlags
 --- @return bool is_open       # The updated `open` passed in
 --- @return bool no_skip_items # You always need to call `ImGui.End()` even if false is returned
+@native
 function ImGui.Begin(name, open, flags)
     if flags == nil then flags = 0 end
 
@@ -13160,6 +13165,7 @@ end
     return open, not window.SkipItems
 end
 
+@native
 function ImGui.End()
     local g = GImGui
     local window = g.CurrentWindow
@@ -13540,6 +13546,7 @@ function ImGui.GetMergedModsFromKeys()
     return mods
 end
 
+@native
 function ImGui.UpdateKeyboardInputs()
     local g = GImGui
     local io = g.IO
@@ -13618,6 +13625,7 @@ function ImGui.UpdateKeyboardInputs()
     ImGui.UpdateKeyRoutingTable(g.KeysRoutingTable)
 end
 
+@native
 function ImGui.UpdateMouseInputs()
     local g = GImGui
     local io = g.IO
@@ -14157,6 +14165,7 @@ local function FlattenDrawDataIntoSingleLayer(builder)
     end
 end
 
+@native
 function ImGui.NewFrame()
     IM_ASSERT(GImGui ~= nil, "No current context. Did you call ImGui::CreateContext() and ImGui::SetCurrentContext() ?")
     local g = GImGui
@@ -15248,6 +15257,7 @@ end
 
 -- ATTENTION THIS IS IN LEGACY LOCAL SPACE.
 --- @param wrap_local_pos_x float
+@native
 function ImGui.PushTextWrapPos(wrap_local_pos_x)
     local g = GImGui
     local window = g.CurrentWindow
@@ -15259,6 +15269,7 @@ function ImGui.PushTextWrapPos(wrap_local_pos_x)
     dc.TextWrapPos = wrap_local_pos_x
 end
 
+@native
 function ImGui.PopTextWrapPos()
     local g = GImGui
     local window = g.CurrentWindow

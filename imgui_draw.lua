@@ -3038,6 +3038,7 @@ end
 --- @param size    float
 --- @param density float?
 --- @return ImFontBaked?
+@native
 function MT.ImFont:GetFontBaked(size, density)
     if not density then density = -1.0 end
 

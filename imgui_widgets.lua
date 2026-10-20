@@ -252,6 +252,7 @@ end
 
 --- @param fmt string
 --- @param ... any
+@native
 function ImGui.TextWrapped(fmt, ...)
     local g = GImGui
     local need_backup = (g.CurrentWindow.DC.TextWrapPos < 0.0) -- Keep existing wrap position if one is already set
@@ -822,6 +823,7 @@ end
 --- @param label     string
 --- @param size_arg? ImVec2
 --- @return bool
+@native
 function ImGui.Button(label, size_arg)
     return ImGui.ButtonEx(label, size_arg, ImGuiButtonFlags.None)
 end
@@ -3991,6 +3993,7 @@ end
 --- @param out_grab_bb ImRect
 --- @return T    v             # updated `v` passed in
 --- @return bool value_changed
+@native
 function ImGui.SliderBehaviorT(TYPE, SIGNEDTYPE, bb, id, data_type, v, v_min, v_max, format, flags, out_grab_bb)
     local g = GImGui
     local style = g.Style
@@ -4161,6 +4164,7 @@ end
 --- @param out_grab_bb ImRect
 --- @return T    v
 --- @return bool value_changed
+@native
 function ImGui.SliderBehavior(bb, id, data_type, v, min, max, format, flags, out_grab_bb)
     -- Read imgui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this assert.
     IM_ASSERT((flags == 1 or bit32.band(flags, ImGuiSliderFlags.InvalidMask_) == 0), "Invalid ImGuiSliderFlags flags! Has the legacy 'float power' argument been mistakenly cast to flags? Call function with ImGuiSliderFlags_Logarithmic flags instead.")
@@ -4244,6 +4248,7 @@ end
 --- @param max       T
 --- @param format?   string
 --- @param flags?    ImGuiSliderFlags
+@native
 function ImGui.SliderScalar(label, data_type, data, min, max, format, flags)
     if flags == nil then flags = 0 end
 
@@ -4444,6 +4449,7 @@ end
 --- @param v_max   float
 --- @param format? string
 --- @param flags?  ImGuiSliderFlags
+@native
 function ImGui.SliderFloat(label, v, v_min, v_max, format, flags)
     if format == nil then format = "%.3f" end
     if flags  == nil then flags  = 0      end

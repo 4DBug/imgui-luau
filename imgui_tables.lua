@@ -2259,6 +2259,7 @@ end
 -- [Public] Starts into the first cell of a new row
 --- @param row_flags?      ImGuiTableRowFlags
 --- @param row_min_height? float
+@native
 function ImGui.TableNextRow(row_flags, row_min_height)
     if row_flags == nil then row_flags = 0 end
     if row_min_height == nil then row_min_height = 0.0 end
@@ -2288,6 +2289,7 @@ function ImGui.TableNextRow(row_flags, row_min_height)
 end
 
 -- [Internal] Only called by TableNextRow()
+@native
 function ImGui.TableBeginRow(table_)
     local window = table_.InnerWindow
     IM_ASSERT(not table_.IsInsideRow)
@@ -2332,6 +2334,7 @@ end
 local TableEndRow_RowMin, TableEndRow_RowMax = ImVec2(), ImVec2()
 
 -- [Internal] Called by TableNextRow()
+@native
 function ImGui.TableEndRow(table_)
     local g = GImGui
     local window = g.CurrentWindow
