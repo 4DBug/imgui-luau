@@ -1025,6 +1025,10 @@ function ImFontAtlasRemoveDrawListSharedData(atlas, data)
     atlas.DrawListSharedDatas:find_erase(data)
 end
 
+-- [Luau] RectsIndex index of the entry the repack loop is re-adding: ImFontAtlasPackReuseRectEntry() checks it before
+-- searching RectsIndex (index_from_ptr is a linear search: O(n^2) per repack otherwise)
+local ImFontAtlasPackReuseIndexHint = nil
+
 --- @param atlas ImFontAtlas
 --- @param w     int
 --- @param h     int
@@ -1052,7 +1056,7 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
     local old_index = builder.RectsIndex:copy()
     old_rects:swap(builder.Rects)
 
-    for _, index_entry in builder.RectsIndex:iter() do
+    for index_n, index_entry in builder.RectsIndex:iter() do
         repeat
         if index_entry.IsUsed == false then
             break
@@ -1063,7 +1067,9 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
             break
         end
 
+        ImFontAtlasPackReuseIndexHint = index_n - 1
         local new_r_id = ImFontAtlasPackAddRect(atlas, old_r.w, old_r.h, index_entry)
+        ImFontAtlasPackReuseIndexHint = nil
         if new_r_id == ImFontAtlasRectId_Invalid then
             -- Undo, grow texture and try repacking again.
             -- FIXME-NEWATLAS-TESTS: This is a very rarely exercised path! It needs to be automatically tested properly.
@@ -1078,7 +1084,7 @@ local function ImFontAtlasTextureRepack(atlas, w, h)
             return
         end
 
-        IM_ASSERT(ImFontAtlasRectId_GetIndex(new_r_id) == builder.RectsIndex:index_from_ptr(index_entry))
+        IM_ASSERT(ImFontAtlasRectId_GetIndex(new_r_id) == index_n - 1) -- [Luau] == RectsIndex:index_from_ptr(index_entry)
 
         local new_r = ImFontAtlasPackGetRect(atlas, new_r_id)
         ImFontAtlasTextureBlockCopy(old_tex, old_r.x, old_r.y, new_tex, new_r.x, new_r.y, new_r.w, new_r.h)
@@ -1193,7 +1199,10 @@ end
 local function ImFontAtlasPackReuseRectEntry(atlas, index_entry)
     IM_ASSERT(index_entry.IsUsed)
     index_entry.TargetIndex = atlas.Builder.Rects.Size - 1
-    local index_idx = atlas.Builder.RectsIndex:index_from_ptr(index_entry)
+    local index_idx = ImFontAtlasPackReuseIndexHint
+    if index_idx == nil or atlas.Builder.RectsIndex.Data[index_idx + 1] ~= index_entry then
+        index_idx = atlas.Builder.RectsIndex:index_from_ptr(index_entry)
+    end
     return ImFontAtlasRectId_Make(index_idx, index_entry.Generation)
 end
 

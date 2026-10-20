@@ -213,7 +213,8 @@ local STBTT_fabs = math.abs
 local STBTT_ifloor = math.floor
 local STBTT_iceil = math.ceil
 
-local trunc = function(x)
+@native
+local function trunc(x)
     if x >= 0 then
         return math.floor(x)
     else
@@ -2066,11 +2067,25 @@ local function stbtt__fill_active_edges_new(scanline, scanline_fill, len, e, y_t
         if e.fdx == 0 then
             local x0 = e.fx
             if x0 < len then
-                if x0 >= 0 then
-                    stbtt__handle_clipped_edge(scanline, trunc(x0), e, x0, y_top, x0, y_bottom)
-                    stbtt__handle_clipped_edge(scanline_fill, trunc(x0) + 1, e, x0, y_top, x0, y_bottom)
-                else
-                    stbtt__handle_clipped_edge(scanline_fill, 0, e, x0, y_top, x0, y_bottom)
+                -- [Luau] the stbtt__handle_clipped_edge() calls, inlined (every edge of pixel fonts like ProggyClean is
+                -- vertical): x0 == x1, so clipping to sy/ey keeps x, and the same arithmetic gives the same results
+                local y0, y1 = y_top, y_bottom
+                local sy, ey = e.sy, e.ey
+                if y0 <= ey and y1 >= sy then
+                    if y0 < sy then y0 = sy end
+                    if y1 > ey then y1 = ey end
+                    local height = e.direction * (y1 - y0)
+                    if x0 >= 0 then
+                        local x = math.floor(x0) -- trunc(x0)
+                        if x0 <= x then
+                            scanline[x] = scanline[x] + height
+                        else
+                            scanline[x] = scanline[x] + height * (1 - ((x0 - x) + (x0 - x)) / 2)
+                        end
+                        scanline_fill[x + 1] = scanline_fill[x + 1] + height
+                    else
+                        scanline_fill[0] = scanline_fill[0] + height
+                    end
                 end
             end
         else
@@ -2615,9 +2630,12 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
     local n = 0
     local start = 0
 
+    -- [Luau] vertex types and the current vertex in locals, stbtt__add_point() inlined (same values)
+    local VTX_MOVE, VTX_LINE, VTX_CURVE, VTX_CUBIC = STBTT_VTX.MOVE, STBTT_VTX.LINE, STBTT_VTX.CURVE, STBTT_VTX.CUBIC
+
     -- count how many "moves" there are to get the contour count
     for i = 1, num_verts do
-        if vertices[i].type == STBTT_VTX.MOVE then
+        if vertices[i].type == VTX_MOVE then
             n = n + 1
         end
     end
@@ -2637,7 +2655,9 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
         num_points = 0
         n = -1
         for i = 1, num_verts do
-            if vertices[i].type == STBTT_VTX.MOVE then
+            local v = vertices[i]
+            local vtype = v.type
+            if vtype == VTX_MOVE then
                 -- start the next contour
                 if n >= 0 then
                     contour_lengths[n + 1] = num_points - start
@@ -2645,30 +2665,30 @@ local function stbtt_FlattenCurves(vertices, num_verts, objspace_flatness)
                 n = n + 1
                 start = num_points
 
-                x = vertices[i].x
-                y = vertices[i].y
-                stbtt__add_point(points, num_points, x, y)
+                x = v.x
+                y = v.y
                 num_points = num_points + 1
-            elseif vertices[i].type == STBTT_VTX.LINE then
-                x = vertices[i].x
-                y = vertices[i].y
-                stbtt__add_point(points, num_points, x, y)
+                if points then local pt = points[num_points]; pt.x = x; pt.y = y end -- stbtt__add_point()
+            elseif vtype == VTX_LINE then
+                x = v.x
+                y = v.y
                 num_points = num_points + 1
-            elseif vertices[i].type == STBTT_VTX.CURVE then
+                if points then local pt = points[num_points]; pt.x = x; pt.y = y end -- stbtt__add_point()
+            elseif vtype == VTX_CURVE then
                 num_points = stbtt__tesselate_curve(points, num_points, x, y,
-                                    vertices[i].cx, vertices[i].cy,
-                                    vertices[i].x, vertices[i].y,
+                                    v.cx, v.cy,
+                                    v.x, v.y,
                                     objspace_flatness_squared, 0)
-                x = vertices[i].x
-                y = vertices[i].y
-            elseif vertices[i].type == STBTT_VTX.CUBIC then
+                x = v.x
+                y = v.y
+            elseif vtype == VTX_CUBIC then
                 num_points = stbtt__tesselate_cubic(points, num_points, x, y,
-                                    vertices[i].cx, vertices[i].cy,
-                                    vertices[i].cx1, vertices[i].cy1,
-                                    vertices[i].x, vertices[i].y,
+                                    v.cx, v.cy,
+                                    v.cx1, v.cy1,
+                                    v.x, v.y,
                                     objspace_flatness_squared, 0)
-                x = vertices[i].x
-                y = vertices[i].y
+                x = v.x
+                y = v.y
             end
         end
         contour_lengths[n + 1] = num_points - start
