@@ -117,7 +117,7 @@ function M.GetTile(BackendData, layer, key, tx, ty)
     label.Position = UDim2.fromOffset(tx * TILE / scale, ty * TILE / scale)
     if not old or old.Active ~= BackendData.TilesActive then label.Active = BackendData.TilesActive end
     if not old or old.Parent ~= layer.Frame then label.Parent = layer.Frame end
-    -- Content*: content bounds; Valid*: where Buffer == image pixels. A recycled tile keeps both (they still describe
+    -- Content*: content bounds; Valid*: where the image pixels are current. A recycled tile keeps both (they still describe
     -- its image): its first draw is a full one (DrawnCount -1) that only clears old + new content bounds.
     if old then
         tile = old
@@ -126,7 +126,7 @@ function M.GetTile(BackendData, layer, key, tx, ty)
         tile.Scale, tile.Active, tile.Parent = scale, BackendData.TilesActive, layer.Frame
     else
         tile = {
-            Image = img, Label = label, Buffer = buffer.create(TILE * TILE * 4),
+            Image = img, Label = label,
             Hash1 = -1, Hash2 = -1, Visible = false, Used = BackendData.FrameNo,
             ContentX0 = TILE, ContentY0 = TILE, ContentX1 = 0, ContentY1 = 0,
             ValidX0 = 0, ValidY0 = 0, ValidX1 = TILE, ValidY1 = TILE,
