@@ -42,28 +42,21 @@ local function RowRepeats(o: number, len: number, has_prev: boolean): boolean
 end
 local RectColumns = table.create(256, 0)
 
--- Uniform region: [UX0, UX1) x [UY0, UY1) of the target holds only the pixel value UV (empty when UX0 >= UX1).
--- Set by ClearRect and by solid rects; shrunk by everything drawn over it. A solid rect inside it blends one pixel and
--- fills (window/frame backgrounds over backgrounds), instead of blending every pixel.
-local UX0, UY0, UX1, UY1, UV = 0, 0, 0, 0, 0
+-- Uniform rows: [RowX0[y], RowX1[y]) of target row y holds only the pixel value RowV[y] (empty when RowX0 >= RowX1).
+-- Set by ClearRect and by solid spans; shrunk by everything drawn over it. A solid span inside it blends one pixel and
+-- fills (window/frame backgrounds over backgrounds), instead of blending every pixel. Rows [RowLo, RowHi) are set.
+local RowX0, RowX1, RowV = table.create(TILE, 0), table.create(TILE, 0), table.create(TILE, 0)
+RowX0[0], RowX1[0], RowV[0] = 0, 0, 0
+local RowLo, RowHi = 0, 0
 
--- Drawing may change [x0, x1) x [y0, y1): keep the largest uniform piece outside it
+-- Drawing may change [x0, x1) x [y0, y1): keep the larger uniform piece of each row outside it
 @native
 local function Shrink(x0: number, y0: number, x1: number, y1: number)
-    if x0 >= UX1 or x1 <= UX0 or y0 >= UY1 or y1 <= UY0 or UX0 >= UX1 then return end
-    local h, w = UY1 - UY0, UX1 - UX0
-    local left, right, top, bottom = (x0 - UX0) * h, (UX1 - x1) * h, (y0 - UY0) * w, (UY1 - y1) * w
-    local best = max(left, right, top, bottom)
-    if best <= 0 then
-        UX1 = UX0
-    elseif best == left then
-        UX1 = x0
-    elseif best == right then
-        UX0 = x1
-    elseif best == top then
-        UY1 = y0
-    else
-        UY0 = y1
+    for y = y0, y1 - 1 do
+        local a, b = RowX0[y], RowX1[y]
+        if x0 < b and x1 > a then
+            if x0 - a >= b - x1 then RowX1[y] = x0 else RowX0[y] = x1 end
+        end
     end
 end
 
@@ -97,57 +90,90 @@ local function BlendPixel(TargetBuffer: buffer, o: number, r: number, g: number,
     end
 end
 
+-- Wide spans (>= 32 px) over non-uniform rows: rows usually blend over identical rows, so a row whose destination
+-- repeats the previous one's copies its result
 @native
 local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number, x1: number, r: number, g: number,
     b: number, a: number)
     if a <= 0 then return end
     local w4 = (x1 - x0 - 1) * 4
-    if x0 >= UX0 and y0 >= UY0 and x1 <= UX1 and y1 <= UY1 and a < 255 then
-        -- over one value: FillSpan's per-pixel result for d = UV, then fill
-        local d, v = UV, 0
-        if d < 16777216 then
-            v = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
-        else
-            local sa = a / 255
-            local ns = 1 - sa
-            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
-            if d >= 4278190080 then
-                v = floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
-                    + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080
-            else
-                local k = rshift(d, 24) * (ns / 255)
-                local oa = sa + k
-                local inv = 1 / oa
-                v = floor((r * sa + dr * k) * inv + 0.5) + floor((g * sa + dg * k) * inv + 0.5) * 256
-                    + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
-            end
-        end
-        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
-        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, v) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
-        UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, v
-        return
-    end
+    local span = x1 - x0
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
         for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
-        -- now uniform: keep whichever region is larger
-        local area = (x1 - x0) * (y1 - y0)
-        Shrink(x0, y0, x1, y1)
-        if area > (UX1 - UX0) * (UY1 - UY0) or UX0 >= UX1 then UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, packed end
+        -- now uniform: per row keep whichever piece is larger
+        for y = y0, y1 - 1 do
+            local ra, rb = RowX0[y], RowX1[y]
+            if x0 < rb and x1 > ra then
+                if x0 - ra >= rb - x1 then rb = x0 else ra = x1 end
+            end
+            if span > rb - ra then RowX0[y], RowX1[y], RowV[y] = x0, x1, packed else RowX0[y], RowX1[y] = ra, rb end
+        end
         return
     end
-    Shrink(x0, y0, x1, y1)
     local packed0 = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
     local sa = a / 255
     local ns = 1 - sa
     local c1 = ns / 255
     local rs, gs, bs = r * sa, g * sa, b * sa
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
+    local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
+    local wide, has_prev = span >= 32 and y1 - y0 > 1, false
     for y = y0, y1 - 1 do
         local o0 = (y * TargetWidth + x0) * 4 + TargetBase
+        local ra, rb = RowX0[y], RowX1[y]
+        if x0 >= ra and x1 <= rb then
+            -- over one value: the per-pixel result for d = RowV[y], then fill
+            local d = RowV[y]
+            if d ~= last_d then
+                last_d = d
+                if d < 16777216 then
+                    last_v = packed0
+                else
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        last_v = floor(rs + dr * ns + 0.5) + floor(gs + dg * ns + 0.5) * 256
+                            + floor(bs + db * ns + 0.5) * 65536 + 4278190080
+                    else
+                        local k = rshift(d, 24) * c1
+                        local oa = sa + k
+                        local inv = 1 / oa
+                        last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                            + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                end
+            end
+            local v = last_v
+            if v == prev_v and span > 8 then -- (a call: slower than a few writes)
+                buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
+            else
+                for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+            end
+            prev_o, prev_v, has_prev = o0, v, false
+            if span >= x0 - ra and span >= rb - x1 then
+                RowX0[y], RowX1[y], RowV[y] = x0, x1, v
+            elseif x0 - ra >= rb - x1 then
+                RowX1[y] = x0
+            else
+                RowX0[y] = x1
+            end
+            continue
+        end
+        if x0 < rb and x1 > ra then
+            if x0 - ra >= rb - x1 then RowX1[y] = x0 else RowX0[y] = x1 end
+        end
+        if wide then
+            local repeats = RowRepeats(o0, w4 + 4, has_prev)
+            has_prev = true
+            if repeats then
+                buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
+                prev_o, prev_v = o0, -1
+                continue
+            end
+        end
+        prev_o, prev_v = o0, -1
         for o = o0, o0 + w4, 4 do
             local d = readu32(TargetBuffer, o)
             if d == last_d then
@@ -204,23 +230,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
             r, g, b, a = r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255
         end
         if a <= 0 then return end
-        if a >= 255 or px1 - px0 < 32 or (px0 >= UX0 and py0 >= UY0 and px1 <= UX1 and py1 <= UY1) then
-            FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
-            return
-        end
-        -- Wide translucent rect: rows usually blend over identical rows, so copy the previous row's result
-        Shrink(px0, py0, px1, py1)
-        local len = (px1 - px0) * 4
-        local prev_o = 0
-        for y = py0, py1 - 1 do
-            local o = (y * TargetWidth + px0) * 4 + TargetBase
-            if RowRepeats(o, len, y > py0) then
-                buffer.copy(TargetBuffer, o, TargetBuffer, prev_o, len)
-            else
-                FillSpan(TargetBuffer, y, y + 1, px0, px1, r, g, b, a)
-            end
-            prev_o = o
-        end
+        FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
         return
     end
 
@@ -306,7 +316,6 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local minx, maxx = max(floor(min(x0, x1, x2)), cx0), min(ceil(max(x0, x1, x2)), cx1 - 1)
     local miny, maxy = max(floor(min(y0, y1, y2)), cy0), min(ceil(max(y0, y1, y2)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
-    Shrink(minx, miny, maxx + 1, maxy + 1)
 
     local A0, B0 = y1 - y2, x2 - x1
     local C0 = -(A0 * x1 + B0 * y1)
@@ -359,6 +368,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         -- pixel blended once, so the order does not matter): no empty-row passes
         local m0, m1, m2 = B0 ~= 0 and -1 / B0 or 0, B1 ~= 0 and -1 / B1 or 0, B2 ~= 0 and -1 / B2 or 0
         local stride = TargetWidth * 4
+        Shrink(minx, miny, maxx + 1, maxy + 1)
         for x = minx, maxx do
             local px = x + 0.5
             local yt, yb = miny, maxy
@@ -443,6 +453,10 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
+        local ra_, rb_ = RowX0[y], RowX1[y] -- Shrink for this row's span
+        if xl < rb_ and xr >= ra_ then
+            if xl - ra_ >= rb_ - xr - 1 then RowX1[y] = xl else RowX0[y] = xr + 1 end
+        end
         local o = (y * TargetWidth + xl) * 4 + TargetBase
         if flat then
             local o1 = o + (xr - xl) * 4
@@ -713,13 +727,16 @@ end
 -- x0 y0: target pixel stored at buf's byte 0 (a sub-rectangle target: width = its width)
 function M.SetTarget(buf: buffer, width: number, x0: number?, y0: number?)
     TargetBuffer, TargetWidth, TargetBase = buf, width, -((y0 or 0) * width + (x0 or 0)) * 4
-    UX1 = UX0
+    for y = RowLo, RowHi - 1 do RowX1[y] = RowX0[y] end
+    RowLo, RowHi = 0, 0
 end
 
 @native
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
-    UX0, UY0, UX1, UY1, UV = rx0, ry0, rx1, ry1, 0
+    for y = RowLo, RowHi - 1 do RowX1[y] = RowX0[y] end
+    for y = ry0, ry1 - 1 do RowX0[y], RowX1[y], RowV[y] = rx0, rx1, 0 end
+    RowLo, RowHi = ry0, ry1
     if rw == TargetWidth then
         buffer.fill(TargetBuffer, (ry0 * TargetWidth + rx0) * 4 + TargetBase, 0, (ry1 - ry0) * TargetWidth * 4)
     else
