@@ -99,7 +99,7 @@ function ImGui.TextEx(text, text_end, flags)
 
     -- Calculate length
     if text_end == nil then
-        text_end = #text + 1
+        text_end = (type(text) == "string" and string.len(text) or #text) + 1 -- [Luau] `#` on a string isn't a native fast path
     end
 
     local dc = window.DC

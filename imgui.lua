@@ -10406,12 +10406,18 @@ end
 @native
 function ImGui.FindRenderedTextEnd(text, text_end)
     local text_display_end = 1
-    local text_len = #text
-    if not text_end then
-        text_end = text_len + 1
+    if type(text) == "string" then
+        -- [Luau] inline ImMemchr() for strings; string.len(): `#` on a string isn't a native fast path
+        if not text_end then
+            text_end = string.len(text) + 1
+        end
+        text_display_end = string.find(text, "##", 1, true) or text_end
+    else
+        if not text_end then
+            text_end = #text + 1
+        end
+        text_display_end = ImMemchr(text, "##", 1) or text_end
     end
-
-    text_display_end = ImMemchr(text, "##", 1) or text_end
     text_display_end = math.min(text_display_end, text_end) -- [Luau] scalar ImMin()
 
     return text_display_end
@@ -12083,7 +12089,6 @@ end
 --- @param flags?   ImGuiWindowFlags
 --- @return bool is_open       # The updated `open` passed in
 --- @return bool no_skip_items # You always need to call `ImGui.End()` even if false is returned
-@native
 function ImGui.Begin(name, open, flags)
     if flags == nil then flags = 0 end
 
@@ -13166,7 +13171,6 @@ end
     return open, not window.SkipItems
 end
 
-@native
 function ImGui.End()
     local g = GImGui
     local window = g.CurrentWindow
@@ -13628,7 +13632,6 @@ function ImGui.UpdateKeyboardInputs()
     ImGui.UpdateKeyRoutingTable(g.KeysRoutingTable)
 end
 
-@native
 function ImGui.UpdateMouseInputs()
     local g = GImGui
     local io = g.IO
@@ -13998,9 +14001,9 @@ end
 --- @return ImGuiWindow
 @native
 function ImGui.GetCurrentWindow()
-    local g = GImGui
-    g.CurrentWindow.WriteAccessed = true
-    return g.CurrentWindow
+    local window = GImGui.CurrentWindow -- [Luau] one read: CurrentWindow sits in a hash slot the inline cache can't predict
+    window.WriteAccessed = true
+    return window
 end
 
 -- Push a clipping rectangle for both ImGui logic (hit-testing etc.) and low-level ImDrawList rendering.
@@ -14168,7 +14171,6 @@ local function FlattenDrawDataIntoSingleLayer(builder)
     end
 end
 
-@native
 function ImGui.NewFrame()
     IM_ASSERT(GImGui ~= nil, "No current context. Did you call ImGui::CreateContext() and ImGui::SetCurrentContext() ?")
     local g = GImGui
@@ -14700,7 +14702,8 @@ end
 --- @return ImVec2
 @native
 function ImGui.CalcTextSize(text, text_end, hide_text_after_double_hash, wrap_width)
-    return ImGui.CalcTextSizeEx(text, 1, text_end, hide_text_after_double_hash, wrap_width)
+    local x, y = ImGui.CalcTextSizeXY(text, 1, text_end, hide_text_after_double_hash, wrap_width) -- [Luau] inline CalcTextSizeEx()
+    return ImVec2(x, y)
 end
 
 --- @param text                         ImString
