@@ -6,8 +6,7 @@ local Overlays = IM_INCLUDE("roblox/overlays.lua")
 
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
 local readu32, readf64 = buffer.readu32, buffer.readf64
-local SetTarget, ClearRect, DrawPrim, CopySubRect = Raster.SetTarget, Raster.ClearRect, Raster.DrawPrim,
-    Raster.CopySubRect
+local SetTarget, ClearRect, DrawPrim = Raster.SetTarget, Raster.ClearRect, Raster.DrawPrim
 local TILE = Raster.TILE
 local TILE_SIZE = Vector2.new(TILE, TILE)
 local EditableImages, PB, PE, GetBackendData, UpdateTexture = Textures.EditableImages, Textures.PB, Textures.PE,
@@ -398,14 +397,12 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
     end
 end
 
--- WritePixelsBuffer needs the exact size: partial upload buffers are reused by size
+-- WritePixelsBuffer needs the exact size: a rect is rasterized straight into an upload buffer of its size (reused by
+-- size; the whole tile: TileBuffer). One small buffer stays in cache, unlike a 64 KB buffer per tile.
+local TileBuffer = buffer.create(TILE * TILE * 4)
 local SubBuffers, SubBufferCount = {}, 0
-local function UploadRect(img, buf, rx0, ry0, rx1, ry1)
-    local rw, rh = rx1 - rx0, ry1 - ry0
-    if rw == TILE and rh == TILE then
-        img:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
-        return
-    end
+local function RectBuffer(rw, rh)
+    if rw == TILE and rh == TILE then return TileBuffer end
     local sk = rw * 1024 + rh
     local sub = SubBuffers[sk]
     if not sub then
@@ -417,8 +414,7 @@ local function UploadRect(img, buf, rx0, ry0, rx1, ry1)
         SubBuffers[sk] = sub
         SubBufferCount += 1
     end
-    CopySubRect(sub, rx0, ry0, rw, rh)
-    img:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), sub)
+    return sub
 end
 
 local function RedrawTile(BackendData, layer, key, tile, count, x0, y0, ox, oy, force, exposed, vx0, vy0, vx1, vy1)
@@ -436,18 +432,24 @@ local function RedrawTile(BackendData, layer, key, tile, count, x0, y0, ox, oy, 
         Parallel.Tile(tile.Image, list, count, x0, y0, tox, toy, RectCount)
         return
     end
-    SetTarget(tile.Buffer, TILE)
     local DX0, DY0, DX1, DY1 = EditableImages.DX0, EditableImages.DY0, EditableImages.DX1, EditableImages.DY1
     for r = 1, RectCount do
         local rx0, ry0, rx1, ry1 = DX0[r], DY0[r], DX1[r], DY1[r]
+        local rw, rh = rx1 - rx0, ry1 - ry0
+        local buf = RectBuffer(rw, rh)
+        SetTarget(buf, rw, rx0, ry0)
         RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
         PB("ImGui upload")
         local t_up = Timing and os.clock()
         if Timing then
-            Timing.PixelsRasterized += (rx1 - rx0) * (ry1 - ry0)
+            Timing.PixelsRasterized += rw * rh
             Timing.Uploads += 1
         end
-        UploadRect(tile.Image, tile.Buffer, rx0, ry0, rx1, ry1)
+        if buf == TileBuffer then
+            tile.Image:WritePixelsBuffer(Vector2.zero, TILE_SIZE, buf)
+        else
+            tile.Image:WritePixelsBuffer(Vector2.new(rx0, ry0), Vector2.new(rw, rh), buf)
+        end
         if Timing then Timing.Upload += os.clock() - t_up end
         PE()
     end

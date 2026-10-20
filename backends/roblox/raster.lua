@@ -17,7 +17,9 @@ local M = {
 }
 local TILE = M.TILE
 
-local TargetBuffer: buffer, TargetWidth = buffer.create(0), 0
+-- Pixel (x, y) of the target is at byte (y * TargetWidth + x) * 4 + TargetBase: a target can be a sub-rectangle of the
+-- tile (raster straight into the upload buffer)
+local TargetBuffer: buffer, TargetWidth, TargetBase = buffer.create(0), 0, 0
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -120,17 +122,17 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
                     + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
             end
         end
-        local first = (y0 * TargetWidth + x0) * 4
+        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, v) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
         UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, v
         return
     end
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
-        local first = (y0 * TargetWidth + x0) * 4
+        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
+        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
         -- now uniform: keep whichever region is larger
         local area = (x1 - x0) * (y1 - y0)
         Shrink(x0, y0, x1, y1)
@@ -145,7 +147,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     local rs, gs, bs = r * sa, g * sa, b * sa
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
     for y = y0, y1 - 1 do
-        local o0 = (y * TargetWidth + x0) * 4
+        local o0 = (y * TargetWidth + x0) * 4 + TargetBase
         for o = o0, o0 + w4, 4 do
             local d = readu32(TargetBuffer, o)
             if d == last_d then
@@ -211,7 +213,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         local len = (px1 - px0) * 4
         local prev_o = 0
         for y = py0, py1 - 1 do
-            local o = (y * TargetWidth + px0) * 4
+            local o = (y * TargetWidth + px0) * 4 + TargetBase
             if RowRepeats(o, len, y > py0) then
                 buffer.copy(TargetBuffer, o, TargetBuffer, prev_o, len)
             else
@@ -239,7 +241,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
         local ty = floor((v0 + (y + 0.5 - y0) * dv) * th)
         if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
         local trow4 = ty * tw * 4
-        local o = (y * TargetWidth + px0) * 4
+        local o = (y * TargetWidth + px0) * 4 + TargetBase
         for c = 1, ncol do
             local tv = readu32(tbuf, trow4 + cols[c])
             if tv < 16777216 then
@@ -381,7 +383,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 yb -= 1
             end
             if yt > yb then continue end
-            local o = (yt * TargetWidth + x) * 4
+            local o = (yt * TargetWidth + x) * 4 + TargetBase
             if flat then
                 for _ = yt, yb do
                     BlendPixel(dbuf, o, ra, ga, ba, aa)
@@ -441,7 +443,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
-        local o = (y * TargetWidth + xl) * 4
+        local o = (y * TargetWidth + xl) * 4 + TargetBase
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
@@ -617,7 +619,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
-        local o = (y * TargetWidth + xl) * 4
+        local o = (y * TargetWidth + xl) * 4 + TargetBase
         local wrow = WB * py + WC
         for x = xl, xr do
             local w = WA * (x + 0.5) + wrow
@@ -690,7 +692,7 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
         local opaque = aa >= 255 and ab >= 255
         local prev_o = 0
         for y = py0, py1 - 1 do
-            local o = (y * TargetWidth + px0) * 4
+            local o = (y * TargetWidth + px0) * 4 + TargetBase
             if y > py0 and (opaque or RowRepeats(o, len, true))
                 or (y == py0 and not opaque and RowRepeats(o, len, false)) then
                 buffer.copy(TargetBuffer, o, TargetBuffer, prev_o, len)
@@ -708,8 +710,9 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
     end
 end
 
-function M.SetTarget(buf: buffer, width: number)
-    TargetBuffer, TargetWidth = buf, width
+-- x0 y0: target pixel stored at buf's byte 0 (a sub-rectangle target: width = its width)
+function M.SetTarget(buf: buffer, width: number, x0: number?, y0: number?)
+    TargetBuffer, TargetWidth, TargetBase = buf, width, -((y0 or 0) * width + (x0 or 0)) * 4
     UX1 = UX0
 end
 
@@ -718,16 +721,9 @@ function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
     UX0, UY0, UX1, UY1, UV = rx0, ry0, rx1, ry1, 0
     if rw == TargetWidth then
-        buffer.fill(TargetBuffer, ry0 * TargetWidth * 4, 0, (ry1 - ry0) * TargetWidth * 4)
+        buffer.fill(TargetBuffer, (ry0 * TargetWidth + rx0) * 4 + TargetBase, 0, (ry1 - ry0) * TargetWidth * 4)
     else
-        for y = ry0, ry1 - 1 do buffer.fill(TargetBuffer, (y * TargetWidth + rx0) * 4, 0, rw * 4) end
-    end
-end
-
-@native
-function M.CopySubRect(dst: buffer, rx0: number, ry0: number, rw: number, rh: number)
-    for y = 0, rh - 1 do
-        buffer.copy(dst, y * rw * 4, TargetBuffer, ((ry0 + y) * TargetWidth + rx0) * 4, rw * 4)
+        for y = ry0, ry1 - 1 do buffer.fill(TargetBuffer, (y * TargetWidth + rx0) * 4 + TargetBase, 0, rw * 4) end
     end
 end
 
@@ -754,13 +750,12 @@ local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, v
 end
 M.DrawPrim = DrawPrim
 
--- Packed tile jobs -> one exact-size buffer per rect, in job order (worker + main-thread fallback)
-local Scratch = buffer.create(TILE * TILE * 4)
+-- Packed tile jobs -> one exact-size buffer per rect (rasterized straight into it), in job order (worker + main-thread
+-- fallback)
 @native
 function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
-    local ClearRect, CopySubRect = M.ClearRect, M.CopySubRect
+    local ClearRect, SetTarget = M.ClearRect, M.SetTarget
     local REC_A, REC_B, REC_C, REC_D = M.REC_A, M.REC_B, M.REC_C, M.REC_D
-    M.SetTarget(Scratch, TILE)
     local out, no = {}, 0
     local o = 0
     while o < tlen do
@@ -772,6 +767,9 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
         for r = 0, nr - 1 do
             local rx0, ry0, rx1, ry1 = readi32(T, ro + r * 16), readi32(T, ro + r * 16 + 4),
                 readi32(T, ro + r * 16 + 8), readi32(T, ro + r * 16 + 12)
+            local rw, rh = rx1 - rx0, ry1 - ry0
+            local sub = buffer.create(rw * rh * 4)
+            SetTarget(sub, rw, rx0, ry0)
             ClearRect(rx0, ry0, rx1, ry1)
             for k = 0, count - 1 do
                 local q = readi32(T, po + k * 4)
@@ -785,9 +783,6 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
                 if tid >= 0 then t = textures[tid] end
                 DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, q + REC_D, tox, toy, cx0, cy0, cx1, cy1)
             end
-            local rw, rh = rx1 - rx0, ry1 - ry0
-            local sub = buffer.create(rw * rh * 4)
-            CopySubRect(sub, rx0, ry0, rw, rh)
             no += 1
             out[no] = sub
         end
