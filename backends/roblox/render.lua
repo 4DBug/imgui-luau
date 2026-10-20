@@ -32,8 +32,10 @@ local MAX_DEFER_FRAMES = 8 -- a changed tile is redrawn at the latest this many 
 local PrimA, PrimB, PrimC, PrimD, PrimTexture, PrimGradient = {}, {}, {}, {}, {}, {}
 local PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1 = {}, {}, {}, {}
 local PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1 = {}, {}, {}, {}
-local PrimTexId, PrimVtxBuffer, PrimKind = {}, {}, {}
+local PrimTexId, PrimVtxBuffer = {}, {}
+-- the current draw list's primitives per layer kind (filled by CollectPrims): count, and min bounds for kinds 1 and 3
 local LayerPrims1, LayerPrims2, LayerPrims3 = {}, {}, {}
+local Kind1Count, Kind2Count, Kind3Count, Kind1X, Kind1Y, Kind3X, Kind3Y = 0, 0, 0, 0, 0, 0, 0
 M.PrimA, M.PrimB, M.PrimC, M.PrimD = PrimA, PrimB, PrimC, PrimD
 M.PrimTexture, M.PrimGradient = PrimTexture, PrimGradient
 M.PrimClipX0, M.PrimClipY0, M.PrimClipX1, M.PrimClipY1 = PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1
@@ -68,16 +70,9 @@ function EditableImages.AddRect(n: number, a: number, b: number, c: number, d: n
     return n
 end
 
-@native
-local function HashVertex(h1: number, h2: number, vbuf: buffer, v: number, ox: number, oy: number)
-    local x, y = readf64(vbuf, v) - ox, readf64(vbuf, v + 8) - oy
-    local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
-    local c = readu32(vbuf, v + 32)
-    -- one % per hash: h < 2^31, so h * 48271 + the terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
-    h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
-    h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
-    return h1, h2
-end
+-- HashTiles scratch, per touched tile (slot = its index in layer.Touched): tile key -> slot, its list, count, hashes
+local KeySlot, SlotCount, SlotHash1, SlotHash2 = {}, {}, {}, {}
+local SlotList, SlotListHash1, SlotListHash2, SlotListFlat = {}, {}, {}, {}
 
 @native
 local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
@@ -86,8 +81,8 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
     local TileListHash1, TileListHash2, TileListFlat = layer.TileListHash1, layer.TileListHash2, layer.TileListFlat
     for k = 1, layer.TouchedCount do TileCounts[Touched[k]] = 0 end
     local TouchedCount = 0
-    local CurKey, CurCount, CurHash1, CurHash2, CurList, CurListHash1, CurListHash2, CurListFlat =
-        nil, 0, 0, 0, nil, nil, nil, nil
+    local CurKey, CurSlot, CurCount, CurHash1, CurHash2, CurList, CurListHash1, CurListHash2, CurListFlat =
+        -1, 0, 0, 0, 0, nil, nil, nil, nil
     local TileXs, TileYs = layer.TileX, layer.TileY
     for pi = 1, np do
         local p = plist[pi]
@@ -108,32 +103,38 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
         end
         local h1, h2 = 0, 0
         local FlatSig = -1
-        if FlatRect then FlatSig = ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1 end
-        if not FlatRect then
+        if FlatRect then
+            FlatSig = ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
+        else
             h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
             h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
             local vax, vay = lx0 + ox, ly0 + oy
+            -- vertices: triangle a, b, c; axis aligned quad a, c (CollectPrims checked that b, d follow from them + kind);
+            -- line quad (any shape) a, c, b, d. The kind is mixed in after the second vertex.
+            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
             if vd then
-                -- axis aligned quad: CollectPrims checked that TR/BL follow from TL/BR (+ kind)
-                h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
-                h1, h2 = HashVertex(h1, h2, vbuf, PrimC[p], vax, vay)
-                local gk = PrimGradient[p]
-                if gk then
+                nv = gk == 3 and 4 or 2
+            else
+                v2, v3 = v3, v2
+            end
+            local v = va
+            for k = 1, nv do
+                if k == 2 then v = v2 elseif k == 3 then v = v3 elseif k == 4 then v = vd end
+                -- inlined (a call per vertex costs more than the hash): one % per hash, h < 2^31, so h * 48271 + the
+                -- terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
+                local x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
+                local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+                local c = readu32(vbuf, v + 32)
+                h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+                h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+                if k == 2 and gk then
                     h1 = (h1 * 48271 + gk) % P1
                     h2 = (h2 * 16807 + gk * 3) % P2
                 end
-                if gk == 3 then -- line quad: any shape
-                    h1, h2 = HashVertex(h1, h2, vbuf, PrimB[p], vax, vay)
-                    h1, h2 = HashVertex(h1, h2, vbuf, vd, vax, vay)
-                end
-            else
-                h1, h2 = HashVertex(h1, h2, vbuf, va, vax, vay)
-                h1, h2 = HashVertex(h1, h2, vbuf, PrimB[p], vax, vay)
-                h1, h2 = HashVertex(h1, h2, vbuf, PrimC[p], vax, vay)
             end
         end
-        for ty = floor((PrimBoundsY0[p] - ly0) / TILE), floor((PrimBoundsY1[p] - 1 - ly0) / TILE) do
-            for tx = floor((PrimBoundsX0[p] - lx0) / TILE), floor((PrimBoundsX1[p] - 1 - lx0) / TILE) do
+        for ty = cy0 // TILE, (cy1 - 1) // TILE do
+            for tx = cx0 // TILE, (cx1 - 1) // TILE do
                 if FlatRect then
                     local tx0, ty0 = tx * TILE, ty * TILE
                     local ix0, iy0 = max(cx0 - tx0, 0), max(cy0 - ty0, 0)
@@ -145,13 +146,15 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                 -- unique for |tx|, |ty| < 32768 (content tiles go negative)
                 local key = (ty + 32768) * 65536 + tx + 32768
                 if key ~= CurKey then
-                    if CurKey then
-                        TileCounts[CurKey], TileHash1[CurKey], TileHash2[CurKey] = CurCount, CurHash1, CurHash2
+                    -- consecutive primitives often alternate between tiles: the tile's state is in slot arrays
+                    if CurSlot > 0 then
+                        SlotCount[CurSlot], SlotHash1[CurSlot], SlotHash2[CurSlot] = CurCount, CurHash1, CurHash2
                     end
                     CurKey = key
-                    CurCount = TileCounts[key]
-                    if not CurCount or CurCount == 0 then
-                        CurCount, CurHash1, CurHash2 = 0, 0, 0
+                    local slot = KeySlot[key]
+                    if slot then
+                        CurCount, CurHash1, CurHash2 = SlotCount[slot], SlotHash1[slot], SlotHash2[slot]
+                    else
                         if not TileLists[key] then
                             local ListPool = EditableImages.ListPool
                             local m = #ListPool
@@ -167,13 +170,17 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                             end
                         end
                         TouchedCount = TouchedCount + 1
-                        Touched[TouchedCount] = key
+                        slot = TouchedCount
+                        KeySlot[key] = slot
+                        Touched[slot] = key
                         TileXs[key], TileYs[key] = tx, ty
-                    else
-                        CurHash1, CurHash2 = TileHash1[key], TileHash2[key]
+                        SlotList[slot], SlotListHash1[slot], SlotListHash2[slot], SlotListFlat[slot] =
+                            TileLists[key], TileListHash1[key], TileListHash2[key], TileListFlat[key]
+                        CurCount, CurHash1, CurHash2 = 0, 0, 0
                     end
+                    CurSlot = slot
                     CurList, CurListHash1, CurListHash2, CurListFlat =
-                        TileLists[key], TileListHash1[key], TileListHash2[key], TileListFlat[key]
+                        SlotList[slot], SlotListHash1[slot], SlotListHash2[slot], SlotListFlat[slot]
                 end
                 CurCount += 1
                 CurList[CurCount], CurListHash1[CurCount], CurListHash2[CurCount], CurListFlat[CurCount] =
@@ -183,7 +190,12 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
             end
         end
     end
-    if CurKey then TileCounts[CurKey], TileHash1[CurKey], TileHash2[CurKey] = CurCount, CurHash1, CurHash2 end
+    if CurSlot > 0 then SlotCount[CurSlot], SlotHash1[CurSlot], SlotHash2[CurSlot] = CurCount, CurHash1, CurHash2 end
+    for slot = 1, TouchedCount do
+        local key = Touched[slot]
+        TileCounts[key], TileHash1[key], TileHash2[key] = SlotCount[slot], SlotHash1[slot], SlotHash2[slot]
+        KeySlot[key] = nil
+    end
     layer.TouchedCount = TouchedCount
     return TouchedCount
 end
@@ -539,7 +551,7 @@ local function ReuseDrawList(BackendData, set, draw_list, same, sdx, sdy, z, ox,
     return PlaceOverlays(BackendData, draw_list, z, ox, oy)
 end
 
--- Collects primitives into Prim* (from n + 1) and commands into Cmd*; returns n, LimitFree and the extents
+-- Collects primitives into Prim* (from n + 1), LayerPrims* and commands into Cmd*; returns n, LimitFree and the extents
 @native
 local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1)
     local vbuf, idx = draw_list.VtxBuffer.Buf, draw_list.IdxBuffer.Data
@@ -554,6 +566,8 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
         ex0, ey0, ex1, ey1 = min(ex0, a), min(ey0, b), max(ex1, c), max(ey1, d)
     end
     local ci = 0
+    local c1, c2, c3 = 0, 0, 0
+    local k1x, k1y, k3x, k3y = math.huge, math.huge, math.huge, math.huge
     for _, pcmd in draw_list.CmdBuffer:iter() do
         ci += 1
         CmdUnclipped[ci], CmdKind[ci] = false, 0
@@ -603,26 +617,13 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                         local d = (vo + idx[i + 5] - 1) * VTX_STRIDE
                         local pdx, pdy = readf64(vbuf, d), readf64(vbuf, d + 8)
                         local col = readu32(vbuf, va + 32)
-                        if t and readu32(vbuf, vb + 32) == col and readu32(vbuf, vc + 32) == col
-                            and readu32(vbuf, d + 32) == col then
-                            -- textured line quad (ImPlot PrimLine): uv a = b, c = d, u a ~= u c (else a textured rect may match)
-                            local tax, tay, tcx, tcy = readf64(vbuf, va + 16), readf64(vbuf, va + 24),
-                                readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
-                            if tax ~= tcx and readf64(vbuf, vb + 16) == tax
-                                and readf64(vbuf, vb + 24) == tay and readf64(vbuf, d + 16) == tcx
-                                and readf64(vbuf, d + 24) == tcy then
-                                vd, gk = d, 3
-                                bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
-                                bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
-                                by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
-                            end
-                        end
-                        if not vd and pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
-                            local col, colb, colc, cold = readu32(vbuf, va + 32), readu32(vbuf, vb + 32),
-                                readu32(vbuf, vc + 32), readu32(vbuf, d + 32)
-                            local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
+                        local colb, colc, cold = readu32(vbuf, vb + 32), readu32(vbuf, vc + 32), readu32(vbuf, d + 32)
+                        local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
+                        local tcx, tcy = readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
+                        -- axis aligned rect, then textured line quad: never both (a rect with one colour has u b = u c,
+                        -- a line quad u a = u b ~= u c), so the order doesn't change the result
+                        if pay == pby and pbx == pcx and pcy == pdy and pdx == pax and pax < pbx and pay < pdy then
                             local tbx, tby = readf64(vbuf, vb + 16), readf64(vbuf, vb + 24)
-                            local tcx, tcy = readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
                             local tdx, tdy = readf64(vbuf, d + 16), readf64(vbuf, d + 24)
                             if colb == col and colc == col and cold == col then
                                 if tbx == tcx and tby == tay and tdx == tax and tdy == tcy then vd = d end
@@ -641,6 +642,15 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                                 bx1, by1 = ceil(pcx - ox - 0.5), ceil(pcy - oy - 0.5)
                             end
                         end
+                        -- textured line quad (ImPlot PrimLine): uv a = b, c = d, u a ~= u c
+                        if not vd and t and colb == col and colc == col and cold == col and tax ~= tcx
+                            and readf64(vbuf, vb + 16) == tax and readf64(vbuf, vb + 24) == tay
+                            and readf64(vbuf, d + 16) == tcx and readf64(vbuf, d + 24) == tcy then
+                            vd, gk = d, 3
+                            bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
+                            bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
+                            by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
+                        end
                     end
                     if vd then
                         i = i + 6
@@ -649,16 +659,10 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                         bx1, by1 = ceil(max(pax, pbx, pcx) - ox) + 1, ceil(max(pay, pby, pcy) - oy) + 1
                         i = i + 3
                     end
-                    if bx0 < cx0 or by0 < cy0 or bx1 > cx1 or by1 > cy1 then CmdFree = false end
                     if bx0 < cex0 then cex0 = bx0 end
                     if by0 < cey0 then cey0 = by0 end
                     if bx1 > cex1 then cex1 = bx1 end
                     if by1 > cey1 then cey1 = by1 end
-                    if bx0 < ex0 then ex0 = bx0 end
-                    if by0 < ey0 then ey0 = by0 end
-                    if bx1 > ex1 then ex1 = bx1 end
-                    if by1 > ey1 then ey1 = by1 end
-                    if bx0 < LimitX0 or by0 < LimitY0 or bx1 > LimitX1 or by1 > LimitY1 then LimitFree = false end
                     if bx0 < cx0 then bx0 = cx0 end
                     if by0 < cy0 then by0 = cy0 end
                     if bx1 > cx1 then bx1 = cx1 end
@@ -669,41 +673,42 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                             PrimVtxBuffer[n] = va, vb, vc, vd, t, gk, tex_id, vbuf
                         PrimClipX0[n], PrimClipY0[n], PrimClipX1[n], PrimClipY1[n] = cx0, cy0, cx1, cy1
                         PrimBoundsX0[n], PrimBoundsY0[n], PrimBoundsX1[n], PrimBoundsY1[n] = bx0, by0, bx1, by1
-                        PrimKind[n] = kind
+                        if kind == 2 then
+                            c2 += 1
+                            LayerPrims2[c2] = n
+                        elseif kind == 1 then
+                            c1 += 1
+                            LayerPrims1[c1] = n
+                            if bx0 < k1x then k1x = bx0 end
+                            if by0 < k1y then k1y = by0 end
+                        else
+                            c3 += 1
+                            LayerPrims3[c3] = n
+                            if bx0 < k3x then k3x = bx0 end
+                            if by0 < k3y then k3y = by0 end
+                        end
                     end
                 end
+                -- per command, from the bounds of all its primitives: one clipped, one past the limits, the extents
+                if cex0 < cx0 or cey0 < cy0 or cex1 > cx1 or cey1 > cy1 then CmdFree = false end
+                if cex0 < LimitX0 or cey0 < LimitY0 or cex1 > LimitX1 or cey1 > LimitY1 then LimitFree = false end
+                if cex0 < ex0 then ex0 = cex0 end
+                if cey0 < ey0 then ey0 = cey0 end
+                if cex1 > ex1 then ex1 = cex1 end
+                if cey1 > ey1 then ey1 = cey1 end
             end
             if cex0 > cex1 then cex0, cey0, cex1, cey1 = 0, 0, 0, 0 end
             CmdUnclipped[ci] = CmdFree
             CmdBoundsX0[ci], CmdBoundsY0[ci], CmdBoundsX1[ci], CmdBoundsY1[ci] = cex0, cey0, cex1, cey1
         end
     end
+    Kind1Count, Kind2Count, Kind3Count, Kind1X, Kind1Y, Kind3X, Kind3Y = c1, c2, c3, k1x, k1y, k3x, k3y
     return n, LimitFree, ex0, ey0, ex1, ey1
 end
 
-@native
-local function DrawLists(BackendData, draw_list, first, n, z, ox, oy, force, LimitX0, LimitY0, LimitX1, LimitY1)
+local function DrawLists(BackendData, draw_list, z, ox, oy, force, LimitX0, LimitY0, LimitX1, LimitY1)
     local set = BackendData.Layers[draw_list]
     local ListDeferred = false
-    local Kind1Count, Kind2Count, Kind3Count = 0, 0, 0
-    local Kind1X, Kind1Y, Kind3X, Kind3Y = math.huge, math.huge, math.huge, math.huge
-    for p = first, n do
-        local k = PrimKind[p]
-        if k == 1 then
-            Kind1Count += 1
-            LayerPrims1[Kind1Count] = p
-            if PrimBoundsX0[p] < Kind1X then Kind1X = PrimBoundsX0[p] end
-            if PrimBoundsY0[p] < Kind1Y then Kind1Y = PrimBoundsY0[p] end
-        elseif k == 2 then
-            Kind2Count += 1
-            LayerPrims2[Kind2Count] = p
-        else
-            Kind3Count += 1
-            LayerPrims3[Kind3Count] = p
-            if PrimBoundsX0[p] < Kind3X then Kind3X = PrimBoundsX0[p] end
-            if PrimBoundsY0[p] < Kind3Y then Kind3Y = PrimBoundsY0[p] end
-        end
-    end
     if Kind1Count > 0 then
         z += 1
         if DrawLayer(BackendData, GetLayer(BackendData, draw_list, 1), LayerPrims1, Kind1Count, Kind1X, Kind1Y, ox,
@@ -809,7 +814,6 @@ function M.RenderDrawData(draw_data)
 
         PB("ImGui collect")
         if EditableImages.StageTiming then EditableImages.BeginStage() end
-        local first = n + 1
         local LimitFree, ex0, ey0, ex1, ey1
         n, LimitFree, ex0, ey0, ex1, ey1 = CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0, LimitX1,
             LimitY1)
@@ -817,8 +821,7 @@ function M.RenderDrawData(draw_data)
         PE()
 
         local ListDeferred
-        z, ListDeferred = DrawLists(BackendData, draw_list, first, n, z, ox, oy, force, LimitX0, LimitY0, LimitX1,
-            LimitY1)
+        z, ListDeferred = DrawLists(BackendData, draw_list, z, ox, oy, force, LimitX0, LimitY0, LimitX1, LimitY1)
         set = BackendData.Layers[draw_list]
         -- deferred tiles: not "unchanged" next frame, so they get redrawn
         if set then
