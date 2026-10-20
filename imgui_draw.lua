@@ -3320,7 +3320,10 @@ local ImFontCalcWordWrapPositionEx_Uncached
 local WRAP_MEMO_MAX = 4096
 
 function ImFontCalcWordWrapPositionEx(font, size, text, pos, text_end, wrap_width, flags)
-    local baked = font:GetFontBaked(size)
+    local baked = font.LastBaked -- [Luau] inline font:GetFontBaked(size) fast path
+    if not (baked and baked.Size == math.floor(size + 0.5) and baked.RasterizerDensity == font.CurrentRasterizerDensity) then
+        baked = font:GetFontBaked(size)
+    end
     if type(text) ~= "string" then
         return ImFontCalcWordWrapPositionEx_Uncached(baked, size, text, pos, text_end, wrap_width, flags)
     end
@@ -3509,11 +3512,14 @@ function ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begi
     -- Advances of a baked font never change once loaded, so entries stay valid.
     local cache_key = nil
     local wrap_cache = nil
-    local text_len1 = text_is_str and #text + 1 or -1
+    local text_len1 = text_is_str and string.len(text) + 1 or -1 -- [Luau] string.len(): `#` on a string isn't a native fast path
+    local baked = font.LastBaked -- [Luau] inline font:GetFontBaked(size) fast path (same baked as the calls below in upstream)
+    if not (baked and baked.Size == math.floor(size + 0.5) and baked.RasterizerDensity == font.CurrentRasterizerDensity) then
+        baked = font:GetFontBaked(size)
+    end
     local cacheable = text_is_str and text_begin == 1 and out_offset == nil and max_width >= FLT_MAX
         and (text_end == nil or text_end == text_len1) and (text_end_display == nil or text_end_display == text_len1) and (flags == nil or bit32.band(flags, ImDrawTextFlags.StopOnNewLine) == 0)
     if cacheable and wrap_width <= 0.0 then
-        local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
         if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
             cache = {}; baked._TextSizeCache = cache; baked._TextSizeCacheN = 0
@@ -3525,7 +3531,6 @@ function ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begi
         cache_key = text
     elseif cacheable and wrap_width > 0.0 then
         -- [Luau] same for wrapped text (TextWrapped() measures every line every frame): exact results per (size, wrap width, text)
-        local baked = font:GetFontBaked(size)
         local cache = baked._TextSizeCache
         if cache == nil or baked._TextSizeCacheN >= TEXT_SIZE_CACHE_MAX then
             cache = {}; baked._TextSizeCache = cache; baked._TextSizeCacheN = 0
@@ -3547,7 +3552,6 @@ function ImFontCalcTextSizeXY(font, size, max_width, wrap_width, text, text_begi
         text_end_display = text_end
     end
 
-    local baked = font:GetFontBaked(size)
     local line_height = size
     local scale = line_height / baked.Size
 
@@ -4760,7 +4764,7 @@ function MT.ImDrawListSplitter:SetCurrentChannel(draw_list, idx)
         curr_cmd.TexRef = header.TexRef
         curr_cmd.VtxOffset = header.VtxOffset
     elseif ccr.x ~= hcr.x or ccr.y ~= hcr.y or ccr.z ~= hcr.z or ccr.w ~= hcr.w
-        or curr_cmd.TexRef._TexData ~= header.TexRef._TexData or curr_cmd.TexRef._TexID ~= header.TexRef._TexID
+        or (curr_cmd.TexRef ~= header.TexRef and (curr_cmd.TexRef._TexData ~= header.TexRef._TexData or curr_cmd.TexRef._TexID ~= header.TexRef._TexID))
         or curr_cmd.VtxOffset ~= header.VtxOffset then
         draw_list:AddDrawCmd()
     end
@@ -7316,7 +7320,10 @@ function MT.ImFont:RenderText(draw_list, size, pos, col, clip_rect, text, text_b
 
 
     local line_height = size
-    local baked = self:GetFontBaked(size)
+    local baked = self.LastBaked -- [Luau] inline self:GetFontBaked(size) fast path
+    if not (baked and baked.Size == math.floor(size + 0.5) and baked.RasterizerDensity == self.CurrentRasterizerDensity) then
+        baked = self:GetFontBaked(size)
+    end
 
     local scale = size / baked.Size
     local origin_x = x

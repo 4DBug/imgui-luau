@@ -8989,10 +8989,11 @@ end
 function ImGui.UpdateKeyRoutingTable(rt)
     local g = GImGui --[[@as ImGuiContext]]
     rt.EntriesNext:resize(0)
+    local index, entries_next = rt.Index, rt.EntriesNext -- [Luau] cached field reads (same tables until the swap below)
     for key = ImGuiKey.NamedKey_BEGIN, ImGuiKey.NamedKey_END - 1 do
-        local new_routing_start_idx = rt.EntriesNext.Size + 1
+        local new_routing_start_idx = entries_next.Size + 1
         local routing_entry
-        local old_routing_idx = rt.Index[key - ImGuiKey.NamedKey_BEGIN + 1]
+        local old_routing_idx = index[key - ImGuiKey.NamedKey_BEGIN + 1]
         while old_routing_idx ~= -1 do
             repeat
             routing_entry = rt.Entries[old_routing_idx]
@@ -9004,7 +9005,7 @@ function ImGui.UpdateKeyRoutingTable(rt)
                 break
             end
 
-            rt.EntriesNext:push_back(routing_entry) -- Write alive ones into new buffer
+            entries_next:push_back(routing_entry) -- Write alive ones into new buffer
 
             -- Apply routing to owner if there's no owner already (RoutingCurr == None at this point)
             -- This is the result of previous frame's SetShortcutRouting() call.
@@ -9022,9 +9023,9 @@ function ImGui.UpdateKeyRoutingTable(rt)
         end
 
         -- Rewrite linked-list
-        rt.Index[key - ImGuiKey.NamedKey_BEGIN + 1] = (new_routing_start_idx <= rt.EntriesNext.Size and new_routing_start_idx or -1)
-        for n = new_routing_start_idx, rt.EntriesNext.Size do
-            rt.EntriesNext[n].NextEntryIndex = (n + 1 <= rt.EntriesNext.Size) and (n + 1) or -1
+        index[key - ImGuiKey.NamedKey_BEGIN + 1] = (new_routing_start_idx <= entries_next.Size and new_routing_start_idx or -1)
+        for n = new_routing_start_idx, entries_next.Size do
+            entries_next[n].NextEntryIndex = (n + 1 <= entries_next.Size) and (n + 1) or -1
         end
     end
     rt.Entries:swap(rt.EntriesNext) -- Swap new and old indexes
@@ -13588,14 +13589,15 @@ function ImGui.UpdateKeyboardInputs()
     end
 
     -- Update keys
+    local keys_data, delta_time = io.KeysData, io.DeltaTime -- [Luau] cached field reads
     for key = ImGuiKey.NamedKey_BEGIN, ImGuiKey.NamedKey_END - 1 do
-        local key_data = io.KeysData[key - ImGuiKey.NamedKey_BEGIN]
+        local key_data = keys_data[key - ImGuiKey.NamedKey_BEGIN]
         key_data.DownDurationPrev = key_data.DownDuration
         if key_data.Down then
             if key_data.DownDuration < 0.0 then
                 key_data.DownDuration = 0.0
             else
-                key_data.DownDuration = key_data.DownDuration + io.DeltaTime
+                key_data.DownDuration = key_data.DownDuration + delta_time
             end
         else
             key_data.DownDuration = -1.0
@@ -13610,9 +13612,10 @@ function ImGui.UpdateKeyboardInputs()
     end
 
     -- Update keys/input owner (named keys only): one entry per key
+    local keys_owner_data = g.KeysOwnerData -- [Luau] cached field read
     for key = ImGuiKey.NamedKey_BEGIN, ImGuiKey.NamedKey_END - 1 do
-        local key_data = io.KeysData[key - ImGuiKey.NamedKey_BEGIN]
-        local owner_data = g.KeysOwnerData[key - ImGuiKey.NamedKey_BEGIN]
+        local key_data = keys_data[key - ImGuiKey.NamedKey_BEGIN]
+        local owner_data = keys_owner_data[key - ImGuiKey.NamedKey_BEGIN]
         owner_data.OwnerCurr = owner_data.OwnerNext
         if not key_data.Down then -- Important: ownership is released on the frame after a release. Ensure a 'MouseDown -> CloseWindow -> MouseUp' chain doesn't lead to someone else seeing the MouseUp.
             owner_data.OwnerNext = ImGuiKeyOwner_NoOwner

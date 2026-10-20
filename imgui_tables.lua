@@ -2613,7 +2613,21 @@ function ImGui.TableBeginCell(table_, column_n)
         --IM_ASSERT(table.DrawSplitter._Current == TABLE_DRAW_CHANNEL_NOCLIP)
     else
         -- FIXME-TABLE: Could avoid this if draw channel is dummy channel?
-        ImGui.SetWindowClipRectBeforeSetChannel(window, column.ClipRect)
+        -- [Luau] inline ImGui.SetWindowClipRectBeforeSetChannel(window, column.ClipRect)
+        local cr = column.ClipRect
+        local x1, y1, x2, y2 = cr.Min.x, cr.Min.y, cr.Max.x, cr.Max.y
+        local wcr = window.ClipRect
+        wcr.Min.x = x1; wcr.Min.y = y1; wcr.Max.x = x2; wcr.Max.y = y2
+        local draw_list = window.DrawList
+        local hcr = draw_list._CmdHeader.ClipRect
+        hcr.x = x1; hcr.y = y1; hcr.z = x2; hcr.w = y2
+        local stack = draw_list._ClipRectStack
+        local top = stack.Data[stack.Size]
+        if top ~= nil then
+            top.x = x1; top.y = y1; top.z = x2; top.w = y2
+        else
+            stack.Data[stack.Size] = ImVec4(x1, y1, x2, y2)
+        end
         local channel = column.DrawChannelCurrent
         if splitter._Current ~= channel then
             splitter:SetCurrentChannel(window.DrawList, channel)

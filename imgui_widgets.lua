@@ -110,7 +110,12 @@ function ImGui.TextEx(text, text_end, flags)
         -- [Luau] scalar text_pos, scratch bb (ItemAdd() copies it, RenderTextWrapped() only reads it)
         local text_pos_x, text_pos_y = dc.CursorPos.x, dc.CursorPos.y + dc.CurrLineTextBaseOffset
         local wrap_width = wrap_enabled and ImGui.CalcWrapWidthForPos(dc.CursorPos, wrap_pos_x) or 0.0
-        local text_size_x, text_size_y = ImGui.CalcTextSizeXY(text, 1, text_end, false, wrap_width)
+        -- [Luau] inline ImGui.CalcTextSizeXY(text, 1, text_end, false, wrap_width)
+        local text_size_x, text_size_y = 0.0, g.FontSize
+        if text ~= "" and text_end > 1 then
+            text_size_x, text_size_y = ImFontCalcTextSizeXY(g.Font, text_size_y, FLT_MAX, wrap_width, text, 1, text_end, text_end, nil, ImDrawTextFlags.None)
+            text_size_x = math.ceil(text_size_x) -- Round (see CalcTextSize())
+        end
 
         local bb = TextEx_bb
         local bb_min, bb_max = bb.Min, bb.Max
@@ -226,7 +231,13 @@ end
 @native
 function ImGui.Text(fmt, ...)
     if select('#', ...) > 0 then
-        ImGui.TextV(fmt, ...)
+        -- [Luau] inline ImGui.TextV(fmt, ...) (saves a vararg call per Text())
+        local window = GImGui.CurrentWindow -- [Luau] inline GetCurrentWindow()
+        window.WriteAccessed = true
+        if window.SkipItems then
+            return
+        end
+        ImGui.TextEx(ImFormatString(fmt, ...), nil, ImGuiTextFlags.NoWidthForLargeClippedText)
     else
         ImGui.TextEx(fmt)
     end
