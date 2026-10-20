@@ -54,15 +54,33 @@ local GlyphCol, GlyphGen = -1, 0
 local RowX0, RowX1, RowV = table.create(TILE, 0), table.create(TILE, 0), table.create(TILE, 0)
 RowX0[0], RowX1[0], RowV[0] = 0, 0, 0
 
--- Drawing may change [x0, x1) x [y0, y1): keep the larger uniform piece of each row outside it
+-- Drawing changed [x0, x1) x [y0, y1): keep the larger uniform piece of each row outside it
 @native
-local function Shrink(x0: number, y0: number, x1: number, y1: number)
+local function ApplyDamage(x0: number, y0: number, x1: number, y1: number)
     for y = y0, y1 - 1 do
         local a, b = RowX0[y], RowX1[y]
         if x0 < b and x1 > a then
             if x0 - a >= b - x1 then RowX1[y] = x0 else RowX0[y] = x1 end
         end
     end
+end
+
+-- Only FillSpan reads the uniform rows: damage is collected into one pending rect (nearby rects merged: a text line's
+-- glyphs, a shape's triangles) and applied when FillSpan runs. Over-shrinking only loses uniform pixels.
+local PX0, PY0, PX1, PY1 = 0, 0, 0, 0 -- pending damage (none when PX0 >= PX1)
+@native
+local function Shrink(x0: number, y0: number, x1: number, y1: number)
+    if PX0 >= PX1 then
+        PX0, PY0, PX1, PY1 = x0, y0, x1, y1
+        return
+    end
+    local ux0, uy0, ux1, uy1 = min(x0, PX0), min(y0, PY0), max(x1, PX1), max(y1, PY1)
+    if (ux1 - ux0) * (uy1 - uy0) <= ((x1 - x0) * (y1 - y0) + (PX1 - PX0) * (PY1 - PY0)) * 1.25 + 256 then
+        PX0, PY0, PX1, PY1 = ux0, uy0, ux1, uy1
+        return
+    end
+    ApplyDamage(PX0, PY0, PX1, PY1)
+    PX0, PY0, PX1, PY1 = x0, y0, x1, y1
 end
 
 -- FillSpan and DrawTriangle's flat path inline this math with per-span constants: keep them in sync.
@@ -101,6 +119,10 @@ end
 local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number, x1: number, r: number, g: number,
     b: number, a: number)
     if a <= 0 then return end
+    if PX0 < PX1 then
+        ApplyDamage(PX0, PY0, PX1, PY1)
+        PX1 = PX0
+    end
     local w4 = (x1 - x0 - 1) * 4
     local span = x1 - x0
     if a >= 255 then
@@ -108,13 +130,25 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
         for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
-        -- now uniform: per row keep whichever piece is larger
-        for y = y0, y1 - 1 do
+        -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
+        local y = y0
+        while y < y1 do
             local ra, rb = RowX0[y], RowX1[y]
+            local na, nb = ra, rb
             if x0 < rb and x1 > ra then
-                if x0 - ra >= rb - x1 then rb = x0 else ra = x1 end
+                if x0 - ra >= rb - x1 then nb = x0 else na = x1 end
             end
-            if span > rb - ra then RowX0[y], RowX1[y], RowV[y] = x0, x1, packed else RowX0[y], RowX1[y] = ra, rb end
+            if span > nb - na then
+                repeat
+                    RowX0[y], RowX1[y], RowV[y] = x0, x1, packed
+                    y += 1
+                until y >= y1 or RowX0[y] ~= ra or RowX1[y] ~= rb
+            else
+                repeat
+                    RowX0[y], RowX1[y] = na, nb
+                    y += 1
+                until y >= y1 or RowX0[y] ~= ra or RowX1[y] ~= rb
+            end
         end
         return
     end
@@ -126,11 +160,13 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
     local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
     local wide, has_prev = span >= 32 and y1 - y0 > 1, false
-    for y = y0, y1 - 1 do
+    local y = y0
+    while y < y1 do
         local o0 = (y * TargetWidth + x0) * 4 + TargetBase
         local ra, rb = RowX0[y], RowX1[y]
         if x0 >= ra and x1 <= rb then
-            -- over one value: the per-pixel result for d = RowV[y], then fill
+            -- over one value: the per-pixel result for d = RowV[y], then fill; following rows with the same uniform
+            -- piece get the same result
             local d = RowV[y]
             if d ~= last_d then
                 last_d = d
@@ -156,14 +192,25 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             else
                 for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
             end
-            prev_o, prev_v, has_prev = o0, v, false
+            local na, nb, nv = ra, rb, d
             if span >= x0 - ra and span >= rb - x1 then
-                RowX0[y], RowX1[y], RowV[y] = x0, x1, v
+                na, nb, nv = x0, x1, v
             elseif x0 - ra >= rb - x1 then
-                RowX1[y] = x0
+                nb = x0
             else
-                RowX0[y] = x1
+                na = x1
             end
+            RowX0[y], RowX1[y], RowV[y] = na, nb, nv
+            y += 1
+            local stride = TargetWidth * 4
+            local o = o0
+            while y < y1 and RowX0[y] == ra and RowX1[y] == rb and RowV[y] == d do
+                o += stride
+                buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
+                RowX0[y], RowX1[y], RowV[y] = na, nb, nv
+                y += 1
+            end
+            prev_o, prev_v, has_prev = o, v, false
             continue
         end
         if x0 < rb and x1 > ra then
@@ -175,6 +222,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             if repeats then
                 buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
                 prev_o, prev_v = o0, -1
+                y += 1
                 continue
             end
         end
@@ -201,6 +249,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
                 writeu32(TargetBuffer, o, last_v)
             end
         end
+        y += 1
     end
 end
 
@@ -353,6 +402,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local minx, maxx = max(floor(min(x0, x1, x2)), cx0), min(ceil(max(x0, x1, x2)), cx1 - 1)
     local miny, maxy = max(floor(min(y0, y1, y2)), cy0), min(ceil(max(y0, y1, y2)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
+    Shrink(minx, miny, maxx + 1, maxy + 1)
 
     local A0, B0 = y1 - y2, x2 - x1
     local C0 = -(A0 * x1 + B0 * y1)
@@ -405,7 +455,6 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         -- pixel blended once, so the order does not matter): no empty-row passes
         local m0, m1, m2 = B0 ~= 0 and -1 / B0 or 0, B1 ~= 0 and -1 / B1 or 0, B2 ~= 0 and -1 / B2 or 0
         local stride = TargetWidth * 4
-        Shrink(minx, miny, maxx + 1, maxy + 1)
         for x = minx, maxx do
             local px = x + 0.5
             local yt, yb = miny, maxy
@@ -490,10 +539,6 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
-        local ra_, rb_ = RowX0[y], RowX1[y] -- Shrink for this row's span
-        if xl < rb_ and xr >= ra_ then
-            if xl - ra_ >= rb_ - xr - 1 then RowX1[y] = xl else RowX0[y] = xr + 1 end
-        end
         local o = (y * TargetWidth + xl) * 4 + TargetBase
         if flat then
             local o1 = o + (xr - xl) * 4
@@ -770,6 +815,7 @@ end
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
     for y = ry0, ry1 - 1 do RowX0[y], RowX1[y], RowV[y] = rx0, rx1, 0 end
+    PX1 = PX0
     if rw == TargetWidth then
         buffer.fill(TargetBuffer, (ry0 * TargetWidth + rx0) * 4 + TargetBase, 0, (ry1 - ry0) * TargetWidth * 4)
     else
