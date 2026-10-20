@@ -2834,6 +2834,7 @@ end
 -- Find glyph, load if necessary, return fallback if missing
 --- @param c ImWchar
 --- @return ImFontGlyph?
+@native
 function MT.ImFontBaked:FindGlyph(c)
     if c < self.IndexLookup.Size then
         local i = self.IndexLookup.Data[c + 1]
@@ -4377,6 +4378,7 @@ function MT.ImDrawList:CloneOutput()
     return dst
 end
 
+@native
 function MT.ImDrawList:AddDrawCmd()
     local draw_cmd = ImDrawCmd()
 
@@ -4507,6 +4509,7 @@ end
 
 -- Our scheme may appears a bit unusual, basically we want the most-common calls AddLine AddRect etc. to not have to perform any check so we always have a command ready in the stack.
 -- The cost of figuring out if a new command has to be added or if we can merge is paid in those Update** functions only.
+@native
 function MT.ImDrawList:_OnChangedClipRect()
     -- If current command is used with different settings we need to add a new command
     IM_ASSERT_PARANOID(self.CmdBuffer.Size > 0)
@@ -4866,6 +4869,7 @@ end
 MT.ImDrawList.PrimReserve = PrimReserve
 
 -- Release the number of reserved vertices/indices from the end of the last reservation made with PrimReserve().
+@native
 function MT.ImDrawList:PrimUnreserve(idx_count, vtx_count)
     IM_ASSERT_PARANOID(idx_count >= 0 and vtx_count >= 0)
 
@@ -4922,6 +4926,7 @@ end
 --- @param uv_a ImVec2
 --- @param uv_c ImVec2
 --- @param col  any
+@native
 function MT.ImDrawList:PrimRectUV(a, c, uv_a, uv_c, col)
     local idx = self._VtxCurrentIdx
     local idx_data = self.IdxBuffer.Data; local vtx_data = self.VtxBuffer.Buf
@@ -7034,6 +7039,7 @@ function MT.ImDrawList:_CalcCircleAutoSegmentCount(radius)
 end
 
 -- Render-level scissoring. This is passed down to your render function but not used for CPU-side coarse clipping. Prefer using higher-level ImGui.PushClipRect() to affect logic (hit-testing and widget culling)
+@native
 function MT.ImDrawList:PushClipRect(cr_min, cr_max, intersect_with_current_clip_rect)
     -- [Luau] reuse the stack slot's ImVec4 left from earlier frames (each slot stays uniquely owned by the stack)
     local stack = self._ClipRectStack
@@ -7068,6 +7074,7 @@ function MT.ImDrawList:PushClipRectFullScreen()
     self:PushClipRect(ImVec2(cr.x, cr.y), ImVec2(cr.z, cr.w))
 end
 
+@native
 function MT.ImDrawList:PopClipRect()
     local stack = self._ClipRectStack
     IM_ASSERT(stack.Size > 0)

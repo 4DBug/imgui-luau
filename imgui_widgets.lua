@@ -254,6 +254,7 @@ end
 
 --- @param fmt string
 --- @param ... any
+@native
 function ImGui.TextDisabled(fmt, ...)
     local g = GImGui
     ImGui.PushStyleColor(ImGuiCol.Text, g.Style.Colors[ImGuiCol.TextDisabled])
@@ -7776,6 +7777,7 @@ end
 
 --- @param storage_id ImGuiID
 --- @param is_open    bool
+@native
 function ImGui.TreeNodeSetOpen(storage_id, is_open)
     local g = GImGui
     local storage = g.CurrentWindow.DC.StateStorage
@@ -7784,6 +7786,7 @@ end
 
 --- @param storage_id ImGuiID
 --- @param flags      ImGuiTreeNodeFlags
+@native
 function ImGui.TreeNodeUpdateNextOpen(storage_id, flags)
     -- Leaf node always open a new tree/id scope. If you never use it, add ImGuiTreeNodeFlags.NoTreePushOnOpen.
     if bit32.band(flags, ImGuiTreeNodeFlags.Leaf) ~= 0 then
@@ -8239,6 +8242,7 @@ function ImGui.TreePush(str_id)
 end
 
 --- @param id ImGuiID
+@native
 function ImGui.TreePushOverrideID(id)
     local g = GImGui
     local window = g.CurrentWindow
@@ -8247,6 +8251,7 @@ function ImGui.TreePushOverrideID(id)
     ImGui.PushOverrideID(id)
 end
 
+@native
 function ImGui.TreePop()
     local g = GImGui
     local window = g.CurrentWindow
@@ -8283,6 +8288,7 @@ end
 -- Set next TreeNode/CollapsingHeader open state.
 --- @param is_open bool
 --- @param cond?   ImGuiCond
+@native
 function ImGui.SetNextItemOpen(is_open, cond)
     if cond == nil then cond = 0 end
 

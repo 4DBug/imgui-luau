@@ -429,6 +429,7 @@ end
 
 --- @param table_ ImGuiTable
 --- @param instance_no int
+@native
 function ImGui.TableGetInstanceData(table_, instance_no)
     if instance_no == 0 then
         return table_.InstanceDataFirst
@@ -2512,6 +2513,7 @@ function ImGui.TableGetColumnIndex()
 end
 
 -- [Public] Append into a specific column
+@native
 function ImGui.TableSetColumnIndex(column_n)
     local g = GImGui
     local table_ = g.CurrentTable
@@ -2686,6 +2688,7 @@ end
 -------------------------------------------------------------------------------
 
 -- Maximum column content width given current layout. Use column.MinX so this value differs on a per-column basis.
+@native
 function ImGui.TableCalcMaxColumnWidth(table_, column_n)
     local column = table_.Columns[column_n]
     local max_width = FLT_MAX
@@ -2713,6 +2716,7 @@ function ImGui.TableCalcMaxColumnWidth(table_, column_n)
 end
 
 -- Note this is meant to be stored in column.WidthAuto, please generally use the WidthAuto field
+@native
 function ImGui.TableGetColumnWidthAuto(table_, column)
     local content_width_body = mathMax(column.ContentMaxXFrozen, column.ContentMaxXUnfrozen) - column.WorkMinX
     local content_width_headers = column.ContentMaxXHeadersIdeal - column.WorkMinX

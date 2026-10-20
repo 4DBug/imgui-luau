@@ -577,6 +577,7 @@ ImGuiKeyOwner_NoOwner = 4294967295 -- Require key to have no owner.
 function ImGui.MouseButtonToKey(button) IM_ASSERT(button >= 0 and button < ImGuiMouseButton.COUNT) return ImGuiKey.MouseLeft + button end
 
 --- @param key ImGuiKey
+@native
 function ImGui.IsNamedKey(key)
     return key >= ImGuiKey.NamedKey_BEGIN and key < ImGuiKey.NamedKey_END
 end
@@ -1449,6 +1450,7 @@ MT.ImGuiNextItemData = {}
 MT.ImGuiNextItemData.__index = MT.ImGuiNextItemData
 
 -- Also cleared manually by ItemAdd()!
+@native
 function MT.ImGuiNextItemData:ClearFlags()
     self.HasFlags = ImGuiNextItemDataFlags.None
     self.ItemFlagsSet = ImGuiItemFlags.None
@@ -1498,6 +1500,7 @@ end
 MT.ImGuiNextWindowData = {}
 MT.ImGuiNextWindowData.__index = MT.ImGuiNextWindowData
 
+@native
 function MT.ImGuiNextWindowData:ClearFlags()
     self.HasFlags = ImGuiNextWindowDataFlags.None
 end

@@ -6783,6 +6783,7 @@ function ImGui.SameLine(offset_from_start_x, spacing_w)
 end
 
 --- @param indent_w? float
+@native
 function ImGui.Indent(indent_w)
     if indent_w == nil then indent_w = 0.0 end
 
@@ -6799,6 +6800,7 @@ function ImGui.Indent(indent_w)
 end
 
 --- @param indent_w? float
+@native
 function ImGui.Unindent(indent_w)
     if indent_w == nil then indent_w = 0.0 end
 
@@ -6835,6 +6837,7 @@ function ImGui.PushItemWidth(item_width)
     g.NextItemData.HasFlags = bit32.band(g.NextItemData.HasFlags, bit32.bnot(ImGuiNextItemDataFlags.HasWidth))
 end
 
+@native
 function ImGui.PopItemWidth()
     local g = GImGui
     local window = g.CurrentWindow
@@ -7133,12 +7136,14 @@ end
 --- @param default_w float
 --- @param default_h float
 --- @return ImVec2
+@native
 function ImGui.CalcItemSize(size, default_w, default_h)
     return ImVec2(ImGui._CalcItemSizeXY(size.x, size.y, default_w, default_h)) -- [Luau] 'size' is by value upstream: never written to
 end
 
 -- [Luau] scalar CalcItemSize(): callers that build 'size' themselves skip both ImVec2 allocations
 --- @return float, float
+@native
 function ImGui._CalcItemSizeXY(size_x, size_y, default_w, default_h)
     local avail_x, avail_y
     if size_x < 0.0 or size_y < 0.0 then
@@ -7716,6 +7721,7 @@ end
 
 -- Push a given id value ignoring the ID stack as a seed.
 --- @param id ImGuiID
+@native
 function ImGui.PushOverrideID(id)
     local g = GImGui
     local window = g.CurrentWindow
@@ -8684,6 +8690,7 @@ end
 --- @param ctx? ImGuiContext
 --- @param key  ImGuiKey
 --- @return ImGuiKeyData, int
+@native
 function ImGui.GetKeyData(ctx, key)
     if ctx == nil then ctx = GImGui end
 
@@ -8751,6 +8758,7 @@ end
 -- Consider transitioning from 'IsKeyDown(MY_ENGINE_KEY_A)' (<1.87) to IsKeyDown(ImGuiKey.A) (>= 1.87)
 --- @param key       ImGuiKey
 --- @param owner_id? ImGuiID
+@native
 function ImGui.IsKeyDown(key, owner_id)
     if owner_id == nil then owner_id = ImGuiKeyOwner_Any end
 
@@ -13993,6 +14001,7 @@ function ImGui.GetScale()
 end
 
 --- @return ImGuiWindow
+@native
 function ImGui.GetCurrentWindowRead()
     local g = GImGui
     return g.CurrentWindow
@@ -15105,6 +15114,7 @@ end
 -- FIXME: This may incur a round-trip (if the end user got their data from a float4) but eventually we aim to store the in-flight colors as ImU32
 --- @param idx ImGuiCol
 --- @param col ImU32|ImVec4
+@native
 function ImGui.PushStyleColor(idx, col)
     local g = GImGui
     local backup = ImGuiColorMod(idx, g.Style.Colors[idx])
@@ -15122,6 +15132,7 @@ function ImGui.PushStyleColor(idx, col)
 end
 
 --- @param count? int
+@native
 function ImGui.PopStyleColor(count)
     if count == nil then count = 1 end
 
