@@ -41,7 +41,7 @@ CHECKS=(
 "pixels|PIXELS SAME|a=\$($R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo PIXELS SAME"
 "rect_flip|RECTFLIP OK|$R --main tools/test/scripts/t_rect_flip.luau --frames 30"
 "tile_bound|TILEBOUND OK|$R --main tools/test/scripts/t_tile_bound.luau --frames 200"
-"parallel|PARALLEL OK|$R --main tools/test/scripts/t_parallel.luau --frames 500"
+"parallel|PARALLEL OK|$R --main tools/test/scripts/t_parallel.luau --frames 620"
 "pool_ctx|POOLCTX OK|$R --main tools/test/scripts/t_pool_ctx.luau --frames 60"
 "assets_scroll|ASSETS OK|$R --main tools/test/scripts/t_assets_scroll.luau --frames 1010"
 "shot|wrote|python3 tools/test/shot.py /tmp/imgui_shot.png --app"

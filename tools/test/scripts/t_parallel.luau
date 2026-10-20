@@ -4,7 +4,7 @@
 -- PreSimulation -> PostSimulation), open with SyncDrop (half the worker results lost -> Finish falls back), and closed
 -- (late RenderDrawData: rasterized + uploaded at once). The composites of A and B must match at every checkpoint.
 -- Prints the executor's main-thread pack cost per frame next to A's inline raster + upload cost.
--- run: python3 tools/test/run.py --main tools/test/scripts/t_parallel.luau --frames 900 --quiet --roblox
+-- run: python3 tools/test/run.py --main tools/test/scripts/t_parallel.luau --frames 900 --quiet --roblox (5 scenarios: >= 600)
 local RS = game:GetService("ReplicatedStorage")
 local G = require(RS:WaitForChild("ImGui"))
 local ImGui, ImVec2 = G.ImGui, G.ImVec2
@@ -83,6 +83,14 @@ local SCEN = {
         ImGui.PlotLines("Lines", plot, nil, 120, 0, nil, -1.5, 1.5, ImVec2(0, 160))
         ImGui.PlotHistogram("Histogram", plot, nil, 120, 0, nil, -1.5, 1.5, ImVec2(0, 160))
         ImGui.Text("frame %d", f)
+        ImGui.End()
+    end },
+    { "fonts", function(f) -- a new font size every frame: glyph uploads, atlas grow/repack (Actor texture patches)
+        ImGui.SetNextWindowPos(ImVec2(40, 30), G.ImGuiCond.Always); ImGui.SetNextWindowSize(ImVec2(620, 600), G.ImGuiCond.Always)
+        ImGui.Begin("Fonts")
+        ImGui.PushFont(nil, 12 + (f * 0.25) % 40)
+        for i = 1, 12 do ImGui.TextWrapped("Line %d: the quick brown fox jumps over the lazy dog, %d times.", i, f) end
+        ImGui.PopFont()
         ImGui.End()
     end },
 }

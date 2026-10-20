@@ -795,4 +795,46 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
     return out
 end
 
+-- An Actor's texture copies (worker.luau; parallel.lua's Sync mode emulates it): drop the destroyed ids, apply the
+-- updates parallel.lua's Flush sent. { id, buf, w, h, fill }: whole texture, rows past buf are all fill;
+-- { id, false, w, h, offset, patch }: rows; { id, false, w, h, rects, patch }: x, y, w, h quadruples, rows packed.
+function M.ApplyTextures(textures, updates, dropped)
+    for _, id in dropped or {} do
+        textures[id] = nil
+    end
+    for _, u in updates do
+        if u[2] then
+            local b, w, h, fill = u[2], u[3], u[4], u[5]
+            local n, total = buffer.len(b), w * h * 4
+            if n < total then
+                local full = buffer.create(total)
+                buffer.copy(full, 0, b)
+                if fill ~= 0 then
+                    buffer.writeu32(full, n, fill)
+                    local k = 4
+                    while k < total - n do
+                        local c = math.min(k, total - n - k)
+                        buffer.copy(full, n + k, full, n, c)
+                        k += c
+                    end
+                end
+                b = full
+            end
+            textures[u[1]] = { Buffer = b, Width = w, Height = h }
+        elseif type(u[5]) == "table" then
+            local t, rects, patch = textures[u[1]], u[5], u[6]
+            local dst, w, o = t.Buffer, t.Width, 0
+            for i = 1, #rects, 4 do
+                local x, y, rw, rh = rects[i], rects[i + 1], rects[i + 2], rects[i + 3]
+                for yy = y, y + rh - 1 do
+                    buffer.copy(dst, (yy * w + x) * 4, patch, o, rw * 4)
+                    o += rw * 4
+                end
+            end
+        else
+            buffer.copy(textures[u[1]].Buffer, u[5], u[6])
+        end
+    end
+end
+
 return M

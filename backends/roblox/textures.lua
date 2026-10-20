@@ -7,7 +7,8 @@ local TILE = Raster.TILE
 
 local M = {}
 
--- One table, not locals: shared by every context and module. FreeTile is set by layers.lua (Evict needs it).
+-- One table, not locals: shared by every context and module. FreeTile is set by layers.lua (Evict needs it),
+-- TextureDropped(id, record) by parallel.lua (Actors free their copies).
 local EditableImages = {
     Cap = 64 * 1024 * 1024, Bytes = 0, Count = 0, ImageBytes = setmetatable({}, { __mode = "k" }),
     Pool = {}, PoolMax = 16,
@@ -131,22 +132,28 @@ function M.UpdateTexture(tex)
             return
         end
         local y0, y1 = math.huge, -1
+        local rects, n = {}, 0
         for _, r in tex.Updates:iter() do
             CopyTexturePixels(tex, t.Buffer, r.x, r.y, r.w, r.h)
             if r.y < y0 then y0 = r.y end
             if r.y + r.h > y1 then y1 = r.y + r.h end
+            rects[n + 1], rects[n + 2], rects[n + 3], rects[n + 4] = r.x, r.y, r.w, r.h
+            n += 4
         end
-        -- parallel workers hold copies, patched when this changes: Log[V] = changed rows (only the last 16 kept)
+        -- parallel workers hold copies, patched when this changes: Log[V] = changed rows + the rects (x, y, w, h
+        -- quadruples) (only the last 16 kept)
         if t.FillRow and y1 > t.FillRow then t.FillRow = y1 end
         local v = (t.V or 0) + 1
         t.V = v
         t.Log = t.Log or {}
-        t.Log[v] = y1 > y0 and { y0, y1 } or { 0, 0 }
+        t.Log[v] = y1 > y0 and { y0, y1, rects } or { 0, 0 }
         t.Log[v - 16] = nil
         tex:SetStatus(ImTextureStatus.OK)
     elseif tex.Status == ImTextureStatus.WantDestroy then
         if tex.BackendUserData then
-            Records[tex.BackendUserData] = nil
+            local id = tex.BackendUserData
+            if EditableImages.TextureDropped then EditableImages.TextureDropped(id, Records[id]) end
+            Records[id] = nil
             tex.BackendUserData = nil
         end
         tex:SetTexID(ImTextureID_Invalid)
@@ -162,7 +169,9 @@ function ImGui_ImplRoblox_CreateTexture(pixels, w, h)
 end
 
 function ImGui_ImplRoblox_DestroyTexture(tex_ref)
-    Records[tex_ref._TexID] = nil
+    local id = tex_ref._TexID
+    if EditableImages.TextureDropped then EditableImages.TextureDropped(id, Records[id]) end
+    Records[id] = nil
 end
 
 -- Every EditableImage goes through Create/Destroy, counted against Cap. Over the cap (or CreateEditableImage failing):

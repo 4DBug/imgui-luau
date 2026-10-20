@@ -68,6 +68,23 @@ local pending, by_id, batch_no = {}, {}, 0
 local open = false
 local actors, ready, conns, folder = {}, false, {}, nil
 local sent = {}
+-- ids of destroyed textures each Actor holds a copy of, sent with its next job (the Actor drops them)
+local drops = {}
+local NO_DROPS = {}
+local sync_tex = {} -- Sync mode: the "Actors'" texture copies
+EditableImages.TextureDropped = function(id, rec)
+    if not rec then
+        return
+    end
+    for a = 1, NA do
+        local s = sent[a]
+        if s and s[rec] ~= nil then
+            s[rec] = nil
+            local d = drops[a]
+            d[#d + 1] = id
+        end
+    end
+end
 
 local function grow(b: buffer, need: number): buffer
     local n = buffer.len(b)
@@ -251,6 +268,46 @@ local function fullCopy(rec, v: number): buffer
     return rec.Head
 end
 
+-- The pixels changed between versions had and v (rows y0..y1 of rec): the updated rects (rect list -> worker copies
+-- each rect's rows), or the whole rows when they are smaller. Built once per (had, v), shared by every Actor.
+local function patchCopy(rec, had: number, v: number, y0: number, y1: number): (buffer, any)
+    if rec.PatchHad == had and rec.PatchV == v then
+        return rec.Patch, rec.PatchAt
+    end
+    local row, src = rec.Width * 4, rec.Buffer
+    local log, area = rec.Log, 0
+    for k = had + 1, v do
+        local r = log[k][3]
+        if r then
+            for i = 1, #r, 4 do area += r[i + 2] * r[i + 3] end
+        end
+    end
+    local patch, at
+    if area * 4 < (y1 - y0) * row then
+        patch, at = buffer.create(area * 4), {}
+        local o, n = 0, 0
+        for k = had + 1, v do
+            local r = log[k][3]
+            if r then
+                for i = 1, #r, 4 do
+                    local x, y, w, h = r[i], r[i + 1], r[i + 2], r[i + 3]
+                    at[n + 1], at[n + 2], at[n + 3], at[n + 4] = x, y, w, h
+                    n += 4
+                    for yy = y, y + h - 1 do
+                        copy(patch, o, src, (yy * rec.Width + x) * 4, w * 4)
+                        o += w * 4
+                    end
+                end
+            end
+        end
+    else
+        patch, at = buffer.create((y1 - y0) * row), y0 * row
+        copy(patch, 0, src, y0 * row, (y1 - y0) * row)
+    end
+    rec.PatchHad, rec.PatchV, rec.Patch, rec.PatchAt = had, v, patch, at
+    return patch, at
+end
+
 function M.Flush()
     local n = jobs.N
     if n == 0 then
@@ -321,22 +378,45 @@ function M.Flush()
                     tex[#tex + 1] = { id, buf, rec.Width, rec.Height, rec.Fill or 0 }
                     Stats.TexBytes += buffer.len(buf)
                 elseif y1 > y0 then
-                    local row = rec.Width * 4
-                    local patch = buffer.create((y1 - y0) * row)
-                    copy(patch, 0, rec.Buffer, y0 * row, (y1 - y0) * row)
-                    tex[#tex + 1] = { id, false, rec.Width, rec.Height, y0 * row, patch }
+                    local patch, at = patchCopy(rec, had, v, y0, y1)
+                    tex[#tex + 1] = { id, false, rec.Width, rec.Height, at, patch }
                     Stats.TexBytes += buffer.len(patch)
                 end
                 Stats.TexSends += 1
             end
         end
         Stats.SendBytes += Pn[a] + tl
+        local d = drops[a]
+        if #d > 0 then
+            drops[a] = {}
+        else
+            d = NO_DROPS
+        end
         if cfg.Sync then
+            -- like an Actor: own texture copies, kept by the same messages (SendMessage copies: clone the buffers)
+            local st = sync_tex[a]
+            if not st then
+                st = {}
+                sync_tex[a] = st
+            end
+            local msg = table.create(#tex)
+            for i, u in tex do
+                local c = table.clone(u)
+                for k, x in c do
+                    if type(x) == "buffer" then
+                        local nb = buffer.create(buffer.len(x))
+                        copy(nb, 0, x)
+                        c[k] = nb
+                    end
+                end
+                msg[i] = c
+            end
+            Raster.ApplyTextures(st, msg, d)
             if not (cfg.SyncDrop and a % 2 == 0) then
-                b.Res[a] = RasterJobs(P, T, tl, Records)
+                b.Res[a] = RasterJobs(P, T, tl, st)
             end
         else
-            actors[a]:SendMessage("job", batch_no, P, T, tex, tl)
+            actors[a]:SendMessage("job", batch_no, P, T, tex, tl, d)
         end
     end
     if par then
@@ -365,6 +445,8 @@ local function setActors(n)
         Tb[a] = Tb[a] or buffer.create(1024)
         used[a] = used[a] or {}
         sent[a] = setmetatable({}, { __mode = "k" })
+        drops[a] = {}
+        sync_tex[a] = nil
     end
     reset()
 end
