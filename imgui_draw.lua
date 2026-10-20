@@ -637,6 +637,10 @@ function MT.ImFontAtlas:ClearFonts()
     end
 end
 
+-- [Luau] Pixels of the last atlas texture removed after the backend destroyed it: the next ImTextureData:Create() of
+-- the same byte size (atlas repack: same size every time) zero-fills and reuses it instead of allocating a new table
+local RecycledTexPixels, RecycledTexPixelsSize = nil, 0
+
 --- @param tex ImTextureData
 function ImTextureDataUpdateNewFrame(tex)
     local remove_from_list = false
@@ -709,6 +713,9 @@ function ImFontAtlasUpdateNewFrame(atlas, frame_count, renderer_has_textures)
 
         if remove_from_list then
             IM_ASSERT(atlas.TexData ~= tex)
+            if tex.Pixels ~= nil then
+                RecycledTexPixels, RecycledTexPixelsSize = tex.Pixels, tex.Width * tex.Height * tex.BytesPerPixel
+            end
             tex:DestroyPixels()
             atlas.TexList:erase(tex_n)
             tex_n = tex_n - 1
@@ -2714,7 +2721,18 @@ function MT.ImTextureData:Create(format, w, h)
     self.BytesPerPixel = ImTextureDataGetFormatBytesPerPixel(format)
     self.UseColors = false
     local n = self.Width * self.Height * self.BytesPerPixel
-    if table.create then
+    if RecycledTexPixels ~= nil and RecycledTexPixelsSize == n then
+        -- [Luau] same contents as memset: zero the first block, then double it with table.move (native copies)
+        local p, k = RecycledTexPixels, math.min(n, 4096)
+        RecycledTexPixels, RecycledTexPixelsSize = nil, 0
+        for i = 1, k do p[i] = 0 end
+        while k < n do
+            local c = math.min(k, n - k)
+            table.move(p, 1, c, k + 1)
+            k = k + c
+        end
+        self.Pixels = p
+    elseif table.create then
         self.Pixels = table.create(n, 0) -- [Luau] native zero fill, same contents as memset
     else
         self.Pixels = {}
