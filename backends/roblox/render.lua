@@ -341,12 +341,21 @@ local function DirtyRects(tile, layer, key, count, x0, y0, force, exposed, vx0, 
                 if b ~= ob then DirtyCount = AddRect(DirtyCount, ux0, uy0, ux1, max(b, ob)) end
                 if d ~= od then DirtyCount = AddRect(DirtyCount, ux0, min(d, od), ux1, uy1) end
             else
-                DirtyCount = AddRect(DirtyCount, a, b, c, d)
-                if k <= DrawnCount - j then DirtyCount = AddRect(DirtyCount, oa, ob, oc, od) end
+                -- (inside the first rect: AddRect would merge it there, changing nothing; skip the call. Animated
+                -- plots change hundreds of primitives per tile)
+                if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                    DirtyCount = AddRect(DirtyCount, a, b, c, d)
+                end
+                if k <= DrawnCount - j and (DirtyCount == 0 or oa < DX0[1] or ob < DY0[1] or oc > DX1[1] or od > DY1[1]) then
+                    DirtyCount = AddRect(DirtyCount, oa, ob, oc, od)
+                end
             end
         end
         for k = count - j + 1, DrawnCount - j do
-            DirtyCount = AddRect(DirtyCount, DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k])
+            local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
+            if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                DirtyCount = AddRect(DirtyCount, a, b, c, d)
+            end
         end
     end
     -- clip D to V, then add the exposed part that isn't valid. cut: part of D inside the valid rect was clipped away
