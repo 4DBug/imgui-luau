@@ -328,7 +328,11 @@ local function DirtyRects(tile, layer, key, count, x0, y0, force, exposed, vx0, 
         for k = i, count - j do
             local a, b, c, d = NX0[k], NY0[k], NX1[k], NY1[k]
             local oa, ob, oc, od = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
-            if paired and lf[k] >= 0 and lf[k] == of[k] then
+            if paired and DrawnHash1[k] == ListHash1[k] and DrawnHash2[k] == ListHash2[k] then
+                -- same primitive at the same place in both lists: every pixel it covers is either in a changed one's
+                -- rect or drawn by the same primitives in the same order
+                continue
+            elseif paired and lf[k] >= 0 and lf[k] == of[k] then
                 -- same flat rect, new bounds: only the strips between the old and new edges can differ
                 local uy0, uy1 = min(b, ob), max(d, od)
                 local ux0, ux1 = min(a, oa), max(c, oc)
