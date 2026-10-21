@@ -4987,6 +4987,7 @@ end
 local hash_memo, hash_memo_n, HASH_MEMO_MAX = {}, 0, 16384
 local ImHashStrRaw
 
+@native
 function ImHashStr(str, size, seed)
     if seed == nil then seed = 0 end
     if size == nil or size == #str then
@@ -10878,12 +10879,15 @@ local function RenderWindowOuterSingleBorder(window, border_n, border_col, borde
     window.DrawList:PathStroke(border_col, border_size)
 end
 
+local RenderWindowOuterBorders_max = ImVec2() -- [Luau] scratch, AddRect() only reads it
 local function RenderWindowOuterBorders(window)
     local g = GImGui
     local border_size = window.WindowBorderSize
     local border_col = ImGui_GetColorU32(5 --[[ImGuiCol.Border]])
     if border_size > 0.0 and (bit32.band(window.Flags, 128 --[[ImGuiWindowFlags.NoBackground]]) == 0) then
-        window.DrawList:AddRect(window.Pos, window.Pos + window.Size, border_col, window.WindowRounding, window.WindowBorderSize, 0)
+        local p_max = RenderWindowOuterBorders_max
+        p_max.x = window.Pos.x + window.Size.x; p_max.y = window.Pos.y + window.Size.y
+        window.DrawList:AddRect(window.Pos, p_max, border_col, window.WindowRounding, window.WindowBorderSize, 0)
     elseif border_size > 0.0 then
         if bit32.band(window.ChildFlags, 4 --[[ImGuiChildFlags.ResizeX]]) ~= 0 then -- Similar code as 'resize_border_mask' computation in UpdateWindowManualResize() but we specifically only always draw explicit child resize border.
             RenderWindowOuterSingleBorder(window, 1, border_col, border_size)
@@ -10913,6 +10917,7 @@ end
 --- @param handle_borders_and_resize_grips bool
 --- @param resize_grip_col                 ImU32[]
 --- @param resize_grip_draw_size           float
+local Begin_viewport_rect, Begin_visibility_rect = ImRect(), ImRect() -- [Luau] Begin() scratch, see there
 -- [Luau] scratch for RenderWindowDecorations()/RenderWindowTitleBarContents(): callees only read or copy these
 local WindowDecoScratch = { text_size = ImVec2(), layout_r = ImRect(), clip_r = ImRect(), bg_rect = ImRect(), p = ImVec2(), title_bar_rect = ImRect() }
 
@@ -11750,6 +11755,7 @@ function ImGui.SetLastItemDataForChildWindowItem(window, rect)
     ImGui.SetLastItemData(window.ChildId, g.CurrentItemFlags, window.DC.ChildItemStatusFlags or 0, rect)
 end
 
+local EndChild_size, EndChild_bb = ImVec2(), ImRect()
 function ImGui.EndChild()
     local g = GImGui
     local child_window = g.CurrentWindow
@@ -11758,11 +11764,14 @@ function ImGui.EndChild()
     assert(bit32.band(child_window.Flags, 16777216 --[[ImGuiWindowFlags.ChildWindow]]) ~= 0) -- Mismatched BeginChild()/EndChild() calls
 
     g.WithinEndChildID = child_window.ID
-    local child_size = ImVec2(child_window.Size.x, child_window.Size.y)
+    local child_size_x, child_size_y = child_window.Size.x, child_window.Size.y -- [Luau] scalar copy
     ImGui.End()
     if child_window.BeginCount == 1 then
         local parent_window = g.CurrentWindow
-        local bb = ImRect(parent_window.DC.CursorPos, parent_window.DC.CursorPos + child_size)
+        -- [Luau] scratch size/bb filled after End(): ItemSize()/ItemAdd() copy or read them, RenderNavCursor() reads bb
+        local child_size, bb, cursor = EndChild_size, EndChild_bb, parent_window.DC.CursorPos
+        child_size.x = child_size_x; child_size.y = child_size_y
+        bb.Min.x = cursor.x; bb.Min.y = cursor.y; bb.Max.x = cursor.x + child_size_x; bb.Max.y = cursor.y + child_size_y
         ImGui.ItemSize(child_size)
         local nav_flattened = bit32.band(child_window.ChildFlags, 256 --[[ImGuiChildFlags.NavFlattened]]) ~= 0
         if (child_window.DC.NavLayersActiveMask ~= 0 or child_window.DC.NavWindowHasScrollY) and not nav_flattened then
@@ -12563,14 +12572,13 @@ function ImGui.Begin(name, open, flags)
 
         -- Outer Decoration Sizes
         -- (we need to clear ScrollbarSize immediately as CalcWindowAutoFitSize() needs it and can be called from other locations).
-        local scrollbar_sizes_from_last_frame = ImVec2()
-        ImVec2_Copy(scrollbar_sizes_from_last_frame, window.ScrollbarSizes)
+        local scrollbar_sizes_from_last_frame_x, scrollbar_sizes_from_last_frame_y = window.ScrollbarSizes.x, window.ScrollbarSizes.y -- [Luau] scalar copy
 
         window.DecoOuterSizeX1 = 0.0
         window.DecoOuterSizeX2 = 0.0
         window.DecoOuterSizeY1 = window.TitleBarHeight + window.MenuBarHeight
         window.DecoOuterSizeY2 = 0.0
-        window.ScrollbarSizes = ImVec2(0.0, 0.0)
+        window.ScrollbarSizes.x = 0.0; window.ScrollbarSizes.y = 0.0 -- [Luau] in place
 
         -- Calculate auto-fit size, handle automatic resize
         -- - Using SetNextWindowSize() overrides ImGuiWindowFlags.AlwaysAutoResize, so it can be used on tooltips/popups, etc.
@@ -12590,8 +12598,12 @@ function ImGui.Begin(name, open, flags)
                 size_auto_fit_mask = bit32.bor(size_auto_fit_mask, bit32.lshift(1, 2 --[[ImGuiAxis.Y]] - 1))
             end
 
-            local size_auto_fit = CalcWindowAutoFitSize(window, window.ContentSizeIdeal, size_auto_fit_mask)
-            local old_size = ImVec2(window.SizeFull.x, window.SizeFull.y)
+            -- [Luau] the auto-fit size is only read when an axis auto-fits: not computed otherwise (unless a size callback would see the call)
+            local size_auto_fit
+            if size_auto_fit_mask ~= 0 or (bit32.band(g.NextWindowData.HasFlags, 16 --[[ImGuiNextWindowDataFlags.HasSizeConstraint]]) ~= 0 and g.NextWindowData.SizeCallback) then
+                size_auto_fit = CalcWindowAutoFitSize(window, window.ContentSizeIdeal, size_auto_fit_mask)
+            end
+            local old_size_x, old_size_y = window.SizeFull.x, window.SizeFull.y -- [Luau] scalar copy
 
             if size_auto_fit_x_always or size_auto_fit_x_current then
                 if size_auto_fit_x_always then
@@ -12618,7 +12630,7 @@ function ImGui.Begin(name, open, flags)
                 use_current_size_for_scrollbar_y = true
             end
 
-            if old_size.x ~= window.SizeFull.x or old_size.y ~= window.SizeFull.y then
+            if old_size_x ~= window.SizeFull.x or old_size_y ~= window.SizeFull.y then
                 ImGui_MarkIniSettingsDirty(window)
             end
         end
@@ -12680,10 +12692,19 @@ function ImGui.Begin(name, open, flags)
 
         -- Calculate the range of allowed position for that window (to be movable and visible past safe area padding)
         -- When clamping to stay visible, we will enforce that window.Pos stays inside of visibility_rect.
-        local viewport_rect = window.Viewport:GetMainRect()
-        local viewport_work_rect = window.Viewport:GetWorkRect()
-        local visibility_padding = ImMax(style.DisplayWindowPadding, style.DisplaySafeAreaPadding)
-        local visibility_rect = ImRect(viewport_work_rect.Min.x + visibility_padding.x, viewport_work_rect.Min.y + visibility_padding.y, viewport_work_rect.Max.x - visibility_padding.x, viewport_work_rect.Max.y - visibility_padding.y) -- [Luau] scalar form: no temporary ImVec2s
+        -- [Luau] scratch rects filled in place (only read, last read by PushClipRect() below; no nested Begin() in between), scalar padding
+        local viewport_rect = Begin_viewport_rect
+        do
+            local vp = window.Viewport
+            local r_min, r_max = viewport_rect.Min, viewport_rect.Max
+            r_min.x = vp.Pos.x; r_min.y = vp.Pos.y; r_max.x = vp.Pos.x + vp.Size.x; r_max.y = vp.Pos.y + vp.Size.y
+        end
+        local work_pos, work_size = window.Viewport.WorkPos, window.Viewport.WorkSize
+        local visibility_padding_x = ImMax(style.DisplayWindowPadding.x, style.DisplaySafeAreaPadding.x)
+        local visibility_padding_y = ImMax(style.DisplayWindowPadding.y, style.DisplaySafeAreaPadding.y)
+        local visibility_rect = Begin_visibility_rect
+        visibility_rect.Min.x = work_pos.x + visibility_padding_x; visibility_rect.Min.y = work_pos.y + visibility_padding_y
+        visibility_rect.Max.x = (work_pos.x + work_size.x) - visibility_padding_x; visibility_rect.Max.y = (work_pos.y + work_size.y) - visibility_padding_y
 
         -- Clamp position/size so window stays visible within its viewport or monitor
         -- Ignore zero-sized display explicitly to avoid losing positions if a window manager reports zero-sized window when initializing or minimizing.
@@ -12781,18 +12802,24 @@ function ImGui.Begin(name, open, flags)
             -- When reading the current size we need to read it after size constraints have been applied.
             -- Intentionally use previous frame values for InnerRect and ScrollbarSizes.
             -- And when we use window.DecorationUp here it doesn't have ScrollbarSizes.y applied yet.
-            local avail_size_from_current_frame = ImVec2(window.SizeFull.x, window.SizeFull.y - (window.DecoOuterSizeY1 + window.DecoOuterSizeY2))
-            local avail_size_from_last_frame = window.InnerRect:GetSize() + scrollbar_sizes_from_last_frame
-            local needed_size_from_last_frame = window_just_created and ImVec2(0, 0) or window.ContentSize + window.WindowPadding * 2.0
+            -- [Luau] scalar avail/needed sizes
+            local avail_size_from_current_frame_x, avail_size_from_current_frame_y = window.SizeFull.x, window.SizeFull.y - (window.DecoOuterSizeY1 + window.DecoOuterSizeY2)
+            local inner_rect = window.InnerRect
+            local avail_size_from_last_frame_x = (inner_rect.Max.x - inner_rect.Min.x) + scrollbar_sizes_from_last_frame_x
+            local avail_size_from_last_frame_y = (inner_rect.Max.y - inner_rect.Min.y) + scrollbar_sizes_from_last_frame_y
+            local needed_size_from_last_frame_x, needed_size_from_last_frame_y = 0, 0
+            if not window_just_created then
+                needed_size_from_last_frame_x = window.ContentSize.x + window.WindowPadding.x * 2.0; needed_size_from_last_frame_y = window.ContentSize.y + window.WindowPadding.y * 2.0
+            end
 
-            local size_for_scrollbars_x = use_current_size_for_scrollbar_x and avail_size_from_current_frame.x or avail_size_from_last_frame.x
-            local size_for_scrollbars_y = use_current_size_for_scrollbar_y and avail_size_from_current_frame.y or avail_size_from_last_frame.y
+            local size_for_scrollbars_x = use_current_size_for_scrollbar_x and avail_size_from_current_frame_x or avail_size_from_last_frame_x
+            local size_for_scrollbars_y = use_current_size_for_scrollbar_y and avail_size_from_current_frame_y or avail_size_from_last_frame_y
 
             local scrollbar_x_prev = window.ScrollbarX
             -- local scrollbar_y_from_last_frame = window.ScrollbarY -- FIXME: May want to use that in the ScrollbarX expression? How many pros vs cons?
 
-            window.ScrollbarY = (bit32.band(flags, 16384 --[[ImGuiWindowFlags.AlwaysVerticalScrollbar]]) ~= 0) or ((needed_size_from_last_frame.y > size_for_scrollbars_y) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0))
-            window.ScrollbarX = (bit32.band(flags, 32768 --[[ImGuiWindowFlags.AlwaysHorizontalScrollbar]]) ~= 0) or ((needed_size_from_last_frame.x > size_for_scrollbars_x - (window.ScrollbarY and style.ScrollbarSize or 0.0)) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0) and (bit32.band(flags, 2048 --[[ImGuiWindowFlags.HorizontalScrollbar]]) ~= 0))
+            window.ScrollbarY = (bit32.band(flags, 16384 --[[ImGuiWindowFlags.AlwaysVerticalScrollbar]]) ~= 0) or ((needed_size_from_last_frame_y > size_for_scrollbars_y) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0))
+            window.ScrollbarX = (bit32.band(flags, 32768 --[[ImGuiWindowFlags.AlwaysHorizontalScrollbar]]) ~= 0) or ((needed_size_from_last_frame_x > size_for_scrollbars_x - (window.ScrollbarY and style.ScrollbarSize or 0.0)) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0) and (bit32.band(flags, 2048 --[[ImGuiWindowFlags.HorizontalScrollbar]]) ~= 0))
 
             -- Track when ScrollbarX visibility keeps toggling, which is a sign of a feedback loop, and stabilize by enforcing visibility (#3285, #8488)
             -- (Feedback loops of this sort can manifest in various situations, but combining horizontal + vertical scrollbar + using a clipper with varying width items is one frequent cause.
@@ -12813,10 +12840,10 @@ function ImGui.Begin(name, open, flags)
             window.ScrollbarXStabilizeEnabled = scrollbar_x_stabilize
 
             if window.ScrollbarX and not window.ScrollbarY then
-                window.ScrollbarY = (needed_size_from_last_frame.y > size_for_scrollbars_y - style.ScrollbarSize) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0)
+                window.ScrollbarY = (needed_size_from_last_frame_y > size_for_scrollbars_y - style.ScrollbarSize) and not (bit32.band(flags, 8 --[[ImGuiWindowFlags.NoScrollbar]]) ~= 0)
             end
 
-            window.ScrollbarSizes = ImVec2(window.ScrollbarY and style.ScrollbarSize or 0.0, window.ScrollbarX and style.ScrollbarSize or 0.0)
+            window.ScrollbarSizes.x = window.ScrollbarY and style.ScrollbarSize or 0.0; window.ScrollbarSizes.y = window.ScrollbarX and style.ScrollbarSize or 0.0 -- [Luau] in place
 
             -- Amend the partially filled window.DecorationXXX values.
             window.DecoOuterSizeX2 = window.DecoOuterSizeX2 + window.ScrollbarSizes.x
@@ -12838,9 +12865,11 @@ function ImGui.Begin(name, open, flags)
         else
             host_rect = viewport_rect
         end
-        local outer_rect = window:Rect()
         local title_bar_rect = window:TitleBarRect()
-        ImRect_Copy(window.OuterRectClipped, outer_rect)
+        do -- [Luau] ImRect_Copy(window.OuterRectClipped, window:Rect()) without the temporary ImRect
+            local r = window.OuterRectClipped
+            r.Min.x = window.Pos.x; r.Min.y = window.Pos.y; r.Max.x = window.Pos.x + window.Size.x; r.Max.y = window.Pos.y + window.Size.y
+        end
         if window.DockIsActive then
             window.OuterRectClipped.Min.y = window.OuterRectClipped.Min.y + window.TitleBarHeight
         end
@@ -12915,7 +12944,9 @@ function ImGui.Begin(name, open, flags)
                 end
                 local previous_child_overlapping
                 if previous_child ~= nil then
-                    previous_child_overlapping = previous_child:Rect():Overlaps(window:Rect())
+                    -- [Luau] scalar previous_child:Rect():Overlaps(window:Rect())
+                    local pp, ps, wp, ws = previous_child.Pos, previous_child.Size, window.Pos, window.Size
+                    previous_child_overlapping = pp.x <= wp.x + ws.x and pp.x + ps.x >= wp.x and pp.y <= wp.y + ws.y and pp.y + ps.y >= wp.y
                 else
                     previous_child_overlapping = false
                 end
@@ -21020,6 +21051,7 @@ function ImGui.DebugNodeFontGlyph(font, glyph)
     ImGui_Text("SourceIdx: %d", glyph.SourceIdx)
 end
 
+@native
 function ImGui.DebugNodeFontGlyphsForSrcMask(font, baked, src_mask)
     local draw_list = ImGui_GetWindowDrawList()
     local glyph_col = ImGui_GetColorU32(0 --[[ImGuiCol.Text]])
@@ -34980,6 +35012,7 @@ end
 --- @param gradient_p1    ImVec2
 --- @param col0           ImU32
 --- @param col1           ImU32
+@native
 function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx, vert_end_idx, gradient_p0, gradient_p1, col0, col1)
     local gradient_extent = gradient_p1 - gradient_p0
     local gradient_inv_length2 = 1.0 / ImLengthSqr(gradient_extent)
@@ -41872,6 +41905,7 @@ end
 --- @param a_min        float
 --- @param a_max        float
 --- @param num_segments int
+@native
 function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
     if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
@@ -42389,6 +42423,8 @@ function ImGui.CalcRoundingFlagsForRectInRect(r_in, r_outer, threshold)
     return flags
 end
 
+local Checkerboard_cell_min, Checkerboard_cell_max = ImVec2(), ImVec2()
+
 -- Helper for ColorPicker4()
 -- NB: This is rather brittle and will show artifact when rounding this enabled if rounded corners overlap multiple cells. Caller currently responsible for avoiding that.
 -- Spent a non reasonable amount of time trying to getting this right for ColorButton with rounding+anti-aliasing+ImGuiColorEditFlags_HalfAlphaPreview flag + various grid sizes and offsets, and eventually gave up... probably more reasonable to disable rounding altogether.
@@ -42401,6 +42437,7 @@ end
 --- @param grid_off  ImVec2
 --- @param rounding? float
 --- @param flags?    ImDrawFlags
+@native
 function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col, alpha, grid_step, grid_off, rounding, flags)
     if rounding == nil then rounding = 0.0 end
     if flags    == nil then flags    = 0   end
@@ -42451,7 +42488,9 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
                         end
                         local col_bg
                         if dual_layer then col_bg = col_bg2 elseif (yi + xi) % 2 == 1 then col_bg = col_bg2 else col_bg = col_bg1 end
-                        draw_list:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col_bg, rounding, cell_flags)
+                        local cell_min, cell_max = Checkerboard_cell_min, Checkerboard_cell_max -- [Luau] scratch: AddRectFilled() only reads them
+                        cell_min.x = x1; cell_min.y = y1; cell_max.x = x2; cell_max.y = y2
+                        draw_list:AddRectFilled(cell_min, cell_max, col_bg, rounding, cell_flags)
                     end
                     x = x + x_step
                     xi = xi + 1
@@ -43198,6 +43237,7 @@ function ImGui.GetMetatables() return MT end
 
 --- @param _EXPR any
 --- @param _MSG  string?
+@native
 function IM_ASSERT(_EXPR, _MSG) assert((_EXPR), _MSG) end
 
 IM_ASSERT_PARANOID = IM_ASSERT
@@ -43445,12 +43485,14 @@ local IM_VECTOR = {}
 --- @param t ImVector
 --- @param k string|int
 --- @return any
-IM_VECTOR.__index = function(t, k)
+@native
+local function IM_VECTOR_index(t, k)
     local m = IM_VECTOR[k] -- [Port] methods first (hot path)
     if m ~= nil then return m end
     if k == "Data" then return nil end -- [Port] Data has already been discarded
     return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- [Port] if the mt access turns out nil, the k must be int index into Data
 end
+IM_VECTOR.__index = IM_VECTOR_index
 
 --- @param t ImVector
 --- @param k int
@@ -43472,14 +43514,18 @@ local function _grow_capacity(v, sz) local new_capacity = (v.Capacity ~= 0) and 
 --- @nodiscard
 function ImVector(T, COPY_FUNC) return setmetatable({Data = nil, Size = 0, Capacity = 0, _Constructor = T or _default_constructor, _CopyFunc = COPY_FUNC or _default_copyfunc}, IM_VECTOR) end
 
+@native
 function IM_VECTOR:push_back(value) if self.Size == self.Capacity then self:reserve(_grow_capacity(self, self.Size + 1)) end; self._CopyFunc(self.Data, self.Size + 1, value); self.Size = self.Size + 1; return value end
+@native
 function IM_VECTOR:pop_back() assert(self.Size > 0); self.Size = self.Size - 1; end
 function IM_VECTOR:push_front(value) if self.Size == 0 then self:push_back(value) else self:insert(1, value) end end
 function IM_VECTOR:clear() if self.Data then self.Size = 0; self.Capacity = 0; IM_FREE(self, "Data"); self.Data = nil end end
 function IM_VECTOR:clear_delete() for i = 1, self.Size do self.Data[i] = nil end self.Size = 0 end
 function IM_VECTOR:empty() return self.Size == 0 end
+@native
 function IM_VECTOR:back()   assert(self.Size > 0) return self.Data[self.Size] end
 function IM_VECTOR:erase(i) assert(i >= 1 and i <= self.Size) local removed = (table.remove(self.Data, i)) ~= nil self.Size = self.Size - 1 return removed end
+@native
 local function _iter(v, i) i = i + 1 if i <= v.Size then return i, v.Data[i] end end
 function IM_VECTOR:iter() return _iter, self, 0 end
 function IM_VECTOR:find_index(value) for i = 1, self.Size do if self.Data[i] == value then return i end end return nil end
@@ -46055,7 +46101,7 @@ do
 -- Target: RGBA8 row-major (ImU32 is already R | G<<8 | B<<16 | A<<24), non-premultiplied "over" onto transparent.
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
 local readu8, readu32, writeu32 = buffer.readu8, buffer.readu32, buffer.writeu32
-local readf64 = buffer.readf64
+local readf64, writef64 = buffer.readf64, buffer.writef64
 local band, rshift = bit32.band, bit32.rshift
 local readi32 = buffer.readi32
 
@@ -46073,6 +46119,19 @@ local TILE = M.TILE
 -- Pixel (x, y) of the target is at byte (y * TargetWidth + x) * 4 + TargetBase: a target can be a sub-rectangle of the
 -- tile (raster straight into the upload buffer)
 local TargetBuffer: buffer, TargetWidth, TargetBase = buffer.create(0), 0, 0
+
+-- Solid spans are written two pixels per writef64 (a write costs about the same at either width): the f64 whose bytes
+-- are the pixel twice. Only for a normal double (exponent field not 0 or all ones), which every load and store keeps
+-- bit for bit; else PairF64 returns false and spans are written per pixel.
+local PairScratch = buffer.create(8)
+@native
+local function PairF64(v: number): number | false
+    local e = band(rshift(v, 20), 2047)
+    if e == 0 or e == 2047 then return false end
+    writeu32(PairScratch, 0, v)
+    writeu32(PairScratch, 4, v)
+    return readf64(PairScratch, 0)
+end
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -46136,7 +46195,8 @@ local function Shrink(x0: number, y0: number, x1: number, y1: number)
     PX0, PY0, PX1, PY1 = x0, y0, x1, y1
 end
 
--- FillSpan and DrawTriangle's flat path inline this math with per-span constants: keep them in sync.
+-- The blend, for reference: every rasterizer loop inlines this math (a call per pixel costs more than the blend), the
+-- span paths with per-span constants: keep them in sync. Not called.
 @native
 local function BlendPixel(TargetBuffer: buffer, o: number, r: number, g: number, b: number, a: number)
     if a >= 255 then
@@ -46181,8 +46241,25 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
-        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
+        local pair = span >= 16 and PairF64(packed)
+        if pair then
+            local o, o1 = first, first + w4
+            while o < o1 do
+                writef64(TargetBuffer, o, pair)
+                o += 8
+            end
+            if o == o1 then writeu32(TargetBuffer, o, packed) end
+        else
+            for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
+        end
+        if span <= 8 then -- narrow (vertical lines): writes, a call per row costs more
+            local stride = TargetWidth * 4
+            for o = first + stride, first + (y1 - y0 - 1) * stride, stride do
+                for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, packed) end
+            end
+        else
+            for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
+        end
         -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
         local y = y0
         while y < y1 do
@@ -46210,6 +46287,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     local ns = 1 - sa
     local c1 = ns / 255
     local rs, gs, bs = r * sa, g * sa, b * sa
+    local black = rs == 0 and gs == 0 and bs == 0
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
     local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
     local wide, has_prev = span >= 32 and y1 - y0 > 1, false
@@ -46243,7 +46321,17 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             if v == prev_v and span > 8 then -- (a call: slower than a few writes)
                 buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
             else
-                for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+                local pair = span >= 16 and PairF64(v)
+                if pair then
+                    local o, o1 = o0, o0 + w4
+                    while o < o1 do
+                        writef64(TargetBuffer, o, pair)
+                        o += 8
+                    end
+                    if o == o1 then writeu32(TargetBuffer, o, v) end
+                else
+                    for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+                end
             end
             local na, nb, nv = ra, rb, d
             if span >= x0 - ra and span >= rb - x1 then
@@ -46259,7 +46347,11 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             local o = o0
             while y < y1 and RowX0[y] == ra and RowX1[y] == rb and RowV[y] == d do
                 o += stride
-                buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
+                if span <= 8 then
+                    for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, v) end
+                else
+                    buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
+                end
                 RowX0[y], RowX1[y], RowV[y] = na, nb, nv
                 y += 1
             end
@@ -46280,6 +46372,31 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             end
         end
         prev_o, prev_v = o0, -1
+        if black then
+            -- (black: rs + x is x, so the opaque case is just the scaled destination; colour picker SV square)
+            for o = o0, o0 + w4, 4 do
+                local d = readu32(TargetBuffer, o)
+                if d ~= last_d then
+                    last_d = d
+                    if d >= 4278190080 then
+                        last_v = floor(band(d, 255) * ns + 0.5) + floor(band(rshift(d, 8), 255) * ns + 0.5) * 256
+                            + floor(band(rshift(d, 16), 255) * ns + 0.5) * 65536 + 4278190080
+                    elseif d < 16777216 then
+                        last_v = packed0
+                    else
+                        local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                        local k = rshift(d, 24) * c1
+                        local oa = sa + k
+                        local inv = 1 / oa
+                        last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                            + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                end
+                writeu32(TargetBuffer, o, last_v)
+            end
+            y += 1
+            continue
+        end
         for o = o0, o0 + w4, 4 do
             local d = readu32(TargetBuffer, o)
             if d == last_d then
@@ -46469,39 +46586,54 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
 
     local inv = 1 / area
     local n0, n1, n2 = A0 ~= 0 and -1 / A0 or 0, A1 ~= 0 and -1 / A1 or 0, A2 ~= 0 and -1 / A2 or 0
-    local ra, ga, ba, aa = UnpackColor(readu32(vbuf, va + 32))
-    local rb, gb, bb, ab = UnpackColor(readu32(vbuf, vb + 32))
-    local rc, gc, bc, ac = UnpackColor(readu32(vbuf, vc + 32))
+    -- UnpackColor / SampleTexture inlined (a call costs more than the math)
+    local ca, cb, cc = readu32(vbuf, va + 32), readu32(vbuf, vb + 32), readu32(vbuf, vc + 32)
+    local ra, ga, ba, aa = ca % 256, floor(ca / 256) % 256, floor(ca / 65536) % 256, floor(ca / 16777216) % 256
+    local rb, gb, bb, ab, rc, gc, bc, ac = ra, ga, ba, aa, ra, ga, ba, aa
+    if cb ~= ca then rb, gb, bb, ab = cb % 256, floor(cb / 256) % 256, floor(cb / 65536) % 256, floor(cb / 16777216) % 256 end
+    if cc ~= ca then rc, gc, bc, ac = cc % 256, floor(cc / 256) % 256, floor(cc / 65536) % 256, floor(cc / 16777216) % 256 end
     local ua, vva, ub, vvb, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vb + 16),
         readf64(vbuf, vb + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
 
     local textured = t and not (ua == ub and ua == uc and vva == vvb and vva == vvc)
     if t and not textured then -- constant uv (atlas white pixel): fold the texel into the vertex colours
-        local tr, tg, tb, ta = SampleTexture(t, ua, vva)
-        ra, ga, ba, aa = ra * tr / 255, ga * tg / 255, ba * tb / 255, aa * ta / 255
-        rb, gb, bb, ab = rb * tr / 255, gb * tg / 255, bb * tb / 255, ab * ta / 255
-        rc, gc, bc, ac = rc * tr / 255, gc * tg / 255, bc * tb / 255, ac * ta / 255
+        local tw0, th0 = t.Width, t.Height
+        local tx, ty = floor(ua * tw0), floor(vva * th0)
+        if tx < 0 then tx = 0 elseif tx >= tw0 then tx = tw0 - 1 end
+        if ty < 0 then ty = 0 elseif ty >= th0 then ty = th0 - 1 end
+        local to, tb0 = (ty * tw0 + tx) * 4, t.Buffer
+        if readu32(tb0, to) ~= 4294967295 then -- (a white texel changes nothing: c * 255 / 255 is c)
+            local tr, tg, tb, ta = readu8(tb0, to), readu8(tb0, to + 1), readu8(tb0, to + 2), readu8(tb0, to + 3)
+            ra, ga, ba, aa = ra * tr / 255, ga * tg / 255, ba * tb / 255, aa * ta / 255
+            rb, gb, bb, ab = rb * tr / 255, gb * tg / 255, bb * tb / 255, ab * ta / 255
+            rc, gc, bc, ac = rc * tr / 255, gc * tg / 255, bc * tb / 255, ac * ta / 255
+        end
     end
     local flat = not textured and ra == rb and ra == rc and ga == gb and ga == gc and ba == bb and ba == bc and aa == ab
         and aa == ac
     if flat and aa <= 0 then return end
     local f_opaque, f_packed, f_sa, f_ns, f_c1, f_rs, f_gs, f_bs = false, 0, 0, 0, 0, 0, 0, 0
+    local f_pair: number | false = false
     if flat then
         f_opaque = aa >= 255
         f_packed = floor(ra + 0.5) + floor(ga + 0.5) * 256 + floor(ba + 0.5) * 65536
             + (f_opaque and 4278190080 or floor(aa + 0.5) * 16777216)
-        f_sa = aa / 255
-        f_ns = 1 - f_sa
-        f_c1 = f_ns / 255
-        f_rs, f_gs, f_bs = ra * f_sa, ga * f_sa, ba * f_sa
+        if f_opaque then f_pair = PairF64(f_packed) end
+        if not f_opaque then
+            f_sa = aa / 255
+            f_ns = 1 - f_sa
+            f_c1 = f_ns / 255
+            f_rs, f_gs, f_bs = ra * f_sa, ga * f_sa, ba * f_sa
+        end
     end
     local cconst = textured and ra == rb and ra == rc and ga == gb and ga == gc and ba == bb and ba == bc and aa == ab
         and aa == ac
     if cconst and aa <= 0 then return end
     local tw: number, th: number, tbuf: buffer = 0, 0, dbuf
-    local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
+    local r255, g255, b255, a255 = 0, 0, 0, 0
+    if cconst then r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255 end
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
-    if cconst then tw, th, tbuf = t.Width, t.Height, t.Buffer end
+    if textured then tw, th, tbuf = t.Width, t.Height, t.Buffer end
 
     if not textured and (maxx - minx) * 2 < maxy - miny then
         -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
@@ -46571,7 +46703,32 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                     (A2 * px + (B2 * py + C2)) * inv
                 local a = w0 * aa + w1 * ab + w2 * ac
                 if a > 0 then
-                    BlendPixel(dbuf, o, w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc, w0 * ba + w1 * bb + w2 * bc, a)
+                    -- BlendPixel inlined (same math; a call per pixel costs more than the blend)
+                    local r, g, b = w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc, w0 * ba + w1 * bb + w2 * bc
+                    if a >= 255 then
+                        writeu32(dbuf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080)
+                    else
+                        local d = readu32(dbuf, o)
+                        if d < 16777216 then
+                            writeu32(dbuf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536
+                                + floor(a + 0.5) * 16777216)
+                        else
+                            local sa = a / 255
+                            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                            if d >= 4278190080 then
+                                local ns = 1 - sa
+                                writeu32(dbuf, o, floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
+                                    + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080)
+                            else
+                                local k = rshift(d, 24) * ((1 - sa) / 255)
+                                local oa = sa + k
+                                local inv2 = 1 / oa
+                                writeu32(dbuf, o, floor((r * sa + dr * k) * inv2 + 0.5)
+                                    + floor((g * sa + dg * k) * inv2 + 0.5) * 256
+                                    + floor((b * sa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                            end
+                        end
+                    end
                 end
                 o += stride
             end
@@ -46600,6 +46757,10 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr = min(xr, ceil(e2 * n2 - 0.499999))
         end
 
+        -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
+        -- estimates, and with |A * px| and |e| below 2^17 * |A| the test's rounding error is far below 1e-6 * |A| (the
+        -- test reads the same e). Testing from the next pixel gives the same span.
+        if xl > minx and xl <= xr then xl += 1 end
         while xl <= xr do
             local px = xl + 0.5
             local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
@@ -46608,6 +46769,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             xl += 1
         end
+        if xr < maxx and xr > xl then xr -= 1 end
         while xr > xl do
             local px = xr + 0.5
             local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
@@ -46621,7 +46783,15 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
-                for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
+                if f_pair then
+                    while o < o1 do
+                        writef64(dbuf, o, f_pair)
+                        o += 8
+                    end
+                    if o == o1 then writeu32(dbuf, o, f_packed) end
+                else
+                    for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
+                end
                 continue
             end
             local last_d, last_v = -1, 0
@@ -46697,15 +46867,48 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             local px = x + 0.5
             local w0, w1, w2 = (A0 * px + e0) * inv, (A1 * px + e1) * inv, (A2 * px + e2) * inv
             local a = w0 * aa + w1 * ab + w2 * ac
+            local r, g, b = 0, 0, 0
             if textured then
-                local r = w0 * ra + w1 * rb + w2 * rc
-                local g = w0 * ga + w1 * gb + w2 * gc
-                local b = w0 * ba + w1 * bb + w2 * bc
-                local tr, tg, tb, ta = SampleTexture(t, w0 * ua + w1 * ub + w2 * uc, w0 * vva + w1 * vvb + w2 * vvc)
-                BlendPixel(dbuf, o, r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255)
+                r = w0 * ra + w1 * rb + w2 * rc
+                g = w0 * ga + w1 * gb + w2 * gc
+                b = w0 * ba + w1 * bb + w2 * bc
+                -- SampleTexture inlined
+                local tx, ty = floor((w0 * ua + w1 * ub + w2 * uc) * tw), floor((w0 * vva + w1 * vvb + w2 * vvc) * th)
+                if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
+                if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+                local to = (ty * tw + tx) * 4
+                r, g, b, a = r * readu8(tbuf, to) / 255, g * readu8(tbuf, to + 1) / 255, b * readu8(tbuf, to + 2) / 255,
+                    a * readu8(tbuf, to + 3) / 255
             elseif a > 0 then
-                BlendPixel(dbuf, o, w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc,
-                    w0 * ba + w1 * bb + w2 * bc, a)
+                r, g, b = w0 * ra + w1 * rb + w2 * rc, w0 * ga + w1 * gb + w2 * gc, w0 * ba + w1 * bb + w2 * bc
+            else
+                o += 4
+                continue
+            end
+            -- BlendPixel inlined (same math; a call per pixel costs more than the blend)
+            if a >= 255 then
+                writeu32(dbuf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080)
+            elseif not (a <= 0) then
+                local d = readu32(dbuf, o)
+                if d < 16777216 then
+                    writeu32(dbuf, o, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536
+                        + floor(a + 0.5) * 16777216)
+                else
+                    local sa = a / 255
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        local ns = 1 - sa
+                        writeu32(dbuf, o, floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
+                            + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080)
+                    else
+                        local k = rshift(d, 24) * ((1 - sa) / 255)
+                        local oa = sa + k
+                        local inv2 = 1 / oa
+                        writeu32(dbuf, o, floor((r * sa + dr * k) * inv2 + 0.5)
+                            + floor((g * sa + dg * k) * inv2 + 0.5) * 256
+                            + floor((b * sa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                    end
+                end
             end
             o += 4
         end
@@ -46728,6 +46931,12 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         DrawTriangle(dbuf, vbuf, va, vc, vd, t, cx0, cy0, cx1, cy1, ox, oy)
         return
     end
+    local minx, maxx = max(floor(min(x0, x1, x2, x3)), cx0), min(ceil(max(x0, x1, x2, x3)), cx1 - 1)
+    local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
+    if minx > maxx or miny > maxy then return end
+    local col = readu32(vbuf, va + 32)
+    local ra, ga, ba, aa = col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
+    if aa <= 0 then return end
     local ua, vva, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
     -- outer edges P -> Q (quad order, counter-clockwise like DrawTriangle's swap): A = yP - yQ, B = xQ - xP, C from P
     local px_, py_, qx_, qy_ = x1, y1, x3, y3 -- b, d
@@ -46757,13 +46966,16 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     WA, WB, WC = WA * winv, WB * winv, WC * winv
     local du, dv = uc - ua, vvc - vva
 
-    local minx, maxx = max(floor(min(x0, x1, x2, x3)), cx0), min(ceil(max(x0, x1, x2, x3)), cx1 - 1)
-    local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
-    if minx > maxx or miny > maxy then return end
-    local ra, ga, ba, aa = UnpackColor(readu32(vbuf, va + 32))
-    if aa <= 0 then return end
     Shrink(minx, miny, maxx + 1, maxy + 1)
     local tw: number, th: number, tbuf: buffer = t.Width, t.Height, t.Buffer
+    -- v constant across the line (ImGui's line texture: u across, one row per width): the texel row is fixed
+    -- (vva + w * 0 is vva)
+    local trow = -1
+    if dv == 0 then
+        local ty = floor(vva * th)
+        if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+        trow = ty * tw * 4
+    end
     local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
     for y = miny, maxy do
@@ -46774,6 +46986,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
         if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
         if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        if xl > minx and xl <= xr then xl += 1 end -- (an estimate is never in the span: see DrawTriangle)
         while xl <= xr do
             local px = xl + 0.5
             local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
@@ -46783,6 +46996,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             xl += 1
         end
+        if xr < maxx and xr > xl then xr -= 1 end
         while xr > xl do
             local px = xr + 0.5
             local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
@@ -46797,10 +47011,16 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         local wrow = WB * py + WC
         for x = xl, xr do
             local w = WA * (x + 0.5) + wrow
-            local tx, ty = floor((ua + w * du) * tw), floor((vva + w * dv) * th)
+            local tx = floor((ua + w * du) * tw)
             if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
-            if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
-            local tv = readu32(tbuf, (ty * tw + tx) * 4)
+            local tv
+            if trow >= 0 then
+                tv = readu32(tbuf, trow + tx * 4)
+            else
+                local ty = floor((vva + w * dv) * th)
+                if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
+                tv = readu32(tbuf, (ty * tw + tx) * 4)
+            end
             if tv ~= last_tv then
                 last_tv = tv
                 sa = rshift(tv, 24) * a255
@@ -46875,7 +47095,34 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
                 for x = px0, px1 - 1 do
                     local f = (x + 0.5 - x0) * inv
                     local nf = 1 - f
-                    BlendPixel(TargetBuffer, oo, ra * nf + rb * f, ga * nf + gb * f, ba * nf + bb * f, aa * nf + ab * f)
+                    local r, g, b, a = ra * nf + rb * f, ga * nf + gb * f, ba * nf + bb * f, aa * nf + ab * f
+                    -- BlendPixel inlined (same math)
+                    if a >= 255 then
+                        writeu32(TargetBuffer, oo, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536
+                            + 4278190080)
+                    elseif not (a <= 0) then
+                        local d = readu32(TargetBuffer, oo)
+                        if d < 16777216 then
+                            writeu32(TargetBuffer, oo, floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536
+                                + floor(a + 0.5) * 16777216)
+                        else
+                            local sa = a / 255
+                            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                            if d >= 4278190080 then
+                                local ns = 1 - sa
+                                writeu32(TargetBuffer, oo, floor(r * sa + dr * ns + 0.5)
+                                    + floor(g * sa + dg * ns + 0.5) * 256 + floor(b * sa + db * ns + 0.5) * 65536
+                                    + 4278190080)
+                            else
+                                local k = rshift(d, 24) * ((1 - sa) / 255)
+                                local oa = sa + k
+                                local inv2 = 1 / oa
+                                writeu32(TargetBuffer, oo, floor((r * sa + dr * k) * inv2 + 0.5)
+                                    + floor((g * sa + dg * k) * inv2 + 0.5) * 256
+                                    + floor((b * sa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                            end
+                        end
+                    end
                     oo = oo + 4
                 end
             end
@@ -48096,12 +48343,21 @@ local function DirtyRects(tile, layer, key, count, x0, y0, force, exposed, vx0, 
                 if b ~= ob then DirtyCount = AddRect(DirtyCount, ux0, uy0, ux1, max(b, ob)) end
                 if d ~= od then DirtyCount = AddRect(DirtyCount, ux0, min(d, od), ux1, uy1) end
             else
-                DirtyCount = AddRect(DirtyCount, a, b, c, d)
-                if k <= DrawnCount - j then DirtyCount = AddRect(DirtyCount, oa, ob, oc, od) end
+                -- (inside the first rect: AddRect would merge it there, changing nothing; skip the call. Animated
+                -- plots change hundreds of primitives per tile)
+                if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                    DirtyCount = AddRect(DirtyCount, a, b, c, d)
+                end
+                if k <= DrawnCount - j and (DirtyCount == 0 or oa < DX0[1] or ob < DY0[1] or oc > DX1[1] or od > DY1[1]) then
+                    DirtyCount = AddRect(DirtyCount, oa, ob, oc, od)
+                end
             end
         end
         for k = count - j + 1, DrawnCount - j do
-            DirtyCount = AddRect(DirtyCount, DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k])
+            local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
+            if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                DirtyCount = AddRect(DirtyCount, a, b, c, d)
+            end
         end
     end
     -- clip D to V, then add the exposed part that isn't valid. cut: part of D inside the valid rect was clipped away
@@ -48153,12 +48409,14 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
     ClearRect(rx0, ry0, rx1, ry1)
     for k = 1, count do
         local p = list[k]
-        local cx0, cy0 = max(PrimClipX0[p] - x0, rx0), max(PrimClipY0[p] - y0, ry0)
-        local cx1, cy1 = min(PrimClipX1[p] - x0, rx1), min(PrimClipY1[p] - y0, ry1)
-        if cx0 >= cx1 or cy0 >= cy1 or PrimBoundsX0[p] - x0 >= rx1 or PrimBoundsY0[p] - y0 >= ry1
-            or PrimBoundsX1[p] - x0 <= rx0 or PrimBoundsY1[p] - y0 <= ry0 then
+        -- (bounds first: most of a tile's primitives miss a small rect)
+        if PrimBoundsX0[p] - x0 >= rx1 or PrimBoundsY0[p] - y0 >= ry1 or PrimBoundsX1[p] - x0 <= rx0
+            or PrimBoundsY1[p] - y0 <= ry0 then
             continue
         end
+        local cx0, cy0 = max(PrimClipX0[p] - x0, rx0), max(PrimClipY0[p] - y0, ry0)
+        local cx1, cy1 = min(PrimClipX1[p] - x0, rx1), min(PrimClipY1[p] - y0, ry1)
+        if cx0 >= cx1 or cy0 >= cy1 then continue end
         local kind, gk = 0, PrimGradient[p]
         if PrimD[p] then kind = gk and gk + 1 or 1 end
         DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0, cx1, cy1)
@@ -57078,6 +57336,7 @@ IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = ((IM_DRAWLIST_TEX_LINES_DETAILED_WI
 -- - Read https://github.com/ocornut/imgui/wiki/Error-Handling for details on error handling.
 -- [Port] Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
 function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui_ErrorLog or ImGui_ErrorLog(_MSG) then error(_MSG, 2) end end end -- Recoverable User Error
+@native
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
 -- Debug Logging for ShowDebugLogWindow(). This is designed for relatively rare events so please don't spam.
@@ -62082,6 +62341,8 @@ function ImGui.TableApplyExternalUnclipRect(table_, rect)
     end
 end
 
+local TableUpdateBorders_hit_rect = ImRect()
+
 -- Process hit-testing on resizing borders. Actual size change will be applied in EndTable()
 -- - Set table.HoveredColumnBorder with a short delay/timer to reduce visual feedback noise.
 function ImGui.TableUpdateBorders(table_)
@@ -62121,7 +62382,8 @@ function ImGui.TableUpdateBorders(table_)
             end
 
             local column_id = ImGui_TableGetColumnResizeID(table_, column_n, table_.InstanceCurrent)
-            local hit_rect = ImRect(column.MaxX - hit_half_width, hit_y1, column.MaxX + hit_half_width, border_y2_hit)
+            local hit_rect = TableUpdateBorders_hit_rect -- [Luau] scratch: ItemAdd() copies it, ButtonBehavior() reads it
+            hit_rect.Min.x = column.MaxX - hit_half_width; hit_rect.Min.y = hit_y1; hit_rect.Max.x = column.MaxX + hit_half_width; hit_rect.Max.y = border_y2_hit
             ImGui.ItemAdd(hit_rect, column_id, nil, 2 --[[ImGuiItemFlags.NoNav]])
             --ImGui.GetForegroundDrawList():AddRect(hit_rect.Min, hit_rect.Max, IM_COL32(255, 0, 0, 100))
 
@@ -65632,11 +65894,9 @@ return true -- [Port] [Roblox] ModuleScripts must return exactly one value
 end end)()
 
 __FILES['imgui_widgets.lua'] = (function()
-local ImGui_ArrowButtonEx, ImGui_BeginDisabled, ImGui_BeginGroup, ImGui_BeginPopup, ImGui_ButtonBehavior, ImGui_ButtonEx, ImGui_CalcItemSize, ImGui_CalcItemWidth, ImGui_CalcTextSize, ImGui_CalcTextSizeEx, ImGui_CalcTextSizeXY, ImGui_ClearActiveID, ImGui_ColorButton, ImGui_ColorConvertFloat4ToU32, ImGui_ColorConvertHSVtoRGB, ImGui_ColorConvertRGBtoHSV, ImGui_ColorEdit4, ImGui_ColorPicker4, ImGui_DataTypeApplyFromText, ImGui_DataTypeCompare, ImGui_DataTypeGetInfo, ImGui_DragBehaviorT, ImGui_DragScalar, ImGui_EndChild, ImGui_EndDisabled, ImGui_EndGroup, ImGui_EndPopup, ImGui_FindRenderedTextEnd, ImGui_FindWindowByName, ImGui_FocusWindow, ImGui_GetColorU32, ImGui_GetContentRegionAvail, ImGui_GetCurrentContext, ImGui_GetCurrentWindow, ImGui_GetFrameHeight, ImGui_GetInputTextState, ImGui_GetKeyData, ImGui_GetNavTweakPressedAmount, ImGui_GetTextLineHeightWithSpacing, ImGui_GetWindowScrollbarID, ImGui_InputScalar, ImGui_InputScalarN, ImGui_InputText, ImGui_InputTextEx, ImGui_InvisibleButton, ImGui_IsItemActive, ImGui_IsItemHovered, ImGui_IsKeyDown, ImGui_IsKeyPressed, ImGui_IsMouseClicked, ImGui_IsMouseClickedEx, ImGui_IsMouseDragPastThreshold, ImGui_IsMouseDragging, ImGui_IsMouseReleased, ImGui_IsPopupOpen, ImGui_KeepAliveID, ImGui_LogRenderedText, ImGui_LogSetNextTextDecoration, ImGui_MarkItemEdited, ImGui_MultiSelectAddSetAll, ImGui_MultiSelectItemFooter, ImGui_MultiSelectItemHeader, ImGui_NavMoveRequestButNoResultYet, ImGui_NavMoveRequestCancel, ImGui_OpenPopup, ImGui_OpenPopupOnItemClick, ImGui_PlotEx, ImGui_PopClipRect, ImGui_PopID, ImGui_PopItemFlag, ImGui_PopItemWidth, ImGui_PopStyleColor, ImGui_PopStyleVar, ImGui_PushClipRect, ImGui_PushID, ImGui_PushItemFlag, ImGui_PushMultiItemsWidths, ImGui_PushOverrideID, ImGui_PushStyleColor, ImGui_PushStyleVar, ImGui_PushStyleVarX, ImGui_RadioButtonEx, ImGui_RenderArrow, ImGui_RenderArrowPointingAt, ImGui_RenderBullet, ImGui_RenderColorRectWithAlphaCheckerboard, ImGui_RenderFrame, ImGui_RenderFrameBorder, ImGui_RenderNavCursor, ImGui_RenderText, ImGui_RenderTextClipped, ImGui_RenderTextEllipsis, ImGui_RoundScalarWithFormatT, ImGui_SameLine, ImGui_ScaleRatioFromValueT, ImGui_ScaleValueFromRatioT, ImGui_Selectable, ImGui_Separator, ImGui_SetActiveID, ImGui_SetClipboardText, ImGui_SetCursorScreenPos, ImGui_SetFocusID, ImGui_SetKeyOwner, ImGui_SetNavCursorVisibleAfterMove, ImGui_SetNavID, ImGui_SetNextItemColorMarker, ImGui_SetNextItemWidth, ImGui_SetNextWindowPos, ImGui_SetScrollY, ImGui_SetTooltip, ImGui_Shortcut, ImGui_SliderBehaviorT, ImGui_SliderScalar, ImGui_SliderScalarN, ImGui_TabBarCalcTabID, ImGui_TabBarFindTabByID, ImGui_TabBarGetTabOrder, ImGui_TabBarQueueFocus, ImGui_TabBarScrollClamp, ImGui_TabItemCalcSize, ImGui_TabItemEx, ImGui_TablePopBackgroundChannel, ImGui_Text, ImGui_TextEx, ImGui__ByteArrayToString, ImGui__CalcItemSizeXY
-__BIND[#__BIND + 1] = function() if ImGui then ImGui_ArrowButtonEx = ImGui.ArrowButtonEx ImGui_BeginDisabled = ImGui.BeginDisabled ImGui_BeginGroup = ImGui.BeginGroup ImGui_BeginPopup = ImGui.BeginPopup ImGui_ButtonBehavior = ImGui.ButtonBehavior ImGui_ButtonEx = ImGui.ButtonEx ImGui_CalcItemSize = ImGui.CalcItemSize ImGui_CalcItemWidth = ImGui.CalcItemWidth ImGui_CalcTextSize = ImGui.CalcTextSize ImGui_CalcTextSizeEx = ImGui.CalcTextSizeEx ImGui_CalcTextSizeXY = ImGui.CalcTextSizeXY ImGui_ClearActiveID = ImGui.ClearActiveID ImGui_ColorButton = ImGui.ColorButton ImGui_ColorConvertFloat4ToU32 = ImGui.ColorConvertFloat4ToU32 ImGui_ColorConvertHSVtoRGB = ImGui.ColorConvertHSVtoRGB ImGui_ColorConvertRGBtoHSV = ImGui.ColorConvertRGBtoHSV ImGui_ColorEdit4 = ImGui.ColorEdit4 ImGui_ColorPicker4 = ImGui.ColorPicker4 ImGui_DataTypeApplyFromText = ImGui.DataTypeApplyFromText ImGui_DataTypeCompare = ImGui.DataTypeCompare ImGui_DataTypeGetInfo = ImGui.DataTypeGetInfo ImGui_DragBehaviorT = ImGui.DragBehaviorT ImGui_DragScalar = ImGui.DragScalar ImGui_EndChild = ImGui.EndChild ImGui_EndDisabled = ImGui.EndDisabled ImGui_EndGroup = ImGui.EndGroup ImGui_EndPopup = ImGui.EndPopup ImGui_FindRenderedTextEnd = ImGui.FindRenderedTextEnd ImGui_FindWindowByName = ImGui.FindWindowByName ImGui_FocusWindow = ImGui.FocusWindow ImGui_GetColorU32 = ImGui.GetColorU32 ImGui_GetContentRegionAvail = ImGui.GetContentRegionAvail ImGui_GetCurrentContext = ImGui.GetCurrentContext ImGui_GetCurrentWindow = ImGui.GetCurrentWindow ImGui_GetFrameHeight = ImGui.GetFrameHeight ImGui_GetInputTextState = ImGui.GetInputTextState ImGui_GetKeyData = ImGui.GetKeyData ImGui_GetNavTweakPressedAmount = ImGui.GetNavTweakPressedAmount ImGui_GetTextLineHeightWithSpacing = ImGui.GetTextLineHeightWithSpacing ImGui_GetWindowScrollbarID = ImGui.GetWindowScrollbarID ImGui_InputScalar = ImGui.InputScalar ImGui_InputScalarN = ImGui.InputScalarN ImGui_InputText = ImGui.InputText ImGui_InputTextEx = ImGui.InputTextEx ImGui_InvisibleButton = ImGui.InvisibleButton ImGui_IsItemActive = ImGui.IsItemActive ImGui_IsItemHovered = ImGui.IsItemHovered ImGui_IsKeyDown = ImGui.IsKeyDown ImGui_IsKeyPressed = ImGui.IsKeyPressed ImGui_IsMouseClicked = ImGui.IsMouseClicked ImGui_IsMouseClickedEx = ImGui.IsMouseClickedEx ImGui_IsMouseDragPastThreshold = ImGui.IsMouseDragPastThreshold ImGui_IsMouseDragging = ImGui.IsMouseDragging ImGui_IsMouseReleased = ImGui.IsMouseReleased ImGui_IsPopupOpen = ImGui.IsPopupOpen ImGui_KeepAliveID = ImGui.KeepAliveID ImGui_LogRenderedText = ImGui.LogRenderedText ImGui_LogSetNextTextDecoration = ImGui.LogSetNextTextDecoration ImGui_MarkItemEdited = ImGui.MarkItemEdited ImGui_MultiSelectAddSetAll = ImGui.MultiSelectAddSetAll ImGui_MultiSelectItemFooter = ImGui.MultiSelectItemFooter ImGui_MultiSelectItemHeader = ImGui.MultiSelectItemHeader ImGui_NavMoveRequestButNoResultYet = ImGui.NavMoveRequestButNoResultYet ImGui_NavMoveRequestCancel = ImGui.NavMoveRequestCancel ImGui_OpenPopup = ImGui.OpenPopup ImGui_OpenPopupOnItemClick = ImGui.OpenPopupOnItemClick ImGui_PlotEx = ImGui.PlotEx ImGui_PopClipRect = ImGui.PopClipRect ImGui_PopID = ImGui.PopID ImGui_PopItemFlag = ImGui.PopItemFlag ImGui_PopItemWidth = ImGui.PopItemWidth ImGui_PopStyleColor = ImGui.PopStyleColor ImGui_PopStyleVar = ImGui.PopStyleVar ImGui_PushClipRect = ImGui.PushClipRect ImGui_PushID = ImGui.PushID ImGui_PushItemFlag = ImGui.PushItemFlag ImGui_PushMultiItemsWidths = ImGui.PushMultiItemsWidths ImGui_PushOverrideID = ImGui.PushOverrideID ImGui_PushStyleColor = ImGui.PushStyleColor ImGui_PushStyleVar = ImGui.PushStyleVar ImGui_PushStyleVarX = ImGui.PushStyleVarX ImGui_RadioButtonEx = ImGui.RadioButtonEx ImGui_RenderArrow = ImGui.RenderArrow ImGui_RenderArrowPointingAt = ImGui.RenderArrowPointingAt ImGui_RenderBullet = ImGui.RenderBullet ImGui_RenderColorRectWithAlphaCheckerboard = ImGui.RenderColorRectWithAlphaCheckerboard ImGui_RenderFrame = ImGui.RenderFrame ImGui_RenderFrameBorder = ImGui.RenderFrameBorder ImGui_RenderNavCursor = ImGui.RenderNavCursor ImGui_RenderText = ImGui.RenderText ImGui_RenderTextClipped = ImGui.RenderTextClipped ImGui_RenderTextEllipsis = ImGui.RenderTextEllipsis ImGui_RoundScalarWithFormatT = ImGui.RoundScalarWithFormatT ImGui_SameLine = ImGui.SameLine ImGui_ScaleRatioFromValueT = ImGui.ScaleRatioFromValueT ImGui_ScaleValueFromRatioT = ImGui.ScaleValueFromRatioT ImGui_Selectable = ImGui.Selectable ImGui_Separator = ImGui.Separator ImGui_SetActiveID = ImGui.SetActiveID ImGui_SetClipboardText = ImGui.SetClipboardText ImGui_SetCursorScreenPos = ImGui.SetCursorScreenPos ImGui_SetFocusID = ImGui.SetFocusID ImGui_SetKeyOwner = ImGui.SetKeyOwner ImGui_SetNavCursorVisibleAfterMove = ImGui.SetNavCursorVisibleAfterMove ImGui_SetNavID = ImGui.SetNavID ImGui_SetNextItemColorMarker = ImGui.SetNextItemColorMarker ImGui_SetNextItemWidth = ImGui.SetNextItemWidth ImGui_SetNextWindowPos = ImGui.SetNextWindowPos ImGui_SetScrollY = ImGui.SetScrollY ImGui_SetTooltip = ImGui.SetTooltip ImGui_Shortcut = ImGui.Shortcut ImGui_SliderBehaviorT = ImGui.SliderBehaviorT ImGui_SliderScalar = ImGui.SliderScalar ImGui_SliderScalarN = ImGui.SliderScalarN ImGui_TabBarCalcTabID = ImGui.TabBarCalcTabID ImGui_TabBarFindTabByID = ImGui.TabBarFindTabByID ImGui_TabBarGetTabOrder = ImGui.TabBarGetTabOrder ImGui_TabBarQueueFocus = ImGui.TabBarQueueFocus ImGui_TabBarScrollClamp = ImGui.TabBarScrollClamp ImGui_TabItemCalcSize = ImGui.TabItemCalcSize ImGui_TabItemEx = ImGui.TabItemEx ImGui_TablePopBackgroundChannel = ImGui.TablePopBackgroundChannel ImGui_Text = ImGui.Text ImGui_TextEx = ImGui.TextEx ImGui__ByteArrayToString = ImGui._ByteArrayToString ImGui__CalcItemSizeXY = ImGui._CalcItemSizeXY end end; __BIND[#__BIND]()
+local ImGui_ArrowButtonEx, ImGui_BeginDisabled, ImGui_BeginGroup, ImGui_BeginPopup, ImGui_ButtonBehavior, ImGui_ButtonEx, ImGui_CalcItemWidth, ImGui_CalcTextSize, ImGui_CalcTextSizeEx, ImGui_CalcTextSizeXY, ImGui_ClearActiveID, ImGui_ColorButton, ImGui_ColorConvertFloat4ToU32, ImGui_ColorConvertHSVtoRGB, ImGui_ColorConvertRGBtoHSV, ImGui_ColorEdit4, ImGui_ColorPicker4, ImGui_DataTypeApplyFromText, ImGui_DataTypeCompare, ImGui_DataTypeGetInfo, ImGui_DragBehaviorT, ImGui_DragScalar, ImGui_EndChild, ImGui_EndDisabled, ImGui_EndGroup, ImGui_EndPopup, ImGui_FindRenderedTextEnd, ImGui_FindWindowByName, ImGui_FocusWindow, ImGui_GetColorU32, ImGui_GetContentRegionAvail, ImGui_GetCurrentContext, ImGui_GetCurrentWindow, ImGui_GetFrameHeight, ImGui_GetInputTextState, ImGui_GetKeyData, ImGui_GetNavTweakPressedAmount, ImGui_GetTextLineHeightWithSpacing, ImGui_GetWindowScrollbarID, ImGui_InputScalar, ImGui_InputScalarN, ImGui_InputText, ImGui_InputTextEx, ImGui_InvisibleButton, ImGui_IsItemActive, ImGui_IsItemHovered, ImGui_IsKeyDown, ImGui_IsKeyPressed, ImGui_IsMouseClicked, ImGui_IsMouseClickedEx, ImGui_IsMouseDragPastThreshold, ImGui_IsMouseDragging, ImGui_IsMouseReleased, ImGui_IsPopupOpen, ImGui_KeepAliveID, ImGui_LogRenderedText, ImGui_LogSetNextTextDecoration, ImGui_MarkItemEdited, ImGui_MultiSelectAddSetAll, ImGui_MultiSelectItemFooter, ImGui_MultiSelectItemHeader, ImGui_NavMoveRequestButNoResultYet, ImGui_NavMoveRequestCancel, ImGui_OpenPopup, ImGui_OpenPopupOnItemClick, ImGui_PlotEx, ImGui_PopClipRect, ImGui_PopID, ImGui_PopItemFlag, ImGui_PopItemWidth, ImGui_PopStyleColor, ImGui_PopStyleVar, ImGui_PushClipRect, ImGui_PushID, ImGui_PushItemFlag, ImGui_PushMultiItemsWidths, ImGui_PushOverrideID, ImGui_PushStyleColor, ImGui_PushStyleVar, ImGui_PushStyleVarX, ImGui_RadioButtonEx, ImGui_RenderArrow, ImGui_RenderArrowPointingAt, ImGui_RenderBullet, ImGui_RenderColorRectWithAlphaCheckerboard, ImGui_RenderFrame, ImGui_RenderFrameBorder, ImGui_RenderNavCursor, ImGui_RenderText, ImGui_RenderTextClipped, ImGui_RenderTextEllipsis, ImGui_RoundScalarWithFormatT, ImGui_SameLine, ImGui_ScaleRatioFromValueT, ImGui_ScaleValueFromRatioT, ImGui_Selectable, ImGui_Separator, ImGui_SetActiveID, ImGui_SetClipboardText, ImGui_SetCursorScreenPos, ImGui_SetFocusID, ImGui_SetKeyOwner, ImGui_SetNavCursorVisibleAfterMove, ImGui_SetNavID, ImGui_SetNextItemColorMarker, ImGui_SetNextItemWidth, ImGui_SetNextWindowPos, ImGui_SetScrollY, ImGui_SetTooltip, ImGui_Shortcut, ImGui_SliderBehaviorT, ImGui_SliderScalar, ImGui_SliderScalarN, ImGui_TabBarCalcTabID, ImGui_TabBarFindTabByID, ImGui_TabBarGetTabOrder, ImGui_TabBarQueueFocus, ImGui_TabBarScrollClamp, ImGui_TabItemCalcSize, ImGui_TabItemEx, ImGui_TablePopBackgroundChannel, ImGui_TestKeyOwner, ImGui_Text, ImGui_TextEx, ImGui__ByteArrayToString, ImGui__CalcItemSizeXY
+__BIND[#__BIND + 1] = function() if ImGui then ImGui_ArrowButtonEx = ImGui.ArrowButtonEx ImGui_BeginDisabled = ImGui.BeginDisabled ImGui_BeginGroup = ImGui.BeginGroup ImGui_BeginPopup = ImGui.BeginPopup ImGui_ButtonBehavior = ImGui.ButtonBehavior ImGui_ButtonEx = ImGui.ButtonEx ImGui_CalcItemWidth = ImGui.CalcItemWidth ImGui_CalcTextSize = ImGui.CalcTextSize ImGui_CalcTextSizeEx = ImGui.CalcTextSizeEx ImGui_CalcTextSizeXY = ImGui.CalcTextSizeXY ImGui_ClearActiveID = ImGui.ClearActiveID ImGui_ColorButton = ImGui.ColorButton ImGui_ColorConvertFloat4ToU32 = ImGui.ColorConvertFloat4ToU32 ImGui_ColorConvertHSVtoRGB = ImGui.ColorConvertHSVtoRGB ImGui_ColorConvertRGBtoHSV = ImGui.ColorConvertRGBtoHSV ImGui_ColorEdit4 = ImGui.ColorEdit4 ImGui_ColorPicker4 = ImGui.ColorPicker4 ImGui_DataTypeApplyFromText = ImGui.DataTypeApplyFromText ImGui_DataTypeCompare = ImGui.DataTypeCompare ImGui_DataTypeGetInfo = ImGui.DataTypeGetInfo ImGui_DragBehaviorT = ImGui.DragBehaviorT ImGui_DragScalar = ImGui.DragScalar ImGui_EndChild = ImGui.EndChild ImGui_EndDisabled = ImGui.EndDisabled ImGui_EndGroup = ImGui.EndGroup ImGui_EndPopup = ImGui.EndPopup ImGui_FindRenderedTextEnd = ImGui.FindRenderedTextEnd ImGui_FindWindowByName = ImGui.FindWindowByName ImGui_FocusWindow = ImGui.FocusWindow ImGui_GetColorU32 = ImGui.GetColorU32 ImGui_GetContentRegionAvail = ImGui.GetContentRegionAvail ImGui_GetCurrentContext = ImGui.GetCurrentContext ImGui_GetCurrentWindow = ImGui.GetCurrentWindow ImGui_GetFrameHeight = ImGui.GetFrameHeight ImGui_GetInputTextState = ImGui.GetInputTextState ImGui_GetKeyData = ImGui.GetKeyData ImGui_GetNavTweakPressedAmount = ImGui.GetNavTweakPressedAmount ImGui_GetTextLineHeightWithSpacing = ImGui.GetTextLineHeightWithSpacing ImGui_GetWindowScrollbarID = ImGui.GetWindowScrollbarID ImGui_InputScalar = ImGui.InputScalar ImGui_InputScalarN = ImGui.InputScalarN ImGui_InputText = ImGui.InputText ImGui_InputTextEx = ImGui.InputTextEx ImGui_InvisibleButton = ImGui.InvisibleButton ImGui_IsItemActive = ImGui.IsItemActive ImGui_IsItemHovered = ImGui.IsItemHovered ImGui_IsKeyDown = ImGui.IsKeyDown ImGui_IsKeyPressed = ImGui.IsKeyPressed ImGui_IsMouseClicked = ImGui.IsMouseClicked ImGui_IsMouseClickedEx = ImGui.IsMouseClickedEx ImGui_IsMouseDragPastThreshold = ImGui.IsMouseDragPastThreshold ImGui_IsMouseDragging = ImGui.IsMouseDragging ImGui_IsMouseReleased = ImGui.IsMouseReleased ImGui_IsPopupOpen = ImGui.IsPopupOpen ImGui_KeepAliveID = ImGui.KeepAliveID ImGui_LogRenderedText = ImGui.LogRenderedText ImGui_LogSetNextTextDecoration = ImGui.LogSetNextTextDecoration ImGui_MarkItemEdited = ImGui.MarkItemEdited ImGui_MultiSelectAddSetAll = ImGui.MultiSelectAddSetAll ImGui_MultiSelectItemFooter = ImGui.MultiSelectItemFooter ImGui_MultiSelectItemHeader = ImGui.MultiSelectItemHeader ImGui_NavMoveRequestButNoResultYet = ImGui.NavMoveRequestButNoResultYet ImGui_NavMoveRequestCancel = ImGui.NavMoveRequestCancel ImGui_OpenPopup = ImGui.OpenPopup ImGui_OpenPopupOnItemClick = ImGui.OpenPopupOnItemClick ImGui_PlotEx = ImGui.PlotEx ImGui_PopClipRect = ImGui.PopClipRect ImGui_PopID = ImGui.PopID ImGui_PopItemFlag = ImGui.PopItemFlag ImGui_PopItemWidth = ImGui.PopItemWidth ImGui_PopStyleColor = ImGui.PopStyleColor ImGui_PopStyleVar = ImGui.PopStyleVar ImGui_PushClipRect = ImGui.PushClipRect ImGui_PushID = ImGui.PushID ImGui_PushItemFlag = ImGui.PushItemFlag ImGui_PushMultiItemsWidths = ImGui.PushMultiItemsWidths ImGui_PushOverrideID = ImGui.PushOverrideID ImGui_PushStyleColor = ImGui.PushStyleColor ImGui_PushStyleVar = ImGui.PushStyleVar ImGui_PushStyleVarX = ImGui.PushStyleVarX ImGui_RadioButtonEx = ImGui.RadioButtonEx ImGui_RenderArrow = ImGui.RenderArrow ImGui_RenderArrowPointingAt = ImGui.RenderArrowPointingAt ImGui_RenderBullet = ImGui.RenderBullet ImGui_RenderColorRectWithAlphaCheckerboard = ImGui.RenderColorRectWithAlphaCheckerboard ImGui_RenderFrame = ImGui.RenderFrame ImGui_RenderFrameBorder = ImGui.RenderFrameBorder ImGui_RenderNavCursor = ImGui.RenderNavCursor ImGui_RenderText = ImGui.RenderText ImGui_RenderTextClipped = ImGui.RenderTextClipped ImGui_RenderTextEllipsis = ImGui.RenderTextEllipsis ImGui_RoundScalarWithFormatT = ImGui.RoundScalarWithFormatT ImGui_SameLine = ImGui.SameLine ImGui_ScaleRatioFromValueT = ImGui.ScaleRatioFromValueT ImGui_ScaleValueFromRatioT = ImGui.ScaleValueFromRatioT ImGui_Selectable = ImGui.Selectable ImGui_Separator = ImGui.Separator ImGui_SetActiveID = ImGui.SetActiveID ImGui_SetClipboardText = ImGui.SetClipboardText ImGui_SetCursorScreenPos = ImGui.SetCursorScreenPos ImGui_SetFocusID = ImGui.SetFocusID ImGui_SetKeyOwner = ImGui.SetKeyOwner ImGui_SetNavCursorVisibleAfterMove = ImGui.SetNavCursorVisibleAfterMove ImGui_SetNavID = ImGui.SetNavID ImGui_SetNextItemColorMarker = ImGui.SetNextItemColorMarker ImGui_SetNextItemWidth = ImGui.SetNextItemWidth ImGui_SetNextWindowPos = ImGui.SetNextWindowPos ImGui_SetScrollY = ImGui.SetScrollY ImGui_SetTooltip = ImGui.SetTooltip ImGui_Shortcut = ImGui.Shortcut ImGui_SliderBehaviorT = ImGui.SliderBehaviorT ImGui_SliderScalar = ImGui.SliderScalar ImGui_SliderScalarN = ImGui.SliderScalarN ImGui_TabBarCalcTabID = ImGui.TabBarCalcTabID ImGui_TabBarFindTabByID = ImGui.TabBarFindTabByID ImGui_TabBarGetTabOrder = ImGui.TabBarGetTabOrder ImGui_TabBarQueueFocus = ImGui.TabBarQueueFocus ImGui_TabBarScrollClamp = ImGui.TabBarScrollClamp ImGui_TabItemCalcSize = ImGui.TabItemCalcSize ImGui_TabItemEx = ImGui.TabItemEx ImGui_TablePopBackgroundChannel = ImGui.TablePopBackgroundChannel ImGui_TestKeyOwner = ImGui.TestKeyOwner ImGui_Text = ImGui.Text ImGui_TextEx = ImGui.TextEx ImGui__ByteArrayToString = ImGui._ByteArrayToString ImGui__CalcItemSizeXY = ImGui._CalcItemSizeXY end end; __BIND[#__BIND]()
 return function()
-local ImGui_AcceptDragDropPayload, ImGui_AlignTextToFramePadding, ImGui_BeginChild, ImGui_BeginCombo, ImGui_BeginPopupMenuEx, ImGui_CalcClipRectVisibleItemsY, ImGui_TestKeyOwner, ImGui_TextV
-__BIND[#__BIND + 1] = function() if ImGui then ImGui_AcceptDragDropPayload = ImGui.AcceptDragDropPayload ImGui_AlignTextToFramePadding = ImGui.AlignTextToFramePadding ImGui_BeginChild = ImGui.BeginChild ImGui_BeginCombo = ImGui.BeginCombo ImGui_BeginPopupMenuEx = ImGui.BeginPopupMenuEx ImGui_CalcClipRectVisibleItemsY = ImGui.CalcClipRectVisibleItemsY ImGui_TestKeyOwner = ImGui.TestKeyOwner ImGui_TextV = ImGui.TextV end end; __BIND[#__BIND]()
 --- Dear ImGui WIP
 -- (widgets code)
 
@@ -65887,7 +66147,7 @@ end
 --- @param ... any
 function ImGui.TextColored(col, fmt, ...)
     ImGui_PushStyleColor(0 --[[ImGuiCol.Text]], col)
-    ImGui_TextV(fmt, ...)
+    ImGui.TextV(fmt, ...)
     ImGui_PopStyleColor()
 end
 
@@ -65897,7 +66157,7 @@ end
 function ImGui.TextDisabled(fmt, ...)
     local g = GImGui
     ImGui_PushStyleColor(0 --[[ImGuiCol.Text]], g.Style.Colors[1 --[[ImGuiCol.TextDisabled]]])
-    ImGui_TextV(fmt, ...)
+    ImGui.TextV(fmt, ...)
     ImGui_PopStyleColor()
 end
 
@@ -65910,7 +66170,7 @@ function ImGui.TextWrapped(fmt, ...)
     if need_backup then
         ImGui.PushTextWrapPos(0.0)
     end
-    ImGui_TextV(fmt, ...)
+    ImGui.TextV(fmt, ...)
     if need_backup then
         ImGui.PopTextWrapPos()
     end
@@ -67542,19 +67802,25 @@ end
 --- @param label      string
 --- @param label_end? int
 --- @param extra_w    float
+local SeparatorTextEx_label_size, SeparatorTextEx_min_size, SeparatorTextEx_bb, SeparatorTextEx_label_pos, SeparatorTextEx_clip_max = ImVec2(), ImVec2(), ImRect(), ImVec2(), ImVec2()
+
 function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
     local g = GImGui
     local window = g.CurrentWindow
     local style = g.Style
 
-    local label_size = ImGui_CalcTextSize(label, label_end, false)
-    local pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+    -- [Luau] scratch vectors/rect (callees only read them or copy them), scalar pos
+    local label_size = SeparatorTextEx_label_size
+    label_size.x, label_size.y = ImGui_CalcTextSizeXY(label, 1, label_end, false)
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y
     local padding = style.SeparatorTextPadding
 
     local separator_thickness = style.SeparatorTextBorderSize
-    local min_size = ImVec2(label_size.x + extra_w + padding.x * 2.0, ImMax(label_size.y + padding.y * 2.0, separator_thickness))
+    local min_size = SeparatorTextEx_min_size
+    min_size.x = label_size.x + extra_w + padding.x * 2.0; min_size.y = ImMax(label_size.y + padding.y * 2.0, separator_thickness)
 
-    local bb = ImRect(pos, ImVec2(window.WorkRect.Max.x, pos.y + min_size.y))
+    local bb = SeparatorTextEx_bb
+    bb.Min.x = pos_x; bb.Min.y = pos_y; bb.Max.x = window.WorkRect.Max.x; bb.Max.y = pos_y + min_size.y
     local text_baseline_y = ImTrunc((bb:GetHeight() - label_size.y) * style.SeparatorTextAlign.y + 0.999) --ImMax(padding.y, ImTrunc((style.SeparatorTextSize - label_size.y) * 0.5f))
 
     ImGui.ItemSize(min_size, text_baseline_y)
@@ -67562,12 +67828,13 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
         return
     end
 
-    local sep1_x1 = pos.x
+    local sep1_x1 = pos_x
     local sep2_x2 = bb.Max.x
     local seps_y = ImTrunc((bb.Min.y + bb.Max.y) * 0.5) + 1.0
 
     local label_avail_w = ImMax(0.0, sep2_x2 - sep1_x1 - padding.x * 2.0)
-    local label_pos = ImVec2(pos.x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x), pos.y + text_baseline_y) -- FIXME-ALIGN
+    local label_pos = SeparatorTextEx_label_pos
+    label_pos.x = pos_x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x); label_pos.y = pos_y + text_baseline_y -- FIXME-ALIGN
 
     -- This allows using SameLine() to position something in the 'extra_w'
     window.DC.CursorPosPrevLine.x = label_pos.x + label_size.x
@@ -67590,7 +67857,9 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
             ImGui_LogSetNextTextDecoration("---", nil)
         end
 
-        ImGui_RenderTextEllipsis(window.DrawList, label_pos, ImVec2(bb.Max.x, bb.Max.y + style.ItemSpacing.y), bb.Max.x, label, label_end, label_size)
+        local clip_max = SeparatorTextEx_clip_max
+        clip_max.x = bb.Max.x; clip_max.y = bb.Max.y + style.ItemSpacing.y
+        ImGui_RenderTextEllipsis(window.DrawList, label_pos, clip_max, bb.Max.x, label, label_end, label_size)
     else
         if g.LogEnabled then
             ImGui.LogText("---")
@@ -68005,7 +68274,7 @@ function ImGui.Combo(label, current_item, a, b, c, d)
         ImGui.SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(3.4028234663853e+38 --[[FLT_MAX]], CalcMaxPopupHeightFromItemCount(popup_max_height_in_items)))
     end
 
-    if not ImGui_BeginCombo(label, preview_value, 0 --[[ImGuiComboFlags.None]]) then
+    if not ImGui.BeginCombo(label, preview_value, 0 --[[ImGuiComboFlags.None]]) then
         return current_item, false
     end
 
@@ -71139,6 +71408,7 @@ end
 --- @param flags              ImGuiInputTextFlags
 --- @param callback?          ImGuiInputTextCallback
 --- @param callback_user_data any
+local InputTextEx_frame_bb, InputTextEx_total_bb = ImRect(), ImRect() -- [Luau] scratch, see InputTextEx()
 local HintBufCache = setmetatable({}, { __mode = "k" })
 local function HintToBuf(hint)
     local t = HintBufCache[hint]
@@ -71177,17 +71447,19 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     end
     local id = window:GetID(label)
     local label_end = ImGui_FindRenderedTextEnd(label)
-    local label_size = ImGui_CalcTextSize(label, label_end, false)
-    local frame_size = ImGui_CalcItemSize(size_arg, ImGui_CalcItemWidth(), (is_multiline and g.FontSize * 8.0 or label_size.y) + style.FramePadding.y * 2.0)  -- Arbitrary default of 8 lines high for multi-line
-    local total_size_x, total_size_y = frame_size.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0), frame_size.y -- [Luau] scalar total_size
+    local label_size_x, label_size_y = ImGui_CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size, frame_size, inner_size
+    local frame_size_x, frame_size_y = ImGui__CalcItemSizeXY(size_arg.x, size_arg.y, ImGui_CalcItemWidth(), (is_multiline and g.FontSize * 8.0 or label_size_y) + style.FramePadding.y * 2.0)  -- Arbitrary default of 8 lines high for multi-line
+    local total_size_x, total_size_y = frame_size_x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0), frame_size_y -- [Luau] scalar total_size
 
+    -- [Luau] total_bb is a scratch rect (only ItemSize()/ItemAdd() read it); a single-line field's frame_bb too until ItemAdd() accepts it (clipped fields allocate nothing)
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + frame_size.x, cursor.y + frame_size.y) -- [Luau] scalar forms: no temporary ImVec2s
-    local total_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + total_size_x, frame_bb.Min.y + total_size_y)
+    local frame_bb = is_multiline and ImRect() or InputTextEx_frame_bb
+    frame_bb.Min.x = cursor.x; frame_bb.Min.y = cursor.y; frame_bb.Max.x = cursor.x + frame_size_x; frame_bb.Max.y = cursor.y + frame_size_y
+    local total_bb = InputTextEx_total_bb
+    total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y; total_bb.Max.x = frame_bb.Min.x + total_size_x; total_bb.Max.y = frame_bb.Min.y + total_size_y
 
     local draw_window = window
-    local inner_size = ImVec2()
-    ImVec2_Copy(inner_size, frame_size)
+    local inner_size_x, inner_size_y = frame_size_x, frame_size_y
     local item_data_backup = is_multiline and ImGuiLastItemData() or nil -- [Luau] only used by the multi-line path
     if is_multiline then
         local backup_pos = ImVec2()
@@ -71229,7 +71501,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         draw_window = g.CurrentWindow -- Child window
         draw_window.DC.NavLayersActiveMaskNext = bit32.bor(draw_window.DC.NavLayersActiveMaskNext, bit32.lshift(1, draw_window.DC.NavLayerCurrent)) -- This is to ensure that EndChild() will display a navigation highlight so we can "enter" into it.
         ImVec2_Copy(draw_window.DC.CursorPos, draw_window.DC.CursorPos + style.FramePadding)
-        inner_size.x = inner_size.x - draw_window.ScrollbarSizes.x
+        inner_size_x = inner_size_x - draw_window.ScrollbarSizes.x
 
         -- FIXME: Could this be a ImGuiChildFlags to affect the SetLastItemDataForWindow() call?
         g.LastItemData.ID = id
@@ -71244,6 +71516,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 return false
             end
         end
+        frame_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y) -- [Luau] own copy of the scratch from here on
     end
 
     -- Ensure mouse cursor is set even after switching to keyboard/gamepad mode. May generalize further? (#6417)
@@ -71343,7 +71616,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         -- Find initial scroll position for right alignment
         ImVec2_Copy(state.Scroll, ImVec2(0.0, 0.0))
         if bit32.band(flags, 131072 --[[ImGuiInputTextFlags.ElideLeft]]) ~= 0 then
-            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui_CalcTextSize(table.concat(buf)).x - frame_size.x + style.FramePadding.x * 2.0) -- [Port] FIXME: no table.concat here
+            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui_CalcTextSize(table.concat(buf)).x - frame_size_x + style.FramePadding.x * 2.0) -- [Port] FIXME: no table.concat here
         end
 
         -- Recycle existing cursor/selection/undo stack but clamp position
@@ -71582,7 +71855,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         assert(state ~= nil)
         --- @cast state ImGuiInputTextState
 
-        local row_count_per_page = ImMax(ImTrunc((inner_size.y - style.FramePadding.y) / g.FontSize), 1)
+        local row_count_per_page = ImMax(ImTrunc((inner_size_y - style.FramePadding.y) / g.FontSize), 1)
         state.Stb.row_count_per_page = row_count_per_page
 
         local k_mask = (io.KeyShift and 4194304 --[[STB_TEXTEDIT_K_SHIFT]] or 0)
@@ -71936,7 +72209,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
     local draw_pos = ImVec2()
     ImVec2_Copy(draw_pos, is_multiline and draw_window.DC.CursorPos or (frame_bb.Min + style.FramePadding))
-    local clip_rect = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + inner_size.x, frame_bb.Min.y + inner_size.y) -- Not using frame_bb.Max because we have adjusted size
+    local clip_rect = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + inner_size_x, frame_bb.Min.y + inner_size_y) -- Not using frame_bb.Max because we have adjusted size
     if is_multiline then
         clip_rect:ClipWith(draw_window.ClipRect)
     end
@@ -71977,7 +72250,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     -- Calculate visibility
     local line_visible_n0, line_visible_n1 = 0, 1 -- [Port] 0-based like upstream
     if is_multiline then
-        line_visible_n0, line_visible_n1 = ImGui_CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
+        line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
     end
 
     -- Build line index for easy data access (makes code below simpler and faster)
@@ -72025,8 +72298,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         if render_cursor and state.CursorFollow then
             -- Horizontal scroll in chunks of quarter width
             if bit32.band(flags, 32768 --[[ImGuiInputTextFlags.NoHorizontalScroll]]) == 0 then
-                local scroll_increment_x = inner_size.x * 0.25
-                local visible_width = inner_size.x - style.FramePadding.x
+                local scroll_increment_x = inner_size_x * 0.25
+                local visible_width = inner_size_x - style.FramePadding.x
                 if cursor_offset.x < state.Scroll.x then
                     state.Scroll.x = IM_TRUNC(ImMax(0.0, cursor_offset.x - scroll_increment_x))
                 elseif cursor_offset.x - visible_width >= state.Scroll.x then
@@ -72041,25 +72314,25 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 -- Test if cursor is vertically visible
                 if cursor_offset.y - g.FontSize < scroll_y then
                     new_scroll_y = ImMax(0.0, cursor_offset.y - g.FontSize)
-                elseif cursor_offset.y - (inner_size.y - style.FramePadding.y * 2.0) >= scroll_y then
-                    new_scroll_y = cursor_offset.y - inner_size.y + style.FramePadding.y * 2.0
+                elseif cursor_offset.y - (inner_size_y - style.FramePadding.y * 2.0) >= scroll_y then
+                    new_scroll_y = cursor_offset.y - inner_size_y + style.FramePadding.y * 2.0
                 end
             end
             state.CursorFollow = false
         end
         if state.CursorCenterY then
             if is_multiline then
-                new_scroll_y = cursor_offset.y - g.FontSize - (inner_size.y * 0.5 - style.FramePadding.y)
+                new_scroll_y = cursor_offset.y - g.FontSize - (inner_size_y * 0.5 - style.FramePadding.y)
             end
             state.CursorCenterY = false
             render_cursor = false
         end
         if new_scroll_y ~= scroll_y then
-            local scroll_max_y = ImMax((text_size_y + style.FramePadding.y * 2.0) - inner_size.y, 0.0)
+            local scroll_max_y = ImMax((text_size_y + style.FramePadding.y * 2.0) - inner_size_y, 0.0)
             scroll_y = ImClamp(new_scroll_y, 0.0, scroll_max_y)
             draw_pos.y = draw_pos.y + (draw_window.Scroll.y - scroll_y) -- Manipulate cursor pos immediately avoid a frame of lag
             draw_window.Scroll.y = scroll_y
-            line_visible_n0, line_visible_n1 = ImGui_CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
+            line_visible_n0, line_visible_n1 = ImGui.CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize)
             line_visible_n1 = ImMin(line_visible_n1, line_count)
         end
 
@@ -72186,7 +72459,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         ImGui_LogRenderedText(draw_pos, ImGui__ByteArrayToString(buf_display, 1, buf_display_end))
     end
 
-    if label_size.x > 0.0 then
+    if label_size_x > 0.0 then
         ImGui_RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
 
@@ -72235,7 +72508,7 @@ function ImGui.DebugNodeInputTextState(state)
     ImGui_Text("(Internal Buffer: TextA Size: %d, Capacity: %d)", state.TextA.Size, state.TextA.Capacity)
     ImGui_Text("has_preferred_x: %d (%.2f)", stb_state.has_preferred_x and 1 or 0, stb_state.preferred_x)
     ImGui_Text("undo_point: %d, redo_point: %d, undo_char_point: %d, redo_char_point: %d", undo_state.undo_point, undo_state.redo_point, undo_state.undo_char_point, undo_state.redo_char_point)
-    if ImGui_BeginChild("undopoints", ImVec2(0.0, ImGui.GetTextLineHeight() * 10), bit32.bor(1 --[[ImGuiChildFlags.Borders]], 8 --[[ImGuiChildFlags.ResizeY]])) then -- Visualize undo state
+    if ImGui.BeginChild("undopoints", ImVec2(0.0, ImGui.GetTextLineHeight() * 10), bit32.bor(1 --[[ImGuiChildFlags.Borders]], 8 --[[ImGuiChildFlags.ResizeY]])) then -- Visualize undo state
         ImGui_PushStyleVar(14 --[[ImGuiStyleVar.ItemSpacing]], ImVec2(0, 0))
         for n = 1, 99 --[[IMSTB_TEXTEDIT_UNDOSTATECOUNT]] do
             local undo_rec = undo_state.undo_rec[n]
@@ -72593,13 +72866,13 @@ function ImGui.ColorEdit4(label, col, flags)
     -- NB: The flag test is merely an optional micro-optimization, BeginDragDropTarget() does the same test.
     if bit32.band(g.LastItemData.StatusFlags, 1 --[[ImGuiItemStatusFlags.HoveredRect]]) ~= 0 and bit32.band(g.LastItemData.ItemFlags, 2048 --[[ImGuiItemFlags.ReadOnly]]) == 0 and bit32.band(flags, 512 --[[ImGuiColorEditFlags.NoDragDrop]]) == 0 and ImGui.BeginDragDropTarget() then
         local accepted_drag_drop = false
-        local payload = ImGui_AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F)
+        local payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F)
         if payload then
             local d = payload.Data
             col[1], col[2], col[3] = d[1], d[2], d[3] -- Preserve alpha if any
             value_changed = true; accepted_drag_drop = true
         end
-        payload = ImGui_AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F)
+        payload = ImGui.AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F)
         if payload then
             local d = payload.Data
             for i = 1, components do col[i] = d[i] end
@@ -75657,7 +75930,7 @@ function ImGui.BeginListBox(label, size_arg)
 
     -- Size default to hold ~7.25 items.
     -- Fractional number of items helps seeing that we can scroll down/up without looking at scrollbar.
-    local size = ImTrunc(ImGui_CalcItemSize(size_arg, ImGui_CalcItemWidth(), ImGui_GetTextLineHeightWithSpacing() * 7.25 + style.FramePadding.y * 2.0))
+    local size = ImTrunc(ImGui.CalcItemSize(size_arg, ImGui_CalcItemWidth(), ImGui_GetTextLineHeightWithSpacing() * 7.25 + style.FramePadding.y * 2.0))
     local frame_size = ImVec2(size.x, ImMax(size.y, label_size.y))
     local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
     local bb = ImRect(frame_bb.Min, frame_bb.Max + ImVec2((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0, 0.0))
@@ -75676,10 +75949,10 @@ function ImGui.BeginListBox(label, size_arg)
         local label_pos = ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y)
         ImGui_RenderText(label_pos, label, 1, label_end, false)
         ImVec2_Copy(window.DC.CursorMaxPos, ImMax(window.DC.CursorMaxPos, label_pos + label_size))
-        ImGui_AlignTextToFramePadding()
+        ImGui.AlignTextToFramePadding()
     end
 
-    ImGui_BeginChild(id, frame_bb:GetSize(), 128 --[[ImGuiChildFlags.FrameStyle]])
+    ImGui.BeginChild(id, frame_bb:GetSize(), 128 --[[ImGuiChildFlags.FrameStyle]])
     return true
 end
 
@@ -75759,6 +76032,8 @@ end
 -- Consider using ImPlot (https://github.com/epezent/implot) which is much better!
 -------------------------------------------------------------------------------
 
+local PlotEx_pos0, PlotEx_pos1 = ImVec2(), ImVec2() -- [Luau] scratch line/bar corners
+
 --- @param plot_type     ImGuiPlotType
 --- @param label         string
 --- @param values_getter fun(data?: table, idx: int): float
@@ -75770,6 +76045,7 @@ end
 --- @param scale_max     float
 --- @param size_arg      ImVec2
 --- @return int
+@native
 function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, values_offset, overlay_text, scale_min, scale_max, size_arg)
     local g = GImGui
     local window = ImGui_GetCurrentWindow()
@@ -75782,11 +76058,12 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
 
     local label_end = ImGui_FindRenderedTextEnd(label)
     local label_size = ImGui_CalcTextSize(label, label_end, false)
-    local frame_size = ImGui_CalcItemSize(size_arg, ImGui_CalcItemWidth(), label_size.y + style.FramePadding.y * 2.0)
+    local frame_size = ImGui.CalcItemSize(size_arg, ImGui_CalcItemWidth(), label_size.y + style.FramePadding.y * 2.0)
 
-    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
-    local inner_bb = ImRect(frame_bb.Min + style.FramePadding, frame_bb.Max - style.FramePadding)
-    local total_bb = ImRect(frame_bb.Min, frame_bb.Max + ImVec2(label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0, 0))
+    local cursor, pad = window.DC.CursorPos, style.FramePadding -- [Luau] scalar forms: no temporary ImVec2s
+    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + frame_size.x, cursor.y + frame_size.y)
+    local inner_bb = ImRect(frame_bb.Min.x + pad.x, frame_bb.Min.y + pad.y, frame_bb.Max.x - pad.x, frame_bb.Max.y - pad.y)
+    local total_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x + (label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0), frame_bb.Max.y + 0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, id, frame_bb, 2 --[[ImGuiItemFlags.NoNav]]) then
         return -1
@@ -75842,39 +76119,43 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
 
         local v0 = values_getter(data, (0 + values_offset) % values_count + 1)
         local t0 = 0.0
-        local tp0 = ImVec2(t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale)) -- Point in the normalized space of our target rectangle
+        local tp0_x, tp0_y = t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale) -- Point in the normalized space of our target rectangle -- [Luau] scalar tp0/tp1
         local histogram_zero_line_t = (scale_min * scale_max < 0.0) and (1 + scale_min * inv_scale) or (scale_min < 0.0 and 0.0 or 1.0) -- Where does the zero line stands
 
         local col_base = ImGui_GetColorU32((plot_type == 0 --[[ImGuiPlotType.Lines]]) and 44 --[[ImGuiCol.PlotLines]] or 46 --[[ImGuiCol.PlotHistogram]])
         local col_hovered = ImGui_GetColorU32((plot_type == 0 --[[ImGuiPlotType.Lines]]) and 45 --[[ImGuiCol.PlotLinesHovered]] or 47 --[[ImGuiCol.PlotHistogramHovered]])
+        local inner_min_x, inner_min_y, inner_max_x, inner_max_y = inner_bb.Min.x, inner_bb.Min.y, inner_bb.Max.x, inner_bb.Max.y
+        local draw_list = window.DrawList
 
         for _ = 0, res_w - 1 do
             local t1 = t0 + t_step
             local v1_idx = math.floor(t0 * item_count + 0.5) + 1
             assert(v1_idx >= 1 and v1_idx <= values_count)
             local v1 = values_getter(data, (v1_idx - 1 + values_offset + 1) % values_count + 1)
-            local tp1 = ImVec2(t1, 1.0 - ImSaturate((v1 - scale_min) * inv_scale))
+            local tp1_x, tp1_y = t1, 1.0 - ImSaturate((v1 - scale_min) * inv_scale)
 
             -- NB: Draw calls are merged together by the DrawList system. Still, we should render our batch are lower level to save a bit of CPU.
-            local pos0 = ImLerp(inner_bb.Min, inner_bb.Max, tp0)
-            local pos1
+            -- [Luau] ImLerp() on scalars into scratch vectors, only read by AddLine()/AddRectFilled()
+            local pos0, pos1 = PlotEx_pos0, PlotEx_pos1
+            pos0.x = inner_min_x + (inner_max_x - inner_min_x) * tp0_x; pos0.y = inner_min_y + (inner_max_y - inner_min_y) * tp0_y
+            pos1.x = inner_min_x + (inner_max_x - inner_min_x) * tp1_x
             if plot_type == 0 --[[ImGuiPlotType.Lines]] then
-                pos1 = ImLerp(inner_bb.Min, inner_bb.Max, tp1)
+                pos1.y = inner_min_y + (inner_max_y - inner_min_y) * tp1_y
             else
-                pos1 = ImLerp(inner_bb.Min, inner_bb.Max, ImVec2(tp1.x, histogram_zero_line_t))
+                pos1.y = inner_min_y + (inner_max_y - inner_min_y) * histogram_zero_line_t
             end
 
             if plot_type == 0 --[[ImGuiPlotType.Lines]] then
-                window.DrawList:AddLine(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
+                draw_list:AddLine(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
             elseif plot_type == 1 --[[ImGuiPlotType.Histogram]] then
                 if pos1.x >= pos0.x + 2.0 then
                     pos1.x = pos1.x - 1.0
                 end
-                window.DrawList:AddRectFilled(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
+                draw_list:AddRectFilled(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
             end
 
             t0 = t1
-            tp0 = tp1
+            tp0_x, tp0_y = tp1_x, tp1_y
         end
     end
 
@@ -76060,7 +76341,7 @@ function ImGui.BeginMenuBar()
     window.DC.IsSameLine = false
     window.DC.NavLayerCurrent = 1 --[[ImGuiNavLayer.Menu]]
     window.DC.MenuBarAppending = true
-    ImGui_AlignTextToFramePadding()
+    ImGui.AlignTextToFramePadding()
 
     return true
 end
@@ -76257,7 +76538,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
     -- If somehow this is ever becoming a problem we can switch to use e.g. ImGuiStorage mapping key to last frame used.
     if g.MenusIdSubmittedThisFrame:contains(id) then
         if menu_is_open then
-            menu_is_open = ImGui_BeginPopupMenuEx(id, label, window_flags) -- menu_is_open can be 'false' when the popup is completely clipped (e.g. zero size display)
+            menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags) -- menu_is_open can be 'false' when the popup is completely clipped (e.g. zero size display)
         else
             g.NextWindowData:ClearFlags() -- we behave like Begin() and need to consume those values
         end
@@ -76439,7 +76720,7 @@ function ImGui.BeginMenuEx(label, icon, enabled)
 
         ImGui_SetNextWindowPos(popup_pos, 1 --[[ImGuiCond.Always]]) -- Note: misleading: the value will serve as reference for FindBestWindowPosForPopup(), not actual pos.
         ImGui_PushStyleVar(7 --[[ImGuiStyleVar.ChildRounding]], style.PopupRounding) -- First level will use _PopupRounding, subsequent will use _ChildRounding
-        menu_is_open = ImGui_BeginPopupMenuEx(id, label, window_flags) -- menu_is_open may be 'false' when the popup is completely clipped (e.g. zero size display)
+        menu_is_open = ImGui.BeginPopupMenuEx(id, label, window_flags) -- menu_is_open may be 'false' when the popup is completely clipped (e.g. zero size display)
         ImGui_PopStyleVar()
         if menu_is_open then
             -- Implement what ImGuiPopupFlags.NoReopenAlwaysNavInit would do:
@@ -77495,7 +77776,7 @@ function ImGui.TabBarTabListPopupButton(tab_bar)
     local tc = g.Style.Colors[0 --[[ImGuiCol.Text]]]
     ImGui_PushStyleColor(0 --[[ImGuiCol.Text]], ImVec4(tc.x, tc.y, tc.z, tc.w * 0.5))
     ImGui_PushStyleColor(22 --[[ImGuiCol.Button]], ImVec4(0, 0, 0, 0))
-    local open = ImGui_BeginCombo("##v", nil, bit32.bor(64 --[[ImGuiComboFlags.NoPreview]], 16 --[[ImGuiComboFlags.HeightLargest]]))
+    local open = ImGui.BeginCombo("##v", nil, bit32.bor(64 --[[ImGuiComboFlags.NoPreview]], 16 --[[ImGuiComboFlags.HeightLargest]]))
     ImGui_PopStyleColor(2)
 
     local tab_to_select = nil
