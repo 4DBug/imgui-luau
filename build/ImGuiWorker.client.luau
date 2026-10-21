@@ -490,9 +490,34 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             if yt > yb then continue end
             local o = (yt * TargetWidth + x) * 4 + TargetBase
             if flat then
-                for _ = yt, yb do
-                    BlendPixel(dbuf, o, ra, ga, ba, aa)
-                    o += stride
+                -- the row path's flat spans (BlendPixel's math, per-span constants, cached per destination value)
+                local o1 = o + (yb - yt) * stride
+                if f_opaque then
+                    for oo = o, o1, stride do writeu32(dbuf, oo, f_packed) end
+                    continue
+                end
+                local last_d, last_v = -1, 0
+                for oo = o, o1, stride do
+                    local d = readu32(dbuf, oo)
+                    if d == last_d then
+                        writeu32(dbuf, oo, last_v)
+                    elseif d < 16777216 then
+                        writeu32(dbuf, oo, f_packed)
+                    else
+                        last_d = d
+                        local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                        if d >= 4278190080 then
+                            last_v = floor(f_rs + dr * f_ns + 0.5) + floor(f_gs + dg * f_ns + 0.5) * 256
+                                + floor(f_bs + db * f_ns + 0.5) * 65536 + 4278190080
+                        else
+                            local k = rshift(d, 24) * f_c1
+                            local oa = f_sa + k
+                            local inv2 = 1 / oa
+                            last_v = floor((f_rs + dr * k) * inv2 + 0.5) + floor((f_gs + dg * k) * inv2 + 0.5) * 256
+                                + floor((f_bs + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                        end
+                        writeu32(dbuf, oo, last_v)
+                    end
                 end
                 continue
             end
