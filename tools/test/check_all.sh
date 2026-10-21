@@ -40,6 +40,7 @@ CHECKS=(
 "demo_random|^|python3 tools/test/run.py --roblox --timeout 600 --frames 400 --open"
 "pixels|PIXELS SAME|a=\$($R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_pixels.luau --frames 600 | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo PIXELS SAME"
 "move_pixels|MOVEPIX SAME|a=\$($R --main tools/test/scripts/t_move_pixels.luau --frames 245 | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_move_pixels.luau --frames 245 | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo MOVEPIX SAME"
+"scene_pixels|SCENEPIX SAME|M='--module BenchScenes=tools/test/bench_scenes.luau'; [ -f extensions/implot-luau/ImPlot.lua ] && M=\"\$M --module ImPlot=extensions/implot-luau/ImPlot.lua\"; a=\$($R --main tools/test/scripts/t_scene_pixels.luau --frames 170 \$M | grep -P '^PIX\t'); b=\$(RUN_FLAGS=ARG_FORCE=true $R --main tools/test/scripts/t_scene_pixels.luau --frames 170 \$M | grep -P '^PIX\t'); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ] && echo SCENEPIX SAME"
 "rect_flip|RECTFLIP OK|$R --main tools/test/scripts/t_rect_flip.luau --frames 30"
 "tile_bound|TILEBOUND OK|$R --main tools/test/scripts/t_tile_bound.luau --frames 200"
 "parallel|PARALLEL OK|$R --main tools/test/scripts/t_parallel.luau --frames 620"
