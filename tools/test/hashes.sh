@@ -5,6 +5,8 @@
 # demo = t_drawhash with Widgets,Basic / whole demo open: changes with any demo edit
 cd "$(dirname "$0")/../.."
 export PATH="$PATH:/nix/store/2m2ja613nndihc8qm10f2rhq6znp1nh4-luau-0.734/bin:/nix/store/4qxq4arv32ly13kl3g0m5q80gm3a35xr-luajit-2.1.1741730670/bin"
+command -v luau >/dev/null || { l=$(ls -d /nix/store/*-luau-*/bin 2>/dev/null | tail -1); [ -n "$l" ] && export PATH="$PATH:$l"; }
+command -v luajit >/dev/null || { l=$(ls -d /nix/store/*-luajit-2*/bin 2>/dev/null | grep -v -- -env | tail -1); [ -n "$l" ] && export PATH="$PATH:$l"; }
 REV=${1:-HEAD}
 hashes() { # $1 = repo dir
     ( cd "$1"
