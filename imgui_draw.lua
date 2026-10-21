@@ -4321,7 +4321,12 @@ function MT.ImDrawList:_ResetForNewFrame()
     self.Flags = self._Data.InitialDrawFlags
     IM_ASSERT(bit32.band(self.Flags, bit32.bnot(ImDrawFlags.AllowInFrameScope_)) == 0)
 
-    self._CmdHeader = ImDrawCmdHeader() -- memset(&_CmdHeader, 0, sizeof(_CmdHeader))
+    -- memset(&_CmdHeader, 0, sizeof(_CmdHeader)) -- [Luau] in place, no new table per frame
+    local header = self._CmdHeader
+    local hcr = header.ClipRect
+    hcr.x = 0; hcr.y = 0; hcr.z = 0; hcr.w = 0
+    header.TexRef = nil
+    header.VtxOffset = 0
 
     self._VtxCurrentIdx = 1
     self._VtxWritePtr = 1
@@ -4332,7 +4337,7 @@ function MT.ImDrawList:_ResetForNewFrame()
     self._DrawFlagsStack.Size = 0 -- [Port] _DrawFlagsStack.clear() (ImSmallStack_)
     self._Path:resize(0)
 
-    self.CmdBuffer:push_back(ImDrawCmd())
+    self:AddDrawCmd() -- [Luau] C++ push_back(ImDrawCmd()): same zeroed command (the header was just zeroed), reuses last frame's object
     -- Caller needs to bet _SetPixelDensity() as well.
 end
 
@@ -4380,17 +4385,31 @@ end
 
 @native
 function MT.ImDrawList:AddDrawCmd()
-    local draw_cmd = ImDrawCmd()
-
-    ImVec4_Copy(draw_cmd.ClipRect, self._CmdHeader.ClipRect) -- Same as calling ImDrawCmd_HeaderCopy()
-    draw_cmd.TexRef = self._CmdHeader.TexRef
-    draw_cmd.VtxOffset = self._CmdHeader.VtxOffset
-    draw_cmd.IdxOffset = self.IdxBuffer.Size
-
-    IM_ASSERT(draw_cmd.ClipRect.x <= draw_cmd.ClipRect.z and draw_cmd.ClipRect.y <= draw_cmd.ClipRect.w)
-    -- [Luau] inline self.CmdBuffer:push_back(draw_cmd)
+    -- [Luau] C++ constructs the command in the vector's storage, which keeps last frame's memory: reuse the command
+    -- object left past Size by resize(0)/pop_back() (Merge() takes channel commands out of their slots, nothing else
+    -- shares them) instead of allocating 3 tables per command per frame
     local cmd_buffer = self.CmdBuffer
     local n = cmd_buffer.Size + 1
+    local draw_cmd = (n <= cmd_buffer.Capacity) and cmd_buffer.Data[n] or nil
+    if draw_cmd then
+        draw_cmd.ElemCount = 0
+        draw_cmd.UserCallback = nil
+        draw_cmd.UserCallbackData = nil
+        draw_cmd.UserCallbackDataSize = 0
+        draw_cmd.UserCallbackDataOffset = 0
+    else
+        draw_cmd = ImDrawCmd()
+    end
+
+    local header = self._CmdHeader
+    local dcr, hcr = draw_cmd.ClipRect, header.ClipRect
+    dcr.x = hcr.x; dcr.y = hcr.y; dcr.z = hcr.z; dcr.w = hcr.w -- Same as calling ImDrawCmd_HeaderCopy()
+    draw_cmd.TexRef = header.TexRef
+    draw_cmd.VtxOffset = header.VtxOffset
+    draw_cmd.IdxOffset = self.IdxBuffer.Size
+
+    IM_ASSERT(dcr.x <= dcr.z and dcr.y <= dcr.w)
+    -- [Luau] inline self.CmdBuffer:push_back(draw_cmd)
     if n > cmd_buffer.Capacity then cmd_buffer:push_back(draw_cmd) else cmd_buffer.Data[n] = draw_cmd; cmd_buffer.Size = n end
 end
 
@@ -4699,8 +4718,9 @@ function MT.ImDrawListSplitter:Merge(draw_list)
         if ch._CmdBuffer.Size > 0 then
             local src_cmds = ch._CmdBuffer.Data
             for n = 1, ch._CmdBuffer.Size do
-                dst_cmds[cmd_write] = src_cmds[n]
-                src_cmds[n] = nil -- [Port] ownership moved to the draw list
+                -- [Port] ownership moved to the draw list; [Luau] the unused command object that was in the draw list's
+                -- slot goes to the channel's slot instead of nil (AddDrawCmd() reuses it: each object stays in one slot)
+                dst_cmds[cmd_write], src_cmds[n] = src_cmds[n], dst_cmds[cmd_write]
                 cmd_write = cmd_write + 1
             end
         end
