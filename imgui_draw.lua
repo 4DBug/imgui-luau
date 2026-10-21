@@ -4691,7 +4691,11 @@ function MT.ImDrawListSplitter:Merge(draw_list)
                 -- Merge previous channel last draw command with current channel first draw command if matching.
                 last_cmd.ElemCount = last_cmd.ElemCount + next_cmd.ElemCount
                 idx_offset = idx_offset + next_cmd.ElemCount
-                cmds:erase(1) -- FIXME-OPT: Improve for multiple merges.
+                -- [Luau] cmds:erase(1), keeping the erased command object past Size for AddDrawCmd() to reuse
+                local d = cmds.Data
+                for k = 1, cmds.Size - 1 do d[k] = d[k + 1] end
+                d[cmds.Size] = next_cmd
+                cmds.Size = cmds.Size - 1 -- FIXME-OPT: Improve for multiple merges.
             end
         end
         if cmds.Size > 0 then

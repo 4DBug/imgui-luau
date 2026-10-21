@@ -355,6 +355,8 @@ end
 ImGuiTableColumnFlags.NoDirectResize_ = ImGuiTableColumnFlags.NoDirectResize_ or lshift(1, 30) -- [Internal] Disable user resizing this column directly (it may however we resized indirectly from its left edge)
 
 local function Rect(r) return ImRect(r.Min.x, r.Min.y, r.Max.x, r.Max.y) end
+-- [Luau] scratch rects for TableUpdateLayout()/TableMergeDrawChannels() locals that never escape
+local TableUpdateLayout_work_rect, TableUpdateLayout_host_clip_rect, TableUpdateLayout_mouse_hit_rect, TableMergeDrawChannels_merge_clip_rect = ImRect(), ImRect(), ImRect(), ImRect()
 local function V2(v) return ImVec2(v.x, v.y) end
 
 -------------------------------------------------------------------------------
@@ -452,9 +454,10 @@ function ImGui.BeginTable(str_id, columns_count, flags, outer_size, inner_width)
     return ImGui.BeginTableEx(str_id, id, columns_count, flags, outer_size, inner_width)
 end
 
+local BeginTableEx_outer_size_default = ImVec2(0.0, 0.0) -- [Luau] shared read-only default (only read below)
 function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_width)
     if flags       == nil then flags       = 0                end
-    if outer_size  == nil then outer_size  = ImVec2(0.0, 0.0) end
+    if outer_size  == nil then outer_size  = BeginTableEx_outer_size_default end
     if inner_width == nil then inner_width = 0.0              end
 
     local g = GImGui
@@ -478,8 +481,10 @@ function ImGui.BeginTableEx(name, id, columns_count, flags, outer_size, inner_wi
     -- - always performing the GetOrAddByKey() O(log N) query in g.Tables.Map[].
     local use_child_window = band(flags, bor(ImGuiTableFlags.ScrollX, ImGuiTableFlags.ScrollY)) ~= 0
     local avail_size = ImGui.GetContentRegionAvail()
-    local actual_outer_size = ImTrunc(ImGui.CalcItemSize(outer_size, mathMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and mathMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0))
-    local outer_rect = ImRect(outer_window.DC.CursorPos, outer_window.DC.CursorPos + actual_outer_size)
+    local actual_outer_size_x, actual_outer_size_y = ImGui._CalcItemSizeXY(outer_size.x, outer_size.y, mathMax(avail_size.x, IMGUI_WINDOW_HARD_MIN_SIZE), use_child_window and mathMax(avail_size.y, IMGUI_WINDOW_HARD_MIN_SIZE) or 0.0)
+    actual_outer_size_x, actual_outer_size_y = ImTrunc(actual_outer_size_x), ImTrunc(actual_outer_size_y) -- [Luau] scalar ImTrunc(CalcItemSize(...))
+    local outer_cursor = outer_window.DC.CursorPos
+    local outer_rect = ImRect(outer_cursor.x, outer_cursor.y, outer_cursor.x + actual_outer_size_x, outer_cursor.y + actual_outer_size_y) -- [Luau] scalar form: no temporary ImVec2
     local outer_window_is_measuring_size = (outer_window.AutoFitFramesX > 0) or (outer_window.AutoFitFramesY > 0) -- Doesn't apply to AlwaysAutoResize windows!
     if use_child_window and ImGui.IsClippedEx(outer_rect, 0) and not outer_window_is_measuring_size then
         ImGui.ItemSize(outer_rect)
@@ -1231,7 +1236,7 @@ function ImGui.TableUpdateLayout(table_)
     table_.ColumnsStretchSumWeights = stretch_sum_weights
 
     -- [Part 4] Apply final widths based on requested widths
-    local work_rect = Rect(table_.WorkRect)
+    local work_rect = TableUpdateLayout_work_rect; ImRect_Copy(work_rect, table_.WorkRect) -- [Luau] scratch copy
     local width_spacings = (table_.OuterPaddingX * 2.0) + (table_.CellSpacingX1 + table_.CellSpacingX2) * (table_.ColumnsEnabledCount - 1)
     local width_removed = (table_.HasScrollbarYPrev and not table_.InnerWindow.ScrollbarY) and g.Style.ScrollbarSize or 0.0 -- To synchronize decoration width of synced tables with mismatching scrollbar state (#5920)
     local width_avail = mathMax(1.0, ((band(table_.Flags, ImGuiTableFlags.ScrollX) ~= 0 and table_.InnerWidth == 0.0) and table_.InnerClipRect:GetWidth() or work_rect:GetWidth()) - width_removed)
@@ -1287,7 +1292,8 @@ function ImGui.TableUpdateLayout(table_)
     table_instance.HoveredRowLast = table_instance.HoveredRowNext
     table_instance.HoveredRowNext = -1
     table_.HoveredColumnBody = -1; table_.HoveredColumnBorder = -1
-    local mouse_hit_rect = ImRect(table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, mathMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight))
+    local mouse_hit_rect = TableUpdateLayout_mouse_hit_rect -- [Luau] scratch, ItemHoverable() only reads it
+    mouse_hit_rect.Min.x, mouse_hit_rect.Min.y, mouse_hit_rect.Max.x, mouse_hit_rect.Max.y = table_.OuterRect.Min.x, table_.OuterRect.Min.y, table_.OuterRect.Max.x, mathMax(table_.OuterRect.Max.y, table_.OuterRect.Min.y + table_instance.LastOuterHeight)
     local backup_active_id = g.ActiveId
     g.ActiveId = 0
     local is_hovering_table = ImGui.ItemHoverable(mouse_hit_rect, 0, ImGuiItemFlags.None)
@@ -1306,7 +1312,7 @@ function ImGui.TableUpdateLayout(table_)
     local has_at_least_one_column_requesting_output = false
     local offset_x_frozen = (table_.FreezeColumnsCount > 0)
     local offset_x = ((table_.FreezeColumnsCount > 0) and table_.OuterRect.Min.x or work_rect.Min.x) + table_.OuterPaddingX - table_.CellSpacingX1
-    local host_clip_rect = Rect(table_.InnerClipRect)
+    local host_clip_rect = TableUpdateLayout_host_clip_rect; ImRect_Copy(host_clip_rect, table_.InnerClipRect) -- [Luau] scratch copy
     --host_clip_rect.Max.x += table.CellPaddingX + table.CellSpacingX2
     BitArrayClearAll(table_.VisibleMaskByIndex)
     for order_n = 0, columns_count - 1 do
@@ -3133,7 +3139,7 @@ function ImGui.TableMergeDrawChannels(table_)
             local merge_channels_count = merge_groups[merge_group_n].ChannelsCount
             if merge_channels_count ~= 0 then
                 local merge_group = merge_groups[merge_group_n]
-                local merge_clip_rect = Rect(merge_group.ClipRect)
+                local merge_clip_rect = TableMergeDrawChannels_merge_clip_rect; ImRect_Copy(merge_clip_rect, merge_group.ClipRect) -- [Luau] scratch copy
 
                 -- Extend outer-most clip limits to match those of host, so draw calls can be merged even if
                 -- outer-most columns have some outer padding offsetting them from their parent ClipRect.
