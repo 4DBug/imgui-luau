@@ -148,6 +148,7 @@ function ImGui.GetMetatables() return MT end
 
 --- @param _EXPR any
 --- @param _MSG  string?
+@native
 function IM_ASSERT(_EXPR, _MSG) assert((_EXPR), _MSG) end
 
 IM_ASSERT_PARANOID = IM_ASSERT
@@ -395,12 +396,14 @@ local IM_VECTOR = {}
 --- @param t ImVector
 --- @param k string|int
 --- @return any
-IM_VECTOR.__index = function(t, k)
+@native
+local function IM_VECTOR_index(t, k)
     local m = IM_VECTOR[k] -- [Port] methods first (hot path)
     if m ~= nil then return m end
     if k == "Data" then return nil end -- [Port] Data has already been discarded
     return t.Data[IM_ASSERT(k >= 1 and k <= t.Size) or k] -- [Port] if the mt access turns out nil, the k must be int index into Data
 end
+IM_VECTOR.__index = IM_VECTOR_index
 
 --- @param t ImVector
 --- @param k int
@@ -422,14 +425,18 @@ local function _grow_capacity(v, sz) local new_capacity = (v.Capacity ~= 0) and 
 --- @nodiscard
 function ImVector(T, COPY_FUNC) return setmetatable({Data = nil, Size = 0, Capacity = 0, _Constructor = T or _default_constructor, _CopyFunc = COPY_FUNC or _default_copyfunc}, IM_VECTOR) end
 
+@native
 function IM_VECTOR:push_back(value) if self.Size == self.Capacity then self:reserve(_grow_capacity(self, self.Size + 1)) end; self._CopyFunc(self.Data, self.Size + 1, value); self.Size = self.Size + 1; return value end
+@native
 function IM_VECTOR:pop_back() IM_ASSERT(self.Size > 0); self.Size = self.Size - 1; end
 function IM_VECTOR:push_front(value) if self.Size == 0 then self:push_back(value) else self:insert(1, value) end end
 function IM_VECTOR:clear() if self.Data then self.Size = 0; self.Capacity = 0; IM_FREE(self, "Data"); self.Data = nil end end
 function IM_VECTOR:clear_delete() for i = 1, self.Size do self.Data[i] = nil end self.Size = 0 end
 function IM_VECTOR:empty() return self.Size == 0 end
+@native
 function IM_VECTOR:back()   IM_ASSERT(self.Size > 0) return self.Data[self.Size] end
 function IM_VECTOR:erase(i) IM_ASSERT(i >= 1 and i <= self.Size) local removed = (table.remove(self.Data, i)) ~= nil self.Size = self.Size - 1 return removed end
+@native
 local function _iter(v, i) i = i + 1 if i <= v.Size then return i, v.Data[i] end end
 function IM_VECTOR:iter() return _iter, self, 0 end
 function IM_VECTOR:find_index(value) for i = 1, self.Size do if self.Data[i] == value then return i end end return nil end

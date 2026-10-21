@@ -4939,6 +4939,7 @@ end
 local hash_memo, hash_memo_n, HASH_MEMO_MAX = {}, 0, 16384
 local ImHashStrRaw
 
+@native
 function ImHashStr(str, size, seed)
     if seed == nil then seed = 0 end
     if size == nil or size == #str then
@@ -20972,6 +20973,7 @@ function ImGui.DebugNodeFontGlyph(font, glyph)
     ImGui.Text("SourceIdx: %d", glyph.SourceIdx)
 end
 
+@native
 function ImGui.DebugNodeFontGlyphsForSrcMask(font, baked, src_mask)
     local draw_list = ImGui.GetWindowDrawList()
     local glyph_col = ImGui.GetColorU32(ImGuiCol.Text)

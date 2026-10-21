@@ -537,6 +537,7 @@ IM_DRAWLIST_TEX_LINES_DETAILED_WIDTH_COUNT = ((IM_DRAWLIST_TEX_LINES_DETAILED_WI
 -- - Read https://github.com/ocornut/imgui/wiki/Error-Handling for details on error handling.
 -- [Port] Upstream: `if (!(expr) && ErrorLog(msg)) IM_ASSERT(0)`. ErrorLog() returns io.ConfigErrorRecoveryEnableAssert.
 function IM_ASSERT_USER_ERROR(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then if not ImGui.ErrorLog or ImGui.ErrorLog(_MSG) then error(_MSG, 2) end end end -- Recoverable User Error
+@native
 function IM_ASSERT_USER_ERROR_RET(_EXPR, _MSG) if not (_EXPR) or (_EXPR) == 0 then error(_MSG, 2) end end
 
 -- Debug Logging for ShowDebugLogWindow(). This is designed for relatively rare events so please don't spam.
