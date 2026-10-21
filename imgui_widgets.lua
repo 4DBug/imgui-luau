@@ -10120,6 +10120,8 @@ end
 -- Consider using ImPlot (https://github.com/epezent/implot) which is much better!
 -------------------------------------------------------------------------------
 
+local PlotEx_pos0, PlotEx_pos1 = ImVec2(), ImVec2() -- [Luau] scratch line/bar corners
+
 --- @param plot_type     ImGuiPlotType
 --- @param label         string
 --- @param values_getter fun(data?: table, idx: int): float
@@ -10131,6 +10133,7 @@ end
 --- @param scale_max     float
 --- @param size_arg      ImVec2
 --- @return int
+@native
 function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, values_offset, overlay_text, scale_min, scale_max, size_arg)
     local g = GImGui
     local window = ImGui.GetCurrentWindow()
@@ -10145,9 +10148,10 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
     local label_size = ImGui.CalcTextSize(label, label_end, false)
     local frame_size = ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), label_size.y + style.FramePadding.y * 2.0)
 
-    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
-    local inner_bb = ImRect(frame_bb.Min + style.FramePadding, frame_bb.Max - style.FramePadding)
-    local total_bb = ImRect(frame_bb.Min, frame_bb.Max + ImVec2(label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0, 0))
+    local cursor, pad = window.DC.CursorPos, style.FramePadding -- [Luau] scalar forms: no temporary ImVec2s
+    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + frame_size.x, cursor.y + frame_size.y)
+    local inner_bb = ImRect(frame_bb.Min.x + pad.x, frame_bb.Min.y + pad.y, frame_bb.Max.x - pad.x, frame_bb.Max.y - pad.y)
+    local total_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x + (label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0), frame_bb.Max.y + 0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, id, frame_bb, ImGuiItemFlags.NoNav) then
         return -1
@@ -10203,39 +10207,43 @@ function ImGui.PlotEx(plot_type, label, values_getter, data, values_count, value
 
         local v0 = values_getter(data, (0 + values_offset) % values_count + 1)
         local t0 = 0.0
-        local tp0 = ImVec2(t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale)) -- Point in the normalized space of our target rectangle
+        local tp0_x, tp0_y = t0, 1.0 - ImSaturate((v0 - scale_min) * inv_scale) -- Point in the normalized space of our target rectangle -- [Luau] scalar tp0/tp1
         local histogram_zero_line_t = (scale_min * scale_max < 0.0) and (1 + scale_min * inv_scale) or (scale_min < 0.0 and 0.0 or 1.0) -- Where does the zero line stands
 
         local col_base = ImGui.GetColorU32((plot_type == ImGuiPlotType.Lines) and ImGuiCol.PlotLines or ImGuiCol.PlotHistogram)
         local col_hovered = ImGui.GetColorU32((plot_type == ImGuiPlotType.Lines) and ImGuiCol.PlotLinesHovered or ImGuiCol.PlotHistogramHovered)
+        local inner_min_x, inner_min_y, inner_max_x, inner_max_y = inner_bb.Min.x, inner_bb.Min.y, inner_bb.Max.x, inner_bb.Max.y
+        local draw_list = window.DrawList
 
         for _ = 0, res_w - 1 do
             local t1 = t0 + t_step
             local v1_idx = math.floor(t0 * item_count + 0.5) + 1
             IM_ASSERT(v1_idx >= 1 and v1_idx <= values_count)
             local v1 = values_getter(data, (v1_idx - 1 + values_offset + 1) % values_count + 1)
-            local tp1 = ImVec2(t1, 1.0 - ImSaturate((v1 - scale_min) * inv_scale))
+            local tp1_x, tp1_y = t1, 1.0 - ImSaturate((v1 - scale_min) * inv_scale)
 
             -- NB: Draw calls are merged together by the DrawList system. Still, we should render our batch are lower level to save a bit of CPU.
-            local pos0 = ImLerp(inner_bb.Min, inner_bb.Max, tp0)
-            local pos1
+            -- [Luau] ImLerp() on scalars into scratch vectors, only read by AddLine()/AddRectFilled()
+            local pos0, pos1 = PlotEx_pos0, PlotEx_pos1
+            pos0.x = inner_min_x + (inner_max_x - inner_min_x) * tp0_x; pos0.y = inner_min_y + (inner_max_y - inner_min_y) * tp0_y
+            pos1.x = inner_min_x + (inner_max_x - inner_min_x) * tp1_x
             if plot_type == ImGuiPlotType.Lines then
-                pos1 = ImLerp(inner_bb.Min, inner_bb.Max, tp1)
+                pos1.y = inner_min_y + (inner_max_y - inner_min_y) * tp1_y
             else
-                pos1 = ImLerp(inner_bb.Min, inner_bb.Max, ImVec2(tp1.x, histogram_zero_line_t))
+                pos1.y = inner_min_y + (inner_max_y - inner_min_y) * histogram_zero_line_t
             end
 
             if plot_type == ImGuiPlotType.Lines then
-                window.DrawList:AddLine(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
+                draw_list:AddLine(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
             elseif plot_type == ImGuiPlotType.Histogram then
                 if pos1.x >= pos0.x + 2.0 then
                     pos1.x = pos1.x - 1.0
                 end
-                window.DrawList:AddRectFilled(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
+                draw_list:AddRectFilled(pos0, pos1, idx_hovered == v1_idx and col_hovered or col_base)
             end
 
             t0 = t1
-            tp0 = tp1
+            tp0_x, tp0_y = tp1_x, tp1_y
         end
     end
 

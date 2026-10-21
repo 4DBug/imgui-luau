@@ -349,6 +349,7 @@ end
 --- @param gradient_p1    ImVec2
 --- @param col0           ImU32
 --- @param col1           ImU32
+@native
 function ImGui.ShadeVertsLinearColorGradientKeepAlpha(draw_list, vert_start_idx, vert_end_idx, gradient_p0, gradient_p1, col0, col1)
     local gradient_extent = gradient_p1 - gradient_p0
     local gradient_inv_length2 = 1.0 / ImLengthSqr(gradient_extent)
@@ -7241,6 +7242,7 @@ end
 --- @param a_min        float
 --- @param a_max        float
 --- @param num_segments int
+@native
 function MT.ImDrawList:_PathArcToN(center, radius, a_min, a_max, num_segments)
     if not (radius >= 0.25 * self._FringeScale) then -- [Port] !IM_HAS_ROUNDING(radius)
         self._Path:push_back(center)
@@ -7758,6 +7760,8 @@ function ImGui.CalcRoundingFlagsForRectInRect(r_in, r_outer, threshold)
     return flags
 end
 
+local Checkerboard_cell_min, Checkerboard_cell_max = ImVec2(), ImVec2()
+
 -- Helper for ColorPicker4()
 -- NB: This is rather brittle and will show artifact when rounding this enabled if rounded corners overlap multiple cells. Caller currently responsible for avoiding that.
 -- Spent a non reasonable amount of time trying to getting this right for ColorButton with rounding+anti-aliasing+ImGuiColorEditFlags_HalfAlphaPreview flag + various grid sizes and offsets, and eventually gave up... probably more reasonable to disable rounding altogether.
@@ -7770,6 +7774,7 @@ end
 --- @param grid_off  ImVec2
 --- @param rounding? float
 --- @param flags?    ImDrawFlags
+@native
 function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col, alpha, grid_step, grid_off, rounding, flags)
     if rounding == nil then rounding = 0.0 end
     if flags    == nil then flags    = 0   end
@@ -7820,7 +7825,9 @@ function ImGui.RenderColorRectWithAlphaCheckerboard(draw_list, p_min, p_max, col
                         end
                         local col_bg
                         if dual_layer then col_bg = col_bg2 elseif (yi + xi) % 2 == 1 then col_bg = col_bg2 else col_bg = col_bg1 end
-                        draw_list:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col_bg, rounding, cell_flags)
+                        local cell_min, cell_max = Checkerboard_cell_min, Checkerboard_cell_max -- [Luau] scratch: AddRectFilled() only reads them
+                        cell_min.x = x1; cell_min.y = y1; cell_max.x = x2; cell_max.y = y2
+                        draw_list:AddRectFilled(cell_min, cell_max, col_bg, rounding, cell_flags)
                     end
                     x = x + x_step
                     xi = xi + 1
