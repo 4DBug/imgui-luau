@@ -2,7 +2,7 @@
 -- Target: RGBA8 row-major (ImU32 is already R | G<<8 | B<<16 | A<<24), non-premultiplied "over" onto transparent.
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
 local readu8, readu32, writeu32 = buffer.readu8, buffer.readu32, buffer.writeu32
-local readf64 = buffer.readf64
+local readf64, writef64 = buffer.readf64, buffer.writef64
 local band, rshift = bit32.band, bit32.rshift
 local readi32 = buffer.readi32
 
@@ -20,6 +20,19 @@ local TILE = M.TILE
 -- Pixel (x, y) of the target is at byte (y * TargetWidth + x) * 4 + TargetBase: a target can be a sub-rectangle of the
 -- tile (raster straight into the upload buffer)
 local TargetBuffer: buffer, TargetWidth, TargetBase = buffer.create(0), 0, 0
+
+-- Solid spans are written two pixels per writef64 (a write costs about the same at either width): the f64 whose bytes
+-- are the pixel twice. Only for a normal double (exponent field not 0 or all ones), which every load and store keeps
+-- bit for bit; else PairF64 returns false and spans are written per pixel.
+local PairScratch = buffer.create(8)
+@native
+local function PairF64(v: number): number | false
+    local e = band(rshift(v, 20), 2047)
+    if e == 0 or e == 2047 then return false end
+    writeu32(PairScratch, 0, v)
+    writeu32(PairScratch, 4, v)
+    return readf64(PairScratch, 0)
+end
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -129,7 +142,17 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
-        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
+        local pair = span >= 16 and PairF64(packed)
+        if pair then
+            local o, o1 = first, first + w4
+            while o < o1 do
+                writef64(TargetBuffer, o, pair)
+                o += 8
+            end
+            if o == o1 then writeu32(TargetBuffer, o, packed) end
+        else
+            for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
+        end
         if span <= 8 then -- narrow (vertical lines): writes, a call per row costs more
             local stride = TargetWidth * 4
             for o = first + stride, first + (y1 - y0 - 1) * stride, stride do
@@ -165,6 +188,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     local ns = 1 - sa
     local c1 = ns / 255
     local rs, gs, bs = r * sa, g * sa, b * sa
+    local black = rs == 0 and gs == 0 and bs == 0
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
     local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
     local wide, has_prev = span >= 32 and y1 - y0 > 1, false
@@ -198,7 +222,17 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             if v == prev_v and span > 8 then -- (a call: slower than a few writes)
                 buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
             else
-                for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+                local pair = span >= 16 and PairF64(v)
+                if pair then
+                    local o, o1 = o0, o0 + w4
+                    while o < o1 do
+                        writef64(TargetBuffer, o, pair)
+                        o += 8
+                    end
+                    if o == o1 then writeu32(TargetBuffer, o, v) end
+                else
+                    for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+                end
             end
             local na, nb, nv = ra, rb, d
             if span >= x0 - ra and span >= rb - x1 then
@@ -239,6 +273,31 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             end
         end
         prev_o, prev_v = o0, -1
+        if black then
+            -- (black: rs + x is x, so the opaque case is just the scaled destination; colour picker SV square)
+            for o = o0, o0 + w4, 4 do
+                local d = readu32(TargetBuffer, o)
+                if d ~= last_d then
+                    last_d = d
+                    if d >= 4278190080 then
+                        last_v = floor(band(d, 255) * ns + 0.5) + floor(band(rshift(d, 8), 255) * ns + 0.5) * 256
+                            + floor(band(rshift(d, 16), 255) * ns + 0.5) * 65536 + 4278190080
+                    elseif d < 16777216 then
+                        last_v = packed0
+                    else
+                        local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                        local k = rshift(d, 24) * c1
+                        local oa = sa + k
+                        local inv = 1 / oa
+                        last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                            + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                end
+                writeu32(TargetBuffer, o, last_v)
+            end
+            y += 1
+            continue
+        end
         for o = o0, o0 + w4, 4 do
             local d = readu32(TargetBuffer, o)
             if d == last_d then
@@ -455,10 +514,12 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         and aa == ac
     if flat and aa <= 0 then return end
     local f_opaque, f_packed, f_sa, f_ns, f_c1, f_rs, f_gs, f_bs = false, 0, 0, 0, 0, 0, 0, 0
+    local f_pair: number | false = false
     if flat then
         f_opaque = aa >= 255
         f_packed = floor(ra + 0.5) + floor(ga + 0.5) * 256 + floor(ba + 0.5) * 65536
             + (f_opaque and 4278190080 or floor(aa + 0.5) * 16777216)
+        if f_opaque then f_pair = PairF64(f_packed) end
         if not f_opaque then
             f_sa = aa / 255
             f_ns = 1 - f_sa
@@ -597,6 +658,10 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr = min(xr, ceil(e2 * n2 - 0.499999))
         end
 
+        -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
+        -- estimates, and with |A * px| and |e| below 2^17 * |A| the test's rounding error is far below 1e-6 * |A| (the
+        -- test reads the same e). Testing from the next pixel gives the same span.
+        if xl > minx and xl <= xr then xl += 1 end
         while xl <= xr do
             local px = xl + 0.5
             local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
@@ -605,6 +670,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             xl += 1
         end
+        if xr < maxx and xr > xl then xr -= 1 end
         while xr > xl do
             local px = xr + 0.5
             local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
@@ -618,7 +684,15 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
-                for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
+                if f_pair then
+                    while o < o1 do
+                        writef64(dbuf, o, f_pair)
+                        o += 8
+                    end
+                    if o == o1 then writeu32(dbuf, o, f_packed) end
+                else
+                    for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
+                end
                 continue
             end
             local last_d, last_v = -1, 0
@@ -813,6 +887,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
         if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
         if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        if xl > minx and xl <= xr then xl += 1 end -- (an estimate is never in the span: see DrawTriangle)
         while xl <= xr do
             local px = xl + 0.5
             local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
@@ -822,6 +897,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             end
             xl += 1
         end
+        if xr < maxx and xr > xl then xr -= 1 end
         while xr > xl do
             local px = xr + 0.5
             local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
