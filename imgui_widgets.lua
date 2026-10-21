@@ -320,6 +320,8 @@ end
 --- @param label string
 --- @param fmt   string
 --- @param ...   any
+-- [Luau] scratch for LabelText(): only read by its callees (ItemAdd() copies total_bb), never escape
+local LabelText_value_size, LabelText_value_bb, LabelText_total_bb, LabelText_pos = ImVec2(), ImRect(), ImRect(), ImVec2()
 function ImGui.LabelText(label, fmt, ...)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -332,23 +334,30 @@ function ImGui.LabelText(label, fmt, ...)
 
     local value_text = ImFormatString(fmt, ...)
     local value_text_end = #value_text + 1
-    local value_size = ImGui.CalcTextSize(value_text, value_text_end, false)
+    local value_size = LabelText_value_size
+    value_size.x, value_size.y = ImGui.CalcTextSizeXY(value_text, 1, value_text_end, false)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
-    local value_bb = ImRect(pos, pos + ImVec2(w, value_size.y + style.FramePadding.y * 2))
-    local total_bb = ImRect(pos, pos + ImVec2(w + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0), ImMax(value_size.y, label_size.y) + style.FramePadding.y * 2))
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos
+    local value_bb = LabelText_value_bb
+    value_bb.Min.x, value_bb.Min.y, value_bb.Max.x, value_bb.Max.y = pos_x, pos_y, pos_x + w, pos_y + (value_size.y + style.FramePadding.y * 2)
+    local total_bb = LabelText_total_bb
+    total_bb.Min.x, total_bb.Min.y = pos_x, pos_y
+    total_bb.Max.x = pos_x + (w + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0))
+    total_bb.Max.y = pos_y + (ImMax(value_size.y, label_size_y) + style.FramePadding.y * 2)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, 0) then
         return
     end
 
     -- Render
-    ImGui.RenderTextClipped(value_bb.Min + style.FramePadding, value_bb.Max, value_text, value_text_end, value_size, ImVec2(0.0, 0.0))
-    if label_size.x > 0.0 then
-        ImGui.RenderText(ImVec2(value_bb.Max.x + style.ItemInnerSpacing.x, value_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    local text_pos = LabelText_pos
+    text_pos.x, text_pos.y = value_bb.Min.x + style.FramePadding.x, value_bb.Min.y + style.FramePadding.y
+    ImGui.RenderTextClipped(text_pos, value_bb.Max, value_text, value_text_end, value_size, LAYOUT_ZERO_SIZE)
+    if label_size_x > 0.0 then
+        text_pos.x, text_pos.y = value_bb.Max.x + style.ItemInnerSpacing.x, value_bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(text_pos, label, 1, label_end, false)
     end
 end
 
@@ -847,7 +856,7 @@ function ImGui.SmallButton(label)
     local g = GImGui
     local backup_padding_y = g.Style.FramePadding.y
     g.Style.FramePadding.y = 0.0
-    local pressed = ImGui.ButtonEx(label, ImVec2(0, 0), ImGuiButtonFlags.AlignTextBaseLine)
+    local pressed = ImGui.ButtonEx(label, LAYOUT_ZERO_SIZE, ImGuiButtonFlags.AlignTextBaseLine) -- [Luau] shared read-only ImVec2(0, 0)
     g.Style.FramePadding.y = backup_padding_y
     return pressed
 end
@@ -1449,6 +1458,8 @@ ImGui.CheckboxFlagsT = ImGui.CheckboxFlags
 --- @param label  string
 --- @param active bool
 --- @return bool is_pressed
+-- [Luau] scratch for RadioButtonEx(): only read by its callees (ItemAdd() copies total_bb), never escape
+local RadioButton_total_bb, RadioButton_center, RadioButton_label_pos = ImRect(), ImVec2(), ImVec2()
 function ImGui.RadioButtonEx(label, active)
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -1459,20 +1470,21 @@ function ImGui.RadioButtonEx(label, active)
     local style = g.Style
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
     local square_sz = g.FontSize + style.FramePadding.y * 2.0 -- [Luau] inline GetFrameHeight()
     local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos, no temporary ImVec2
-    local check_bb = ImRect(pos_x, pos_y, pos_x + square_sz, pos_y + square_sz)
-    local total_bb = ImRect(pos_x, pos_y, pos_x + (square_sz + (label_size.x > 0.0 and style.ItemInnerSpacing.x + label_size.x or 0.0)), pos_y + (label_size.y + style.FramePadding.y * 2.0))
+    local check_bb_min_x, check_bb_min_y, check_bb_max_x, check_bb_max_y = pos_x, pos_y, pos_x + square_sz, pos_y + square_sz -- [Luau] scalar check_bb
+    local total_bb = RadioButton_total_bb
+    total_bb.Min.x, total_bb.Min.y, total_bb.Max.x, total_bb.Max.y = pos_x, pos_y, pos_x + (square_sz + (label_size_x > 0.0 and style.ItemInnerSpacing.x + label_size_x or 0.0)), pos_y + (label_size_y + style.FramePadding.y * 2.0)
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, id) then
         return false
     end
 
-    local center = check_bb:GetCenter()
-    center.x = IM_ROUND(center.x)
-    center.y = IM_ROUND(center.y)
+    local center = RadioButton_center -- [Luau] check_bb:GetCenter() into scratch
+    center.x = IM_ROUND((check_bb_min_x + check_bb_max_x) * 0.5)
+    center.y = IM_ROUND((check_bb_min_y + check_bb_max_y) * 0.5)
     local radius = (square_sz - 1.0) * 0.5
 
     local pressed, hovered, held = ImGui.ButtonBehavior(total_bb, id)
@@ -1501,11 +1513,12 @@ function ImGui.RadioButtonEx(label, active)
         window.DrawList:AddCircle(center + ImVec2(1, 1), radius, ImGui.GetColorU32(ImGuiCol.BorderShadow), num_segment, style.FrameBorderSize)
         window.DrawList:AddCircle(center, radius, ImGui.GetColorU32(ImGuiCol.Border), num_segment, style.FrameBorderSize)
     end
-    local label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y)
+    local label_pos = RadioButton_label_pos
+    label_pos.x, label_pos.y = check_bb_max_x + style.ItemInnerSpacing.x, check_bb_min_y + style.FramePadding.y
     if g.LogEnabled then
         ImGui.LogRenderedText(label_pos, active and "(x)" or "( )")
     end
-    if label_size.x > 0.0 then
+    if label_size_x > 0.0 then
         ImGui.RenderText(label_pos, label, 1, label_end, false)
     end
 
@@ -1530,8 +1543,10 @@ end
 --- @param fraction  float
 --- @param size_arg? ImVec2
 --- @param overlay?  string
+local ProgressBar_size_arg_default = ImVec2(-FLT_MIN, 0) -- [Luau] shared read-only default (CalcItemSize() only reads it)
+local ProgressBar_size, ProgressBar_overlay_pos, ProgressBar_overlay_align = ImVec2(), ImVec2(), ImVec2(0.0, 0.5) -- [Luau] scratch / shared read-only, only read by RenderTextClipped()
 function ImGui.ProgressBar(fraction, size_arg, overlay)
-    if size_arg == nil then size_arg = ImVec2(-FLT_MIN, 0) end
+    if size_arg == nil then size_arg = ProgressBar_size_arg_default end
 
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -1541,10 +1556,10 @@ function ImGui.ProgressBar(fraction, size_arg, overlay)
     local g = GImGui
     local style = g.Style
 
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
-    local size = ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), g.FontSize + style.FramePadding.y * 2.0)
-    local bb = ImRect(pos, pos + size)
+    local pos = window.DC.CursorPos -- [Luau] only read before ItemSize() moves the cursor
+    local size_x, size_y = ImGui._CalcItemSizeXY(size_arg.x, size_arg.y, ImGui.CalcItemWidth(), g.FontSize + style.FramePadding.y * 2.0) -- [Luau] scalar size
+    local bb = ImRect(pos.x, pos.y, pos.x + size_x, pos.y + size_y)
+    local size = ProgressBar_size; size.x = size_x; size.y = size_y -- [Luau] scratch, ItemSize() only reads it
     ImGui.ItemSize(size, style.FramePadding.y)
     if not ImGui.ItemAdd(bb, 0) then
         return
@@ -1570,7 +1585,7 @@ function ImGui.ProgressBar(fraction, size_arg, overlay)
 
     -- Render
     ImGui.RenderFrame(bb.Min, bb.Max, ImGui.GetColorU32(ImGuiCol.FrameBg), true, style.FrameRounding)
-    bb:Expand(ImVec2(-style.FrameBorderSize, -style.FrameBorderSize))
+    bb:Expand(-style.FrameBorderSize) -- [Luau] == Expand(ImVec2(-style.FrameBorderSize, -style.FrameBorderSize))
 
     local fill_x0 = ImLerp(bb.Min.x, bb.Max.x, fill_n0)
     local fill_x1 = ImLerp(bb.Min.x, bb.Max.x, fill_n1)
@@ -1588,7 +1603,9 @@ function ImGui.ProgressBar(fraction, size_arg, overlay)
         local overlay_size = ImGui.CalcTextSize(overlay, nil)
         if overlay_size.x > 0.0 then
             local text_x = is_indeterminate and ((bb.Min.x + bb.Max.x - overlay_size.x) * 0.5) or (fill_x1 + style.ItemSpacing.x)
-            ImGui.RenderTextClipped(ImVec2(ImClamp(text_x, bb.Min.x, bb.Max.x - overlay_size.x - style.ItemInnerSpacing.x), bb.Min.y), bb.Max, overlay, nil, overlay_size, ImVec2(0.0, 0.5), bb)
+            local overlay_pos = ProgressBar_overlay_pos
+            overlay_pos.x, overlay_pos.y = ImClamp(text_x, bb.Min.x, bb.Max.x - overlay_size.x - style.ItemInnerSpacing.x), bb.Min.y
+            ImGui.RenderTextClipped(overlay_pos, bb.Max, overlay, nil, overlay_size, ProgressBar_overlay_align, bb)
         end
     end
 end
@@ -1767,6 +1784,7 @@ end
 -- Note how thickness == 1.0f is handled specifically as not moving CursorPos by 'thickness', but other values are.
 --- @param flags     ImGuiSeparatorFlags
 --- @param thickness float
+local SeparatorEx_bb = ImRect() -- [Luau] scratch for SeparatorEx(): only read by its callees (ItemAdd() copies it), never escapes
 function ImGui.SeparatorEx(flags, thickness)
     if thickness == nil then thickness = 1.0 end
 
@@ -1783,7 +1801,8 @@ function ImGui.SeparatorEx(flags, thickness)
         -- Vertical separator, for menu bars (use current line height).
         local y1 = window.DC.CursorPos.y
         local y2 = window.DC.CursorPos.y + window.DC.CurrLineSize.y
-        local bb = ImRect(window.DC.CursorPos.x, y1, window.DC.CursorPos.x + thickness, y2) -- [Luau] no temporary ImVec2
+        local bb = SeparatorEx_bb -- [Luau] scratch, no temporary ImVec2
+        bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = window.DC.CursorPos.x, y1, window.DC.CursorPos.x + thickness, y2
         local item_size = LayoutHelpers_size; item_size.x = thickness; item_size.y = 0.0
         ImGui.ItemSize(item_size)
         if not ImGui.ItemAdd(bb, 0) then
@@ -1817,7 +1836,8 @@ function ImGui.SeparatorEx(flags, thickness)
         -- This was mostly chosen to allow backward compatibility with user's code assuming zero-height when calculating height for layout (e.g. bottom alignment of a status bar).
         -- In order to handle scaling we need to scale separator thickness and it would not makes sense to have a disparity depending on height.
         ----float thickness_for_layout = (thickness == 1.0f) ? 0.0f : thickness; // FIXME: See 1.70/1.71 Separator() change: makes legacy 1-px separator not affect layout yet. Should change.
-        local bb = ImRect(x1, window.DC.CursorPos.y, x2, window.DC.CursorPos.y + thickness) -- [Luau] no temporary ImVec2
+        local bb = SeparatorEx_bb -- [Luau] scratch, no temporary ImVec2
+        bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = x1, window.DC.CursorPos.y, x2, window.DC.CursorPos.y + thickness
         local item_size = LayoutHelpers_size; item_size.x = 0.0; item_size.y = thickness
         ImGui.ItemSize(item_size)
 
@@ -1964,6 +1984,8 @@ end
 --- @param label          string
 --- @param preview_value? string
 --- @param flags?         ImGuiComboFlags
+-- [Luau] scratch for BeginCombo(): only read by its callees (ItemAdd() copies them), never escape
+local BeginCombo_bb, BeginCombo_total_bb, BeginCombo_p0, BeginCombo_p1 = ImRect(), ImRect(), ImVec2(), ImVec2()
 function ImGui.BeginCombo(label, preview_value, flags)
     if flags == nil then flags = 0 end
 
@@ -1991,7 +2013,7 @@ function ImGui.BeginCombo(label, preview_value, flags)
     end
 
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
     local preview_width
     if ((bit32.band(flags, ImGuiComboFlags.WidthFitPreview) ~= 0) and (preview_value ~= nil)) then
@@ -2009,9 +2031,12 @@ function ImGui.BeginCombo(label, preview_value, flags)
         w = ImGui.CalcItemWidth()
     end
 
-    local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + ImVec2(w, label_size.y + style.FramePadding.y * 2.0))
-    local label_offset = (label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0
-    local total_bb = ImRect(bb.Min, bb.Max + ImVec2(label_offset, 0.0))
+    local cursor = window.DC.CursorPos
+    local bb = BeginCombo_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = cursor.x, cursor.y, cursor.x + w, cursor.y + (label_size_y + style.FramePadding.y * 2.0)
+    local label_offset = (label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0
+    local total_bb = BeginCombo_total_bb
+    total_bb.Min.x, total_bb.Min.y, total_bb.Max.x, total_bb.Max.y = bb.Min.x, bb.Min.y, bb.Max.x + label_offset, bb.Max.y + 0.0
 
     ImGui.ItemSize(total_bb, style.FramePadding.y)
     if not ImGui.ItemAdd(total_bb, id, bb) then
@@ -2034,27 +2059,34 @@ function ImGui.BeginCombo(label, preview_value, flags)
     ImGui.RenderNavCursor(bb, id)
 
     if bit32.band(flags, ImGuiComboFlags.NoPreview) == 0 then
-        window.DrawList:AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (bit32.band(flags, ImGuiComboFlags.NoArrowButton) ~= 0) and ImDrawFlags.RoundAll or ImDrawFlags.RoundLeft)
+        local p1 = BeginCombo_p1
+        p1.x, p1.y = value_x2, bb.Max.y
+        window.DrawList:AddRectFilled(bb.Min, p1, frame_col, style.FrameRounding, (bit32.band(flags, ImGuiComboFlags.NoArrowButton) ~= 0) and ImDrawFlags.RoundAll or ImDrawFlags.RoundLeft)
     end
 
     if bit32.band(flags, ImGuiComboFlags.NoArrowButton) == 0 then
         local bg_col = ImGui.GetColorU32((popup_open or hovered) and ImGuiCol.ButtonHovered or ImGuiCol.Button)
         local text_col = ImGui.GetColorU32(ImGuiCol.Text)
 
-        window.DrawList:AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and ImDrawFlags.RoundAll or ImDrawFlags.RoundRight)
+        local p0 = BeginCombo_p0
+        p0.x, p0.y = value_x2, bb.Min.y
+        window.DrawList:AddRectFilled(p0, bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) and ImDrawFlags.RoundAll or ImDrawFlags.RoundRight)
 
         if value_x2 + arrow_size - style.FramePadding.x <= bb.Max.x then
-            ImGui.RenderArrow(window.DrawList, ImVec2(value_x2 + style.FramePadding.y, bb.Min.y + style.FramePadding.y), text_col, ImGuiDir.Down, 1.0)
+            p0.x, p0.y = value_x2 + style.FramePadding.y, bb.Min.y + style.FramePadding.y
+            ImGui.RenderArrow(window.DrawList, p0, text_col, ImGuiDir.Down, 1.0)
         end
     end
 
     ImGui.RenderFrameBorder(bb.Min, bb.Max, style.FrameRounding)
 
     -- Store geometry for BeginComboPreview() - only necessary when visible.
+    -- [Luau] written in place (C++ assigns the struct)
+    local preview_rect = g.ComboPreviewData.PreviewRect
     if bit32.band(flags, ImGuiComboFlags.NoPreview) ~= 0 then
-        g.ComboPreviewData.PreviewRect = ImRect()
+        preview_rect.Min.x, preview_rect.Min.y, preview_rect.Max.x, preview_rect.Max.y = 0, 0, 0, 0
     else
-        g.ComboPreviewData.PreviewRect = ImRect(bb.Min.x, bb.Min.y, value_x2, bb.Max.y)
+        preview_rect.Min.x, preview_rect.Min.y, preview_rect.Max.x, preview_rect.Max.y = bb.Min.x, bb.Min.y, value_x2, bb.Max.y
     end
 
     -- Render preview and label
@@ -2062,11 +2094,16 @@ function ImGui.BeginCombo(label, preview_value, flags)
         if g.LogEnabled then
             ImGui.LogSetNextTextDecoration("{", "}")
         end
-        ImGui.RenderTextClipped(bb.Min + style.FramePadding, ImVec2(value_x2, bb.Max.y), preview_value, nil, nil)
+        local p0, p1 = BeginCombo_p0, BeginCombo_p1
+        p0.x, p0.y = bb.Min.x + style.FramePadding.x, bb.Min.y + style.FramePadding.y
+        p1.x, p1.y = value_x2, bb.Max.y
+        ImGui.RenderTextClipped(p0, p1, preview_value, nil, nil)
     end
 
-    if label_size.x > 0 then
-        ImGui.RenderText(ImVec2(bb.Max.x + style.ItemInnerSpacing.x, bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
+    if label_size_x > 0 then
+        local p0 = BeginCombo_p0
+        p0.x, p0.y = bb.Max.x + style.ItemInnerSpacing.x, bb.Min.y + style.FramePadding.y
+        ImGui.RenderText(p0, label, 1, label_end, false)
     end
 
     if not popup_open then
@@ -4647,7 +4684,7 @@ function ImGui.InputText(label, buf, buf_size, flags, callback, user_data)
     if flags == nil then flags = 0 end
 
     IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0) -- call InputTextMultiline()
-    return ImGui.InputTextEx(label, nil, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
+    return ImGui.InputTextEx(label, nil, buf, buf_size, LAYOUT_ZERO_SIZE, flags, callback, user_data) -- [Luau] shared read-only ImVec2(0, 0)
 end
 
 -- [Luau] InputText edits a byte table in place (C++ char buf[N]). Helpers to make/read one:
@@ -5482,15 +5519,16 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     local label_end = ImGui.FindRenderedTextEnd(label)
     local label_size = ImGui.CalcTextSize(label, label_end, false)
     local frame_size = ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), (is_multiline and g.FontSize * 8.0 or label_size.y) + style.FramePadding.y * 2.0)  -- Arbitrary default of 8 lines high for multi-line
-    local total_size = ImVec2(frame_size.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0), frame_size.y)
+    local total_size_x, total_size_y = frame_size.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0), frame_size.y -- [Luau] scalar total_size
 
-    local frame_bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + frame_size)
-    local total_bb = ImRect(frame_bb.Min, frame_bb.Min + total_size)
+    local cursor = window.DC.CursorPos
+    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + frame_size.x, cursor.y + frame_size.y) -- [Luau] scalar forms: no temporary ImVec2s
+    local total_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + total_size_x, frame_bb.Min.y + total_size_y)
 
     local draw_window = window
     local inner_size = ImVec2()
     ImVec2_Copy(inner_size, frame_size)
-    local item_data_backup = ImGuiLastItemData()
+    local item_data_backup = is_multiline and ImGuiLastItemData() or nil -- [Luau] only used by the multi-line path
     if is_multiline then
         local backup_pos = ImVec2()
         ImVec2_Copy(backup_pos, window.DC.CursorPos)
@@ -6517,7 +6555,7 @@ function ImGui.InputTextWithHint(label, hint, buf, buf_size, flags, callback, us
     if flags == nil then flags = 0 end
 
     IM_ASSERT(bit32.band(flags, ImGuiInputTextFlags.Multiline) == 0) -- call InputTextMultiline() or  InputTextEx() manually if you need multi-line + hint.
-    return ImGui.InputTextEx(label, hint, buf, buf_size, ImVec2(0, 0), flags, callback, user_data)
+    return ImGui.InputTextEx(label, hint, buf, buf_size, LAYOUT_ZERO_SIZE, flags, callback, user_data) -- [Luau] shared read-only ImVec2(0, 0)
 end
 
 -- [Luau] stb positions/undo indices are 1-based in this port (displayed as-is)
@@ -8384,6 +8422,8 @@ end
 --- @param size_arg? any
 --- @return bool is_pressed
 --- @return bool is_selected # Updated `selected`
+-- [Luau] scratch for Selectable(): only read by its callees (ItemAdd() copies bb), never escape
+local Selectable_label_size, Selectable_size, Selectable_pos, Selectable_pos_max, Selectable_bb = ImVec2(), ImVec2(), ImVec2(), ImVec2(), ImRect()
 @native
 function ImGui.Selectable(label, selected, flags, size_arg)
     if selected == nil then selected = false        end
@@ -8401,10 +8441,13 @@ function ImGui.Selectable(label, selected, flags, size_arg)
     -- Submit label or explicit size to ItemSize(), whereas ItemAdd() will submit a larger/spanning rectangle.
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
-    local size = ImVec2((size_arg.x ~= 0.0) and size_arg.x or label_size.x, (size_arg.y ~= 0.0) and size_arg.y or label_size.y)
+    local label_size = Selectable_label_size
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
+    local size = Selectable_size
+    size.x = (size_arg.x ~= 0.0) and size_arg.x or label_size.x
+    size.y = (size_arg.y ~= 0.0) and size_arg.y or label_size.y
 
-    local pos = ImVec2()
+    local pos = Selectable_pos
     ImVec2_Copy(pos, window.DC.CursorPos)
     pos.y = pos.y + window.DC.CurrLineTextBaseOffset
 
@@ -8421,7 +8464,8 @@ function ImGui.Selectable(label, selected, flags, size_arg)
 
     -- Selectables are meant to be tightly packed together with no click-gap, so we extend their box to cover spacing between selectable.
     -- FIXME: Not part of layout so not included in clipper calculation, but ItemSize currently doesn't allow offsetting CursorPos.
-    local bb = ImRect(min_x, pos.y, min_x + size.x, pos.y + size.y)
+    local bb = Selectable_bb
+    bb.Min.x = min_x; bb.Min.y = pos.y; bb.Max.x = min_x + size.x; bb.Max.y = pos.y + size.y
     if bit32.band(flags, ImGuiSelectableFlags.NoPadWithHalfSpacing) == 0 then
         local spacing_x = span_all_columns and 0.0 or style.ItemSpacing.x
         local spacing_y = style.ItemSpacing.y
@@ -8578,7 +8622,9 @@ function ImGui.Selectable(label, selected, flags, size_arg)
 
     -- Text stays at the submission position. Alignment/clipping extents ignore SpanAllColumns.
     if is_visible then
-        ImGui.RenderTextClipped(pos, ImVec2(ImMin(pos.x + size.x, window.WorkRect.Max.x), pos.y + size.y), label, label_end, label_size, style.SelectableTextAlign, bb)
+        local pos_max = Selectable_pos_max
+        pos_max.x = ImMin(pos.x + size.x, window.WorkRect.Max.x); pos_max.y = pos.y + size.y
+        ImGui.RenderTextClipped(pos, pos_max, label, label_end, label_size, style.SelectableTextAlign, bb)
     end
 
     -- Automatically close popups
