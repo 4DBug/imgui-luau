@@ -231,6 +231,9 @@ local function ReadFile(filename)
     local data = love.filesystem.getInfo(filename) and love.filesystem.read(filename)
     if data then return data end
     local bd = ImGui_ImplLOVE_GetBackendData()
+    local lf = bd and bd.Root ~= "" and bd.Root .. filename -- root may also be a love.filesystem path (works in .love/fused)
+    data = lf and love.filesystem.getInfo(lf) and love.filesystem.read(lf)
+    if data then return data end
     local f = io.open(((bd and bd.Root) or "") .. filename, "rb")
     if not f then return nil end
     data = f:read("*a"); f:close()
@@ -326,6 +329,19 @@ function ImGui_ImplLOVE_DestroyTexture(tex_ref)
     local bd = ImGui_ImplLOVE_GetBackendData()
     local image = bd.Textures[tex_ref._TexID]
     if image then image:release(); bd.Textures[tex_ref._TexID] = nil end
+end
+
+--- Register an existing LÖVE Texture/Canvas (not owned: never released by the backend). Returns an ImTextureRef.
+function ImGui_ImplLOVE_RegisterCanvas(drawable)
+    local bd = ImGui_ImplLOVE_GetBackendData()
+    bd.TextureCount = bd.TextureCount + 1
+    bd.Textures[bd.TextureCount] = drawable
+    return ImTextureRef(bd.TextureCount)
+end
+
+--- Forget a registered texture without releasing it.
+function ImGui_ImplLOVE_UnregisterTexture(tex_ref)
+    ImGui_ImplLOVE_GetBackendData().Textures[tex_ref._TexID] = nil
 end
 
 ---------------------------------------------------------
@@ -526,6 +542,8 @@ ImGui_ImplLove = {
     RenderDrawData = ImGui_ImplLOVE_RenderDrawData,
     CreateTexture  = ImGui_ImplLOVE_CreateTexture,
     DestroyTexture = ImGui_ImplLOVE_DestroyTexture,
+    RegisterCanvas = ImGui_ImplLOVE_RegisterCanvas,
+    UnregisterTexture = ImGui_ImplLOVE_UnregisterTexture,
     MouseMoved     = MouseMoved,
     MousePressed   = MousePressed,
     MouseReleased  = MouseReleased,
