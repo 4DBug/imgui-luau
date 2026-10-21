@@ -407,12 +407,14 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
     ClearRect(rx0, ry0, rx1, ry1)
     for k = 1, count do
         local p = list[k]
-        local cx0, cy0 = max(PrimClipX0[p] - x0, rx0), max(PrimClipY0[p] - y0, ry0)
-        local cx1, cy1 = min(PrimClipX1[p] - x0, rx1), min(PrimClipY1[p] - y0, ry1)
-        if cx0 >= cx1 or cy0 >= cy1 or PrimBoundsX0[p] - x0 >= rx1 or PrimBoundsY0[p] - y0 >= ry1
-            or PrimBoundsX1[p] - x0 <= rx0 or PrimBoundsY1[p] - y0 <= ry0 then
+        -- (bounds first: most of a tile's primitives miss a small rect)
+        if PrimBoundsX0[p] - x0 >= rx1 or PrimBoundsY0[p] - y0 >= ry1 or PrimBoundsX1[p] - x0 <= rx0
+            or PrimBoundsY1[p] - y0 <= ry0 then
             continue
         end
+        local cx0, cy0 = max(PrimClipX0[p] - x0, rx0), max(PrimClipY0[p] - y0, ry0)
+        local cx1, cy1 = min(PrimClipX1[p] - x0, rx1), min(PrimClipY1[p] - y0, ry1)
+        if cx0 >= cx1 or cy0 >= cy1 then continue end
         local kind, gk = 0, PrimGradient[p]
         if PrimD[p] then kind = gk and gk + 1 or 1 end
         DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0, cx1, cy1)
