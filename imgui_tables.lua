@@ -1567,6 +1567,8 @@ function ImGui.TableApplyExternalUnclipRect(table_, rect)
     end
 end
 
+local TableUpdateBorders_hit_rect = ImRect()
+
 -- Process hit-testing on resizing borders. Actual size change will be applied in EndTable()
 -- - Set table.HoveredColumnBorder with a short delay/timer to reduce visual feedback noise.
 function ImGui.TableUpdateBorders(table_)
@@ -1606,7 +1608,8 @@ function ImGui.TableUpdateBorders(table_)
             end
 
             local column_id = ImGui.TableGetColumnResizeID(table_, column_n, table_.InstanceCurrent)
-            local hit_rect = ImRect(column.MaxX - hit_half_width, hit_y1, column.MaxX + hit_half_width, border_y2_hit)
+            local hit_rect = TableUpdateBorders_hit_rect -- [Luau] scratch: ItemAdd() copies it, ButtonBehavior() reads it
+            hit_rect.Min.x = column.MaxX - hit_half_width; hit_rect.Min.y = hit_y1; hit_rect.Max.x = column.MaxX + hit_half_width; hit_rect.Max.y = border_y2_hit
             ImGui.ItemAdd(hit_rect, column_id, nil, ImGuiItemFlags.NoNav)
             --ImGui.GetForegroundDrawList():AddRect(hit_rect.Min, hit_rect.Max, IM_COL32(255, 0, 0, 100))
 

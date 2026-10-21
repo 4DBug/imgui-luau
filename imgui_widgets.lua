@@ -1903,19 +1903,25 @@ end
 --- @param label      string
 --- @param label_end? int
 --- @param extra_w    float
+local SeparatorTextEx_label_size, SeparatorTextEx_min_size, SeparatorTextEx_bb, SeparatorTextEx_label_pos, SeparatorTextEx_clip_max = ImVec2(), ImVec2(), ImRect(), ImVec2(), ImVec2()
+
 function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
     local g = GImGui
     local window = g.CurrentWindow
     local style = g.Style
 
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
-    local pos = ImVec2(window.DC.CursorPos.x, window.DC.CursorPos.y)
+    -- [Luau] scratch vectors/rect (callees only read them or copy them), scalar pos
+    local label_size = SeparatorTextEx_label_size
+    label_size.x, label_size.y = ImGui.CalcTextSizeXY(label, 1, label_end, false)
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y
     local padding = style.SeparatorTextPadding
 
     local separator_thickness = style.SeparatorTextBorderSize
-    local min_size = ImVec2(label_size.x + extra_w + padding.x * 2.0, ImMax(label_size.y + padding.y * 2.0, separator_thickness))
+    local min_size = SeparatorTextEx_min_size
+    min_size.x = label_size.x + extra_w + padding.x * 2.0; min_size.y = ImMax(label_size.y + padding.y * 2.0, separator_thickness)
 
-    local bb = ImRect(pos, ImVec2(window.WorkRect.Max.x, pos.y + min_size.y))
+    local bb = SeparatorTextEx_bb
+    bb.Min.x = pos_x; bb.Min.y = pos_y; bb.Max.x = window.WorkRect.Max.x; bb.Max.y = pos_y + min_size.y
     local text_baseline_y = ImTrunc((bb:GetHeight() - label_size.y) * style.SeparatorTextAlign.y + 0.999) --ImMax(padding.y, ImTrunc((style.SeparatorTextSize - label_size.y) * 0.5f))
 
     ImGui.ItemSize(min_size, text_baseline_y)
@@ -1923,12 +1929,13 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
         return
     end
 
-    local sep1_x1 = pos.x
+    local sep1_x1 = pos_x
     local sep2_x2 = bb.Max.x
     local seps_y = ImTrunc((bb.Min.y + bb.Max.y) * 0.5) + 1.0
 
     local label_avail_w = ImMax(0.0, sep2_x2 - sep1_x1 - padding.x * 2.0)
-    local label_pos = ImVec2(pos.x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x), pos.y + text_baseline_y) -- FIXME-ALIGN
+    local label_pos = SeparatorTextEx_label_pos
+    label_pos.x = pos_x + padding.x + ImMax(0.0, (label_avail_w - label_size.x - extra_w) * style.SeparatorTextAlign.x); label_pos.y = pos_y + text_baseline_y -- FIXME-ALIGN
 
     -- This allows using SameLine() to position something in the 'extra_w'
     window.DC.CursorPosPrevLine.x = label_pos.x + label_size.x
@@ -1951,7 +1958,9 @@ function ImGui.SeparatorTextEx(id, label, label_end, extra_w)
             ImGui.LogSetNextTextDecoration("---", nil)
         end
 
-        ImGui.RenderTextEllipsis(window.DrawList, label_pos, ImVec2(bb.Max.x, bb.Max.y + style.ItemSpacing.y), bb.Max.x, label, label_end, label_size)
+        local clip_max = SeparatorTextEx_clip_max
+        clip_max.x = bb.Max.x; clip_max.y = bb.Max.y + style.ItemSpacing.y
+        ImGui.RenderTextEllipsis(window.DrawList, label_pos, clip_max, bb.Max.x, label, label_end, label_size)
     else
         if g.LogEnabled then
             ImGui.LogText("---")
@@ -5500,6 +5509,7 @@ end
 --- @param flags              ImGuiInputTextFlags
 --- @param callback?          ImGuiInputTextCallback
 --- @param callback_user_data any
+local InputTextEx_frame_bb, InputTextEx_total_bb = ImRect(), ImRect() -- [Luau] scratch, see InputTextEx()
 local HintBufCache = setmetatable({}, { __mode = "k" })
 local function HintToBuf(hint)
     local t = HintBufCache[hint]
@@ -5538,17 +5548,19 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
     end
     local id = window:GetID(label)
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
-    local frame_size = ImGui.CalcItemSize(size_arg, ImGui.CalcItemWidth(), (is_multiline and g.FontSize * 8.0 or label_size.y) + style.FramePadding.y * 2.0)  -- Arbitrary default of 8 lines high for multi-line
-    local total_size_x, total_size_y = frame_size.x + ((label_size.x > 0.0) and (style.ItemInnerSpacing.x + label_size.x) or 0.0), frame_size.y -- [Luau] scalar total_size
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size, frame_size, inner_size
+    local frame_size_x, frame_size_y = ImGui._CalcItemSizeXY(size_arg.x, size_arg.y, ImGui.CalcItemWidth(), (is_multiline and g.FontSize * 8.0 or label_size_y) + style.FramePadding.y * 2.0)  -- Arbitrary default of 8 lines high for multi-line
+    local total_size_x, total_size_y = frame_size_x + ((label_size_x > 0.0) and (style.ItemInnerSpacing.x + label_size_x) or 0.0), frame_size_y -- [Luau] scalar total_size
 
+    -- [Luau] total_bb is a scratch rect (only ItemSize()/ItemAdd() read it); a single-line field's frame_bb too until ItemAdd() accepts it (clipped fields allocate nothing)
     local cursor = window.DC.CursorPos
-    local frame_bb = ImRect(cursor.x, cursor.y, cursor.x + frame_size.x, cursor.y + frame_size.y) -- [Luau] scalar forms: no temporary ImVec2s
-    local total_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + total_size_x, frame_bb.Min.y + total_size_y)
+    local frame_bb = is_multiline and ImRect() or InputTextEx_frame_bb
+    frame_bb.Min.x = cursor.x; frame_bb.Min.y = cursor.y; frame_bb.Max.x = cursor.x + frame_size_x; frame_bb.Max.y = cursor.y + frame_size_y
+    local total_bb = InputTextEx_total_bb
+    total_bb.Min.x = frame_bb.Min.x; total_bb.Min.y = frame_bb.Min.y; total_bb.Max.x = frame_bb.Min.x + total_size_x; total_bb.Max.y = frame_bb.Min.y + total_size_y
 
     local draw_window = window
-    local inner_size = ImVec2()
-    ImVec2_Copy(inner_size, frame_size)
+    local inner_size_x, inner_size_y = frame_size_x, frame_size_y
     local item_data_backup = is_multiline and ImGuiLastItemData() or nil -- [Luau] only used by the multi-line path
     if is_multiline then
         local backup_pos = ImVec2()
@@ -5590,7 +5602,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         draw_window = g.CurrentWindow -- Child window
         draw_window.DC.NavLayersActiveMaskNext = bit32.bor(draw_window.DC.NavLayersActiveMaskNext, bit32.lshift(1, draw_window.DC.NavLayerCurrent)) -- This is to ensure that EndChild() will display a navigation highlight so we can "enter" into it.
         ImVec2_Copy(draw_window.DC.CursorPos, draw_window.DC.CursorPos + style.FramePadding)
-        inner_size.x = inner_size.x - draw_window.ScrollbarSizes.x
+        inner_size_x = inner_size_x - draw_window.ScrollbarSizes.x
 
         -- FIXME: Could this be a ImGuiChildFlags to affect the SetLastItemDataForWindow() call?
         g.LastItemData.ID = id
@@ -5605,6 +5617,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 return false
             end
         end
+        frame_bb = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Max.x, frame_bb.Max.y) -- [Luau] own copy of the scratch from here on
     end
 
     -- Ensure mouse cursor is set even after switching to keyboard/gamepad mode. May generalize further? (#6417)
@@ -5704,7 +5717,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         -- Find initial scroll position for right alignment
         ImVec2_Copy(state.Scroll, ImVec2(0.0, 0.0))
         if bit32.band(flags, ImGuiInputTextFlags.ElideLeft) ~= 0 then
-            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui.CalcTextSize(table.concat(buf)).x - frame_size.x + style.FramePadding.x * 2.0) -- [Port] FIXME: no table.concat here
+            state.Scroll.x = state.Scroll.x + ImMax(0.0, ImGui.CalcTextSize(table.concat(buf)).x - frame_size_x + style.FramePadding.x * 2.0) -- [Port] FIXME: no table.concat here
         end
 
         -- Recycle existing cursor/selection/undo stack but clamp position
@@ -5943,7 +5956,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         IM_ASSERT(state ~= nil)
         --- @cast state ImGuiInputTextState
 
-        local row_count_per_page = ImMax(ImTrunc((inner_size.y - style.FramePadding.y) / g.FontSize), 1)
+        local row_count_per_page = ImMax(ImTrunc((inner_size_y - style.FramePadding.y) / g.FontSize), 1)
         state.Stb.row_count_per_page = row_count_per_page
 
         local k_mask = (io.KeyShift and STB_TEXTEDIT_K_SHIFT or 0)
@@ -6297,7 +6310,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
 
     local draw_pos = ImVec2()
     ImVec2_Copy(draw_pos, is_multiline and draw_window.DC.CursorPos or (frame_bb.Min + style.FramePadding))
-    local clip_rect = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + inner_size.x, frame_bb.Min.y + inner_size.y) -- Not using frame_bb.Max because we have adjusted size
+    local clip_rect = ImRect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + inner_size_x, frame_bb.Min.y + inner_size_y) -- Not using frame_bb.Max because we have adjusted size
     if is_multiline then
         clip_rect:ClipWith(draw_window.ClipRect)
     end
@@ -6386,8 +6399,8 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         if render_cursor and state.CursorFollow then
             -- Horizontal scroll in chunks of quarter width
             if bit32.band(flags, ImGuiInputTextFlags.NoHorizontalScroll) == 0 then
-                local scroll_increment_x = inner_size.x * 0.25
-                local visible_width = inner_size.x - style.FramePadding.x
+                local scroll_increment_x = inner_size_x * 0.25
+                local visible_width = inner_size_x - style.FramePadding.x
                 if cursor_offset.x < state.Scroll.x then
                     state.Scroll.x = IM_TRUNC(ImMax(0.0, cursor_offset.x - scroll_increment_x))
                 elseif cursor_offset.x - visible_width >= state.Scroll.x then
@@ -6402,21 +6415,21 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
                 -- Test if cursor is vertically visible
                 if cursor_offset.y - g.FontSize < scroll_y then
                     new_scroll_y = ImMax(0.0, cursor_offset.y - g.FontSize)
-                elseif cursor_offset.y - (inner_size.y - style.FramePadding.y * 2.0) >= scroll_y then
-                    new_scroll_y = cursor_offset.y - inner_size.y + style.FramePadding.y * 2.0
+                elseif cursor_offset.y - (inner_size_y - style.FramePadding.y * 2.0) >= scroll_y then
+                    new_scroll_y = cursor_offset.y - inner_size_y + style.FramePadding.y * 2.0
                 end
             end
             state.CursorFollow = false
         end
         if state.CursorCenterY then
             if is_multiline then
-                new_scroll_y = cursor_offset.y - g.FontSize - (inner_size.y * 0.5 - style.FramePadding.y)
+                new_scroll_y = cursor_offset.y - g.FontSize - (inner_size_y * 0.5 - style.FramePadding.y)
             end
             state.CursorCenterY = false
             render_cursor = false
         end
         if new_scroll_y ~= scroll_y then
-            local scroll_max_y = ImMax((text_size_y + style.FramePadding.y * 2.0) - inner_size.y, 0.0)
+            local scroll_max_y = ImMax((text_size_y + style.FramePadding.y * 2.0) - inner_size_y, 0.0)
             scroll_y = ImClamp(new_scroll_y, 0.0, scroll_max_y)
             draw_pos.y = draw_pos.y + (draw_window.Scroll.y - scroll_y) -- Manipulate cursor pos immediately avoid a frame of lag
             draw_window.Scroll.y = scroll_y
@@ -6547,7 +6560,7 @@ function ImGui.InputTextEx(label, hint, buf, buf_size, size_arg, flags, callback
         ImGui.LogRenderedText(draw_pos, ImGui._ByteArrayToString(buf_display, 1, buf_display_end))
     end
 
-    if label_size.x > 0.0 then
+    if label_size_x > 0.0 then
         ImGui.RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, 1, label_end, false)
     end
 

@@ -10831,12 +10831,15 @@ local function RenderWindowOuterSingleBorder(window, border_n, border_col, borde
     window.DrawList:PathStroke(border_col, border_size)
 end
 
+local RenderWindowOuterBorders_max = ImVec2() -- [Luau] scratch, AddRect() only reads it
 local function RenderWindowOuterBorders(window)
     local g = GImGui
     local border_size = window.WindowBorderSize
     local border_col = ImGui.GetColorU32(ImGuiCol.Border)
     if border_size > 0.0 and (bit32.band(window.Flags, ImGuiWindowFlags.NoBackground) == 0) then
-        window.DrawList:AddRect(window.Pos, window.Pos + window.Size, border_col, window.WindowRounding, window.WindowBorderSize, 0)
+        local p_max = RenderWindowOuterBorders_max
+        p_max.x = window.Pos.x + window.Size.x; p_max.y = window.Pos.y + window.Size.y
+        window.DrawList:AddRect(window.Pos, p_max, border_col, window.WindowRounding, window.WindowBorderSize, 0)
     elseif border_size > 0.0 then
         if bit32.band(window.ChildFlags, ImGuiChildFlags.ResizeX) ~= 0 then -- Similar code as 'resize_border_mask' computation in UpdateWindowManualResize() but we specifically only always draw explicit child resize border.
             RenderWindowOuterSingleBorder(window, 1, border_col, border_size)
@@ -10866,6 +10869,7 @@ end
 --- @param handle_borders_and_resize_grips bool
 --- @param resize_grip_col                 ImU32[]
 --- @param resize_grip_draw_size           float
+local Begin_viewport_rect, Begin_visibility_rect = ImRect(), ImRect() -- [Luau] Begin() scratch, see there
 -- [Luau] scratch for RenderWindowDecorations()/RenderWindowTitleBarContents(): callees only read or copy these
 local WindowDecoScratch = { text_size = ImVec2(), layout_r = ImRect(), clip_r = ImRect(), bg_rect = ImRect(), p = ImVec2(), title_bar_rect = ImRect() }
 
@@ -11703,6 +11707,7 @@ function ImGui.SetLastItemDataForChildWindowItem(window, rect)
     ImGui.SetLastItemData(window.ChildId, g.CurrentItemFlags, window.DC.ChildItemStatusFlags or 0, rect)
 end
 
+local EndChild_size, EndChild_bb = ImVec2(), ImRect()
 function ImGui.EndChild()
     local g = GImGui
     local child_window = g.CurrentWindow
@@ -11711,11 +11716,14 @@ function ImGui.EndChild()
     IM_ASSERT(bit32.band(child_window.Flags, ImGuiWindowFlags.ChildWindow) ~= 0) -- Mismatched BeginChild()/EndChild() calls
 
     g.WithinEndChildID = child_window.ID
-    local child_size = ImVec2(child_window.Size.x, child_window.Size.y)
+    local child_size_x, child_size_y = child_window.Size.x, child_window.Size.y -- [Luau] scalar copy
     ImGui.End()
     if child_window.BeginCount == 1 then
         local parent_window = g.CurrentWindow
-        local bb = ImRect(parent_window.DC.CursorPos, parent_window.DC.CursorPos + child_size)
+        -- [Luau] scratch size/bb filled after End(): ItemSize()/ItemAdd() copy or read them, RenderNavCursor() reads bb
+        local child_size, bb, cursor = EndChild_size, EndChild_bb, parent_window.DC.CursorPos
+        child_size.x = child_size_x; child_size.y = child_size_y
+        bb.Min.x = cursor.x; bb.Min.y = cursor.y; bb.Max.x = cursor.x + child_size_x; bb.Max.y = cursor.y + child_size_y
         ImGui.ItemSize(child_size)
         local nav_flattened = bit32.band(child_window.ChildFlags, ImGuiChildFlags.NavFlattened) ~= 0
         if (child_window.DC.NavLayersActiveMask ~= 0 or child_window.DC.NavWindowHasScrollY) and not nav_flattened then
@@ -12516,14 +12524,13 @@ function ImGui.Begin(name, open, flags)
 
         -- Outer Decoration Sizes
         -- (we need to clear ScrollbarSize immediately as CalcWindowAutoFitSize() needs it and can be called from other locations).
-        local scrollbar_sizes_from_last_frame = ImVec2()
-        ImVec2_Copy(scrollbar_sizes_from_last_frame, window.ScrollbarSizes)
+        local scrollbar_sizes_from_last_frame_x, scrollbar_sizes_from_last_frame_y = window.ScrollbarSizes.x, window.ScrollbarSizes.y -- [Luau] scalar copy
 
         window.DecoOuterSizeX1 = 0.0
         window.DecoOuterSizeX2 = 0.0
         window.DecoOuterSizeY1 = window.TitleBarHeight + window.MenuBarHeight
         window.DecoOuterSizeY2 = 0.0
-        window.ScrollbarSizes = ImVec2(0.0, 0.0)
+        window.ScrollbarSizes.x = 0.0; window.ScrollbarSizes.y = 0.0 -- [Luau] in place
 
         -- Calculate auto-fit size, handle automatic resize
         -- - Using SetNextWindowSize() overrides ImGuiWindowFlags.AlwaysAutoResize, so it can be used on tooltips/popups, etc.
@@ -12543,8 +12550,12 @@ function ImGui.Begin(name, open, flags)
                 size_auto_fit_mask = bit32.bor(size_auto_fit_mask, bit32.lshift(1, ImGuiAxis.Y - 1))
             end
 
-            local size_auto_fit = CalcWindowAutoFitSize(window, window.ContentSizeIdeal, size_auto_fit_mask)
-            local old_size = ImVec2(window.SizeFull.x, window.SizeFull.y)
+            -- [Luau] the auto-fit size is only read when an axis auto-fits: not computed otherwise (unless a size callback would see the call)
+            local size_auto_fit
+            if size_auto_fit_mask ~= 0 or (bit32.band(g.NextWindowData.HasFlags, ImGuiNextWindowDataFlags.HasSizeConstraint) ~= 0 and g.NextWindowData.SizeCallback) then
+                size_auto_fit = CalcWindowAutoFitSize(window, window.ContentSizeIdeal, size_auto_fit_mask)
+            end
+            local old_size_x, old_size_y = window.SizeFull.x, window.SizeFull.y -- [Luau] scalar copy
 
             if size_auto_fit_x_always or size_auto_fit_x_current then
                 if size_auto_fit_x_always then
@@ -12571,7 +12582,7 @@ function ImGui.Begin(name, open, flags)
                 use_current_size_for_scrollbar_y = true
             end
 
-            if old_size.x ~= window.SizeFull.x or old_size.y ~= window.SizeFull.y then
+            if old_size_x ~= window.SizeFull.x or old_size_y ~= window.SizeFull.y then
                 ImGui.MarkIniSettingsDirty(window)
             end
         end
@@ -12633,10 +12644,19 @@ function ImGui.Begin(name, open, flags)
 
         -- Calculate the range of allowed position for that window (to be movable and visible past safe area padding)
         -- When clamping to stay visible, we will enforce that window.Pos stays inside of visibility_rect.
-        local viewport_rect = window.Viewport:GetMainRect()
-        local viewport_work_rect = window.Viewport:GetWorkRect()
-        local visibility_padding = ImMax(style.DisplayWindowPadding, style.DisplaySafeAreaPadding)
-        local visibility_rect = ImRect(viewport_work_rect.Min.x + visibility_padding.x, viewport_work_rect.Min.y + visibility_padding.y, viewport_work_rect.Max.x - visibility_padding.x, viewport_work_rect.Max.y - visibility_padding.y) -- [Luau] scalar form: no temporary ImVec2s
+        -- [Luau] scratch rects filled in place (only read, last read by PushClipRect() below; no nested Begin() in between), scalar padding
+        local viewport_rect = Begin_viewport_rect
+        do
+            local vp = window.Viewport
+            local r_min, r_max = viewport_rect.Min, viewport_rect.Max
+            r_min.x = vp.Pos.x; r_min.y = vp.Pos.y; r_max.x = vp.Pos.x + vp.Size.x; r_max.y = vp.Pos.y + vp.Size.y
+        end
+        local work_pos, work_size = window.Viewport.WorkPos, window.Viewport.WorkSize
+        local visibility_padding_x = ImMax(style.DisplayWindowPadding.x, style.DisplaySafeAreaPadding.x)
+        local visibility_padding_y = ImMax(style.DisplayWindowPadding.y, style.DisplaySafeAreaPadding.y)
+        local visibility_rect = Begin_visibility_rect
+        visibility_rect.Min.x = work_pos.x + visibility_padding_x; visibility_rect.Min.y = work_pos.y + visibility_padding_y
+        visibility_rect.Max.x = (work_pos.x + work_size.x) - visibility_padding_x; visibility_rect.Max.y = (work_pos.y + work_size.y) - visibility_padding_y
 
         -- Clamp position/size so window stays visible within its viewport or monitor
         -- Ignore zero-sized display explicitly to avoid losing positions if a window manager reports zero-sized window when initializing or minimizing.
@@ -12734,18 +12754,24 @@ function ImGui.Begin(name, open, flags)
             -- When reading the current size we need to read it after size constraints have been applied.
             -- Intentionally use previous frame values for InnerRect and ScrollbarSizes.
             -- And when we use window.DecorationUp here it doesn't have ScrollbarSizes.y applied yet.
-            local avail_size_from_current_frame = ImVec2(window.SizeFull.x, window.SizeFull.y - (window.DecoOuterSizeY1 + window.DecoOuterSizeY2))
-            local avail_size_from_last_frame = window.InnerRect:GetSize() + scrollbar_sizes_from_last_frame
-            local needed_size_from_last_frame = window_just_created and ImVec2(0, 0) or window.ContentSize + window.WindowPadding * 2.0
+            -- [Luau] scalar avail/needed sizes
+            local avail_size_from_current_frame_x, avail_size_from_current_frame_y = window.SizeFull.x, window.SizeFull.y - (window.DecoOuterSizeY1 + window.DecoOuterSizeY2)
+            local inner_rect = window.InnerRect
+            local avail_size_from_last_frame_x = (inner_rect.Max.x - inner_rect.Min.x) + scrollbar_sizes_from_last_frame_x
+            local avail_size_from_last_frame_y = (inner_rect.Max.y - inner_rect.Min.y) + scrollbar_sizes_from_last_frame_y
+            local needed_size_from_last_frame_x, needed_size_from_last_frame_y = 0, 0
+            if not window_just_created then
+                needed_size_from_last_frame_x = window.ContentSize.x + window.WindowPadding.x * 2.0; needed_size_from_last_frame_y = window.ContentSize.y + window.WindowPadding.y * 2.0
+            end
 
-            local size_for_scrollbars_x = use_current_size_for_scrollbar_x and avail_size_from_current_frame.x or avail_size_from_last_frame.x
-            local size_for_scrollbars_y = use_current_size_for_scrollbar_y and avail_size_from_current_frame.y or avail_size_from_last_frame.y
+            local size_for_scrollbars_x = use_current_size_for_scrollbar_x and avail_size_from_current_frame_x or avail_size_from_last_frame_x
+            local size_for_scrollbars_y = use_current_size_for_scrollbar_y and avail_size_from_current_frame_y or avail_size_from_last_frame_y
 
             local scrollbar_x_prev = window.ScrollbarX
             -- local scrollbar_y_from_last_frame = window.ScrollbarY -- FIXME: May want to use that in the ScrollbarX expression? How many pros vs cons?
 
-            window.ScrollbarY = (bit32.band(flags, ImGuiWindowFlags.AlwaysVerticalScrollbar) ~= 0) or ((needed_size_from_last_frame.y > size_for_scrollbars_y) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0))
-            window.ScrollbarX = (bit32.band(flags, ImGuiWindowFlags.AlwaysHorizontalScrollbar) ~= 0) or ((needed_size_from_last_frame.x > size_for_scrollbars_x - (window.ScrollbarY and style.ScrollbarSize or 0.0)) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.HorizontalScrollbar) ~= 0))
+            window.ScrollbarY = (bit32.band(flags, ImGuiWindowFlags.AlwaysVerticalScrollbar) ~= 0) or ((needed_size_from_last_frame_y > size_for_scrollbars_y) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0))
+            window.ScrollbarX = (bit32.band(flags, ImGuiWindowFlags.AlwaysHorizontalScrollbar) ~= 0) or ((needed_size_from_last_frame_x > size_for_scrollbars_x - (window.ScrollbarY and style.ScrollbarSize or 0.0)) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0) and (bit32.band(flags, ImGuiWindowFlags.HorizontalScrollbar) ~= 0))
 
             -- Track when ScrollbarX visibility keeps toggling, which is a sign of a feedback loop, and stabilize by enforcing visibility (#3285, #8488)
             -- (Feedback loops of this sort can manifest in various situations, but combining horizontal + vertical scrollbar + using a clipper with varying width items is one frequent cause.
@@ -12766,10 +12792,10 @@ function ImGui.Begin(name, open, flags)
             window.ScrollbarXStabilizeEnabled = scrollbar_x_stabilize
 
             if window.ScrollbarX and not window.ScrollbarY then
-                window.ScrollbarY = (needed_size_from_last_frame.y > size_for_scrollbars_y - style.ScrollbarSize) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0)
+                window.ScrollbarY = (needed_size_from_last_frame_y > size_for_scrollbars_y - style.ScrollbarSize) and not (bit32.band(flags, ImGuiWindowFlags.NoScrollbar) ~= 0)
             end
 
-            window.ScrollbarSizes = ImVec2(window.ScrollbarY and style.ScrollbarSize or 0.0, window.ScrollbarX and style.ScrollbarSize or 0.0)
+            window.ScrollbarSizes.x = window.ScrollbarY and style.ScrollbarSize or 0.0; window.ScrollbarSizes.y = window.ScrollbarX and style.ScrollbarSize or 0.0 -- [Luau] in place
 
             -- Amend the partially filled window.DecorationXXX values.
             window.DecoOuterSizeX2 = window.DecoOuterSizeX2 + window.ScrollbarSizes.x
@@ -12791,9 +12817,11 @@ function ImGui.Begin(name, open, flags)
         else
             host_rect = viewport_rect
         end
-        local outer_rect = window:Rect()
         local title_bar_rect = window:TitleBarRect()
-        ImRect_Copy(window.OuterRectClipped, outer_rect)
+        do -- [Luau] ImRect_Copy(window.OuterRectClipped, window:Rect()) without the temporary ImRect
+            local r = window.OuterRectClipped
+            r.Min.x = window.Pos.x; r.Min.y = window.Pos.y; r.Max.x = window.Pos.x + window.Size.x; r.Max.y = window.Pos.y + window.Size.y
+        end
         if window.DockIsActive then
             window.OuterRectClipped.Min.y = window.OuterRectClipped.Min.y + window.TitleBarHeight
         end
@@ -12868,7 +12896,9 @@ function ImGui.Begin(name, open, flags)
                 end
                 local previous_child_overlapping
                 if previous_child ~= nil then
-                    previous_child_overlapping = previous_child:Rect():Overlaps(window:Rect())
+                    -- [Luau] scalar previous_child:Rect():Overlaps(window:Rect())
+                    local pp, ps, wp, ws = previous_child.Pos, previous_child.Size, window.Pos, window.Size
+                    previous_child_overlapping = pp.x <= wp.x + ws.x and pp.x + ps.x >= wp.x and pp.y <= wp.y + ws.y and pp.y + ps.y >= wp.y
                 else
                     previous_child_overlapping = false
                 end
