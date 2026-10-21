@@ -4,6 +4,8 @@ local Textures = IM_INCLUDE("roblox/textures.lua")
 local Layers = IM_INCLUDE("roblox/layers.lua")
 local Render = IM_INCLUDE("roblox/render.lua")
 local Parallel = IM_INCLUDE("roblox/parallel.lua")
+-- Luau-tuned replacements of hot library internals, installed when this file loads (see patches.lua)
+local Patches = IM_INCLUDE("roblox/patches.lua")
 
 local UserInputService = game:GetService("UserInputService")
 local Players          = game:GetService("Players")

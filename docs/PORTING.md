@@ -18,6 +18,10 @@ there, but keep this port's existing data structures and conventions. Read the s
   `return M`; `bundle.py` inlines them into the `imgui_impl_roblox.lua` function (one `do ... end` each, in dependency
   order, `X` a local of that function). Use one name per module everywhere; no circular includes (late-bind a field on
   a shared table instead, e.g. `EditableImages.FreeTile`).
+- Roblox/Luau-specific replacements of hot library internals go in `backends/roblox/patches.lua` (installed when the
+  backend loads, one switch per patch in `Enabled`), never in the library sources. They must stay exactly equivalent
+  (draw hashes, pixels) and hand uncommon cases back to the original; patch `MT.*` methods or globals looked up at
+  call time. When changing a patched library function, update or disable its patch.
 - No `goto`, no `::labels::`, no `setfenv/getfenv`, no LuaJIT `bit`/`ffi`. Use `bit32`. For `continue` use
   `repeat ... until true` with `break`, and an explicit flag when the loop itself must break out of the wrapper.
 - Luau has a limit of 200 locals per function and 255 upvalues; split huge functions (like demo sections) into
