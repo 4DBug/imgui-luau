@@ -7004,7 +7004,13 @@ function ImGui.BeginGroup()
     local g = GImGui
     local window = g.CurrentWindow
 
-    local group_data = ImGuiGroupData()
+    -- [Luau] C++ copies the ImGuiGroupData into the vector's storage: reuse the entry an EndGroup() left past Size
+    -- (every field is written below) instead of allocating 7 tables per group
+    local group_stack = g.GroupStack
+    local group_data = (group_stack.Size < group_stack.Capacity) and group_stack.Data[group_stack.Size + 1] or nil
+    if group_data == nil then
+        group_data = ImGuiGroupData()
+    end
     group_data.WindowID = window.ID
     ImVec2_Copy(group_data.BackupCursorPos, window.DC.CursorPos)
     ImVec2_Copy(group_data.BackupCursorPosPrevLine, window.DC.CursorPosPrevLine)
@@ -7020,7 +7026,7 @@ function ImGui.BeginGroup()
     group_data.BackupDeactivatedIdIsAlive = g.DeactivatedItemData.IsAlive
     group_data.EmitItem = true
 
-    g.GroupStack:push_back(group_data)
+    group_stack:push_back(group_data)
 
     window.DC.GroupOffset.x = window.DC.CursorPos.x - window.Pos.x - window.DC.ColumnsOffset.x
     ImVec1_Copy(window.DC.Indent, window.DC.GroupOffset)
@@ -7031,6 +7037,7 @@ function ImGui.BeginGroup()
     end
 end
 
+local EndGroup_bb = ImRect() -- [Luau] scratch for EndGroup(), never escapes
 @native
 function ImGui.EndGroup()
     local g = GImGui
@@ -7045,10 +7052,14 @@ function ImGui.EndGroup()
     end
 
     -- Include LastItemData.Rect.Max as a workaround for e.g. EndTable() undershooting with CursorMaxPos report. (#7543)
-    local group_bb = ImRect(group_data.BackupCursorPos, ImMax(ImMax(window.DC.CursorMaxPos, g.LastItemData.Rect.Max), group_data.BackupCursorPos))
+    -- [Luau] scalar ImMax()es into a scratch rect (ItemAdd() and ImRect_Copy() below copy it)
+    local bcp, cmp, lmax = group_data.BackupCursorPos, window.DC.CursorMaxPos, g.LastItemData.Rect.Max
+    local group_bb = EndGroup_bb
+    group_bb.Min.x = bcp.x; group_bb.Min.y = bcp.y
+    group_bb.Max.x = math.max(math.max(cmp.x, lmax.x), bcp.x); group_bb.Max.y = math.max(math.max(cmp.y, lmax.y), bcp.y)
     ImVec2_Copy(window.DC.CursorPos, group_data.BackupCursorPos)
     ImVec2_Copy(window.DC.CursorPosPrevLine, group_data.BackupCursorPosPrevLine)
-    ImVec2_Copy(window.DC.CursorMaxPos, ImMax(group_data.BackupCursorMaxPos, group_bb.Max))
+    ImVec2_CopyV(window.DC.CursorMaxPos, math.max(group_data.BackupCursorMaxPos.x, group_bb.Max.x), math.max(group_data.BackupCursorMaxPos.y, group_bb.Max.y))
     ImVec1_Copy(window.DC.Indent, group_data.BackupIndent)
     ImVec1_Copy(window.DC.GroupOffset, group_data.BackupGroupOffset)
     ImVec2_Copy(window.DC.CurrLineSize, group_data.BackupCurrLineSize)
@@ -7064,7 +7075,7 @@ function ImGui.EndGroup()
     end
 
     window.DC.CurrLineTextBaseOffset = ImMax(window.DC.PrevLineTextBaseOffset, group_data.BackupCurrLineTextBaseOffset) -- FIXME: Incorrect, we should grab the base offset from the *first line* of the group but it is hard to obtain now.
-    ImGui.ItemSize(group_bb:GetSize())
+    ImGui.ItemSize(group_bb) -- [Luau] == ItemSize(group_bb:GetSize()): ItemSize() takes the rect's size
     ImGui.ItemAdd(group_bb, 0, nil, ImGuiItemFlags.NoTabStop)
 
     -- If the current ActiveId was declared within the boundary of our group, we copy it to LastItemId so IsItemActive(), IsItemDeactivated() etc. will be functional on the entire group.
@@ -15127,11 +15138,19 @@ end
 @native
 function ImGui.PushStyleColor(idx, col)
     local g = GImGui
-    local backup = ImGuiColorMod(idx, g.Style.Colors[idx])
-    -- [Luau] inline g.ColorStack:push_back(backup)
+    -- [Luau] inline g.ColorStack:push_back(backup); C++ copies the ImGuiColorMod into the vector's storage: reuse the
+    -- entry a PopStyleColor() left past Size instead of allocating one per push
     local stack = g.ColorStack
     local n = stack.Size + 1
-    if n > stack.Capacity then stack:push_back(backup) else stack.Data[n] = backup; stack.Size = n end
+    local backup = (n <= stack.Capacity) and stack.Data[n] or nil
+    if backup then
+        backup.Col = idx
+        ImVec4_Copy(backup.BackupValue, g.Style.Colors[idx])
+        stack.Size = n
+    else
+        backup = ImGuiColorMod(idx, g.Style.Colors[idx])
+        if n > stack.Capacity then stack:push_back(backup) else stack.Data[n] = backup; stack.Size = n end
+    end
     if g.DebugFlashStyleColorIdx ~= idx then
         if type(col) == "number" then
             ImGui.ColorConvertU32ToFloat4(col, g.Style.Colors[idx])
@@ -15217,6 +15236,25 @@ function ImGui.GetStyleVarInfo(idx)
     return GStyleVarsInfo[idx + 1]
 end
 
+-- [Luau] g.StyleVarStack:push_back(ImGuiStyleMod(idx, v)); C++ copies the ImGuiStyleMod into the vector's storage:
+-- reuse the entry a PopStyleVar() left past Size instead of allocating two tables per push
+local function PushStyleMod(g, idx, v)
+    local stack = g.StyleVarStack
+    local n = stack.Size + 1
+    local mod = (n <= stack.Capacity) and stack.Data[n] or nil
+    if mod then
+        mod.VarIdx = idx
+        if type(v) == "number" then
+            mod.BackupVal[1] = v; mod.BackupVal[2] = nil
+        else -- ImVec2
+            mod.BackupVal[1] = v.x; mod.BackupVal[2] = v.y
+        end
+        stack.Size = n
+    else
+        stack:push_back(ImGuiStyleMod(idx, v))
+    end
+end
+
 --- @param idx ImGuiStyleVar
 --- @param val float|ImVec2
 function ImGui.PushStyleVar(idx, val)
@@ -15228,7 +15266,7 @@ function ImGui.PushStyleVar(idx, val)
         IM_ASSERT_USER_ERROR_RET(var_info.DataType == ImGuiDataType.Float and var_info.Count == 2, "Calling PushStyleVar() with wrong type!")
     end
     local var = g.Style[var_info.Key]
-    g.StyleVarStack:push_back(ImGuiStyleMod(idx, var))
+    PushStyleMod(g, idx, var)
     if type(val) == "number" then
         g.Style[var_info.Key] = val
     else -- [Port] copy into the style's own ImVec2: storing the caller's vector would alias it into the style forever
@@ -15243,7 +15281,7 @@ function ImGui.PushStyleVarX(idx, val_x)
     local var_info = ImGui.GetStyleVarInfo(idx)
     IM_ASSERT_USER_ERROR_RET(var_info.DataType == ImGuiDataType.Float and var_info.Count == 2, "Calling PushStyleVarX() with wrong type!")
     local pvar = g.Style[var_info.Key]
-    g.StyleVarStack:push_back(ImGuiStyleMod(idx, pvar))
+    PushStyleMod(g, idx, pvar)
     pvar.x = val_x
 end
 
@@ -15254,7 +15292,7 @@ function ImGui.PushStyleVarY(idx, val_y)
     local var_info = ImGui.GetStyleVarInfo(idx)
     IM_ASSERT_USER_ERROR_RET(var_info.DataType == ImGuiDataType.Float and var_info.Count == 2, "Calling PushStyleVarY() with wrong type!")
     local pvar = g.Style[var_info.Key]
-    g.StyleVarStack:push_back(ImGuiStyleMod(idx, pvar))
+    PushStyleMod(g, idx, pvar)
     pvar.y = val_y
 end
 
