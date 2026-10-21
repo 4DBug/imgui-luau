@@ -26,7 +26,9 @@ local M = {
 }
 local TILE = M.TILE
 
-local TargetBuffer: buffer, TargetWidth = buffer.create(0), 0
+-- Pixel (x, y) of the target is at byte (y * TargetWidth + x) * 4 + TargetBase: a target can be a sub-rectangle of the
+-- tile (raster straight into the upload buffer)
+local TargetBuffer: buffer, TargetWidth, TargetBase = buffer.create(0), 0, 0
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -48,30 +50,46 @@ local function RowRepeats(o: number, len: number, has_prev: boolean): boolean
     return false
 end
 local RectColumns = table.create(256, 0)
+-- DrawRect's per-alpha blend cache: GlyphKey[alpha] = GlyphGen + destination value -> GlyphValue[alpha]. GlyphGen
+-- (a multiple of 2^32) changes with the vertex colour.
+local GlyphKey, GlyphValue = table.create(256, -1), table.create(256, 0)
+GlyphKey[0], GlyphValue[0] = -1, 0
+local GlyphCol, GlyphGen = -1, 0
 
--- Uniform region: [UX0, UX1) x [UY0, UY1) of the target holds only the pixel value UV (empty when UX0 >= UX1).
--- Set by ClearRect and by solid rects; shrunk by everything drawn over it. A solid rect inside it blends one pixel and
--- fills (window/frame backgrounds over backgrounds), instead of blending every pixel.
-local UX0, UY0, UX1, UY1, UV = 0, 0, 0, 0, 0
+-- Uniform rows: [RowX0[y], RowX1[y]) of target row y holds only the pixel value RowV[y] (empty when RowX0 >= RowX1).
+-- Set by ClearRect and by solid spans; shrunk by everything drawn over it. A solid span inside it blends one pixel and
+-- fills (window/frame backgrounds over backgrounds), instead of blending every pixel. Only the rows of the last
+-- ClearRect are valid: drawing must stay inside it (callers clip every primitive to the cleared rect).
+local RowX0, RowX1, RowV = table.create(TILE, 0), table.create(TILE, 0), table.create(TILE, 0)
+RowX0[0], RowX1[0], RowV[0] = 0, 0, 0
 
--- Drawing may change [x0, x1) x [y0, y1): keep the largest uniform piece outside it
+-- Drawing changed [x0, x1) x [y0, y1): keep the larger uniform piece of each row outside it
+@native
+local function ApplyDamage(x0: number, y0: number, x1: number, y1: number)
+    for y = y0, y1 - 1 do
+        local a, b = RowX0[y], RowX1[y]
+        if x0 < b and x1 > a then
+            if x0 - a >= b - x1 then RowX1[y] = x0 else RowX0[y] = x1 end
+        end
+    end
+end
+
+-- Only FillSpan reads the uniform rows: damage is collected into one pending rect (nearby rects merged: a text line's
+-- glyphs, a shape's triangles) and applied when FillSpan runs. Over-shrinking only loses uniform pixels.
+local PX0, PY0, PX1, PY1 = 0, 0, 0, 0 -- pending damage (none when PX0 >= PX1)
 @native
 local function Shrink(x0: number, y0: number, x1: number, y1: number)
-    if x0 >= UX1 or x1 <= UX0 or y0 >= UY1 or y1 <= UY0 or UX0 >= UX1 then return end
-    local h, w = UY1 - UY0, UX1 - UX0
-    local left, right, top, bottom = (x0 - UX0) * h, (UX1 - x1) * h, (y0 - UY0) * w, (UY1 - y1) * w
-    local best = max(left, right, top, bottom)
-    if best <= 0 then
-        UX1 = UX0
-    elseif best == left then
-        UX1 = x0
-    elseif best == right then
-        UX0 = x1
-    elseif best == top then
-        UY1 = y0
-    else
-        UY0 = y1
+    if PX0 >= PX1 then
+        PX0, PY0, PX1, PY1 = x0, y0, x1, y1
+        return
     end
+    local ux0, uy0, ux1, uy1 = min(x0, PX0), min(y0, PY0), max(x1, PX1), max(y1, PY1)
+    if (ux1 - ux0) * (uy1 - uy0) <= ((x1 - x0) * (y1 - y0) + (PX1 - PX0) * (PY1 - PY0)) * 1.25 + 256 then
+        PX0, PY0, PX1, PY1 = ux0, uy0, ux1, uy1
+        return
+    end
+    ApplyDamage(PX0, PY0, PX1, PY1)
+    PX0, PY0, PX1, PY1 = x0, y0, x1, y1
 end
 
 -- FillSpan and DrawTriangle's flat path inline this math with per-span constants: keep them in sync.
@@ -104,57 +122,120 @@ local function BlendPixel(TargetBuffer: buffer, o: number, r: number, g: number,
     end
 end
 
+-- Wide spans (>= 32 px) over non-uniform rows: rows usually blend over identical rows, so a row whose destination
+-- repeats the previous one's copies its result
 @native
 local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number, x1: number, r: number, g: number,
     b: number, a: number)
     if a <= 0 then return end
-    local w4 = (x1 - x0 - 1) * 4
-    if x0 >= UX0 and y0 >= UY0 and x1 <= UX1 and y1 <= UY1 and a < 255 then
-        -- over one value: FillSpan's per-pixel result for d = UV, then fill
-        local d, v = UV, 0
-        if d < 16777216 then
-            v = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
-        else
-            local sa = a / 255
-            local ns = 1 - sa
-            local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
-            if d >= 4278190080 then
-                v = floor(r * sa + dr * ns + 0.5) + floor(g * sa + dg * ns + 0.5) * 256
-                    + floor(b * sa + db * ns + 0.5) * 65536 + 4278190080
-            else
-                local k = rshift(d, 24) * (ns / 255)
-                local oa = sa + k
-                local inv = 1 / oa
-                v = floor((r * sa + dr * k) * inv + 0.5) + floor((g * sa + dg * k) * inv + 0.5) * 256
-                    + floor((b * sa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
-            end
-        end
-        local first = (y0 * TargetWidth + x0) * 4
-        for o = first, first + w4, 4 do writeu32(TargetBuffer, o, v) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
-        UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, v
-        return
+    if PX0 < PX1 then
+        ApplyDamage(PX0, PY0, PX1, PY1)
+        PX1 = PX0
     end
+    local w4 = (x1 - x0 - 1) * 4
+    local span = x1 - x0
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
-        local first = (y0 * TargetWidth + x0) * 4
+        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
-        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4, TargetBuffer, first, w4 + 4) end
-        -- now uniform: keep whichever region is larger
-        local area = (x1 - x0) * (y1 - y0)
-        Shrink(x0, y0, x1, y1)
-        if area > (UX1 - UX0) * (UY1 - UY0) or UX0 >= UX1 then UX0, UY0, UX1, UY1, UV = x0, y0, x1, y1, packed end
+        for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
+        -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
+        local y = y0
+        while y < y1 do
+            local ra, rb = RowX0[y], RowX1[y]
+            local na, nb = ra, rb
+            if x0 < rb and x1 > ra then
+                if x0 - ra >= rb - x1 then nb = x0 else na = x1 end
+            end
+            if span > nb - na then
+                repeat
+                    RowX0[y], RowX1[y], RowV[y] = x0, x1, packed
+                    y += 1
+                until y >= y1 or RowX0[y] ~= ra or RowX1[y] ~= rb
+            else
+                repeat
+                    RowX0[y], RowX1[y] = na, nb
+                    y += 1
+                until y >= y1 or RowX0[y] ~= ra or RowX1[y] ~= rb
+            end
+        end
         return
     end
-    Shrink(x0, y0, x1, y1)
     local packed0 = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + floor(a + 0.5) * 16777216
     local sa = a / 255
     local ns = 1 - sa
     local c1 = ns / 255
     local rs, gs, bs = r * sa, g * sa, b * sa
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
-    for y = y0, y1 - 1 do
-        local o0 = (y * TargetWidth + x0) * 4
+    local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
+    local wide, has_prev = span >= 32 and y1 - y0 > 1, false
+    local y = y0
+    while y < y1 do
+        local o0 = (y * TargetWidth + x0) * 4 + TargetBase
+        local ra, rb = RowX0[y], RowX1[y]
+        if x0 >= ra and x1 <= rb then
+            -- over one value: the per-pixel result for d = RowV[y], then fill; following rows with the same uniform
+            -- piece get the same result
+            local d = RowV[y]
+            if d ~= last_d then
+                last_d = d
+                if d < 16777216 then
+                    last_v = packed0
+                else
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        last_v = floor(rs + dr * ns + 0.5) + floor(gs + dg * ns + 0.5) * 256
+                            + floor(bs + db * ns + 0.5) * 65536 + 4278190080
+                    else
+                        local k = rshift(d, 24) * c1
+                        local oa = sa + k
+                        local inv = 1 / oa
+                        last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                            + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                end
+            end
+            local v = last_v
+            if v == prev_v and span > 8 then -- (a call: slower than a few writes)
+                buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
+            else
+                for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
+            end
+            local na, nb, nv = ra, rb, d
+            if span >= x0 - ra and span >= rb - x1 then
+                na, nb, nv = x0, x1, v
+            elseif x0 - ra >= rb - x1 then
+                nb = x0
+            else
+                na = x1
+            end
+            RowX0[y], RowX1[y], RowV[y] = na, nb, nv
+            y += 1
+            local stride = TargetWidth * 4
+            local o = o0
+            while y < y1 and RowX0[y] == ra and RowX1[y] == rb and RowV[y] == d do
+                o += stride
+                buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
+                RowX0[y], RowX1[y], RowV[y] = na, nb, nv
+                y += 1
+            end
+            prev_o, prev_v, has_prev = o, v, false
+            continue
+        end
+        if x0 < rb and x1 > ra then
+            if x0 - ra >= rb - x1 then RowX1[y] = x0 else RowX0[y] = x1 end
+        end
+        if wide then
+            local repeats = RowRepeats(o0, w4 + 4, has_prev)
+            has_prev = true
+            if repeats then
+                buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
+                prev_o, prev_v = o0, -1
+                y += 1
+                continue
+            end
+        end
+        prev_o, prev_v = o0, -1
         for o = o0, o0 + w4, 4 do
             local d = readu32(TargetBuffer, o)
             if d == last_d then
@@ -177,6 +258,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
                 writeu32(TargetBuffer, o, last_v)
             end
         end
+        y += 1
     end
 end
 
@@ -211,23 +293,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
             r, g, b, a = r * tr / 255, g * tg / 255, b * tb / 255, a * ta / 255
         end
         if a <= 0 then return end
-        if a >= 255 or px1 - px0 < 32 or (px0 >= UX0 and py0 >= UY0 and px1 <= UX1 and py1 <= UY1) then
-            FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
-            return
-        end
-        -- Wide translucent rect: rows usually blend over identical rows, so copy the previous row's result
-        Shrink(px0, py0, px1, py1)
-        local len = (px1 - px0) * 4
-        local prev_o = 0
-        for y = py0, py1 - 1 do
-            local o = (y * TargetWidth + px0) * 4
-            if RowRepeats(o, len, y > py0) then
-                buffer.copy(TargetBuffer, o, TargetBuffer, prev_o, len)
-            else
-                FillSpan(TargetBuffer, y, y + 1, px0, px1, r, g, b, a)
-            end
-            prev_o = o
-        end
+        FillSpan(TargetBuffer, py0, py1, px0, px1, r, g, b, a)
         return
     end
 
@@ -239,18 +305,31 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
     local cols = RectColumns
     local ident = col == 4294967295
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    local step = true
     for c = 1, ncol do
         local tx = floor((u0 + (px0 + c - 1 + 0.5 - x0) * du) * tw)
         if tx < 0 then tx = 0 elseif tx >= tw then tx = tw - 1 end
         cols[c] = tx * 4
+        if c > 1 and tx * 4 ~= cols[c - 1] + 4 then step = false end
     end
+    -- white translucent texels (font atlas): blend result cached per alpha for one destination value and colour
+    if col ~= GlyphCol then
+        GlyphCol = col
+        GlyphGen += 4294967296
+        if GlyphGen >= 4503599627370496 then -- 2^52: keys must stay exact
+            GlyphGen = 4294967296
+            for k = 0, 255 do GlyphKey[k] = -1 end
+        end
+    end
+    local gen = GlyphGen
     for y = py0, py1 - 1 do
         local ty = floor((v0 + (y + 0.5 - y0) * dv) * th)
         if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
         local trow4 = ty * tw * 4
-        local o = (y * TargetWidth + px0) * 4
+        local o = (y * TargetWidth + px0) * 4 + TargetBase
+        local tb0 = trow4 + cols[1] - 4
         for c = 1, ncol do
-            local tv = readu32(tbuf, trow4 + cols[c])
+            local tv = readu32(tbuf, step and tb0 + c * 4 or trow4 + cols[c])
             if tv < 16777216 then
                 o += 4
                 continue
@@ -259,6 +338,17 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 writeu32(dbuf, o, tv)
                 o += 4
                 continue
+            end
+            local d, key, al = 0, -1, 0
+            if tv % 16777216 == 16777215 then
+                al = rshift(tv, 24)
+                d = readu32(dbuf, o)
+                key = gen + d
+                if GlyphKey[al] == key then
+                    writeu32(dbuf, o, GlyphValue[al])
+                    o += 4
+                    continue
+                end
             end
             -- BlendPixel inlined (same math)
             if tv ~= last_tv then
@@ -270,26 +360,34 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 fn = 1 - fa
                 fk = (1 - fa) / 255
             end
+            local v = -1
             if sa >= 255 then
-                writeu32(dbuf, o, s_opaque + 4278190080)
+                v = s_opaque + 4278190080
             elseif sa > 0 then
-                local d = readu32(dbuf, o)
+                if key < 0 then d = readu32(dbuf, o) end
                 if d < 16777216 then
-                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                    v = s_opaque + floor(sa + 0.5) * 16777216
                 else
                     local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
                     if d >= 4278190080 then
-                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
-                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
+                        v = floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
+                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080
                     else
                         local k = rshift(d, 24) * fk
                         local oa = fa + k
                         local inv = 1 / oa
-                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv + 0.5)
-                            + floor((sg * fa + dg * k) * inv + 0.5) * 256
-                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
+                        v = floor((sr * fa + dr * k) * inv + 0.5) + floor((sg * fa + dg * k) * inv + 0.5) * 256
+                            + floor((sb * fa + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
                     end
                 end
+            end
+            if v >= 0 then
+                writeu32(dbuf, o, v)
+            elseif key >= 0 then
+                v = d -- unchanged
+            end
+            if key >= 0 then
+                GlyphKey[al], GlyphValue[al] = key, v
             end
             o += 4
         end
@@ -390,7 +488,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 yb -= 1
             end
             if yt > yb then continue end
-            local o = (yt * TargetWidth + x) * 4
+            local o = (yt * TargetWidth + x) * 4 + TargetBase
             if flat then
                 for _ = yt, yb do
                     BlendPixel(dbuf, o, ra, ga, ba, aa)
@@ -450,7 +548,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
-        local o = (y * TargetWidth + xl) * 4
+        local o = (y * TargetWidth + xl) * 4 + TargetBase
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
@@ -626,7 +724,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr -= 1
         end
         if xl > xr then continue end
-        local o = (y * TargetWidth + xl) * 4
+        local o = (y * TargetWidth + xl) * 4 + TargetBase
         local wrow = WB * py + WC
         for x = xl, xr do
             local w = WA * (x + 0.5) + wrow
@@ -699,7 +797,7 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
         local opaque = aa >= 255 and ab >= 255
         local prev_o = 0
         for y = py0, py1 - 1 do
-            local o = (y * TargetWidth + px0) * 4
+            local o = (y * TargetWidth + px0) * 4 + TargetBase
             if y > py0 and (opaque or RowRepeats(o, len, true))
                 or (y == py0 and not opaque and RowRepeats(o, len, false)) then
                 buffer.copy(TargetBuffer, o, TargetBuffer, prev_o, len)
@@ -717,26 +815,20 @@ local function DrawRectGradient(TargetBuffer: buffer, x0: number, y0: number, x1
     end
 end
 
-function M.SetTarget(buf: buffer, width: number)
-    TargetBuffer, TargetWidth = buf, width
-    UX1 = UX0
+-- x0 y0: target pixel stored at buf's byte 0 (a sub-rectangle target: width = its width)
+function M.SetTarget(buf: buffer, width: number, x0: number?, y0: number?)
+    TargetBuffer, TargetWidth, TargetBase = buf, width, -((y0 or 0) * width + (x0 or 0)) * 4
 end
 
 @native
 function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     local rw = rx1 - rx0
-    UX0, UY0, UX1, UY1, UV = rx0, ry0, rx1, ry1, 0
+    for y = ry0, ry1 - 1 do RowX0[y], RowX1[y], RowV[y] = rx0, rx1, 0 end
+    PX1 = PX0
     if rw == TargetWidth then
-        buffer.fill(TargetBuffer, ry0 * TargetWidth * 4, 0, (ry1 - ry0) * TargetWidth * 4)
+        buffer.fill(TargetBuffer, (ry0 * TargetWidth + rx0) * 4 + TargetBase, 0, (ry1 - ry0) * TargetWidth * 4)
     else
-        for y = ry0, ry1 - 1 do buffer.fill(TargetBuffer, (y * TargetWidth + rx0) * 4, 0, rw * 4) end
-    end
-end
-
-@native
-function M.CopySubRect(dst: buffer, rx0: number, ry0: number, rw: number, rh: number)
-    for y = 0, rh - 1 do
-        buffer.copy(dst, y * rw * 4, TargetBuffer, ((ry0 + y) * TargetWidth + rx0) * 4, rw * 4)
+        for y = ry0, ry1 - 1 do buffer.fill(TargetBuffer, (y * TargetWidth + rx0) * 4 + TargetBase, 0, rw * 4) end
     end
 end
 
@@ -763,13 +855,12 @@ local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, v
 end
 M.DrawPrim = DrawPrim
 
--- Packed tile jobs -> one exact-size buffer per rect, in job order (worker + main-thread fallback)
-local Scratch = buffer.create(TILE * TILE * 4)
+-- Packed tile jobs -> one exact-size buffer per rect (rasterized straight into it), in job order (worker + main-thread
+-- fallback)
 @native
 function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
-    local ClearRect, CopySubRect = M.ClearRect, M.CopySubRect
+    local ClearRect, SetTarget = M.ClearRect, M.SetTarget
     local REC_A, REC_B, REC_C, REC_D = M.REC_A, M.REC_B, M.REC_C, M.REC_D
-    M.SetTarget(Scratch, TILE)
     local out, no = {}, 0
     local o = 0
     while o < tlen do
@@ -781,6 +872,9 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
         for r = 0, nr - 1 do
             local rx0, ry0, rx1, ry1 = readi32(T, ro + r * 16), readi32(T, ro + r * 16 + 4),
                 readi32(T, ro + r * 16 + 8), readi32(T, ro + r * 16 + 12)
+            local rw, rh = rx1 - rx0, ry1 - ry0
+            local sub = buffer.create(rw * rh * 4)
+            SetTarget(sub, rw, rx0, ry0)
             ClearRect(rx0, ry0, rx1, ry1)
             for k = 0, count - 1 do
                 local q = readi32(T, po + k * 4)
@@ -794,9 +888,6 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
                 if tid >= 0 then t = textures[tid] end
                 DrawPrim(readi32(P, q), t, P, q + REC_A, q + REC_B, q + REC_C, q + REC_D, tox, toy, cx0, cy0, cx1, cy1)
             end
-            local rw, rh = rx1 - rx0, ry1 - ry0
-            local sub = buffer.create(rw * rh * 4)
-            CopySubRect(sub, rx0, ry0, rw, rh)
             no += 1
             out[no] = sub
         end
@@ -804,36 +895,56 @@ function M.RasterJobs(P: buffer, T: buffer, tlen: number, textures): { buffer }
     return out
 end
 
+-- An Actor's texture copies (worker.luau; parallel.lua's Sync mode emulates it): drop the destroyed ids, apply the
+-- updates parallel.lua's Flush sent. { id, buf, w, h, fill }: whole texture, rows past buf are all fill;
+-- { id, false, w, h, offset, patch }: rows; { id, false, w, h, rects, patch }: x, y, w, h quadruples, rows packed.
+function M.ApplyTextures(textures, updates, dropped)
+    for _, id in dropped or {} do
+        textures[id] = nil
+    end
+    for _, u in updates do
+        if u[2] then
+            local b, w, h, fill = u[2], u[3], u[4], u[5]
+            local n, total = buffer.len(b), w * h * 4
+            if n < total then
+                local full = buffer.create(total)
+                buffer.copy(full, 0, b)
+                if fill ~= 0 then
+                    buffer.writeu32(full, n, fill)
+                    local k = 4
+                    while k < total - n do
+                        local c = math.min(k, total - n - k)
+                        buffer.copy(full, n + k, full, n, c)
+                        k += c
+                    end
+                end
+                b = full
+            end
+            textures[u[1]] = { Buffer = b, Width = w, Height = h }
+        elseif type(u[5]) == "table" then
+            local t, rects, patch = textures[u[1]], u[5], u[6]
+            local dst, w, o = t.Buffer, t.Width, 0
+            for i = 1, #rects, 4 do
+                local x, y, rw, rh = rects[i], rects[i + 1], rects[i + 2], rects[i + 3]
+                for yy = y, y + rh - 1 do
+                    buffer.copy(dst, (yy * w + x) * 4, patch, o, rw * 4)
+                    o += rw * 4
+                end
+            end
+        else
+            buffer.copy(textures[u[1]].Buffer, u[5], u[6])
+        end
+    end
+end
+
 return M
 end)()
 local Done = Actor:WaitForChild("Done")
 local Textures = {}
 
-Actor:BindToMessageParallel("job", function(Id, Prims, Tiles, TexUpdates, TileLength)
-	for _, Texture in TexUpdates do
-		if Texture[2] then
-			local B, W, H, Fill = Texture[2], Texture[3], Texture[4], Texture[5]
-			local n, total = buffer.len(B), W * H * 4
-			if n < total then -- the rows below were left out: all Fill (parallel.lua fullCopy)
-				local Full = buffer.create(total)
-				buffer.copy(Full, 0, B)
-				if Fill ~= 0 then
-					buffer.writeu32(Full, n, Fill)
-					local k = 4
-					while k < total - n do
-						local c = math.min(k, total - n - k)
-						buffer.copy(Full, n + k, Full, n, c)
-						k += c
-					end
-				end
-				B = Full
-			end
-			Textures[Texture[1]] = { Buffer = B, Width = W, Height = H }
-		else -- rows changed since the copy this Actor has
-			local T = Textures[Texture[1]]
-			buffer.copy(T.Buffer, Texture[5], Texture[6])
-		end
-	end
+Actor:BindToMessageParallel("job", function(Id, Prims, Tiles, TexUpdates, TileLength, Dropped)
+	-- this Actor's texture copies: destroyed ids dropped, changed rows/rects patched (parallel.lua Flush)
+	Raster.ApplyTextures(Textures, TexUpdates, Dropped)
 	local Results = Raster.RasterJobs(Prims, Tiles, TileLength, Textures)
 	task.synchronize()
 	Done:Fire(Id, Results)
