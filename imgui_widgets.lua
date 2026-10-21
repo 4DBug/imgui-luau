@@ -866,6 +866,7 @@ end
 --- @param str_id   string
 --- @param size_arg ImVec2
 --- @param flags?   ImGuiButtonFlags
+local InvisibleButton_size, InvisibleButton_bb = ImVec2(), ImRect() -- [Luau] scratch for InvisibleButton(): only read by callees, never escape
 function ImGui.InvisibleButton(str_id, size_arg, flags)
     if flags == nil then flags = 0 end
 
@@ -875,10 +876,13 @@ function ImGui.InvisibleButton(str_id, size_arg, flags)
     end
 
     -- Ensure zero-size fits to contents
-    local size = ImVec2(ImGui._CalcItemSizeXY(size_arg.x ~= 0.0 and size_arg.x or -FLT_MIN, size_arg.y ~= 0.0 and size_arg.y or -FLT_MIN, 0.0, 0.0))
+    local size = InvisibleButton_size
+    size.x, size.y = ImGui._CalcItemSizeXY(size_arg.x ~= 0.0 and size_arg.x or -FLT_MIN, size_arg.y ~= 0.0 and size_arg.y or -FLT_MIN, 0.0, 0.0)
 
     local id = window:GetID(str_id)
-    local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + size)
+    local cursor = window.DC.CursorPos
+    local bb = InvisibleButton_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = cursor.x, cursor.y, cursor.x + size.x, cursor.y + size.y
     ImGui.ItemSize(size)
 
     local item_flags = (bit32.band(flags, ImGuiButtonFlags.EnableNav) ~= 0) and ImGuiItemFlags.None or ImGuiItemFlags.NoNav
@@ -897,6 +901,7 @@ end
 --- @param dir    ImGuiDir
 --- @param size   ImVec2
 --- @param flags? ImGuiButtonFlags
+local ArrowButton_bb, ArrowButton_pos, ArrowButton_size = ImRect(), ImVec2(), ImVec2() -- [Luau] scratch for ArrowButton[Ex](): only read by callees, never escape
 function ImGui.ArrowButtonEx(str_id, dir, size, flags)
     if flags == nil then flags = 0 end
 
@@ -907,7 +912,9 @@ function ImGui.ArrowButtonEx(str_id, dir, size, flags)
 
     local g = GImGui
     local id = window:GetID(str_id)
-    local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + size)
+    local cursor = window.DC.CursorPos
+    local bb = ArrowButton_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = cursor.x, cursor.y, cursor.x + size.x, cursor.y + size.y
     local default_size = ImGui.GetFrameHeight()
     ImGui.ItemSize(size, (size.y >= default_size) and g.Style.FramePadding.y or -1.0)
     if not ImGui.ItemAdd(bb, id) then
@@ -921,7 +928,9 @@ function ImGui.ArrowButtonEx(str_id, dir, size, flags)
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
     ImGui.RenderNavCursor(bb, id)
     ImGui.RenderFrame(bb.Min, bb.Max, bg_col, true, g.Style.FrameRounding)
-    ImGui.RenderArrow(window.DrawList, bb.Min + ImVec2(ImMax(0.0, (size.x - g.FontSize) * 0.5), ImMax(0.0, (size.y - g.FontSize) * 0.5)), text_col, dir)
+    local pos = ArrowButton_pos
+    pos.x, pos.y = bb.Min.x + ImMax(0.0, (size.x - g.FontSize) * 0.5), bb.Min.y + ImMax(0.0, (size.y - g.FontSize) * 0.5)
+    ImGui.RenderArrow(window.DrawList, pos, text_col, dir)
 
     -- IMGUI_TEST_ENGINE_ITEM_INFO(id, str_id, g.LastItemData.StatusFlags)
     return pressed
@@ -931,7 +940,8 @@ end
 --- @param dir    ImGuiDir
 function ImGui.ArrowButton(str_id, dir)
     local sz = ImGui.GetFrameHeight()
-    return ImGui.ArrowButtonEx(str_id, dir, ImVec2(sz, sz), ImGuiButtonFlags.None)
+    local size = ArrowButton_size; size.x = sz; size.y = sz -- [Luau] scratch, ArrowButtonEx() only reads it
+    return ImGui.ArrowButtonEx(str_id, dir, size, ImGuiButtonFlags.None)
 end
 
 -- Button to close a window
@@ -1334,7 +1344,7 @@ end
 --- @param v     bool
 --- @return bool is_pressed
 --- @return bool is_checked # The updated `v` passed in
-local Checkbox_total_bb, Checkbox_check_bb, Checkbox_label_pos = ImRect(), ImRect(), ImVec2() -- [Luau] scratch, only read by callees
+local Checkbox_total_bb, Checkbox_check_bb, Checkbox_label_pos, Checkbox_mark_pos = ImRect(), ImRect(), ImVec2(), ImVec2() -- [Luau] scratch, only read by callees
 
 @native
 function ImGui.Checkbox(label, v)
@@ -1409,7 +1419,9 @@ function ImGui.Checkbox(label, v)
             window.DrawList:AddRectFilled(check_bb.Min + pad, check_bb.Max - pad, check_col, style.FrameRounding)
         elseif v then
             local pad = ImMax(1.0, IM_TRUNC(square_sz / 6.0))
-            ImGui.RenderCheckMark(window.DrawList, check_bb.Min + ImVec2(pad, pad), check_col, square_sz - pad * 2.0)
+            local mark_pos = Checkbox_mark_pos -- [Luau] check_bb.Min + ImVec2(pad, pad) into scratch
+            mark_pos.x, mark_pos.y = check_bb.Min.x + pad, check_bb.Min.y + pad
+            ImGui.RenderCheckMark(window.DrawList, mark_pos, check_col, square_sz - pad * 2.0)
         end
     end
 
@@ -1610,6 +1622,7 @@ function ImGui.ProgressBar(fraction, size_arg, overlay)
     end
 end
 
+local Bullet_bb, Bullet_pos = ImRect(), ImVec2() -- [Luau] scratch for Bullet(): only read by its callees (ItemAdd() copies bb), never escape
 function ImGui.Bullet()
     local window = ImGui.GetCurrentWindow()
     if window.SkipItems then
@@ -1619,7 +1632,9 @@ function ImGui.Bullet()
     local g = GImGui
     local style = g.Style
     local line_height = ImMax(ImMin(window.DC.CurrLineSize.y, g.FontSize + style.FramePadding.y * 2), g.FontSize)
-    local bb = ImRect(window.DC.CursorPos, window.DC.CursorPos + ImVec2(g.FontSize, line_height))
+    local cursor = window.DC.CursorPos
+    local bb = Bullet_bb
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = cursor.x, cursor.y, cursor.x + g.FontSize, cursor.y + line_height
     ImGui.ItemSize(bb)
     if not ImGui.ItemAdd(bb, 0) then
         ImGui.SameLine(0, style.FramePadding.x * 2)
@@ -1628,7 +1643,9 @@ function ImGui.Bullet()
 
     -- Render and stay on same line
     local text_col = ImGui.GetColorU32(ImGuiCol.Text)
-    ImGui.RenderBullet(window.DrawList, bb.Min + ImVec2(style.FramePadding.x + g.FontSize * 0.5, line_height * 0.5), text_col)
+    local pos = Bullet_pos
+    pos.x, pos.y = bb.Min.x + (style.FramePadding.x + g.FontSize * 0.5), bb.Min.y + line_height * 0.5
+    ImGui.RenderBullet(window.DrawList, pos, text_col)
     ImGui.SameLine(0, style.FramePadding.x * 2.0)
 end
 
@@ -1726,6 +1743,7 @@ end
 -------------------------------------------------------------------------------
 
 local LayoutHelpers_size = ImVec2()   -- [Luau] scratch for ItemSize() arguments
+local LayoutHelpers_bb = ImRect()     -- [Luau] scratch for ItemAdd() arguments (ItemAdd() copies it)
 
 function ImGui.Spacing()
     local window = ImGui.GetCurrentWindow()
@@ -1743,7 +1761,8 @@ function ImGui.Dummy(size)
     end
 
     local cursor = window.DC.CursorPos
-    local bb = ImRect(cursor.x, cursor.y, cursor.x + size.x, cursor.y + size.y) -- [Luau] no temporary ImVec2
+    local bb = LayoutHelpers_bb -- [Luau] scratch, no temporary ImVec2
+    bb.Min.x, bb.Min.y, bb.Max.x, bb.Max.y = cursor.x, cursor.y, cursor.x + size.x, cursor.y + size.y
     ImGui.ItemSize(size)
     ImGui.ItemAdd(bb, 0)
 end
@@ -1760,9 +1779,10 @@ function ImGui.NewLine()
     window.DC.IsSameLine = false
 
     if window.DC.CurrLineSize.y > 0.0 then -- In the event that we are on a line with items that is smaller that FontSize high, we will preserve its height.
-        ImGui.ItemSize(ImVec2(0, 0))
+        ImGui.ItemSize(LAYOUT_ZERO_SIZE)
     else
-        ImGui.ItemSize(ImVec2(0.0, g.FontSize))
+        local size = LayoutHelpers_size; size.x = 0.0; size.y = g.FontSize -- [Luau] scratch
+        ImGui.ItemSize(size)
     end
 
     window.DC.LayoutType = backup_layout_type
@@ -3052,6 +3072,7 @@ end
 --- @param step_fast? number
 --- @param format?    string
 --- @param flags?     ImGuiInputTextFlags
+local InputScalar_button_size = ImVec2() -- [Luau] scratch for the step buttons' size (ButtonEx() only reads it)
 function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flags)
     if flags == nil then flags = 0 end
 
@@ -3121,8 +3142,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
 
     -- Step buttons
     if has_step_buttons then
-        local backup_frame_padding = ImVec2()
-        ImVec2_Copy(backup_frame_padding, style.FramePadding)
+        local backup_frame_padding_x, backup_frame_padding_y = style.FramePadding.x, style.FramePadding.y -- [Luau] scalar backup
         style.FramePadding.x = style.FramePadding.y
         if bit32.band(flags, ImGuiInputTextFlags.ReadOnly) ~= 0 then
             ImGui.BeginDisabled()
@@ -3130,13 +3150,14 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
         ImGui.PushItemFlag(ImGuiItemFlags.ButtonRepeat, true)
         ImGui.SameLine(0, style.ItemInnerSpacing.x)
         --- @cast step number
-        if ImGui.ButtonEx("-", ImVec2(button_size, button_size)) then
+        local step_button_size = InputScalar_button_size; step_button_size.x = button_size; step_button_size.y = button_size
+        if ImGui.ButtonEx("-", step_button_size) then
             data = ImGui.DataTypeApplyOp(data_type, 45, data, ((g.IO.KeyCtrl and step_fast) and step_fast or step))
             value_changed = true
             ret = true
         end
         ImGui.SameLine(0, style.ItemInnerSpacing.x)
-        if ImGui.ButtonEx("+", ImVec2(button_size, button_size)) then
+        if ImGui.ButtonEx("+", step_button_size) then
             data = ImGui.DataTypeApplyOp(data_type, 43, data, ((g.IO.KeyCtrl and step_fast) and step_fast or step))
             value_changed = true
             ret = true
@@ -3150,7 +3171,7 @@ function ImGui.InputScalar(label, data_type, data, step, step_fast, format, flag
             ImGui.SameLine(0, style.ItemInnerSpacing.x)
             ImGui.TextEx(label, label_end)
         end
-        ImVec2_Copy(style.FramePadding, backup_frame_padding)
+        ImVec2_CopyV(style.FramePadding, backup_frame_padding_x, backup_frame_padding_y)
 
         ImGui.PopID()
         ImGui.EndGroup()
@@ -10835,6 +10856,8 @@ end
 --- @param shortcut? string
 --- @param selected? bool
 --- @param enabled?  bool
+-- [Luau] scratch for MenuItemEx(): only read by its callees (Selectable() only reads size_arg), never escape
+local MenuItem_text_pos, MenuItem_size, MenuItem_p = ImVec2(), ImVec2(), ImVec2()
 function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
     if selected == nil then selected = false end
     if enabled  == nil then enabled  = true  end
@@ -10846,10 +10869,9 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
 
     local g = GImGui
     local style = g.Style
-    local pos = ImVec2()
-    ImVec2_Copy(pos, window.DC.CursorPos)
+    local pos_x, pos_y = window.DC.CursorPos.x, window.DC.CursorPos.y -- [Luau] scalar pos
     local label_end = ImGui.FindRenderedTextEnd(label)
-    local label_size = ImGui.CalcTextSize(label, label_end, false)
+    local label_size_x, label_size_y = ImGui.CalcTextSizeXY(label, 1, label_end, false) -- [Luau] scalar label_size
 
     -- See BeginMenuEx() for comments about this.
     local menuset_is_open = IsRootOfOpenMenuSet()
@@ -10875,9 +10897,11 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
         -- Mimic the exact layout spacing of BeginMenu() to allow MenuItem() inside a menu bar, which is a little misleading but may be useful
         -- Note that in this situation: we don't render the shortcut, we render a highlight instead of the selected tick mark.
         window.DC.CursorPos.x = window.DC.CursorPos.x + IM_TRUNC(style.ItemSpacing.x * 0.5)
-        local text_pos = ImVec2(window.DC.CursorPos.x + offsets.OffsetLabel, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset)
+        local text_pos = MenuItem_text_pos
+        text_pos.x, text_pos.y = window.DC.CursorPos.x + offsets.OffsetLabel, window.DC.CursorPos.y + window.DC.CurrLineTextBaseOffset
         ImGui.PushStyleVarX(ImGuiStyleVar.ItemSpacing, style.ItemSpacing.x * 2.0)
-        pressed = ImGui.Selectable("", selected, selectable_flags, ImVec2(label_size.x, 0.0))
+        local size = MenuItem_size; size.x = label_size_x; size.y = 0.0
+        pressed = ImGui.Selectable("", selected, selectable_flags, size)
         ImGui.PopStyleVar()
         if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0 then
             ImGui.RenderText(text_pos, label, 1, label_end, false)
@@ -10896,25 +10920,31 @@ function ImGui.MenuItemEx(label, icon, shortcut, selected, enabled)
             shortcut_w = ImGui.CalcTextSize(shortcut, nil).x
         end
         local checkmark_w = IM_TRUNC(g.FontSize * 1.20) -- FIXME: Always accounted for, even in a menu with none, because 'selected' has no neutral setting.
-        local min_w = offsets:DeclColumns(icon_w, label_size.x, shortcut_w, checkmark_w) -- Feedback for next frame
+        local min_w = offsets:DeclColumns(icon_w, label_size_x, shortcut_w, checkmark_w) -- Feedback for next frame
         local stretch_w = ImMax(0.0, ImGui.GetContentRegionAvail().x - min_w)
-        local text_pos = ImVec2(pos.x, pos.y + window.DC.CurrLineTextBaseOffset)
-        pressed = ImGui.Selectable("", false, bit32.bor(selectable_flags, ImGuiSelectableFlags.SpanAvailWidth), ImVec2(min_w, label_size.y))
+        local text_pos_x, text_pos_y = pos_x, pos_y + window.DC.CurrLineTextBaseOffset -- [Luau] scalar text_pos
+        local size = MenuItem_size; size.x = min_w; size.y = label_size_y
+        pressed = ImGui.Selectable("", false, bit32.bor(selectable_flags, ImGuiSelectableFlags.SpanAvailWidth), size)
         if bit32.band(g.LastItemData.StatusFlags, ImGuiItemStatusFlags.Visible) ~= 0 then
-            ImGui.RenderText(text_pos + ImVec2(offsets.OffsetLabel, 0.0), label, 1, label_end, false)
+            local p = MenuItem_p -- [Luau] text_pos + ImVec2(...) into scratch (RenderText()/RenderCheckMark() only read it)
+            p.x, p.y = text_pos_x + offsets.OffsetLabel, text_pos_y + 0.0
+            ImGui.RenderText(p, label, 1, label_end, false)
             if icon_w > 0.0 then
                 --- @cast icon string
-                ImGui.RenderText(text_pos + ImVec2(offsets.OffsetIcon, 0.0), icon)
+                p.x, p.y = text_pos_x + offsets.OffsetIcon, text_pos_y + 0.0
+                ImGui.RenderText(p, icon)
             end
             if shortcut_w > 0.0 then
                 ImGui.PushStyleColor(ImGuiCol.Text, style.Colors[ImGuiCol.TextDisabled])
                 ImGui.LogSetNextTextDecoration("(", ")")
                 --- @cast shortcut string
-                ImGui.RenderText(text_pos + ImVec2(offsets.OffsetShortcut + stretch_w, 0.0), shortcut, nil, nil, false)
+                p.x, p.y = text_pos_x + (offsets.OffsetShortcut + stretch_w), text_pos_y + 0.0
+                ImGui.RenderText(p, shortcut, nil, nil, false)
                 ImGui.PopStyleColor()
             end
             if selected then
-                ImGui.RenderCheckMark(window.DrawList, text_pos + ImVec2(offsets.OffsetMark + stretch_w + g.FontSize * 0.40, g.FontSize * 0.134 * 0.5), ImGui.GetColorU32(ImGuiCol.Text), g.FontSize * 0.866)
+                p.x, p.y = text_pos_x + (offsets.OffsetMark + stretch_w + g.FontSize * 0.40), text_pos_y + g.FontSize * 0.134 * 0.5
+                ImGui.RenderCheckMark(window.DrawList, p, ImGui.GetColorU32(ImGuiCol.Text), g.FontSize * 0.866)
             end
         end
     end
