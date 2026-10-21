@@ -86,9 +86,18 @@ end
 local Records = {}
 M.Records = Records
 
+-- The buffer of the last destroyed atlas texture record: the next one of the same size (an atlas repack: same size
+-- every time) reuses it. buffer.create of an atlas is slow in Studio (~0.2-1.8 ms for 512 KB, spiky).
+local SpareBuffer: buffer? = nil
+
 local function CreateTextureRecord(tex)
     local w, h = tex.Width, tex.Height
-    local b = buffer.create(w * h * 4)
+    local b, reused = SpareBuffer, false
+    if b and buffer.len(b) == w * h * 4 then
+        SpareBuffer, reused = nil, true
+    else
+        b = buffer.create(w * h * 4)
+    end
     -- The current font atlas texture: pixels outside the packed rects (MaxRectBounds) and the queued uploads (UsedRect)
     -- are still zero (repack's BlockCopy doesn't queue, but every copied rect is packed). Fill them with what zero
     -- converts to, convert only the used corner. A fresh/grown atlas is mostly empty. Any other texture: everything.
@@ -100,7 +109,9 @@ local function CreateTextureRecord(tex)
         ch = math.min(h, math.max(u.y + u.h, m.y))
     end
     if cw < w or ch < h then
-        if tex.BytesPerPixel ~= 4 then -- Alpha8 zero -> 0x00FFFFFF; RGBA zero -> 0 (buffer.create's fill)
+        if tex.BytesPerPixel == 4 then
+            if reused then buffer.fill(b, 0, 0) end
+        else -- Alpha8 zero -> 0x00FFFFFF; RGBA zero -> 0 (buffer.create's fill)
             local n, total = 4, w * h * 4
             writeu32(b, 0, 16777215)
             while n < total do
@@ -152,7 +163,9 @@ function M.UpdateTexture(tex)
     elseif tex.Status == ImTextureStatus.WantDestroy then
         if tex.BackendUserData then
             local id = tex.BackendUserData
-            if EditableImages.TextureDropped then EditableImages.TextureDropped(id, Records[id]) end
+            local rec = Records[id]
+            if EditableImages.TextureDropped then EditableImages.TextureDropped(id, rec) end
+            if rec and rec.FillRow then SpareBuffer = rec.Buffer end -- (FillRow: a buffer CreateTextureRecord made)
             Records[id] = nil
             tex.BackendUserData = nil
         end
