@@ -4592,7 +4592,7 @@ function ImGui.CollapseButton(id, pos, dock_node)
     local g = ImGui.GetCurrentContext()
     local window = g.CurrentWindow
 
-    local bb = ImRect(pos, pos + ImVec2(g.FontSize, g.FontSize))
+    local bb = ImRect(pos.x, pos.y, pos.x + g.FontSize, pos.y + g.FontSize) -- [Luau] scalar form: no temporary ImVec2
     local is_clipped = not ImGui.ItemAdd(bb, id)
     local pressed, hovered, held = ImGui.ButtonBehavior(bb, id, ImGuiButtonFlags.None)
     if is_clipped then return pressed end
@@ -9967,7 +9967,10 @@ local function CalcWindowSizeAfterConstraint(window, size_desired)
 
     -- Minimum size
     local size_min = CalcWindowMinSize(window)
-    return ImMax(new_size, size_min)
+    -- [Luau] ImMax(new_size, size_min) written into new_size (a local copy)
+    new_size.x = math.max(new_size.x, size_min.x)
+    new_size.y = math.max(new_size.y, size_min.y)
+    return new_size
 end
 
 --- @param window               ImGuiWindow
@@ -10174,7 +10177,9 @@ local function UpdateWindowManualResize(window, resize_grip_count, resize_grip_c
     -- We only clip interaction so we overwrite window.ClipRect, cannot call PushClipRect() yet as DrawList is not yet setup.
     local clip_with_viewport_rect = bit32.band(g.IO.BackendFlags, ImGuiBackendFlags.HasMouseHoveredViewport) == 0 or g.IO.MouseHoveredViewport ~= window.ViewportId or bit32.band(window.Viewport.Flags, ImGuiViewportFlags.NoDecoration) == 0
     if (clip_with_viewport_rect) then
-        ImRect_Copy(window.ClipRect, window.Viewport:GetMainRect())
+        -- [Luau] ImRect_Copy(window.ClipRect, window.Viewport:GetMainRect()) without the temporary ImRect
+        local vp, cr = window.Viewport, window.ClipRect
+        cr.Min.x = vp.Pos.x; cr.Min.y = vp.Pos.y; cr.Max.x = vp.Pos.x + vp.Size.x; cr.Max.y = vp.Pos.y + vp.Size.y
     end
 
     local clamp_rect = ImRect()
@@ -12473,11 +12478,14 @@ function ImGui.Begin(name, open, flags)
         if bit32.band(flags, ImGuiWindowFlags.NoTitleBar) == 0 and bit32.band(flags, ImGuiWindowFlags.NoCollapse) == 0 and not window.DockIsActive then
             -- We don't use a regular button+id to test for double-click on title bar (mostly due to legacy reason, could be fixed),
             -- so verify that we don't have items over the title bar.
-            local title_bar_rect = window:TitleBarRect()
-            if g.HoveredWindow == window and g.HoveredId == 0 and g.HoveredIdPreviousFrame == 0 and g.ActiveId == 0 and ImGui.IsMouseHoveringRect(title_bar_rect.Min, title_bar_rect.Max) then
-                if g.IO.MouseClickedCount[0] == 2 and ImGui.GetKeyOwner(ImGuiKey.MouseLeft) == ImGuiKeyOwner_NoOwner then
-                    window.WantCollapseToggle = true
-                    ImGui.SetKeyOwner(ImGuiKey.MouseLeft, window.MoveId) -- Claim input the same way ButtonBehavior() does. Prevent a same-frame move from triggering other items. (#9439)
+            -- [Luau] title bar rect only built when the cheaper tests pass
+            if g.HoveredWindow == window and g.HoveredId == 0 and g.HoveredIdPreviousFrame == 0 and g.ActiveId == 0 then
+                local title_bar_rect = window:TitleBarRect()
+                if ImGui.IsMouseHoveringRect(title_bar_rect.Min, title_bar_rect.Max) then
+                    if g.IO.MouseClickedCount[0] == 2 and ImGui.GetKeyOwner(ImGuiKey.MouseLeft) == ImGuiKeyOwner_NoOwner then
+                        window.WantCollapseToggle = true
+                        ImGui.SetKeyOwner(ImGuiKey.MouseLeft, window.MoveId) -- Claim input the same way ButtonBehavior() does. Prevent a same-frame move from triggering other items. (#9439)
+                    end
                 end
             end
             if window.WantCollapseToggle then
@@ -12593,7 +12601,9 @@ function ImGui.Begin(name, open, flags)
 
         -- Late create viewport if we don't fit within our current host viewport.
         if window.ViewportAllowPlatformMonitorExtend >= 0 and not window.ViewportOwned and bit32.band(window.Viewport.Flags, ImGuiViewportFlags.IsMinimized) == 0 then
-            if not window.Viewport:GetMainRect():Contains(window:Rect()) then
+            -- [Luau] scalar version of: if not window.Viewport:GetMainRect():Contains(window:Rect()) then
+            local vp, wp, ws = window.Viewport, window.Pos, window.Size
+            if not (wp.x >= vp.Pos.x and wp.x + ws.x <= vp.Pos.x + vp.Size.x and wp.y >= vp.Pos.y and wp.y + ws.y <= vp.Pos.y + vp.Size.y) then
                 -- This is based on the assumption that the DPI will be known ahead (same as the DPI of the selection done in UpdateSelectWindowViewport)
                 -- local old_viewport = window.Viewport
                 window.Viewport = ImGui.AddUpdateViewport(window, window.ID, window.Pos, window.Size, ImGuiViewportFlags.NoFocusOnAppearing)
@@ -12614,7 +12624,7 @@ function ImGui.Begin(name, open, flags)
         local viewport_rect = window.Viewport:GetMainRect()
         local viewport_work_rect = window.Viewport:GetWorkRect()
         local visibility_padding = ImMax(style.DisplayWindowPadding, style.DisplaySafeAreaPadding)
-        local visibility_rect = ImRect(viewport_work_rect.Min + visibility_padding, viewport_work_rect.Max - visibility_padding)
+        local visibility_rect = ImRect(viewport_work_rect.Min.x + visibility_padding.x, viewport_work_rect.Min.y + visibility_padding.y, viewport_work_rect.Max.x - visibility_padding.x, viewport_work_rect.Max.y - visibility_padding.y) -- [Luau] scalar form: no temporary ImVec2s
 
         -- Clamp position/size so window stays visible within its viewport or monitor
         -- Ignore zero-sized display explicitly to avoid losing positions if a window manager reports zero-sized window when initializing or minimizing.

@@ -2993,7 +2993,7 @@ end
 --- @return ImRect
 --- @nodiscard
 function MT.ImGuiWindow:TitleBarRect()
-    return ImRect(self.Pos, ImVec2(self.Pos.x + self.SizeFull.x, self.Pos.y + self.TitleBarHeight))
+    return ImRect(self.Pos.x, self.Pos.y, self.Pos.x + self.SizeFull.x, self.Pos.y + self.TitleBarHeight) -- [Luau] scalar form: no temporary ImVec2
 end
 
 --- @return ImRect
