@@ -71,6 +71,10 @@ function EditableImages.AddRect(n: number, a: number, b: number, c: number, d: n
     return n
 end
 
+-- Primitives with a vertex CompareDrawList found drifted (DriftSet[vertex offset // VTX_STRIDE + 1], current draw list):
+-- their hashes get DriftMark* (new every frame) added, so their tiles are redrawn even when the hash doesn't see the ulp
+local DriftSet, DriftOn, DriftMark1, DriftMark2 = table.create(4096, false), false, 0, 0
+
 -- HashTiles scratch, per touched tile (slot = its index in layer.Touched): tile key -> slot, its list, count, hashes
 local KeySlot, SlotCount, SlotHash1, SlotHash2 = {}, {}, {}, {}
 local SlotList, SlotListHash1, SlotListHash2, SlotListFlat = {}, {}, {}, {}
@@ -135,6 +139,11 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                     h1 = (h1 * 48271 + gk) % P1
                     h2 = (h2 * 16807 + gk * 3) % P2
                 end
+            end
+            if DriftOn and (DriftSet[va // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
+                or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
+                h1 = (h1 + DriftMark1) % P1
+                h2 = (h2 + DriftMark2) % P2
             end
         end
         -- the tiles it touches, row by row (one loop, no nested for: most primitives touch one tile; never empty)
@@ -768,6 +777,132 @@ local function DrawLists(BackendData, draw_list, z, ox, oy, force, LimitX0, Limi
     return z, ListDeferred
 end
 
+-- The layer origin of each kind (DrawLists' DrawLayer arguments), from the last CollectPrims
+local function LayerOrigin(draw_list, kind, ox, oy)
+    if kind == 1 then return Kind1X, Kind1Y end
+    if kind == 3 then return Kind3X, Kind3Y end
+    return floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy)
+end
+
+local PatchLayers, PatchKeys, PatchPrim = {}, {}, {}
+
+-- CompareDrawList 3: moved by whole pixels, but a few vertices drifted off the exact shift (same bounds). CollectPrims
+-- ran and gave the primitive sequence the tile lists were built from: the lists stay (indices moved to this frame's)
+-- and every tile keeps its pixels, except those with a primitive using a drifted vertex: those entries' hashes change
+-- (DriftMark), so the tile redraws just them. Changes nothing when it returns false (the caller takes the full path).
+@native
+local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1)
+    table.clear(PatchPrim)
+    local SigA, SigD = set.PrimSigA, set.PrimSigD
+    if not SigA or set.PrimN ~= n - n0 then return false end
+    for m = 1, n - n0 do
+        local p = n0 + m
+        if PrimA[p] ~= SigA[m] or PrimD[p] ~= SigD[m] then return false end
+    end
+    local np = 0
+    for kind = 1, 3 do
+        local layer = set[kind]
+        local count = kind == 1 and Kind1Count or kind == 2 and Kind2Count or Kind3Count
+        if count == 0 then
+            if layer and layer.Visible then return false end
+            continue
+        end
+        if not (layer and layer.Visible and layer.X) then return false end
+        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
+        if lx0 ~= layer.X + dx or ly0 ~= layer.Y + dy then return false end
+        if layer.Root ~= layer.Frame then
+            local ccx0 = draw_list._ContentClipX0
+            if not ccx0 or not layer.ClipX0 then return false end
+            if max(floor(ccx0 - ox), LimitX0) ~= layer.ClipX0 + dx
+                or max(floor(draw_list._ContentClipY0 - oy), LimitY0) ~= layer.ClipY0 + dy
+                or min(floor(draw_list._ContentClipX1 - ox), LimitX1) ~= layer.ClipX1 + dx
+                or min(floor(draw_list._ContentClipY1 - oy), LimitY1) ~= layer.ClipY1 + dy then
+                return false
+            end
+        end
+        -- the tiles of the primitives with a drifted vertex (flat rects: drawn from their bounds only, unchanged)
+        local plist = kind == 1 and LayerPrims1 or kind == 2 and LayerPrims2 or LayerPrims3
+        local TileCounts, Tiles = layer.TileCounts, layer.Tiles
+        for m = 1, count do
+            local p = plist[m]
+            local vd = PrimD[p]
+            if PrimFlat[p]
+                or not (DriftSet[PrimA[p] // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
+                    or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
+                continue
+            end
+            PatchPrim[p] = true
+            local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
+                PrimBoundsY1[p] - ly0
+            for ty = cy0 // TILE, (cy1 - 1) // TILE do
+                for tx = cx0 // TILE, (cx1 - 1) // TILE do
+                    local key = (ty + 32768) * 65536 + tx + 32768
+                    local c, tile = TileCounts[key], Tiles[key]
+                    if not c or c == 0 or not tile then continue end -- not drawn (outside the content clip)
+                    if tile.DrawnCount ~= c or tile.Hash1 ~= layer.TileHash1[key] or tile.Hash2 ~= layer.TileHash2[key]
+                        or (tile.Deferred or 0) > 0 then
+                        return false
+                    end
+                    np += 1
+                    PatchLayers[np], PatchKeys[np] = kind, key
+                end
+            end
+        end
+    end
+
+    -- the lists: this frame's primitive indices
+    local delta = n0 - set.PrimBase
+    set.PrimBase = n0
+    for kind = 1, 3 do
+        local layer = set[kind]
+        if delta == 0 or not (layer and layer.Visible) then continue end
+        local TileCounts, TileLists, Touched = layer.TileCounts, layer.TileLists, layer.Touched
+        for kk = 1, layer.TouchedCount do
+            local key = Touched[kk]
+            local c = TileCounts[key]
+            if c and c > 0 then
+                local list = TileLists[key]
+                for k = 1, c do list[k] += delta end
+            end
+        end
+    end
+
+    -- the patched tiles: their drawn entries, the drifted primitives' hashes changed, redrawn
+    local FrameNo = BackendData.FrameNo
+    for i = 1, np do
+        local kind, key = PatchLayers[i], PatchKeys[i]
+        local layer = set[kind]
+        local tile = layer.Tiles[key]
+        if tile.Used == FrameNo then continue end -- (done: a tile of several drifted primitives)
+        tile.Used = FrameNo
+        local count = layer.TileCounts[key]
+        local list, LH1, LH2 = layer.TileLists[key], layer.TileListHash1[key], layer.TileListHash2[key]
+        table.move(tile.DrawnHash1, 1, count, 1, LH1)
+        table.move(tile.DrawnHash2, 1, count, 1, LH2)
+        table.move(tile.DrawnFlat, 1, count, 1, layer.TileListFlat[key])
+        local h1, h2 = 0, 0
+        for k = 1, count do
+            if PatchPrim[list[k]] then
+                LH1[k], LH2[k] = (LH1[k] + DriftMark1) % P1, (LH2[k] + DriftMark2) % P2
+            end
+            h1 = (h1 * 48271 + LH1[k]) % P1
+            h2 = (h2 * 16807 + LH2[k] + k) % P2
+        end
+        layer.TileHash1[key], layer.TileHash2[key] = h1, h2
+        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
+        local x0, y0 = lx0 + layer.TileX[key] * TILE, ly0 + layer.TileY[key] * TILE
+        local vx0, vy0, vx1, vy1 = 0, 0, TILE, TILE
+        if layer.Root ~= layer.Frame then
+            vx0, vy0 = max(layer.ClipX0 + dx - x0, 0), max(layer.ClipY0 + dy - y0, 0)
+            vx1, vy1 = min(layer.ClipX1 + dx - x0, TILE), min(layer.ClipY1 + dy - y0, TILE)
+        end
+        local exposed = vx0 < tile.ValidX0 or vy0 < tile.ValidY0 or vx1 > tile.ValidX1 or vy1 > tile.ValidY1
+        RedrawTile(BackendData, layer, key, tile, count, x0, y0, ox, oy, false, exposed, vx0, vy0, vx1, vy1)
+    end
+    table.clear(PatchPrim)
+    return true
+end
+
 -- Overlay frames are only hidden (the user owns them); unused layers hidden, long unused ones freed
 local function SweepLayers(BackendData, FrameNo)
     for frame, shown in pairs(BackendData.OverlayShown) do
@@ -832,7 +967,7 @@ function M.RenderDrawData(draw_data)
         local set = BackendData.Layers[draw_list]
         local same, sdx, sdy = 0, 0, 0
         if not force then same, sdx, sdy = CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight) end
-        if same ~= 0 then
+        if same == 1 or same == 2 then
             z = ReuseDrawList(BackendData, set, draw_list, same, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
             if EditableImages.StageTiming then EditableImages.EndStage("Compare") end
             PE()
@@ -844,13 +979,38 @@ function M.RenderDrawData(draw_data)
         PB("ImGui collect")
         if EditableImages.StageTiming then EditableImages.BeginStage() end
         local LimitFree, ex0, ey0, ex1, ey1
+        local n0 = n
         n, LimitFree, ex0, ey0, ex1, ey1 = CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0, LimitX1,
             LimitY1)
         if EditableImages.StageTiming then EditableImages.EndStage("Collect") end
         PE()
 
+        local nd = Layers.DriftCount
+        if nd > 0 then
+            local Drift = Layers.Drift
+            for k = 1, nd do DriftSet[Drift[k] // VTX_STRIDE + 1] = true end
+            DriftOn, DriftMark1, DriftMark2 = true, (FrameNo * 7907 + 12345) % P1, (FrameNo * 7919 + 54321) % P2
+        end
+        if same == 3 then
+            PB("ImGui drift patch")
+            if EditableImages.StageTiming then EditableImages.BeginStage() end
+            local patched = PatchDrawList(BackendData, set, draw_list, n0, n, sdx, sdy, ox, oy, LimitX0, LimitY0,
+                LimitX1, LimitY1)
+            if EditableImages.StageTiming then EditableImages.EndStage("Raster") end
+            PE()
+            if patched then
+                for k = 1, nd do DriftSet[Layers.Drift[k] // VTX_STRIDE + 1] = false end
+                DriftOn = false
+                z = ReuseDrawList(BackendData, set, draw_list, 2, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
+                continue
+            end
+        end
         local ListDeferred
         z, ListDeferred = DrawLists(BackendData, draw_list, z, ox, oy, force, LimitX0, LimitY0, LimitX1, LimitY1)
+        if nd > 0 then
+            for k = 1, nd do DriftSet[Layers.Drift[k] // VTX_STRIDE + 1] = false end
+            DriftOn = false
+        end
         set = BackendData.Layers[draw_list]
         -- deferred tiles: not "unchanged" next frame, so they get redrawn
         if set then
@@ -859,6 +1019,10 @@ function M.RenderDrawData(draw_data)
                 Snapshot(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
                 set.SnapLimitFree = LimitFree
                 set.SnapExtentX0, set.SnapExtentY0, set.SnapExtentX1, set.SnapExtentY1 = ex0, ey0, ex1, ey1
+                -- the primitive sequence the tile lists were built from (PatchDrawList)
+                set.PrimBase, set.PrimN = n0, n - n0
+                set.PrimSigA = table.move(PrimA, n0 + 1, n, 1, set.PrimSigA or {})
+                set.PrimSigD = table.move(PrimD, n0 + 1, n, 1, set.PrimSigD or {})
             end
         end
         if ListDeferred then AnyDeferred = true end

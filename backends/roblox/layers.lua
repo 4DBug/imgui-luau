@@ -2,7 +2,7 @@
 local Raster = IM_INCLUDE("roblox/raster.lua")
 local Textures = IM_INCLUDE("roblox/textures.lua")
 
-local floor, max = math.floor, math.max
+local floor, ceil, max = math.floor, math.ceil, math.max
 local readu32, writeu32, readf64, writef64 = buffer.readu32, buffer.writeu32, buffer.readf64, buffer.writef64
 local TILE = Raster.TILE
 local EditableImages = Textures.EditableImages
@@ -262,8 +262,14 @@ local function ShiftedExact(a, d, b)
     return (a - (s - bb)) + (d - bb) == 0
 end
 
+-- vertex byte offsets of the last CompareDrawList's drifted vertices (moved by about an ulp off the exact shift)
+local MAX_DRIFT = 256
+local Drift = table.create(MAX_DRIFT, 0)
+M.Drift, M.DriftCount = Drift, 0
+
 @native
 function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
+    M.DriftCount = 0
     if not set or not set.SnapOK then return 0 end
     local nv = draw_list.VtxBuffer.Size * VTX_STRIDE
     local ni, ncmd = draw_list.IdxBuffer.Size, draw_list.CmdBuffer.Size
@@ -355,13 +361,27 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
         and ShiftedExact(set.SnapContentY1, dy, draw_list._ContentClipY1)
         and ShiftedExact(set.SnapScrollX, dx, draw_list._ScrollOriginX)
         and ShiftedExact(set.SnapScrollY, dy, draw_list._ScrollOriginY)) then return 0 end
+    -- vertices off the exact shift ("drift": trig-generated ones round differently, often when a coordinate crosses a
+    -- power of two) are listed. All their floor / ceil / ceil(- 0.5) (CollectPrims' bounds) shifted: 3, only the tiles
+    -- of their primitives change; else 0 (the full path still gets the list: tile hashes don't see an ulp)
+    local nd, consistent = 0, true
     for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
-        if not ShiftedExact(readf64(sv, v), dx, readf64(vb, v))
-            or not ShiftedExact(readf64(sv, v + 8), dy, readf64(vb, v + 8))
-            or readf64(vb, v + 16) ~= readf64(sv, v + 16) or readf64(vb, v + 24) ~= readf64(sv, v + 24)
+        if readf64(vb, v + 16) ~= readf64(sv, v + 16) or readf64(vb, v + 24) ~= readf64(sv, v + 24)
             or readu32(vb, v + 32) ~= readu32(sv, v + 32) then return 0 end
+        local ax, ay, bx, by = readf64(sv, v), readf64(sv, v + 8), readf64(vb, v), readf64(vb, v + 8)
+        if not ShiftedExact(ax, dx, bx) or not ShiftedExact(ay, dy, by) then
+            if nd >= MAX_DRIFT then return 0 end
+            nd += 1
+            Drift[nd] = v
+            if floor(bx) ~= floor(ax) + dx or ceil(bx) ~= ceil(ax) + dx or ceil(bx - 0.5) ~= ceil(ax - 0.5) + dx
+                or floor(by) ~= floor(ay) + dy or ceil(by) ~= ceil(ay) + dy or ceil(by - 0.5) ~= ceil(ay - 0.5) + dy then
+                consistent = false
+            end
+        end
     end
-    return 2, dx, dy
+    M.DriftCount = nd
+    if nd == 0 then return 2, dx, dy end
+    return consistent and 3 or 0, dx, dy
 end
 
 function M.ShiftLayer(layer, dx, dy, scale)
