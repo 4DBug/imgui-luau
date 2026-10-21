@@ -94,47 +94,55 @@ function EditableImages.FreeTile(layer, key, recycle)
         nil, nil, nil, nil, nil
 end
 
+-- A new tile (transparent image, hidden unparented label), nil over the EditableImage budget
+local function NewTile()
+    local img = EditableImages.Create(TILE, TILE)
+    if not img then return nil end
+    local label = Instance.new("ImageLabel")
+    label.Name = "Tile"
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.ResampleMode = Enum.ResamplerMode.Pixelated
+    label.ImageContent = Content.fromObject(img)
+    label.Visible = false
+    return {
+        Image = img, Label = label,
+        Hash1 = -1, Hash2 = -1, Visible = false, Used = 0,
+        ContentX0 = TILE, ContentY0 = TILE, ContentX1 = 0, ContentY1 = 0,
+        ValidX0 = 0, ValidY0 = 0, ValidX1 = TILE, ValidY1 = TILE,
+        Scale = false, Active = nil, Parent = nil,
+        DrawnCount = -1, DrawnHash1 = {}, DrawnHash2 = {}, DrawnFlat = {},
+        DrawnX0 = {}, DrawnY0 = {}, DrawnX1 = {}, DrawnY1 = {},
+    }
+end
+
+-- Keeps PREWARM tiles in the free list (Heartbeat, one per call, never evicting): a layer that grows takes them instead
+-- of creating EditableImages + labels mid-frame (~90 us per tile in Studio, ~7 us from the free list)
+local PREWARM = 4
+function M.Prewarm()
+    local pool = EditableImages.Pool
+    if #pool < PREWARM and EditableImages.Bytes + TILE * TILE * 4 <= EditableImages.Cap then
+        local tile = NewTile()
+        if tile then table.insert(pool, 1, tile) end -- (at the bottom: recycled tiles keep their parent, used first)
+    end
+end
+
 function M.GetTile(BackendData, layer, key, tx, ty)
     local tile = layer.Tiles[key]
     if tile then return tile end
     local scale = BackendData.Scale
-    local old = table.remove(EditableImages.Pool)
-    local label, img
-    if old then
-        label, img = old.Label, old.Image
-    else
-        img = EditableImages.Create(TILE, TILE)
-        if not img then return nil end -- over the budget even after eviction: the caller skips this tile this frame
-        label = Instance.new("ImageLabel")
-        label.Name = "Tile"
-        label.BackgroundTransparency = 1
-        label.BorderSizePixel = 0
-        label.ResampleMode = Enum.ResamplerMode.Pixelated
-        label.ImageContent = Content.fromObject(img)
-        label.Visible = false
-    end
-    if not old or old.Scale ~= scale then label.Size = UDim2.fromOffset(TILE / scale, TILE / scale) end
+    -- Content*: content bounds; Valid*: where the image pixels are current. A recycled tile keeps both (they still
+    -- describe its image): its first draw is a full one (DrawnCount -1) that only clears old + new content bounds.
+    tile = table.remove(EditableImages.Pool) or NewTile()
+    if not tile then return nil end -- over the budget even after eviction: the caller skips this tile this frame
+    local label = tile.Label
+    if tile.Scale ~= scale then label.Size = UDim2.fromOffset(TILE / scale, TILE / scale) end
     label.Position = UDim2.fromOffset(tx * TILE / scale, ty * TILE / scale)
-    if not old or old.Active ~= BackendData.TilesActive then label.Active = BackendData.TilesActive end
-    if not old or old.Parent ~= layer.Frame then label.Parent = layer.Frame end
-    -- Content*: content bounds; Valid*: where the image pixels are current. A recycled tile keeps both (they still describe
-    -- its image): its first draw is a full one (DrawnCount -1) that only clears old + new content bounds.
-    if old then
-        tile = old
-        tile.Hash1, tile.Hash2, tile.Visible, tile.Used, tile.Deferred, tile.DrawnCount =
-            -1, -1, false, BackendData.FrameNo, nil, -1
-        tile.Scale, tile.Active, tile.Parent = scale, BackendData.TilesActive, layer.Frame
-    else
-        tile = {
-            Image = img, Label = label,
-            Hash1 = -1, Hash2 = -1, Visible = false, Used = BackendData.FrameNo,
-            ContentX0 = TILE, ContentY0 = TILE, ContentX1 = 0, ContentY1 = 0,
-            ValidX0 = 0, ValidY0 = 0, ValidX1 = TILE, ValidY1 = TILE,
-            Scale = scale, Active = BackendData.TilesActive, Parent = layer.Frame,
-            DrawnCount = -1, DrawnHash1 = {}, DrawnHash2 = {}, DrawnFlat = {},
-            DrawnX0 = {}, DrawnY0 = {}, DrawnX1 = {}, DrawnY1 = {},
-        }
-    end
+    if tile.Active ~= BackendData.TilesActive then label.Active = BackendData.TilesActive end
+    if tile.Parent ~= layer.Frame then label.Parent = layer.Frame end
+    tile.Hash1, tile.Hash2, tile.Visible, tile.Used, tile.Deferred, tile.DrawnCount =
+        -1, -1, false, BackendData.FrameNo, nil, -1
+    tile.Scale, tile.Active, tile.Parent = scale, BackendData.TilesActive, layer.Frame
     layer.Tiles[key] = tile
     if EditableImages.StageTiming then EditableImages.AddStat("TilesCreated", 1) end
     return tile

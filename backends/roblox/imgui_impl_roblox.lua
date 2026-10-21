@@ -213,6 +213,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         elseif BackendData.Stale and BackendData.HeartbeatCount > BackendData.StaleHeartbeat then
             ImGui_ImplRoblox_RenderDrawData(BackendData.Stale)
         end
+        Layers.Prewarm()
         BackendData.HeartbeatCount += 1
     end)
 
