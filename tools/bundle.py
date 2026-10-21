@@ -23,6 +23,14 @@
 #   C  `--@hoist` functions in the sources (pure numeric helpers: ImMin, ImMax, ImClamp, ...) are moved to the bundle top
 #      as `local function`s (their source lines become blank) so Luau -O2 can inline them everywhere.
 #   E  statement-form `IM_ASSERT(...)` becomes `assert(...)` (fast builtin); expression uses are left alone.
+#   L  (Roblox) library-internal `ImGui.Foo` reads inside function bodies become `ImGui_Foo`, a local of the file's
+#      __FILES function or of a wrapper around it (the file's most used names, within the 200 locals / upvalues
+#      limits; the rest stays ImGui.Foo). Luau's inline cache only
+#      remembers hash slots < 256 and ImGui has ~1000 keys: most ImGui.Foo lookups missed it. Each file registers a
+#      binder (`ImGui_Foo = ImGui.Foo`, ...) that IM_INCLUDE runs after every file it loads, so they are set before
+#      any user code runs. Only names assigned exactly once, at load time, are localized (checked here); ImGui.Foo
+#      stays set (public table unchanged). An app that replaces ImGui.Foo no longer intercepts the library's own
+#      calls, except for the names in L_PATCHABLE (hooked by tests/apps: those stay table lookups).
 import os, re, sys, json, shutil, subprocess, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +43,7 @@ LOVE = False
 if "--target" in sys.argv:
     i = sys.argv.index("--target"); LOVE = sys.argv[i + 1] == "love"; del sys.argv[i:i + 2]
 sys.argv = [a for a in sys.argv if a != "--no-demo"]
-OPT = {x: os.environ.get("IMGUI_BUNDLE_NOOPT") != "1" and os.environ.get("IMGUI_BUNDLE_NO_" + x) != "1" for x in "ABCE"}
+OPT = {x: os.environ.get("IMGUI_BUNDLE_NOOPT") != "1" and os.environ.get("IMGUI_BUNDLE_NO_" + x) != "1" for x in "ABCEL"}
 # A limits: Luau 200 locals in the main chunk (+ helpers, __FILES, ...), 200 upvalues per function; LuaJIT 60 upvalues
 # per function (margin left for nested functions that also capture file locals)
 MAX_LOCALS, MAX_UPVALUES = 160, (45 if LOVE else 150)
@@ -178,11 +186,11 @@ if OPT["E"]:
 # ---- B: enum / constant folding ----
 LUAU = shutil.which("luau") or (sorted(__import__("glob").glob("/nix/store/*-luau-*/bin/luau")) or ["luau"])[-1]
 
-def header():
-    return ["local __FILES, __LOADED = {}, {}",
+def header(bind=False):
+    return ["local __FILES, __LOADED%s = {}, {}%s" % ((", __BIND", ", {}") if bind else ("", "")),
             "function IM_INCLUDE(name)",
             "    local r = __LOADED[name]",
-            "    if r == nil then r = __FILES[name](); if r == nil then r = true end; __LOADED[name] = r end",
+            "    if r == nil then r = __FILES[name](); if r == nil then r = true end; __LOADED[name] = r%s end" % ("; for i = 1, #__BIND do __BIND[i]() end" if bind else ""),
             "    return r",
             "end", ""]
 
@@ -278,17 +286,86 @@ if OPT["A"]:
             hot.append(n)
             taken = [c + (n in u) for c, u in zip(taken, used)]
 
+# ---- L: ImGui.Foo reads in function bodies -> per-file locals ----
+# (L only rewrites `ImGui.Foo` reads: MT.* methods and other globals, e.g. what backends/roblox/patches.lua replaces at
+# load time - MT.ImFont.RenderText, MT.ImDrawList.AddText, ImFontCalcTextSizeXY - are never copied. Assignments in
+# backend modules count too: a name set in two places is not localized.)
+L_PATCHABLE = re.compile(r"(Begin|End|TreeNode\w*|CollapsingHeader|ItemAdd|ItemHoverable|ItemSize|BeginTabItem|ShowDemoWindow)$")
+L_LOCALS, L_UPVALUES = 200 - 20 - 10, 200 - 5  # Luau limits per function, minus the registers check's 20, minus margin
+localized = {}  # __FILES function -> ([Foo, ...] in a wrapper function, [Foo, ...] in the function itself)
+def imgui_read(toks, d, i, ok):
+    """toks[i] starts an `ImGui.Foo` read (Foo in ok) inside a function body"""
+    return toks[i][1] == "ImGui" and d[i] > 0 and isref(toks, i) and toks[i - 1][1] != "function" and nexttext(toks, i) == "." and toks[i + 2][1] in ok and nexttext(toks, i + 2) != "="
+def nlocal(toks, i):
+    """names declared by the `local` at toks[i]"""
+    if nexttext(toks, i) == "function": return 1
+    n, j = 1, i + 2
+    while nexttext(toks, j - 1) == "," : n += 1; j += 2
+    return n
+if OPT["L"] and not LOVE:
+    lexed = {f: lex(s) for f, s in FILES.items()}
+    sets, idents = {}, set()
+    for f, toks in lexed.items():
+        d = fdepths(toks)
+        idents.update(t for k, t, _ in toks if k == "name")
+        for i, (k, t, p) in enumerate(toks):
+            if t != "ImGui" or not isref(toks, i): continue
+            nx = nexttext(toks, i)
+            if nx != ".":
+                assert nx == "=" and d[i] == 0 and nexttext(toks, i + 1) == "{", "L: %s: ImGui used as a value (%r): can't prove single assignment of its fields" % (f, nx)
+                continue
+            key, after = toks[i + 2][1], nexttext(toks, i + 2)
+            j = i + 3  # `ImGui.Foo, x = ...` (multiple assignment)? walk a target list
+            while after == "," and j < len(toks) and (toks[j][0] == "name" or toks[j][1] in (".", ",")): j += 1
+            if i > 0 and toks[i - 1][1] == "function": sets.setdefault(key, []).append((f, d[i - 1]))
+            elif after == "=" or (after == "," and j < len(toks) and toks[j][1] == "="): sets.setdefault(key, []).append((f, d[i]))
+    ok = {n for n, w in sets.items() if len(w) == 1 and w[0][1] == 0 and not L_PATCHABLE.match(n)}
+    clash = {"ImGui_" + n for n in ok} & idents
+    assert not clash, "L: local names clash with source identifiers: %s" % sorted(clash)
+    # where the locals go (most used names first): the __FILES function itself (room left next to its own top-level
+    # locals) and, when that's not enough, a wrapper function around it first (`(function() local ImGui_Foo, ...
+    # return function() <file> end end)()`: they are upvalues of the file function, next to the bundle-level A/C locals).
+    # The rest stays ImGui.Foo (small tables `ImGui__1.Foo` for them, always cache hits, measured no faster).
+    upvals = set(hot + hoisted_names + re.findall(r"\w+", HOIST_DEPS.split("=")[0]))
+    count, nlocals, nupvals = {}, {}, {}
+    for f, toks in lexed.items():
+        fn, d = GROUP.get(f, f), fdepths(toks)
+        nlocals[fn] = nlocals.get(fn, 0) + sum(nlocal(toks, i) for i in range(len(toks)) if toks[i][1] == "local" and d[i] == 0)
+        nupvals.setdefault(fn, set()).update(t for i, (k, t, _) in enumerate(toks) if t in upvals and isref(toks, i))
+        if "ImGui" in declared(toks): count[fn] = None
+        if count.get(fn, {}) is None: continue
+        c = count.setdefault(fn, {})
+        for i in range(len(toks)):
+            if imgui_read(toks, d, i, ok): c[toks[i + 2][1]] = c.get(toks[i + 2][1], 0) + 1
+    if BACKEND in nlocals: nlocals[BACKEND] += len(MODULES)
+    for fn, c in count.items():
+        c = sorted(c or (), key=lambda n: (-c[n], n))
+        inner = max(0, L_LOCALS - nlocals[fn])
+        outer = 0 if fn == BACKEND or len(c) <= inner else min(L_LOCALS, L_UPVALUES - len(nupvals[fn]))  # (registers check: the backend's function line stays plain)
+        if c: localized[fn] = (sorted(c[:outer]), sorted(c[outer:outer + inner]))
+    for f, toks in lexed.items():
+        sel = set().union(*localized.get(GROUP.get(f, f), ()))
+        if not sel: continue
+        d = fdepths(toks)
+        FILES[f] = apply(FILES[f], [(toks[i][2], toks[i + 2][2] + len(toks[i + 2][1]), "ImGui_" + toks[i + 2][1]) for i in range(len(toks)) if imgui_read(toks, d, i, sel)])
+
 out = ["--!optimize 2", "-- GENERATED by tools/bundle.py from *.lua, backends/, fonts/ - do not edit", ""]
 if LOVE:
     out = ["-- GENERATED by tools/bundle.py --target love - do not edit", re.search(r"--@compat-begin\n(.*?)--@compat-end", open(os.path.join(BACKEND_DIR, BACKEND)).read(), re.S).group(1), ""]
 if hot: out.append("local " + ", ".join(hot))
 if hoisted: out += [HOIST_DEPS] + hoisted
-out += header()
+out += header(bool(localized))
 linemap = []  # (first bundle line, file) for error -> source mapping (tools/test/run.py)
 def nextline(): return sum(x.count("\n") + 1 for x in out) + 1
 for name, src in sorted(FILES.items()):
     if name in GROUP: continue
-    out.append("__FILES[%r] = function()" % name)
+    outer, inner = localized.get(name, ((), ()))
+    out.append("__FILES[%r] = %sfunction()" % (name, "(" if outer else ""))
+    for ns in (outer, inner):  # declared + bound (now and after every IM_INCLUDE: load-time calls into other files)
+        if not ns: continue
+        out.append("local " + ", ".join("ImGui_" + n for n in ns))
+        out.append("__BIND[#__BIND + 1] = function() if ImGui then " + " ".join("ImGui_%s = ImGui.%s" % (n, n) for n in ns) + " end end; __BIND[#__BIND]()")
+        if ns is outer: out.append("return function()")
     if name == BACKEND and MODULES:
         out.append("local " + ", ".join(EXPORT[k] for k in MODULES))
         for k in MODULES:
@@ -299,7 +376,7 @@ for name, src in sorted(FILES.items()):
         src = INCLUDE.sub("", src)
     linemap.append((nextline(), name))
     out.append(src.rstrip("\n"))
-    out.append("end")
+    out.append("end end)()" if outer else "end")
     out.append("")
 for name in ENTRY:
     out.append("IM_INCLUDE(%r)" % name)
@@ -324,4 +401,4 @@ if not LOVE:
     open(os.path.join(OUT, "ImGuiWorker.client.luau"), "w").write(
         "--!optimize 2\n-- GENERATED by tools/bundle.py from backends/roblox/worker.luau + raster.lua - do not edit\n"
         + worker[:req.start()] + "local Raster = (function()\n" + raster + "\nend)()" + worker[req.end():])
-print("wrote build/%s (%d files, %d exports)" % (NAME, len(FILES), len(names)))
+print("wrote build/%s (%d files, %d exports%s)" % (NAME, len(FILES), len(names), ", %d ImGui.* localized" % sum(len(a) + len(b) for a, b in localized.values()) if localized else ""))
