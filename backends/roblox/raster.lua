@@ -33,6 +33,53 @@ local function PairF64(v: number): number | false
     writeu32(PairScratch, 4, v)
     return readf64(PairScratch, 0)
 end
+-- Solid span [o, o1] (byte offsets of its first and last pixel) of value packed (pair: PairF64(packed) or false). A
+-- native loop iteration costs more than a few writes: 8 (pairs) or 4 pixels per iteration.
+@native
+local function FillRow(buf: buffer, o: number, o1: number, packed: number, pair: number | false)
+    if pair then
+        while o + 24 < o1 do
+            writef64(buf, o, pair)
+            writef64(buf, o + 8, pair)
+            writef64(buf, o + 16, pair)
+            writef64(buf, o + 24, pair)
+            o += 32
+        end
+        while o < o1 do
+            writef64(buf, o, pair)
+            o += 8
+        end
+        if o == o1 then writeu32(buf, o, packed) end
+        return
+    end
+    while o + 12 <= o1 do
+        writeu32(buf, o, packed)
+        writeu32(buf, o + 4, packed)
+        writeu32(buf, o + 8, packed)
+        writeu32(buf, o + 12, packed)
+        o += 16
+    end
+    while o <= o1 do
+        writeu32(buf, o, packed)
+        o += 4
+    end
+end
+-- Rows 1 .. n - 1 below the span at o (len bytes) get its pixels. A span as wide as the target: the rows are
+-- contiguous, copied in doubling blocks (log2 n calls instead of n).
+@native
+local function CopyRows(buf: buffer, o: number, len: number, n: number)
+    local stride = TargetWidth * 4
+    if len == stride then
+        local done = 1
+        while done < n do
+            local c = min(done, n - done)
+            buffer.copy(buf, o + done * stride, buf, o, c * stride)
+            done += c
+        end
+    else
+        for k = 1, n - 1 do buffer.copy(buf, o + k * stride, buf, o, len) end
+    end
+end
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -142,24 +189,14 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
-        local pair = span >= 16 and PairF64(packed)
-        if pair then
-            local o, o1 = first, first + w4
-            while o < o1 do
-                writef64(TargetBuffer, o, pair)
-                o += 8
-            end
-            if o == o1 then writeu32(TargetBuffer, o, packed) end
-        else
-            for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
-        end
+        FillRow(TargetBuffer, first, first + w4, packed, span >= 16 and PairF64(packed))
         if span <= 8 then -- narrow (vertical lines): writes, a call per row costs more
             local stride = TargetWidth * 4
             for o = first + stride, first + (y1 - y0 - 1) * stride, stride do
                 for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, packed) end
             end
         else
-            for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
+            CopyRows(TargetBuffer, first, w4 + 4, y1 - y0)
         end
         -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
         local y = y0
@@ -222,17 +259,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             if v == prev_v and span > 8 then -- (a call: slower than a few writes)
                 buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
             else
-                local pair = span >= 16 and PairF64(v)
-                if pair then
-                    local o, o1 = o0, o0 + w4
-                    while o < o1 do
-                        writef64(TargetBuffer, o, pair)
-                        o += 8
-                    end
-                    if o == o1 then writeu32(TargetBuffer, o, v) end
-                else
-                    for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
-                end
+                FillRow(TargetBuffer, o0, o0 + w4, v, span >= 16 and PairF64(v))
             end
             local na, nb, nv = ra, rb, d
             if span >= x0 - ra and span >= rb - x1 then
@@ -245,16 +272,21 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             RowX0[y], RowX1[y], RowV[y] = na, nb, nv
             y += 1
             local stride = TargetWidth * 4
-            local o = o0
+            local n = 1
             while y < y1 and RowX0[y] == ra and RowX1[y] == rb and RowV[y] == d do
-                o += stride
-                if span <= 8 then
-                    for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, v) end
-                else
-                    buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
-                end
                 RowX0[y], RowX1[y], RowV[y] = na, nb, nv
                 y += 1
+                n += 1
+            end
+            local o = o0 + (n - 1) * stride
+            if n > 1 then
+                if span <= 8 then
+                    for oy = o0 + stride, o, stride do
+                        for oo = oy, oy + w4, 4 do writeu32(TargetBuffer, oo, v) end
+                    end
+                else
+                    CopyRows(TargetBuffer, o0, w4 + 4, n)
+                end
             end
             prev_o, prev_v, has_prev = o, v, false
             continue
@@ -275,7 +307,27 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
         prev_o, prev_v = o0, -1
         if black then
             -- (black: rs + x is x, so the opaque case is just the scaled destination; colour picker SV square)
-            for o = o0, o0 + w4, 4 do
+            -- opaque destination pixels four per iteration, computed directly (rarely repeated: no cache)
+            local o, oe = o0, o0 + w4
+            while o + 8 < oe do
+                local d, d2 = readu32(TargetBuffer, o), readu32(TargetBuffer, o + 4)
+                local d3, d4 = readu32(TargetBuffer, o + 8), readu32(TargetBuffer, o + 12)
+                if d < 4278190080 or d2 < 4278190080 or d3 < 4278190080 or d4 < 4278190080 then break end
+                writeu32(TargetBuffer, o,
+                    floor(band(d, 255) * ns + 0.5) + floor(band(rshift(d, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 4,
+                    floor(band(d2, 255) * ns + 0.5) + floor(band(rshift(d2, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d2, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 8,
+                    floor(band(d3, 255) * ns + 0.5) + floor(band(rshift(d3, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d3, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 12,
+                    floor(band(d4, 255) * ns + 0.5) + floor(band(rshift(d4, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d4, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                o += 16
+            end
+            for o = o, oe, 4 do
                 local d = readu32(TargetBuffer, o)
                 if d ~= last_d then
                     last_d = d
@@ -326,7 +378,7 @@ end
 
 @native
 local function UnpackColor(col: number)
-    return col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
+    return band(col, 255), band(rshift(col, 8), 255), band(rshift(col, 16), 255), rshift(col, 24)
 end
 
 @native
@@ -402,7 +454,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 continue
             end
             local d, key, al = 0, -1, 0
-            if tv % 16777216 == 16777215 then
+            if band(tv, 16777215) == 16777215 then
                 al = rshift(tv, 24)
                 d = readu32(dbuf, o)
                 key = gen + d
@@ -489,10 +541,14 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local n0, n1, n2 = A0 ~= 0 and -1 / A0 or 0, A1 ~= 0 and -1 / A1 or 0, A2 ~= 0 and -1 / A2 or 0
     -- UnpackColor / SampleTexture inlined (a call costs more than the math)
     local ca, cb, cc = readu32(vbuf, va + 32), readu32(vbuf, vb + 32), readu32(vbuf, vc + 32)
-    local ra, ga, ba, aa = ca % 256, floor(ca / 256) % 256, floor(ca / 65536) % 256, floor(ca / 16777216) % 256
+    local ra, ga, ba, aa = band(ca, 255), band(rshift(ca, 8), 255), band(rshift(ca, 16), 255), rshift(ca, 24)
     local rb, gb, bb, ab, rc, gc, bc, ac = ra, ga, ba, aa, ra, ga, ba, aa
-    if cb ~= ca then rb, gb, bb, ab = cb % 256, floor(cb / 256) % 256, floor(cb / 65536) % 256, floor(cb / 16777216) % 256 end
-    if cc ~= ca then rc, gc, bc, ac = cc % 256, floor(cc / 256) % 256, floor(cc / 65536) % 256, floor(cc / 16777216) % 256 end
+    if cb ~= ca then
+        rb, gb, bb, ab = band(cb, 255), band(rshift(cb, 8), 255), band(rshift(cb, 16), 255), rshift(cb, 24)
+    end
+    if cc ~= ca then
+        rc, gc, bc, ac = band(cc, 255), band(rshift(cc, 8), 255), band(rshift(cc, 16), 255), rshift(cc, 24)
+    end
     local ua, vva, ub, vvb, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vb + 16),
         readf64(vbuf, vb + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
 
@@ -570,7 +626,20 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 -- the row path's flat spans (BlendPixel's math, per-span constants, cached per destination value)
                 local o1 = o + (yb - yt) * stride
                 if f_opaque then
-                    for oo = o, o1, stride do writeu32(dbuf, oo, f_packed) end
+                    -- (4 pixels per iteration: a native loop iteration costs more than a few writes)
+                    local s4 = stride * 4
+                    local oo = o
+                    while oo + s4 <= o1 + stride do
+                        writeu32(dbuf, oo, f_packed)
+                        writeu32(dbuf, oo + stride, f_packed)
+                        writeu32(dbuf, oo + stride * 2, f_packed)
+                        writeu32(dbuf, oo + stride * 3, f_packed)
+                        oo += s4
+                    end
+                    while oo <= o1 do
+                        writeu32(dbuf, oo, f_packed)
+                        oo += stride
+                    end
                     continue
                 end
                 local last_d, last_v = -1, 0
@@ -684,15 +753,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
-                if f_pair then
-                    while o < o1 do
-                        writef64(dbuf, o, f_pair)
-                        o += 8
-                    end
-                    if o == o1 then writeu32(dbuf, o, f_packed) end
-                else
-                    for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
-                end
+                FillRow(dbuf, o, o1, f_packed, f_pair)
                 continue
             end
             local last_d, last_v = -1, 0
@@ -836,7 +897,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
     local col = readu32(vbuf, va + 32)
-    local ra, ga, ba, aa = col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
+    local ra, ga, ba, aa = band(col, 255), band(rshift(col, 8), 255), band(rshift(col, 16), 255), rshift(col, 24)
     if aa <= 0 then return end
     local ua, vva, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
     -- outer edges P -> Q (quad order, counter-clockwise like DrawTriangle's swap): A = yP - yQ, B = xQ - xP, C from P
