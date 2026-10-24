@@ -49,6 +49,7 @@ CHECKS=(
 "assets_scroll|ASSETS OK|$R --main tools/test/scripts/t_assets_scroll.luau --frames 1010"
 "shot|wrote|python3 tools/test/shot.py /tmp/imgui_shot.png --app"
 "registers|REGS OK|mkdir -p $T/regs && python3 tools/bundle.py $T/regs >/dev/null && h=\"\$(printf 'local _h%d = {} ' \$(seq 20))\" && grep -q \"^__FILES\\['imgui_impl_roblox.lua'\\] = function()\$\" $T/regs/ImGui.luau && for f in $T/regs/*.luau; do { echo \"\$h\"; sed \"/^__FILES\\['imgui_impl_roblox.lua'\\] = function()\$/a \$h\" \$f; } > \$f.h && luau-compile -O0 --null \$f.h || exit 1; done && ! grep -q require $T/regs/ImGuiWorker.client.luau && echo REGS OK"
+"native|NATIVE OK|python3 tools/test/native_size.py"
 "love|DRAWHASH|python3 tools/bundle.py --target love >/dev/null && luajit tools/test/love/t_drawhash.lua 60 Widgets,Basic && luajit tools/test/love/t_examples.lua"
 )
 

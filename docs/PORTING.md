@@ -26,6 +26,9 @@ there, but keep this port's existing data structures and conventions. Read the s
   `repeat ... until true` with `break`, and an explicit flag when the loop itself must break out of the wrapper.
 - Luau has a limit of 200 locals per function and 255 upvalues; split huge functions (like demo sections) into
   several local/global functions.
+- `@native` has a budget: all native code of one script must fit in one ~4 MB block, or Roblox compiles none of it
+  (every function of the bundle runs interpreted, silently). `tools/test/native_size.py --top 30` shows the bundle's
+  size and headroom (part of check_all.sh); put `@native` only on functions that run every frame.
 
 ## Portability (LÖVE build)
 - Library code must stay valid **Lua 5.1/LuaJIT syntax** apart from `@native` lines (stripped for LÖVE): no `+=`, `//`,
