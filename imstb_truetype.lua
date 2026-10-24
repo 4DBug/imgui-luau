@@ -373,7 +373,6 @@ end
 --- @param bounds bool
 --- @return stbtt__csctx
 --- @nodiscard
-@native
 local function STBTT__CSCTX_INIT(bounds)
     local this = stbtt__csctx()
 
@@ -580,7 +579,6 @@ local function stbtt__buf_range(b, o, s)
 end
 
 --- @param b stbtt__buf
-@native
 local function stbtt__cff_get_index(b)
     local count, start, offsize
     start = b.cursor
@@ -595,7 +593,6 @@ local function stbtt__cff_get_index(b)
 end
 
 --- @param b stbtt__buf
-@native
 local function stbtt__cff_int(b)
     local b0 = stbtt__buf_get8(b)
     if b0 >= 32 and b0 <= 246 then return b0 - 139
@@ -609,7 +606,6 @@ local function stbtt__cff_int(b)
 end
 
 --- @param b stbtt__buf
-@native
 local function stbtt__cff_skip_operand(b)
     local v
     local b0 = stbtt__buf_peek8(b)
@@ -631,7 +627,6 @@ end
 --- @param key int
 --- @return stbtt__buf
 --- @nodiscard
-@native
 local function stbtt__dict_get(b, key)
     stbtt__buf_seek(b, 0)
     while b.cursor < b.size do
@@ -653,7 +648,6 @@ end
 --- @param outcount int
 --- @return int[]
 --- @nodiscard
-@native
 local function stbtt__dict_get_ints(b, key, outcount)
     local operands = stbtt__dict_get(b, key)
     local out = {}
@@ -665,7 +659,6 @@ local function stbtt__dict_get_ints(b, key, outcount)
 end
 
 --- @param b stbtt__buf
-@native
 local function stbtt__cff_index_count(b)
     stbtt__buf_seek(b, 0)
     return stbtt__buf_get16(b)
@@ -675,7 +668,6 @@ end
 --- @param i int
 --- @return stbtt__buf
 --- @nodiscard
-@native
 local function stbtt__cff_index_get(b, i)
     local count, offsize, start, _end
     stbtt__buf_seek(b, 0)
@@ -738,7 +730,6 @@ local function stbtt_tag4(p, c0, c1, c2, c3, offset) offset = offset or 0; retur
 @native
 local function stbtt_tag(p, str, offset) local c0, c1, c2, c3 = string.byte(str, 1, 4); return stbtt_tag4(p, c0, c1, c2, c3, offset) end
 
-@native
 local function stbtt__isfont(font)
     -- check the version number
     if stbtt_tag4(font, 49, 0, 0, 0) then return true end -- TrueType 1
@@ -750,7 +741,6 @@ local function stbtt__isfont(font)
 end
 
 -- @OPTIMIZE: binary search
-@native
 local function stbtt__find_table(data, font_start, tag)
     local num_tables = ttUSHORT(data, font_start + 4)
     local tabledir = font_start + 12
@@ -763,7 +753,6 @@ local function stbtt__find_table(data, font_start, tag)
     return 0
 end
 
-@native
 local function stbtt_GetFontOffsetForIndex_internal(font_collection, index)
     -- if it's just a font, there's only one valid index
     if stbtt__isfont(font_collection) then
@@ -787,7 +776,6 @@ end
 
 --- @param cff      stbtt__buf
 --- @param fontdict stbtt__buf
-@native
 local function stbtt__get_subrs(cff, fontdict)
     local private_loc = stbtt__dict_get_ints(fontdict, 18, 2)
     if (private_loc[2] == 0 or private_loc[1] == 0) then
@@ -803,7 +791,6 @@ local function stbtt__get_subrs(cff, fontdict)
 end
 
 --- @return bool
-@native
 local function stbtt_InitFont_internal(info, data, fontstart)
     local cmap
     local numTables
@@ -1379,7 +1366,6 @@ end
 --- @param c stbtt__csctx
 --- @param x stbtt_int32
 --- @param y stbtt_int32
-@native
 local function stbtt__track_vertex(c, x, y)
     if x > c.max_x or not c.started then c.max_x = x end
     if y > c.max_y or not c.started then c.max_y = y end
@@ -1396,7 +1382,6 @@ end
 --- @param cy       stbtt_int32
 --- @param cx1      stbtt_int32
 --- @param cy1      stbtt_int32
-@native
 local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
     if c.bounds then
         stbtt__track_vertex(c, x, y)
@@ -1412,7 +1397,6 @@ local function stbtt__csctx_v(c, vtx_type, x, y, cx, cy, cx1, cy1)
 end
 
 --- @param ctx stbtt__csctx
-@native
 local function stbtt__csctx_close_shape(ctx)
     if ctx.first_x ~= ctx.x or ctx.first_y ~= ctx.y then
         stbtt__csctx_v(ctx, STBTT_VTX.LINE, trunc(ctx.first_x), trunc(ctx.first_y), 0, 0, 0, 0)
@@ -1422,7 +1406,6 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
-@native
 local function stbtt__csctx_rmove_to(ctx, dx, dy)
     stbtt__csctx_close_shape(ctx)
     ctx.x = ctx.x + dx
@@ -1435,7 +1418,6 @@ end
 --- @param ctx stbtt__csctx
 --- @param dx  float
 --- @param dy  float
-@native
 local function stbtt__csctx_rline_to(ctx, dx, dy)
     ctx.x = ctx.x + dx
     ctx.y = ctx.y + dy
@@ -1449,7 +1431,6 @@ end
 --- @param dy2 float
 --- @param dx3 float
 --- @param dy3 float
-@native
 local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     local cx1 = ctx.x + dx1
     local cy1 = ctx.y + dy1
@@ -1460,7 +1441,6 @@ local function stbtt__csctx_rccurve_to(ctx, dx1, dy1, dx2, dy2, dx3, dy3)
     stbtt__csctx_v(ctx, STBTT_VTX.CUBIC, trunc(ctx.x), trunc(ctx.y), trunc(cx1), trunc(cy1), trunc(cx2), trunc(cy2))
 end
 
-@native
 local function stbtt__get_subr(idx, n)
     local count = stbtt__cff_index_count(idx)
     local bias = 107
@@ -1476,7 +1456,6 @@ local function stbtt__get_subr(idx, n)
     return stbtt__cff_index_get(idx, n)
 end
 
-@native
 local function stbtt__cid_get_glyph_subrs(info, glyph_index)
     local fdselect = info.fdselect
     local fdselector = -1
@@ -1507,7 +1486,6 @@ end
 --- @param info        stbtt_fontinfo
 --- @param glyph_index int
 --- @param c           stbtt__csctx
-@native
 local function stbtt__run_charstring(info, glyph_index, c)
     local in_header = true
     local maskbits = 0
@@ -1781,7 +1759,6 @@ end
 --- @param glyph_index int
 --- @return int             num_vertices
 --- @return stbtt_vertex[]? vertices
-@native
 function stbtt__GetGlyphShapeT2(info, glyph_index)
     -- runs the charstring twice, once to count and once to output (to avoid realloc)
     local vertices = nil
@@ -1807,7 +1784,6 @@ end
 --- @return int y0
 --- @return int x1
 --- @return int y1
-@native
 function stbtt__GetGlyphInfoT2(info, glyph_index)
     local c = STBTT__CSCTX_INIT(true)
     local r = stbtt__run_charstring(info, glyph_index, c)
@@ -2568,7 +2544,6 @@ end
 --- @param objspace_flatness_squared float
 --- @param n                         int
 --- @return int num_points # updated num_points passed in
-@native
 local function stbtt__tesselate_cubic(points, num_points, x0, y0, x1, y1, x2, y2, x3, y3, objspace_flatness_squared, n)
     -- @TODO this "flatness" calculation is just made-up nonsense that seems to work well enough
     local dx0 = x1 - x0
@@ -2929,7 +2904,6 @@ end
 -- return '0' for index 0, and -1 for all other indices.
 --- @param data  table
 --- @param index int
-@native
 function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForIndex_internal(data, index) end
 
 -- Given an offset into the file that defines a font, this function builds
@@ -2940,7 +2914,6 @@ function stbtt_GetFontOffsetForIndex(data, index) return stbtt_GetFontOffsetForI
 --- @param info   stbtt_fontinfo
 --- @param data   table
 --- @param offset int
-@native
 function stbtt_InitFont(info, data, offset) return stbtt_InitFont_internal(info, data, offset) end
 
 return {
