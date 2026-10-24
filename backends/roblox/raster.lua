@@ -180,24 +180,30 @@ end
 local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number, x1: number, r: number, g: number,
     b: number, a: number)
     if a <= 0 then return end
-    if PX0 < PX1 then
-        ApplyDamage(PX0, PY0, PX1, PY1)
-        PX1 = PX0
-    end
     local w4 = (x1 - x0 - 1) * 4
     local span = x1 - x0
+    if a >= 255 and span <= 8 then
+        -- opaque and narrow (vertical lines, histogram bars): writes (a call per row costs more), and the uniform rows
+        -- just lose the span (pending damage, merged with the neighbours' like any primitive's), no per-row bookkeeping:
+        -- a narrow span rarely becomes the larger uniform piece of its rows
+        local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
+        local stride = TargetWidth * 4
+        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
+        for o = first, first + (y1 - y0 - 1) * stride, stride do
+            for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, packed) end
+        end
+        Shrink(x0, y0, x1, y1)
+        return
+    end
     if a >= 255 then
+        if PX0 < PX1 then
+            ApplyDamage(PX0, PY0, PX1, PY1)
+            PX1 = PX0
+        end
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
         FillRow(TargetBuffer, first, first + w4, packed, span >= 16 and PairF64(packed))
-        if span <= 8 then -- narrow (vertical lines): writes, a call per row costs more
-            local stride = TargetWidth * 4
-            for o = first + stride, first + (y1 - y0 - 1) * stride, stride do
-                for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, packed) end
-            end
-        else
-            CopyRows(TargetBuffer, first, w4 + 4, y1 - y0)
-        end
+        CopyRows(TargetBuffer, first, w4 + 4, y1 - y0)
         -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
         local y = y0
         while y < y1 do
@@ -227,6 +233,46 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     local rs, gs, bs = r * sa, g * sa, b * sa
     local black = rs == 0 and gs == 0 and bs == 0
     local last_d, last_v = -1, 0 -- UI backgrounds are mostly flat: reuse the previous result for the same destination
+    if span <= 4 then
+        -- narrow (vertical lines): blended per pixel (the uniform-row lookups per row cost more than the blend, which
+        -- is cached per destination value, the same result as the uniform path's); the rows just lose the span
+        -- (pending damage, like a narrow opaque span)
+        local stride = TargetWidth * 4
+        local first = (y0 * TargetWidth + x0) * 4 + TargetBase
+        -- rows x pixels; one pixel wide: one loop down the column
+        local olast, ilen, istep = first + (y1 - y0 - 1) * stride, w4, 4
+        if span == 1 then olast, ilen, istep = first, olast - first, stride end
+        for o0 = first, olast, stride do
+            for o = o0, o0 + ilen, istep do
+                local d = readu32(TargetBuffer, o)
+                if d == last_d then
+                    writeu32(TargetBuffer, o, last_v)
+                elseif d < 16777216 then
+                    writeu32(TargetBuffer, o, packed0)
+                else
+                    last_d = d
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        last_v = floor(rs + dr * ns + 0.5) + floor(gs + dg * ns + 0.5) * 256
+                            + floor(bs + db * ns + 0.5) * 65536 + 4278190080
+                    else
+                        local k = rshift(d, 24) * c1
+                        local oa = sa + k
+                        local inv = 1 / oa
+                        last_v = floor((rs + dr * k) * inv + 0.5) + floor((gs + dg * k) * inv + 0.5) * 256
+                            + floor((bs + db * k) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                    writeu32(TargetBuffer, o, last_v)
+                end
+            end
+        end
+        Shrink(x0, y0, x1, y1)
+        return
+    end
+    if PX0 < PX1 then
+        ApplyDamage(PX0, PY0, PX1, PY1)
+        PX1 = PX0
+    end
     local prev_o, prev_v = 0, -1 -- previous row: filled with prev_v (-1: blended)
     local wide, has_prev = span >= 32 and y1 - y0 > 1, false
     local y = y0
