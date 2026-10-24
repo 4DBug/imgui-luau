@@ -164,28 +164,39 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
         else
             -- the kind (gk: 0 triangle / plain quad, 1 / 2 gradient, 3 line quad, 4 triangle pair) mixed into the
             -- bounds: no extra %
-            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+            local gk = PrimGradient[p]
             local g = gk or 0
             h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 8 + g) % P1
             h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 8 + g) % P2
             local vax, vay = lx0 + ox, ly0 + oy
             -- vertices: triangle a, b, c; axis aligned quad a, c (CollectPrims checked that b, d follow from them + kind);
-            -- line quad, triangle pair (any shape) a, c, b, d
-            if vd then
-                nv = (gk == 3 or gk == 4) and 4 or 2
-            else
-                v2, v3 = v3, v2
-            end
-            local v = va
-            for k = 1, nv do
-                if k == 2 then v = v2 elseif k == 3 then v = v3 elseif k == 4 then v = vd end
-                -- inlined (a call per vertex costs more than the hash): one % per hash, h < 2^31, so h * 48271 + the
-                -- terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
-                local x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
-                local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
-                local c = readu32(vbuf, v + 32)
+            -- line quad, triangle pair (any shape) a, c, b, d. Unrolled (PrimHash's loop, same math): one % per hash,
+            -- h < 2^31, so h * 48271 + the terms (|x|, |y| < 2^15, uv < 2^14, c < 2^32) stays below 2^53
+            local x, y = readf64(vbuf, va) - vax, readf64(vbuf, va + 8) - vay
+            local uv = readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
+            local c = readu32(vbuf, va + 32)
+            h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+            h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+            local v = vd and PrimC[p] or PrimB[p]
+            x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
+            uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+            c = readu32(vbuf, v + 32)
+            h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+            h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+            if not vd or gk == 3 or gk == 4 then
+                v = vd and PrimB[p] or PrimC[p]
+                x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
+                uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+                c = readu32(vbuf, v + 32)
                 h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
                 h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+                if vd then
+                    x, y = readf64(vbuf, vd) - vax, readf64(vbuf, vd + 8) - vay
+                    uv = readf64(vbuf, vd + 16) * 8192 + readf64(vbuf, vd + 24)
+                    c = readu32(vbuf, vd + 32)
+                    h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+                    h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+                end
             end
             if DriftOn and (DriftSet[va // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
                 or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
