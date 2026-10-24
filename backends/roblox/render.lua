@@ -342,6 +342,97 @@ end
 
 -- the new primitive bounds in the tile (clipped to it); swapped with the tile's Drawn* after a redraw
 local NewX0, NewY0, NewX1, NewY1 = {}, {}, {}, {}
+-- DirtyRects' list diff: how far ahead it looks for the entry that resyncs the old and new list, after how many
+-- unpaired entries without a resync it gives up
+local DIFF_WINDOW, DIFF_MISSES = 8, 2
+
+-- DirtyRects' rects for old entries [i, oe] / new [i, ne] (prefix and suffix equal) from a greedy diff that pairs equal
+-- entries of both lists in order (any order-preserving pairing is exact: a pixel no unpaired primitive touches is
+-- covered by the same primitives in the same order), so a row scrolled in or out or an item inserted doesn't redraw
+-- everything after it. -1: DIFF_MISSES unpaired entries without a resync (mostly changed: a new font size, animated
+-- plots), DirtyRects' positional pass is cheaper there (fewer, larger rects, no lookahead)
+@native
+local function GreedyRects(tile, ListHash1, ListHash2, lf, i, oe, ne)
+    local DrawnHash1, DrawnHash2, DrawnX0, DrawnY0, DrawnX1, DrawnY1, of = tile.DrawnHash1, tile.DrawnHash2,
+        tile.DrawnX0, tile.DrawnY0, tile.DrawnX1, tile.DrawnY1, tile.DrawnFlat
+    local NX0, NY0, NX1, NY1 = NewX0, NewY0, NewX1, NewY1
+    local DX0, DY0, DX1, DY1, AddRect = EditableImages.DX0, EditableImages.DY0, EditableImages.DX1,
+        EditableImages.DY1, EditableImages.AddRect
+    local DirtyCount = 0
+    local oi, ni, misses = i, i, 0
+    while oi <= oe and ni <= ne do
+        local h1, h2, o1, o2 = ListHash1[ni], ListHash2[ni], DrawnHash1[oi], DrawnHash2[oi]
+        if o1 == h1 and o2 == h2 then
+            oi += 1
+            ni += 1
+            continue
+        end
+        -- the nearest resync: old oi .. oi + skip - 1 gone, or new ni .. ni + skip - 1 inserted
+        local skip, gone = 0, false
+        for dd = 1, DIFF_WINDOW do
+            if oi + dd <= oe and DrawnHash1[oi + dd] == h1 and DrawnHash2[oi + dd] == h2 then
+                skip, gone = dd, true
+                break
+            end
+            if ni + dd <= ne and ListHash1[ni + dd] == o1 and ListHash2[ni + dd] == o2 then
+                skip = dd
+                break
+            end
+        end
+        local ko1, kn1 = oi, ni
+        if skip > 0 then
+            if gone then ko1, kn1 = oi + skip - 1, ni - 1 else ko1, kn1 = oi - 1, ni + skip - 1 end
+            misses = 0
+        elseif lf[ni] >= 0 and lf[ni] == of[oi] then
+            -- same flat rect, new bounds: only the strips between the old and new edges can differ
+            local a, b, c, d = NX0[ni], NY0[ni], NX1[ni], NY1[ni]
+            local oa, ob, oc, od = DrawnX0[oi], DrawnY0[oi], DrawnX1[oi], DrawnY1[oi]
+            local uy0, uy1 = min(b, ob), max(d, od)
+            local ux0, ux1 = min(a, oa), max(c, oc)
+            if a ~= oa then DirtyCount = AddRect(DirtyCount, ux0, uy0, max(a, oa), uy1) end
+            if c ~= oc then DirtyCount = AddRect(DirtyCount, min(c, oc), uy0, ux1, uy1) end
+            if b ~= ob then DirtyCount = AddRect(DirtyCount, ux0, uy0, ux1, max(b, ob)) end
+            if d ~= od then DirtyCount = AddRect(DirtyCount, ux0, min(d, od), ux1, uy1) end
+            ko1, kn1 = oi - 1, ni - 1
+        else
+            misses += 1
+            if misses >= DIFF_MISSES then return -1 end
+        end
+        for k = oi, ko1 do
+            local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
+            if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                DirtyCount = AddRect(DirtyCount, a, b, c, d)
+            end
+        end
+        for k = ni, kn1 do
+            local a, b, c, d = NX0[k], NY0[k], NX1[k], NY1[k]
+            if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                DirtyCount = AddRect(DirtyCount, a, b, c, d)
+            end
+        end
+        if skip == 0 then
+            oi += 1
+            ni += 1
+        elseif gone then
+            oi += skip
+        else
+            ni += skip
+        end
+    end
+    for k = oi, oe do
+        local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
+        if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+            DirtyCount = AddRect(DirtyCount, a, b, c, d)
+        end
+    end
+    for k = ni, ne do
+        local a, b, c, d = NX0[k], NY0[k], NX1[k], NY1[k]
+        if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+            DirtyCount = AddRect(DirtyCount, a, b, c, d)
+        end
+    end
+    return DirtyCount
+end
 
 @native
 local function DirtyRects(tile, layer, key, count, x0, y0, force, exposed, vx0, vy0, vx1, vy1)
@@ -382,37 +473,44 @@ local function DirtyRects(tile, layer, key, count, x0, y0, force, exposed, vx0, 
             j += 1
         end
         local of, lf = tile.DrawnFlat, layer.TileListFlat[key]
-        local paired = DrawnCount - j - i == count - j - i
-        for k = i, count - j do
-            local a, b, c, d = NX0[k], NY0[k], NX1[k], NY1[k]
-            local oa, ob, oc, od = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
-            if paired and DrawnHash1[k] == ListHash1[k] and DrawnHash2[k] == ListHash2[k] then
-                -- same primitive at the same place in both lists: every pixel it covers is either in a changed one's
-                -- rect or drawn by the same primitives in the same order
-                continue
-            elseif paired and lf[k] >= 0 and lf[k] == of[k] then
-                -- same flat rect, new bounds: only the strips between the old and new edges can differ
-                local uy0, uy1 = min(b, ob), max(d, od)
-                local ux0, ux1 = min(a, oa), max(c, oc)
-                if a ~= oa then DirtyCount = AddRect(DirtyCount, ux0, uy0, max(a, oa), uy1) end
-                if c ~= oc then DirtyCount = AddRect(DirtyCount, min(c, oc), uy0, ux1, uy1) end
-                if b ~= ob then DirtyCount = AddRect(DirtyCount, ux0, uy0, ux1, max(b, ob)) end
-                if d ~= od then DirtyCount = AddRect(DirtyCount, ux0, min(d, od), ux1, uy1) end
-            else
-                -- (inside the first rect: AddRect would merge it there, changing nothing; skip the call. Animated
-                -- plots change hundreds of primitives per tile)
+        -- the lists differ in old [i, DrawnCount - j] / new [i, count - j]
+        DirtyCount = GreedyRects(tile, ListHash1, ListHash2, lf, i, DrawnCount - j, count - j)
+        if DirtyCount < 0 then
+            -- positional (the lists mostly changed)
+            DirtyCount = 0
+            local paired = DrawnCount - j - i == count - j - i
+            for k = i, count - j do
+                local a, b, c, d = NX0[k], NY0[k], NX1[k], NY1[k]
+                local oa, ob, oc, od = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
+                if paired and DrawnHash1[k] == ListHash1[k] and DrawnHash2[k] == ListHash2[k] then
+                    -- same primitive at the same place in both lists: every pixel it covers is either in a changed
+                    -- one's rect or drawn by the same primitives in the same order
+                    continue
+                elseif paired and lf[k] >= 0 and lf[k] == of[k] then
+                    -- same flat rect, new bounds: only the strips between the old and new edges can differ
+                    local uy0, uy1 = min(b, ob), max(d, od)
+                    local ux0, ux1 = min(a, oa), max(c, oc)
+                    if a ~= oa then DirtyCount = AddRect(DirtyCount, ux0, uy0, max(a, oa), uy1) end
+                    if c ~= oc then DirtyCount = AddRect(DirtyCount, min(c, oc), uy0, ux1, uy1) end
+                    if b ~= ob then DirtyCount = AddRect(DirtyCount, ux0, uy0, ux1, max(b, ob)) end
+                    if d ~= od then DirtyCount = AddRect(DirtyCount, ux0, min(d, od), ux1, uy1) end
+                else
+                    -- (inside the first rect: AddRect would merge it there, changing nothing; skip the call.
+                    -- Animated plots change hundreds of primitives per tile)
+                    if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
+                        DirtyCount = AddRect(DirtyCount, a, b, c, d)
+                    end
+                    if k <= DrawnCount - j
+                        and (DirtyCount == 0 or oa < DX0[1] or ob < DY0[1] or oc > DX1[1] or od > DY1[1]) then
+                        DirtyCount = AddRect(DirtyCount, oa, ob, oc, od)
+                    end
+                end
+            end
+            for k = count - j + 1, DrawnCount - j do
+                local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
                 if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
                     DirtyCount = AddRect(DirtyCount, a, b, c, d)
                 end
-                if k <= DrawnCount - j and (DirtyCount == 0 or oa < DX0[1] or ob < DY0[1] or oc > DX1[1] or od > DY1[1]) then
-                    DirtyCount = AddRect(DirtyCount, oa, ob, oc, od)
-                end
-            end
-        end
-        for k = count - j + 1, DrawnCount - j do
-            local a, b, c, d = DrawnX0[k], DrawnY0[k], DrawnX1[k], DrawnY1[k]
-            if DirtyCount == 0 or a < DX0[1] or b < DY0[1] or c > DX1[1] or d > DY1[1] then
-                DirtyCount = AddRect(DirtyCount, a, b, c, d)
             end
         end
     end
