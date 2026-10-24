@@ -591,6 +591,10 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     if cconst then r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255 end
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
     if textured then tw, th, tbuf = t.Width, t.Height, t.Buffer end
+    -- Interpolated alpha on an edge whose two vertices have alpha 0 (an AA fringe's outer edge, which sits on pixel
+    -- centres) is 0: the edge's own weight is 0 there, so a row / column on it draws nothing
+    local interp = not flat and not cconst
+    local z0, z1, z2 = interp and ab == 0 and ac == 0, interp and aa == 0 and ac == 0, interp and aa == 0 and ab == 0
 
     if not textured and (maxx - minx) * 2 < maxy - miny then
         -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
@@ -609,7 +613,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 yb = min(yb, ceil(f0 * m0 - 0.499999))
             else
                 local w = A0 * px + (B0 * (yt + 0.5) + C0)
-                if not (w > 0 or (w == 0 and tl0)) then continue end
+                if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
             end
             if B1 > 0 then
                 yt = max(yt, floor(f1 * m1 - 0.500001))
@@ -617,7 +621,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 yb = min(yb, ceil(f1 * m1 - 0.499999))
             else
                 local w = A1 * px + (B1 * (yt + 0.5) + C1)
-                if not (w > 0 or (w == 0 and tl1)) then continue end
+                if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
             end
             if B2 > 0 then
                 yt = max(yt, floor(f2 * m2 - 0.500001))
@@ -625,7 +629,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 yb = min(yb, ceil(f2 * m2 - 0.499999))
             else
                 local w = A2 * px + (B2 * (yt + 0.5) + C2)
-                if not (w > 0 or (w == 0 and tl2)) then continue end
+                if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
             end
             while yt <= yb do
                 local py = yt + 0.5
@@ -741,7 +745,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr = min(xr, ceil(e0 * n0 - 0.499999))
         else
             local w = A0 * (xl + 0.5) + e0
-            if not (w > 0 or (w == 0 and tl0)) then continue end
+            if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
         end
         if A1 > 0 then
             xl = max(xl, floor(e1 * n1 - 0.500001))
@@ -749,7 +753,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr = min(xr, ceil(e1 * n1 - 0.499999))
         else
             local w = A1 * (xl + 0.5) + e1
-            if not (w > 0 or (w == 0 and tl1)) then continue end
+            if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
         end
         if A2 > 0 then
             xl = max(xl, floor(e2 * n2 - 0.500001))
@@ -757,7 +761,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             xr = min(xr, ceil(e2 * n2 - 0.499999))
         else
             local w = A2 * (xl + 0.5) + e2
-            if not (w > 0 or (w == 0 and tl2)) then continue end
+            if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
         end
 
         -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
