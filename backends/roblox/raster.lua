@@ -601,9 +601,32 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             local px = x + 0.5
             local yt, yb = miny, maxy
             local f0, f1, f2 = A0 * px + C0, A1 * px + C1, A2 * px + C2
-            if B0 > 0 then yt = max(yt, floor(f0 * m0 - 0.500001)) elseif B0 < 0 then yb = min(yb, ceil(f0 * m0 - 0.499999)) end
-            if B1 > 0 then yt = max(yt, floor(f1 * m1 - 0.500001)) elseif B1 < 0 then yb = min(yb, ceil(f1 * m1 - 0.499999)) end
-            if B2 > 0 then yt = max(yt, floor(f2 * m2 - 0.500001)) elseif B2 < 0 then yb = min(yb, ceil(f2 * m2 - 0.499999)) end
+            -- (a vertical edge, B = 0: w is the same on the whole column (B * py is 0), so test it once: an AA fringe's
+            -- column on the wrong side would else be scanned row by row)
+            if B0 > 0 then
+                yt = max(yt, floor(f0 * m0 - 0.500001))
+            elseif B0 < 0 then
+                yb = min(yb, ceil(f0 * m0 - 0.499999))
+            else
+                local w = A0 * px + (B0 * (yt + 0.5) + C0)
+                if not (w > 0 or (w == 0 and tl0)) then continue end
+            end
+            if B1 > 0 then
+                yt = max(yt, floor(f1 * m1 - 0.500001))
+            elseif B1 < 0 then
+                yb = min(yb, ceil(f1 * m1 - 0.499999))
+            else
+                local w = A1 * px + (B1 * (yt + 0.5) + C1)
+                if not (w > 0 or (w == 0 and tl1)) then continue end
+            end
+            if B2 > 0 then
+                yt = max(yt, floor(f2 * m2 - 0.500001))
+            elseif B2 < 0 then
+                yb = min(yb, ceil(f2 * m2 - 0.499999))
+            else
+                local w = A2 * px + (B2 * (yt + 0.5) + C2)
+                if not (w > 0 or (w == 0 and tl2)) then continue end
+            end
             while yt <= yb do
                 local py = yt + 0.5
                 local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
@@ -711,20 +734,30 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         local xl, xr = minx, maxx
         local e0, e1, e2 = B0 * py + C0, B1 * py + C1, B2 * py + C2
         -- (e * n is -e / A within an ulp; the 1e-6 margin covers that, and the exact tests below decide)
+        -- (a horizontal edge, A = 0: w is e on the whole row, tested once, like the columns above)
         if A0 > 0 then
             xl = max(xl, floor(e0 * n0 - 0.500001))
         elseif A0 < 0 then
             xr = min(xr, ceil(e0 * n0 - 0.499999))
+        else
+            local w = A0 * (xl + 0.5) + e0
+            if not (w > 0 or (w == 0 and tl0)) then continue end
         end
         if A1 > 0 then
             xl = max(xl, floor(e1 * n1 - 0.500001))
         elseif A1 < 0 then
             xr = min(xr, ceil(e1 * n1 - 0.499999))
+        else
+            local w = A1 * (xl + 0.5) + e1
+            if not (w > 0 or (w == 0 and tl1)) then continue end
         end
         if A2 > 0 then
             xl = max(xl, floor(e2 * n2 - 0.500001))
         elseif A2 < 0 then
             xr = min(xr, ceil(e2 * n2 - 0.499999))
+        else
+            local w = A2 * (xl + 0.5) + e2
+            if not (w > 0 or (w == 0 and tl2)) then continue end
         end
 
         -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
@@ -944,10 +977,35 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         local py = y + 0.5
         local xl, xr = minx, maxx
         local e0, e1, e2, e3 = B0 * py + C0, B1 * py + C1, B2 * py + C2, B3 * py + C3
-        if A0 > 0 then xl = max(xl, floor(e0 * n0 - 0.500001)) elseif A0 < 0 then xr = min(xr, ceil(e0 * n0 - 0.499999)) end
-        if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
-        if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
-        if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        -- (A = 0: tested once per row, see DrawTriangle)
+        if A0 > 0 then
+            xl = max(xl, floor(e0 * n0 - 0.500001))
+        elseif A0 < 0 then
+            xr = min(xr, ceil(e0 * n0 - 0.499999))
+        elseif not (e0 > 0 or (e0 == 0 and tl0)) then
+            continue
+        end
+        if A1 > 0 then
+            xl = max(xl, floor(e1 * n1 - 0.500001))
+        elseif A1 < 0 then
+            xr = min(xr, ceil(e1 * n1 - 0.499999))
+        elseif not (e1 > 0 or (e1 == 0 and tl1)) then
+            continue
+        end
+        if A2 > 0 then
+            xl = max(xl, floor(e2 * n2 - 0.500001))
+        elseif A2 < 0 then
+            xr = min(xr, ceil(e2 * n2 - 0.499999))
+        elseif not (e2 > 0 or (e2 == 0 and tl2)) then
+            continue
+        end
+        if A3 > 0 then
+            xl = max(xl, floor(e3 * n3 - 0.500001))
+        elseif A3 < 0 then
+            xr = min(xr, ceil(e3 * n3 - 0.499999))
+        elseif not (e3 > 0 or (e3 == 0 and tl3)) then
+            continue
+        end
         if xl > minx and xl <= xr then xl += 1 end -- (an estimate is never in the span: see DrawTriangle)
         while xl <= xr do
             local px = xl + 0.5
