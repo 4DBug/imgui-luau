@@ -4729,12 +4729,11 @@ function MT.ImDrawListSplitter:Merge(draw_list)
                 cmd_write = cmd_write + 1
             end
         end
-        if ch._IdxBuffer.Size > 0 then
-            local src_idx = ch._IdxBuffer.Data
-            for n = 1, ch._IdxBuffer.Size do
-                dst_idx[idx_write] = src_idx[n]
-                idx_write = idx_write + 1
-            end
+        local sz = ch._IdxBuffer.Size
+        if sz > 0 then
+            -- [Luau] table.move() (C++ memcpy) instead of a per-index loop
+            table.move(ch._IdxBuffer.Data, 1, sz, idx_write, dst_idx)
+            idx_write = idx_write + sz
         end
     end
     draw_list._IdxWritePtr = idx_write
