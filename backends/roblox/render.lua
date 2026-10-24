@@ -28,20 +28,22 @@ local P1, P2 = 2147483647, 2147483629 -- two independent 31 bit hashes per tile 
 local LAYER_KEEP_FRAMES = 120
 local MAX_DEFER_FRAMES = 8 -- a changed tile is redrawn at the latest this many frames later, even over the budget
 
-local PrimA, PrimB, PrimC, PrimD, PrimTexture, PrimGradient = {}, {}, {}, {}, {}, {}
-local PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1 = {}, {}, {}, {}
+local PrimA, PrimB, PrimC, PrimD, PrimGradient = {}, {}, {}, {}, {}
 local PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1 = {}, {}, {}, {}
-local PrimTexId, PrimVtxBuffer = {}, {}
+-- a primitive's draw command (index into Cmd*, numbered through the frame): its texture, vertex buffer and clip
+local PrimCmd = {}
+local CmdTexture, CmdTexId, CmdVtxBuffer = {}, {}, {}
+local CmdClipX0, CmdClipY0, CmdClipX1, CmdClipY1 = {}, {}, {}, {}
+local CmdCount = 0
 -- flat rect (one colour, one uv or untextured): HashTiles hashes its clipped rect per tile
 local PrimFlat = {}
 -- the current draw list's primitives per layer kind (filled by CollectPrims): count, and min bounds for kinds 1 and 3
 local LayerPrims1, LayerPrims2, LayerPrims3 = {}, {}, {}
 local Kind1Count, Kind2Count, Kind3Count, Kind1X, Kind1Y, Kind3X, Kind3Y = 0, 0, 0, 0, 0, 0, 0
-M.PrimA, M.PrimB, M.PrimC, M.PrimD = PrimA, PrimB, PrimC, PrimD
-M.PrimTexture, M.PrimGradient = PrimTexture, PrimGradient
-M.PrimClipX0, M.PrimClipY0, M.PrimClipX1, M.PrimClipY1 = PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1
+M.PrimA, M.PrimB, M.PrimC, M.PrimD, M.PrimGradient = PrimA, PrimB, PrimC, PrimD, PrimGradient
 M.PrimBoundsX0, M.PrimBoundsY0, M.PrimBoundsX1, M.PrimBoundsY1 = PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1
-M.PrimTexId, M.PrimVtxBuffer = PrimTexId, PrimVtxBuffer
+M.PrimCmd, M.CmdTexture, M.CmdTexId, M.CmdVtxBuffer = PrimCmd, CmdTexture, CmdTexId, CmdVtxBuffer
+M.CmdClipX0, M.CmdClipY0, M.CmdClipX1, M.CmdClipY1 = CmdClipX0, CmdClipY0, CmdClipX1, CmdClipY1
 
 -- Adds [a, c) x [b, d) to the n dirty rects DX0..DY1 (merged unless that wastes area), returns the count
 EditableImages.DX0, EditableImages.DY0, EditableImages.DX1, EditableImages.DY1 = {}, {}, {}, {}
@@ -79,7 +81,8 @@ local DriftSet, DriftOn, DriftMark1, DriftMark2 = table.create(4096, false), fal
 -- Returns h1, h2 and the flat signature (>= 0: a flat rect, whose per-tile hash is FlatTileHash's)
 @native
 local function PrimHash(p, lx0, ly0, ox, oy)
-    local vbuf, va, vd, tex_id = PrimVtxBuffer[p], PrimA[p], PrimD[p], PrimTexId[p]
+    local cmd = PrimCmd[p]
+    local vbuf, va, vd, tex_id = CmdVtxBuffer[cmd], PrimA[p], PrimD[p], CmdTexId[cmd]
     if PrimFlat[p] then
         local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
         return 0, 0, ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
@@ -111,7 +114,8 @@ end
 -- A flat rect's hash in tile (tx, ty) (HashTiles' per-tile flat hash)
 @native
 local function FlatTileHash(p, lx0, ly0, tx, ty)
-    local vbuf, va, tex_id = PrimVtxBuffer[p], PrimA[p], PrimTexId[p]
+    local cmd = PrimCmd[p]
+    local vbuf, va, tex_id = CmdVtxBuffer[cmd], PrimA[p], CmdTexId[cmd]
     local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
     local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
         PrimBoundsY1[p] - ly0
@@ -139,18 +143,19 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
     local TileXs, TileYs = layer.TileX, layer.TileY
     -- upvalues as locals: cheaper in the hot loop
     local PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1 = PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1
-    local PrimA, PrimB, PrimC, PrimD, PrimGradient, PrimTexId, PrimVtxBuffer, PrimFlat =
-        PrimA, PrimB, PrimC, PrimD, PrimGradient, PrimTexId, PrimVtxBuffer, PrimFlat
+    local PrimA, PrimB, PrimC, PrimD, PrimGradient, PrimCmd, CmdTexId, CmdVtxBuffer, PrimFlat =
+        PrimA, PrimB, PrimC, PrimD, PrimGradient, PrimCmd, CmdTexId, CmdVtxBuffer, PrimFlat
     local KeySlot, SlotCount, SlotHash1, SlotHash2 = KeySlot, SlotCount, SlotHash1, SlotHash2
     local SlotList, SlotListHash1, SlotListHash2, SlotListFlat = SlotList, SlotListHash1, SlotListHash2, SlotListFlat
     local TILE = TILE
     for pi = 1, np do
         local p = plist[pi]
-        local tex_id = PrimTexId[p]
+        local cmd = PrimCmd[p]
+        local tex_id = CmdTexId[cmd]
         -- hash the clipped bounds, not the clip: a window clipped by the fixed viewport stays hash-stable when moved
         local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
             PrimBoundsY1[p] - ly0
-        local vbuf = PrimVtxBuffer[p]
+        local vbuf = CmdVtxBuffer[cmd]
         local va, vd = PrimA[p], PrimD[p]
         -- flat rect: hash its clipped rect per tile, so resizing only changes the tiles its edges cross
         local FlatRect, RectColor, RectUV = PrimFlat[p], 0, 0
@@ -568,12 +573,14 @@ local function RasterRect(list, count, x0, y0, tox, toy, rx0, ry0, rx1, ry1)
             or PrimBoundsY1[p] - y0 <= ry0 then
             continue
         end
-        local cx0, cy0 = max(PrimClipX0[p] - x0, rx0), max(PrimClipY0[p] - y0, ry0)
-        local cx1, cy1 = min(PrimClipX1[p] - x0, rx1), min(PrimClipY1[p] - y0, ry1)
+        local cmd = PrimCmd[p]
+        local cx0, cy0 = max(CmdClipX0[cmd] - x0, rx0), max(CmdClipY0[cmd] - y0, ry0)
+        local cx1, cy1 = min(CmdClipX1[cmd] - x0, rx1), min(CmdClipY1[cmd] - y0, ry1)
         if cx0 >= cx1 or cy0 >= cy1 then continue end
         local kind, gk = 0, PrimGradient[p]
         if PrimD[p] then kind = gk and gk + 1 or 1 end
-        DrawPrim(kind, PrimTexture[p], PrimVtxBuffer[p], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0, cx1, cy1)
+        DrawPrim(kind, CmdTexture[cmd], CmdVtxBuffer[cmd], PrimA[p], PrimB[p], PrimC[p], PrimD[p] or 0, tox, toy, cx0, cy0,
+            cx1, cy1)
     end
 end
 
@@ -765,9 +772,8 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
         ex0, ey0, ex1, ey1 = min(ex0, a), min(ey0, b), max(ex1, c), max(ey1, d)
     end
     -- upvalues as locals: cheaper in the hot loop
-    local PrimA, PrimB, PrimC, PrimD, PrimTexture, PrimGradient, PrimTexId, PrimVtxBuffer, PrimFlat =
-        PrimA, PrimB, PrimC, PrimD, PrimTexture, PrimGradient, PrimTexId, PrimVtxBuffer, PrimFlat
-    local PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1 = PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1
+    local PrimA, PrimB, PrimC, PrimD, PrimGradient, PrimFlat, PrimCmd = PrimA, PrimB, PrimC, PrimD, PrimGradient,
+        PrimFlat, PrimCmd
     local PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1 = PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1
     local LayerPrims1, LayerPrims2, LayerPrims3 = LayerPrims1, LayerPrims2, LayerPrims3
     local ci = 0
@@ -806,6 +812,10 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
             if cx1 > cx0 and cy1 > cy0 then
                 local tex_id = pcmd:GetTexID()
                 local t = BackendData.Textures[tex_id]
+                local cmd = CmdCount + 1
+                CmdCount = cmd
+                CmdTexture[cmd], CmdTexId[cmd], CmdVtxBuffer[cmd] = t, tex_id, vbuf
+                CmdClipX0[cmd], CmdClipY0[cmd], CmdClipX1[cmd], CmdClipY1[cmd] = cx0, cy0, cx1, cy1
                 local vo = pcmd.VtxOffset
                 local i, last = pcmd.IdxOffset + 1, pcmd.IdxOffset + pcmd.ElemCount
                 while i <= last do
@@ -894,9 +904,7 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                     if by1 > cy1 then by1 = cy1 end
                     if bx0 < bx1 and by0 < by1 then
                         n = n + 1
-                        PrimA[n], PrimB[n], PrimC[n], PrimD[n], PrimTexture[n], PrimGradient[n], PrimTexId[n],
-                            PrimVtxBuffer[n] = va, vb, vc, vd, t, gk, tex_id, vbuf
-                        PrimClipX0[n], PrimClipY0[n], PrimClipX1[n], PrimClipY1[n] = cx0, cy0, cx1, cy1
+                        PrimA[n], PrimB[n], PrimC[n], PrimD[n], PrimGradient[n], PrimCmd[n] = va, vb, vc, vd, gk, cmd
                         PrimBoundsX0[n], PrimBoundsY0[n], PrimBoundsX1[n], PrimBoundsY1[n] = bx0, by0, bx1, by1
                         PrimFlat[n] = flat
                         if kind == 2 then
@@ -1179,6 +1187,7 @@ function M.RenderDrawData(draw_data)
     Parallel.Active = Parallel.On and not Parallel.Config.Inline
 
     local n = 0
+    CmdCount = 0
     local z = 0
     local AnyDeferred = false
     for _, draw_list in draw_data.CmdLists:iter() do
@@ -1259,8 +1268,8 @@ function M.RenderDrawData(draw_data)
 
     SweepLayers(BackendData, FrameNo)
     -- drop references so old vertex tables can be collected
-    for k = n + 1, BackendData.LastPrimCount do PrimTexture[k], PrimVtxBuffer[k] = nil, nil end
-    BackendData.LastPrimCount = n
+    for k = CmdCount + 1, BackendData.LastCmdCount do CmdTexture[k], CmdVtxBuffer[k] = nil, nil end
+    BackendData.LastCmdCount = CmdCount
     -- Tiles left for later: if the app doesn't submit a new frame, Heartbeat finishes them from this draw data
     if AnyDeferred then
         BackendData.Stale = draw_data

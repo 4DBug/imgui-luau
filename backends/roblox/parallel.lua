@@ -6,13 +6,14 @@ local Render = IM_INCLUDE("roblox/render.lua")
 
 local Players = game:GetService("Players")
 local EditableImages, Records = Textures.EditableImages, Textures.Records
-local PrimA, PrimB, PrimC, PrimD, PrimTexture, PrimGradient = Render.PrimA, Render.PrimB, Render.PrimC, Render.PrimD,
-    Render.PrimTexture, Render.PrimGradient
-local PrimClipX0, PrimClipY0, PrimClipX1, PrimClipY1 = Render.PrimClipX0, Render.PrimClipY0, Render.PrimClipX1,
-    Render.PrimClipY1
+local PrimA, PrimB, PrimC, PrimD, PrimGradient = Render.PrimA, Render.PrimB, Render.PrimC, Render.PrimD,
+    Render.PrimGradient
+local PrimCmd, CmdTexture, CmdTexId, CmdVtxBuffer = Render.PrimCmd, Render.CmdTexture, Render.CmdTexId,
+    Render.CmdVtxBuffer
+local CmdClipX0, CmdClipY0, CmdClipX1, CmdClipY1 = Render.CmdClipX0, Render.CmdClipY0, Render.CmdClipX1,
+    Render.CmdClipY1
 local PrimBoundsX0, PrimBoundsY0, PrimBoundsX1, PrimBoundsY1 = Render.PrimBoundsX0, Render.PrimBoundsY0,
     Render.PrimBoundsX1, Render.PrimBoundsY1
-local PrimTexId, PrimVtxBuffer = Render.PrimTexId, Render.PrimVtxBuffer
 
 local M = Render.Parallel
 local writei32, writef64, copy = buffer.writei32, buffer.writef64, buffer.copy
@@ -162,22 +163,23 @@ function M.Tile(img, list, count: number, x0: number, y0: number, tox: number, t
         local p = list[k]
         if stamp[p] ~= st then
             stamp[p], poff[p] = st, pn
-            local d, t = PrimD[p], PrimTexture[p]
+            local cmd = PrimCmd[p]
+            local d, t = PrimD[p], CmdTexture[cmd]
             local gk = PrimGradient[p]
             writei32(P, pn, d and (gk and gk + 1 or 1) or 0)
-            writei32(P, pn + 4, t and PrimTexId[p] or -1)
+            writei32(P, pn + 4, t and CmdTexId[cmd] or -1)
             if t then
-                u[t] = PrimTexId[p]
+                u[t] = CmdTexId[cmd]
             end
-            writei32(P, pn + 8, PrimClipX0[p])
-            writei32(P, pn + 12, PrimClipY0[p])
-            writei32(P, pn + 16, PrimClipX1[p])
-            writei32(P, pn + 20, PrimClipY1[p])
+            writei32(P, pn + 8, CmdClipX0[cmd])
+            writei32(P, pn + 12, CmdClipY0[cmd])
+            writei32(P, pn + 16, CmdClipX1[cmd])
+            writei32(P, pn + 20, CmdClipY1[cmd])
             writei32(P, pn + 24, PrimBoundsX0[p])
             writei32(P, pn + 28, PrimBoundsY0[p])
             writei32(P, pn + 32, PrimBoundsX1[p])
             writei32(P, pn + 36, PrimBoundsY1[p])
-            local vb = PrimVtxBuffer[p]
+            local vb = CmdVtxBuffer[cmd]
             copy(P, pn + REC_A, vb, PrimA[p], VTX)
             copy(P, pn + REC_C, vb, PrimC[p], VTX)
             if not d or gk == 3 or gk == 4 then

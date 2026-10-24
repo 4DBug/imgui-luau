@@ -140,7 +140,7 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         Textures = Textures.Records, MouseX = -1, MouseY = -1,
         Layers = {}, Overlays = {}, OverlayHolders = {}, OverlayShown = {}, FrameNo = 0, Scale = render_scale or 1,
             TilesActive = false, RenderRate = 60, BusyRenderRate = 0, RedrawBudget = 0, HeartbeatCount = 0,
-            NextRender = 0, LastPrimCount = 0, ForceRedraw = true,
+            NextRender = 0, LastCmdCount = 0, ForceRedraw = true,
     }
     io.BackendPlatformUserData = BackendData
     EditableImages.Backends[BackendData] = true
