@@ -233,18 +233,24 @@ function ImLerp(a, b, t)
 end
 
 --@hoist
+@native
 local function _Trunc(val) if val >= 0 then return mathFloor(val) else return mathCeil(val) end end
 
 --- @overload fun(v: float): float
 --- @overload fun(v: ImVec2): ImVec2
 --@hoist
+@native
 function ImTrunc(v)
     if     type(v) == "number" then return _Trunc(v)
     elseif type(v) == "table"  then return ImVec2(_Trunc(v.x), _Trunc(v.y))
     end
 end
 
-ImTrunc64 = _Trunc
+-- [Luau] its own (hoisted) function instead of `ImTrunc64 = _Trunc`: calls get inlined (e.g. AddRect()) instead of calling
+-- a separate function
+--@hoist
+@native
+function ImTrunc64(val) if val >= 0 then return mathFloor(val) else return mathCeil(val) end end
 
 -- Consider using the bit-hack version (search for "0x1p120f").
 --- @param f float
@@ -264,7 +270,11 @@ function ImIsTruncated(x) return x % 1 == 0 end -- (float)(int)x == x
 -- Returns true if all parameters are whole numbers.
 function ImIsTruncated4(x, y, z, w) return x % 1 == 0 and y % 1 == 0 and z % 1 == 0 and w % 1 == 0 end
 
+--@hoist
+@native
 function IM_TRUNC(VAL) return math.floor(VAL) end -- Positive values only!
+--@hoist
+@native
 function IM_ROUND(VAL) return math.floor(VAL + 0.5) end -- Positive values only!
 
 --@hoist

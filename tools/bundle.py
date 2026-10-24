@@ -44,9 +44,10 @@ if "--target" in sys.argv:
     i = sys.argv.index("--target"); LOVE = sys.argv[i + 1] == "love"; del sys.argv[i:i + 2]
 sys.argv = [a for a in sys.argv if a != "--no-demo"]
 OPT = {x: os.environ.get("IMGUI_BUNDLE_NOOPT") != "1" and os.environ.get("IMGUI_BUNDLE_NO_" + x) != "1" for x in "ABCEL"}
-# A limits: Luau 200 locals in the main chunk (+ helpers, __FILES, ...), 200 upvalues per function; LuaJIT 60 upvalues
-# per function (margin left for nested functions that also capture file locals)
-MAX_LOCALS, MAX_UPVALUES = 160, (45 if LOVE else 150)
+# A limits: Luau 200 locals in the main chunk (A's hot globals + C's hoisted functions <= MAX_LOCALS, + helpers, __FILES,
+# ...), 200 upvalues per function; LuaJIT 60 upvalues per function (margin left for nested functions that also capture
+# file locals)
+MAX_LOCALS, MAX_UPVALUES = 169, (45 if LOVE else 150)
 TARGET = "love" if LOVE else "roblox"
 BACKEND = "imgui_impl_%s.lua" % TARGET
 BACKEND_DIR = os.path.join(ROOT, "backends", TARGET)  # every *.lua in it is bundled (*.luau, e.g. the worker, is not)
@@ -281,7 +282,7 @@ if OPT["A"]:
     used = list(used.values())
     taken = [len(u & set(hoisted_names + re.findall(r"\w+", HOIST_DEPS.split("=")[0]))) for u in used]
     for n in sorted((n for n in count if n not in hoisted_names), key=lambda n: (-count[n], n)):
-        if len(hot) == MAX_LOCALS: break
+        if len(hot) + len(hoisted_names) >= MAX_LOCALS: break
         if all(taken[i] < MAX_UPVALUES for i, u in enumerate(used) if n in u):
             hot.append(n)
             taken = [c + (n in u) for c, u in zip(taken, used)]
