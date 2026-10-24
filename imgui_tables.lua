@@ -934,6 +934,7 @@ function ImGui.TableQueueSetColumnDisplayOrder(table_, column_n, dst_order)
 end
 
 -- Adjust flags: default width mode + stretch columns are not allowed when auto extending
+@native
 local function TableSetupColumnFlags(table_, column, column_n, flags_in)
     local flags = flags_in
 
@@ -993,6 +994,7 @@ end
 -- Runs on the first call to TableNextRow(), to give a chance for TableSetupColumn() and other TableSetupXXXXX() functions to be called first.
 -- FIXME-TABLE: Our width (and therefore our WorkRect) will be minimal in the first frame for _WidthAuto columns.
 -- Increase feedback side-effect with widgets relying on WorkRect.Max.x... Maybe provide a default distribution for _WidthAuto columns?
+@native
 function ImGui.TableUpdateLayout(table_)
     local g = GImGui
     local temp_data = table_.TempData
@@ -2961,6 +2963,7 @@ end
 -- - FreezeRows                   --> 2+D+N*2 (unless scrolling value is zero)
 -- - FreezeRows || FreezeColumns  --> 3+D+N*2 (unless scrolling value is zero)
 -- Where D is 1 if any column is clipped or hidden (dummy channel) otherwise 0.
+@native
 function ImGui.TableSetupDrawChannels(table_)
     local freeze_row_multiplier = (table_.FreezeRowsCount > 0) and 2 or 1
     local channels_for_row = (band(table_.Flags, ImGuiTableFlags.NoClip) ~= 0) and 1 or table_.ColumnsEnabledCount
