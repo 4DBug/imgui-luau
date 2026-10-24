@@ -75,6 +75,54 @@ end
 -- their hashes get DriftMark* (new every frame) added, so their tiles are redrawn even when the hash doesn't see the ulp
 local DriftSet, DriftOn, DriftMark1, DriftMark2 = table.create(4096, false), false, 0, 0
 
+-- One primitive's HashTiles entry hash, for PatchDrawList (the same math as HashTiles' inlined copy: keep both equal).
+-- Returns h1, h2 and the flat signature (>= 0: a flat rect, whose per-tile hash is FlatTileHash's)
+@native
+local function PrimHash(p, lx0, ly0, ox, oy)
+    local vbuf, va, vd, tex_id = PrimVtxBuffer[p], PrimA[p], PrimD[p], PrimTexId[p]
+    if PrimFlat[p] then
+        local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
+        return 0, 0, ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
+    end
+    local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
+        PrimBoundsY1[p] - ly0
+    local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+    local g = gk or 0
+    local h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
+    local h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
+    local vax, vay = lx0 + ox, ly0 + oy
+    if vd then
+        nv = gk == 3 and 4 or 2
+    else
+        v2, v3 = v3, v2
+    end
+    local v = va
+    for k = 1, nv do
+        if k == 2 then v = v2 elseif k == 3 then v = v3 elseif k == 4 then v = vd end
+        local x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
+        local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+        local c = readu32(vbuf, v + 32)
+        h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+        h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+    end
+    return h1, h2, -1
+end
+
+-- A flat rect's hash in tile (tx, ty) (HashTiles' per-tile flat hash)
+@native
+local function FlatTileHash(p, lx0, ly0, tx, ty)
+    local vbuf, va, tex_id = PrimVtxBuffer[p], PrimA[p], PrimTexId[p]
+    local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
+    local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
+        PrimBoundsY1[p] - ly0
+    local px0, py0 = tx * TILE, ty * TILE
+    local ix0, iy0 = max(cx0 - px0, 0), max(cy0 - py0, 0)
+    local ix1, iy1 = min(cx1 - px0, TILE), min(cy1 - py0, TILE)
+    local r = ((ix0 * 131 + iy0) * 131 + ix1) * 131 + iy1
+    return ((r * 48271 + RectColor) % P1 * 48271 + RectUV * 4096 + 7) % P1,
+        ((r * 16807 + RectColor + tex_id) % P2 * 16807 + RectUV * 65521 + 11) % P2
+end
+
 -- HashTiles scratch, per touched tile (slot = its index in layer.Touched): tile key -> slot, its list, count, hashes
 local KeySlot, SlotCount, SlotHash1, SlotHash2 = {}, {}, {}, {}
 local SlotList, SlotListHash1, SlotListHash2, SlotListFlat = {}, {}, {}, {}
@@ -797,16 +845,20 @@ local function LayerOrigin(draw_list, kind, ox, oy)
     return floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy)
 end
 
-local PatchLayers, PatchKeys, PatchPrim = {}, {}, {}
+local PatchLayers, PatchKeys, PatchPrim, PatchH1, PatchH2, PatchSig = {}, {}, {}, {}, {}, {}
 
 -- CompareDrawList 3: moved by whole pixels, but a few vertices drifted off the exact shift (same bounds). CollectPrims
 -- ran and gave the primitive sequence the tile lists were built from: the lists stay (indices moved to this frame's)
 -- and every tile keeps its pixels, except those with a primitive using a drifted vertex: those entries' hashes change
 -- (DriftMark), so the tile redraws just them. Changes nothing when it returns false (the caller takes the full path).
+-- recolor (CompareDrawList 4: not moved, a few vertices' uv / colour changed): the same, but those primitives get
+-- their real hashes (PrimHash, flat rects too), so the tiles end up exactly as HashTiles + DrawLayer would leave them.
+-- Their kind must be the same (so the same bounds and tiles; the other primitives' entries are equal by construction).
 @native
-local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1)
+local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1,
+    recolor)
     table.clear(PatchPrim)
-    local SigA, SigD = set.PrimSigA, set.PrimSigD
+    local SigA, SigD, SigG = set.PrimSigA, set.PrimSigD, set.PrimSigG
     if not SigA or set.PrimN ~= n - n0 then return false end
     for m = 1, n - n0 do
         local p = n0 + m
@@ -839,10 +891,14 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         for m = 1, count do
             local p = plist[m]
             local vd = PrimD[p]
-            if PrimFlat[p]
+            if (PrimFlat[p] and not recolor)
                 or not (DriftSet[PrimA[p] // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
                     or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
                 continue
+            end
+            if recolor then
+                if PrimGradient[p] ~= SigG[p - n0] then return false end
+                PatchH1[p], PatchH2[p], PatchSig[p] = PrimHash(p, lx0, ly0, ox, oy)
             end
             PatchPrim[p] = true
             local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
@@ -893,16 +949,28 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         table.move(tile.DrawnHash1, 1, count, 1, LH1)
         table.move(tile.DrawnHash2, 1, count, 1, LH2)
         table.move(tile.DrawnFlat, 1, count, 1, layer.TileListFlat[key])
+        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
+        local LF = layer.TileListFlat[key]
         local h1, h2 = 0, 0
         for k = 1, count do
-            if PatchPrim[list[k]] then
+            local p = list[k]
+            if not PatchPrim[p] then
+                -- (unchanged entry)
+            elseif not recolor then
                 LH1[k], LH2[k] = (LH1[k] + DriftMark1) % P1, (LH2[k] + DriftMark2) % P2
+            else
+                local sig = PatchSig[p]
+                if sig >= 0 then
+                    LH1[k], LH2[k] = FlatTileHash(p, lx0, ly0, layer.TileX[key], layer.TileY[key])
+                else
+                    LH1[k], LH2[k] = PatchH1[p], PatchH2[p]
+                end
+                LF[k] = sig
             end
             h1 = (h1 * 48271 + LH1[k]) % P1
             h2 = (h2 * 16807 + LH2[k] + k) % P2
         end
         layer.TileHash1[key], layer.TileHash2[key] = h1, h2
-        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
         local x0, y0 = lx0 + layer.TileX[key] * TILE, ly0 + layer.TileY[key] * TILE
         local vx0, vy0, vx1, vy1 = 0, 0, TILE, TILE
         if layer.Root ~= layer.Frame then
@@ -1002,19 +1070,26 @@ function M.RenderDrawData(draw_data)
         if nd > 0 then
             local Drift = Layers.Drift
             for k = 1, nd do DriftSet[Drift[k] // VTX_STRIDE + 1] = true end
-            DriftOn, DriftMark1, DriftMark2 = true, (FrameNo * 7907 + 12345) % P1, (FrameNo * 7919 + 54321) % P2
+            -- (recolored vertices, 4: only for PatchDrawList; the full path hashes them like any other)
+            DriftOn, DriftMark1, DriftMark2 = same == 3, (FrameNo * 7907 + 12345) % P1, (FrameNo * 7919 + 54321) % P2
         end
-        if same == 3 then
+        if same == 3 or same == 4 then
             PB("ImGui drift patch")
             if EditableImages.StageTiming then EditableImages.BeginStage() end
             local patched = PatchDrawList(BackendData, set, draw_list, n0, n, sdx, sdy, ox, oy, LimitX0, LimitY0,
-                LimitX1, LimitY1)
+                LimitX1, LimitY1, same == 4)
             if EditableImages.StageTiming then EditableImages.EndStage("Raster") end
             PE()
             if patched then
                 for k = 1, nd do DriftSet[Layers.Drift[k] // VTX_STRIDE + 1] = false end
                 DriftOn = false
-                z = ReuseDrawList(BackendData, set, draw_list, 2, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
+                if same == 4 then
+                    -- the snapshot: only vertex bytes changed
+                    buffer.copy(set.SnapVtx, 0, draw_list.VtxBuffer.Buf, 0, set.SnapVtxBytes)
+                    z = ReuseDrawList(BackendData, set, draw_list, 1, 0, 0, z, ox, oy, ScreenWidth, ScreenHeight)
+                else
+                    z = ReuseDrawList(BackendData, set, draw_list, 2, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
+                end
                 continue
             end
         end
@@ -1036,6 +1111,7 @@ function M.RenderDrawData(draw_data)
                 set.PrimBase, set.PrimN = n0, n - n0
                 set.PrimSigA = table.move(PrimA, n0 + 1, n, 1, set.PrimSigA or {})
                 set.PrimSigD = table.move(PrimD, n0 + 1, n, 1, set.PrimSigD or {})
+                set.PrimSigG = table.move(PrimGradient, n0 + 1, n, 1, set.PrimSigG or {})
             end
         end
         if ListDeferred then AnyDeferred = true end

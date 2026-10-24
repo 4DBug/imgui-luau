@@ -170,7 +170,8 @@ function M.DestroyTiles(BackendData)
 end
 
 -- Snapshot compared exactly with the next frame's list: 1 = identical (only restack), 2 = moved by whole pixels
--- (only move the layers), 0 = changed. Per command: clip (4 f64), ElemCount, IdxOffset, VtxOffset (u32), tex id
+-- (only move the layers), 3 = moved with drifted vertices, 4 = same positions, a few vertices' uv / colour changed
+-- (both list those in Drift), 0 = changed. Per command: clip (4 f64), ElemCount, IdxOffset, VtxOffset (u32), tex id
 -- (f64), kind (u8), unclipped (u8), bounds of its primitives (4 x i32).
 local CMD_STRIDE = 70
 
@@ -291,17 +292,24 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     -- translation from the first vertex: whole pixels only, and only with DisplayPos at 0 (so it stays exact)
     local dx, dy = readf64(vb, 0) - readf64(sv, 0), readf64(vb, 8) - readf64(sv, 8)
     if dx ~= dx or dy ~= dy then return 0 end
+    local nd = 0
     if dx == 0 and dy == 0 then
         -- per vertex: x y u v as f64s + col, not readstring == (that allocated 2 vertex-buffer strings per list per
         -- frame: GC spikes) or 9 u32s (3x slower). Equal f64s have equal bits except +-0: their sign words decide.
+        -- Same position, other uv / colour (hover, a changed colour): listed ("recolored"), up to MAX_DRIFT.
         for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
             local x, y, u, w = readf64(vb, v), readf64(vb, v + 8), readf64(vb, v + 16), readf64(vb, v + 24)
-            if x ~= readf64(sv, v) or y ~= readf64(sv, v + 8) or u ~= readf64(sv, v + 16)
-                or w ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32) then
+            if x ~= readf64(sv, v) or y ~= readf64(sv, v + 8) then return 0 end
+            if (x == 0 or y == 0)
+                and (readu32(vb, v + 4) ~= readu32(sv, v + 4) or readu32(vb, v + 12) ~= readu32(sv, v + 12)) then
                 return 0
             end
-            if x == 0 or y == 0 or u == 0 or w == 0 then
-                for p = v + 4, v + 28, 8 do if readu32(vb, p) ~= readu32(sv, p) then return 0 end end
+            if u ~= readf64(sv, v + 16) or w ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32)
+                or ((u == 0 or w == 0)
+                    and (readu32(vb, v + 20) ~= readu32(sv, v + 20) or readu32(vb, v + 28) ~= readu32(sv, v + 28))) then
+                if nd >= MAX_DRIFT then return 0 end
+                nd += 1
+                Drift[nd] = v
             end
         end
     else
@@ -361,7 +369,9 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
             or draw_list._ContentClipY0 ~= set.SnapContentY0 or draw_list._ContentClipX1 ~= set.SnapContentX1
             or draw_list._ContentClipY1 ~= set.SnapContentY1 or draw_list._ScrollOriginX ~= set.SnapScrollX
             or draw_list._ScrollOriginY ~= set.SnapScrollY) then return 0 end
-        return 1
+        if nd == 0 then return 1 end
+        M.DriftCount = nd
+        return 4, 0, 0
     end
     if set.SnapHasContent and not (ShiftedExact(set.SnapContentX0, dx, draw_list._ContentClipX0)
         and ShiftedExact(set.SnapContentY0, dy, draw_list._ContentClipY0)
@@ -372,7 +382,7 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     -- vertices off the exact shift ("drift": trig-generated ones round differently, often when a coordinate crosses a
     -- power of two) are listed. All their floor / ceil / ceil(- 0.5) (CollectPrims' bounds) shifted: 3, only the tiles
     -- of their primitives change; else 0 (the full path still gets the list: tile hashes don't see an ulp)
-    local nd, consistent = 0, true
+    local consistent = true
     for v = 0, nv - VTX_STRIDE, VTX_STRIDE do
         if readf64(vb, v + 16) ~= readf64(sv, v + 16) or readf64(vb, v + 24) ~= readf64(sv, v + 24)
             or readu32(vb, v + 32) ~= readu32(sv, v + 32) then return 0 end
