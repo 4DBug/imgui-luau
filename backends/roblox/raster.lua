@@ -599,52 +599,78 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     if not textured and (maxx - minx) * 2 < maxy - miny then
         -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
         -- pixel blended once, so the order does not matter): no empty-row passes
-        local m0, m1, m2 = B0 ~= 0 and -1 / B0 or 0, B1 ~= 0 and -1 / B1 or 0, B2 ~= 0 and -1 / B2 or 0
+        -- (edge slots like the rows below, along y: B > 0 bounds a column from above, B < 0 from below; an edge with
+        -- B = 0 (vertical: w is the same on the whole column, B * py is 0) passes a run of columns: the column range)
+        local T1A, T1B, T1C, T1M, T1t, T2A, T2B, T2C, T2M, T2t = 0, 0, 1e9, -1, false, 0, 0, 1e9, -1, false
+        local U1A, U1B, U1C, U1M, U1t, U2A, U2B, U2C, U2M, U2t = 0, 0, 1e9, 1, false, 0, 0, 1e9, 1, false
+        local VA, VC, Vtl, Vz = 0, 1e9, false, false
+        local t1, u1 = false, false -- (slot 1 taken)
+        if B0 > 0 then
+            T1A, T1B, T1C, T1M, T1t, t1 = A0, B0, C0, -1 / B0, tl0, true
+        elseif B0 < 0 then
+            U1A, U1B, U1C, U1M, U1t, u1 = A0, B0, C0, -1 / B0, tl0, true
+        else
+            VA, VC, Vtl, Vz = A0, C0, tl0, z0
+        end
+        if B1 > 0 then
+            if not t1 then
+                T1A, T1B, T1C, T1M, T1t, t1 = A1, B1, C1, -1 / B1, tl1, true
+            else
+                T2A, T2B, T2C, T2M, T2t = A1, B1, C1, -1 / B1, tl1
+            end
+        elseif B1 < 0 then
+            if not u1 then
+                U1A, U1B, U1C, U1M, U1t, u1 = A1, B1, C1, -1 / B1, tl1, true
+            else
+                U2A, U2B, U2C, U2M, U2t = A1, B1, C1, -1 / B1, tl1
+            end
+        else
+            VA, VC, Vtl, Vz = A1, C1, tl1, z1
+        end
+        if B2 > 0 then
+            if not t1 then
+                T1A, T1B, T1C, T1M, T1t, t1 = A2, B2, C2, -1 / B2, tl2, true
+            else
+                T2A, T2B, T2C, T2M, T2t = A2, B2, C2, -1 / B2, tl2
+            end
+        elseif B2 < 0 then
+            if not u1 then
+                U1A, U1B, U1C, U1M, U1t, u1 = A2, B2, C2, -1 / B2, tl2, true
+            else
+                U2A, U2B, U2C, U2M, U2t = A2, B2, C2, -1 / B2, tl2
+            end
+        else
+            VA, VC, Vtl, Vz = A2, C2, tl2, z2
+        end
+        if VA ~= 0 then
+            local py = miny + 0.5
+            while minx <= maxx do
+                local w = VA * (minx + 0.5) + (0 * py + VC)
+                if (w > 0 or (w == 0 and Vtl)) and not (w == 0 and Vz) then break end
+                minx += 1
+            end
+            while maxx > minx do
+                local w = VA * (maxx + 0.5) + (0 * py + VC)
+                if (w > 0 or (w == 0 and Vtl)) and not (w == 0 and Vz) then break end
+                maxx -= 1
+            end
+        end
         local stride = TargetWidth * 4
         for x = minx, maxx do
             local px = x + 0.5
-            local yt, yb = miny, maxy
-            local f0, f1, f2 = A0 * px + C0, A1 * px + C1, A2 * px + C2
-            -- (a vertical edge, B = 0: w is the same on the whole column (B * py is 0), so test it once: an AA fringe's
-            -- column on the wrong side would else be scanned row by row)
-            if B0 > 0 then
-                yt = max(yt, floor(f0 * m0 - 0.500001))
-            elseif B0 < 0 then
-                yb = min(yb, ceil(f0 * m0 - 0.499999))
-            else
-                local w = A0 * px + (B0 * (yt + 0.5) + C0)
-                if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
-            end
-            if B1 > 0 then
-                yt = max(yt, floor(f1 * m1 - 0.500001))
-            elseif B1 < 0 then
-                yb = min(yb, ceil(f1 * m1 - 0.499999))
-            else
-                local w = A1 * px + (B1 * (yt + 0.5) + C1)
-                if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
-            end
-            if B2 > 0 then
-                yt = max(yt, floor(f2 * m2 - 0.500001))
-            elseif B2 < 0 then
-                yb = min(yb, ceil(f2 * m2 - 0.499999))
-            else
-                local w = A2 * px + (B2 * (yt + 0.5) + C2)
-                if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
-            end
+            local f1, f2, g1, g2 = T1A * px + T1C, T2A * px + T2C, U1A * px + U1C, U2A * px + U2C
+            local yt = max(miny, floor(f1 * T1M - 0.500001), floor(f2 * T2M - 0.500001))
+            local yb = min(maxy, ceil(g1 * U1M - 0.499999), ceil(g2 * U2M - 0.499999))
             while yt <= yb do
                 local py = yt + 0.5
-                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
-                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
-                    break
-                end
+                local w1, w2 = T1A * px + (T1B * py + T1C), T2A * px + (T2B * py + T2C)
+                if (w1 > 0 or (w1 == 0 and T1t)) and (w2 > 0 or (w2 == 0 and T2t)) then break end
                 yt += 1
             end
-            while yb > yt do
+            while yb >= yt do
                 local py = yb + 0.5
-                local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
-                if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
-                    break
-                end
+                local w1, w2 = U1A * px + (U1B * py + U1C), U2A * px + (U2B * py + U2C)
+                if (w1 > 0 or (w1 == 0 and U1t)) and (w2 > 0 or (w2 == 0 and U2t)) then break end
                 yb -= 1
             end
             if yt > yb then continue end
@@ -733,56 +759,69 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         return
     end
 
+    -- Row spans. Each edge bounds a row from one side: w is monotone in x (A * px + e rounds monotonically), so the
+    -- pixels passing an edge are a run open to one side (A > 0: to the right, top-left so w >= 0 passes; A < 0: to
+    -- the left, w > 0), and the span is [first pixel passing the left edges, last passing the right ones]. Edges go
+    -- in slots per side (L, R; a spare slot is a dummy edge with w = 1e9, never binding), so a row is an estimate and
+    -- a short search per side, without per-edge branches. A horizontal edge (A = 0: w is e on the whole row) passes
+    -- a run of rows instead (e is monotone in y): the row range.
+    local L1A, L1B, L1C, L1N, L2A, L2B, L2C, L2N = 0, 0, 1e9, -1, 0, 0, 1e9, -1
+    local R1A, R1B, R1C, R1N, R2A, R2B, R2C, R2N = 0, 0, 1e9, 1, 0, 0, 1e9, 1
+    local HB, HC, Htl, Hz = 0, 1e9, false, false
+    local l1, r1 = false, false -- (slot 1 taken)
+    if A0 > 0 then
+        L1A, L1B, L1C, L1N, l1 = A0, B0, C0, n0, true
+    elseif A0 < 0 then
+        R1A, R1B, R1C, R1N, r1 = A0, B0, C0, n0, true
+    else
+        HB, HC, Htl, Hz = B0, C0, tl0, z0
+    end
+    if A1 > 0 then
+        if not l1 then L1A, L1B, L1C, L1N, l1 = A1, B1, C1, n1, true else L2A, L2B, L2C, L2N = A1, B1, C1, n1 end
+    elseif A1 < 0 then
+        if not r1 then R1A, R1B, R1C, R1N, r1 = A1, B1, C1, n1, true else R2A, R2B, R2C, R2N = A1, B1, C1, n1 end
+    else
+        HB, HC, Htl, Hz = B1, C1, tl1, z1
+    end
+    if A2 > 0 then
+        if not l1 then L1A, L1B, L1C, L1N, l1 = A2, B2, C2, n2, true else L2A, L2B, L2C, L2N = A2, B2, C2, n2 end
+    elseif A2 < 0 then
+        if not r1 then R1A, R1B, R1C, R1N, r1 = A2, B2, C2, n2, true else R2A, R2B, R2C, R2N = A2, B2, C2, n2 end
+    else
+        HB, HC, Htl, Hz = B2, C2, tl2, z2
+    end
+    if HB ~= 0 then
+        while miny <= maxy do
+            local e = HB * (miny + 0.5) + HC
+            if (e > 0 or (e == 0 and Htl)) and not (e == 0 and Hz) then break end
+            miny += 1
+        end
+        while maxy > miny do
+            local e = HB * (maxy + 0.5) + HC
+            if (e > 0 or (e == 0 and Htl)) and not (e == 0 and Hz) then break end
+            maxy -= 1
+        end
+    end
     for y = miny, maxy do
         local py = y + 0.5
-        local xl, xr = minx, maxx
         local e0, e1, e2 = B0 * py + C0, B1 * py + C1, B2 * py + C2
+        local f1, f2, g1, g2 = L1B * py + L1C, L2B * py + L2C, R1B * py + R1C, R2B * py + R2C
         -- (e * n is -e / A within an ulp; the 1e-6 margin covers that, and the exact tests below decide)
-        -- (a horizontal edge, A = 0: w is e on the whole row, tested once, like the columns above)
-        if A0 > 0 then
-            xl = max(xl, floor(e0 * n0 - 0.500001))
-        elseif A0 < 0 then
-            xr = min(xr, ceil(e0 * n0 - 0.499999))
-        else
-            local w = A0 * (xl + 0.5) + e0
-            if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
-        end
-        if A1 > 0 then
-            xl = max(xl, floor(e1 * n1 - 0.500001))
-        elseif A1 < 0 then
-            xr = min(xr, ceil(e1 * n1 - 0.499999))
-        else
-            local w = A1 * (xl + 0.5) + e1
-            if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
-        end
-        if A2 > 0 then
-            xl = max(xl, floor(e2 * n2 - 0.500001))
-        elseif A2 < 0 then
-            xr = min(xr, ceil(e2 * n2 - 0.499999))
-        else
-            local w = A2 * (xl + 0.5) + e2
-            if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
-        end
-
+        local xl = max(minx, floor(f1 * L1N - 0.500001), floor(f2 * L2N - 0.500001))
+        local xr = min(maxx, ceil(g1 * R1N - 0.499999), ceil(g2 * R2N - 0.499999))
         -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
         -- estimates, and with |A * px| and |e| below 2^17 * |A| the test's rounding error is far below 1e-6 * |A| (the
         -- test reads the same e). Testing from the next pixel gives the same span.
         if xl > minx and xl <= xr then xl += 1 end
         while xl <= xr do
             local px = xl + 0.5
-            local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
-            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
-                break
-            end
+            if L1A * px + f1 >= 0 and L2A * px + f2 >= 0 then break end
             xl += 1
         end
         if xr < maxx and xr > xl then xr -= 1 end
-        while xr > xl do
+        while xr >= xl do
             local px = xr + 0.5
-            local w0, w1, w2 = A0 * px + e0, A1 * px + e1, A2 * px + e2
-            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2)) then
-                break
-            end
+            if R1A * px + g1 > 0 and R2A * px + g2 > 0 then break end
             xr -= 1
         end
         if xl > xr then continue end
@@ -976,58 +1015,93 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         trow = ty * tw * 4
     end
     local r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255
-    local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
+    -- (edge slots and row range like DrawTriangle's rows; up to 3 edges on a side, 2 horizontal)
+    local L1A, L1B, L1C, L1N, L2A, L2B, L2C, L2N, L3A, L3B, L3C, L3N = 0, 0, 1e9, -1, 0, 0, 1e9, -1, 0, 0, 1e9, -1
+    local R1A, R1B, R1C, R1N, R2A, R2B, R2C, R2N, R3A, R3B, R3C, R3N = 0, 0, 1e9, 1, 0, 0, 1e9, 1, 0, 0, 1e9, 1
+    local H1B, H1C, H1t, H2B, H2C, H2t = 0, 1e9, false, 0, 1e9, false
+    local nl, nr = 0, 0
+    if A0 > 0 then
+        if nl == 0 then L1A, L1B, L1C, L1N = A0, B0, C0, n0 elseif nl == 1 then L2A, L2B, L2C, L2N = A0, B0, C0, n0
+        else L3A, L3B, L3C, L3N = A0, B0, C0, n0 end
+        nl += 1
+    elseif A0 < 0 then
+        if nr == 0 then R1A, R1B, R1C, R1N = A0, B0, C0, n0 elseif nr == 1 then R2A, R2B, R2C, R2N = A0, B0, C0, n0
+        else R3A, R3B, R3C, R3N = A0, B0, C0, n0 end
+        nr += 1
+    elseif H1B == 0 then
+        H1B, H1C, H1t = B0, C0, tl0
+    else
+        H2B, H2C, H2t = B0, C0, tl0
+    end
+    if A1 > 0 then
+        if nl == 0 then L1A, L1B, L1C, L1N = A1, B1, C1, n1 elseif nl == 1 then L2A, L2B, L2C, L2N = A1, B1, C1, n1
+        else L3A, L3B, L3C, L3N = A1, B1, C1, n1 end
+        nl += 1
+    elseif A1 < 0 then
+        if nr == 0 then R1A, R1B, R1C, R1N = A1, B1, C1, n1 elseif nr == 1 then R2A, R2B, R2C, R2N = A1, B1, C1, n1
+        else R3A, R3B, R3C, R3N = A1, B1, C1, n1 end
+        nr += 1
+    elseif H1B == 0 then
+        H1B, H1C, H1t = B1, C1, tl1
+    else
+        H2B, H2C, H2t = B1, C1, tl1
+    end
+    if A2 > 0 then
+        if nl == 0 then L1A, L1B, L1C, L1N = A2, B2, C2, n2 elseif nl == 1 then L2A, L2B, L2C, L2N = A2, B2, C2, n2
+        else L3A, L3B, L3C, L3N = A2, B2, C2, n2 end
+        nl += 1
+    elseif A2 < 0 then
+        if nr == 0 then R1A, R1B, R1C, R1N = A2, B2, C2, n2 elseif nr == 1 then R2A, R2B, R2C, R2N = A2, B2, C2, n2
+        else R3A, R3B, R3C, R3N = A2, B2, C2, n2 end
+        nr += 1
+    elseif H1B == 0 then
+        H1B, H1C, H1t = B2, C2, tl2
+    else
+        H2B, H2C, H2t = B2, C2, tl2
+    end
+    if A3 > 0 then
+        if nl == 0 then L1A, L1B, L1C, L1N = A3, B3, C3, n3 elseif nl == 1 then L2A, L2B, L2C, L2N = A3, B3, C3, n3
+        else L3A, L3B, L3C, L3N = A3, B3, C3, n3 end
+        nl += 1
+    elseif A3 < 0 then
+        if nr == 0 then R1A, R1B, R1C, R1N = A3, B3, C3, n3 elseif nr == 1 then R2A, R2B, R2C, R2N = A3, B3, C3, n3
+        else R3A, R3B, R3C, R3N = A3, B3, C3, n3 end
+        nr += 1
+    elseif H1B == 0 then
+        H1B, H1C, H1t = B3, C3, tl3
+    else
+        H2B, H2C, H2t = B3, C3, tl3
+    end
+    if H1B ~= 0 then
+        while miny <= maxy do
+            local py = miny + 0.5
+            local e, e2 = H1B * py + H1C, H2B * py + H2C
+            if (e > 0 or (e == 0 and H1t)) and (e2 > 0 or (e2 == 0 and H2t)) then break end
+            miny += 1
+        end
+        while maxy > miny do
+            local py = maxy + 0.5
+            local e, e2 = H1B * py + H1C, H2B * py + H2C
+            if (e > 0 or (e == 0 and H1t)) and (e2 > 0 or (e2 == 0 and H2t)) then break end
+            maxy -= 1
+        end
+    end
     for y = miny, maxy do
         local py = y + 0.5
-        local xl, xr = minx, maxx
-        local e0, e1, e2, e3 = B0 * py + C0, B1 * py + C1, B2 * py + C2, B3 * py + C3
-        -- (A = 0: tested once per row, see DrawTriangle)
-        if A0 > 0 then
-            xl = max(xl, floor(e0 * n0 - 0.500001))
-        elseif A0 < 0 then
-            xr = min(xr, ceil(e0 * n0 - 0.499999))
-        elseif not (e0 > 0 or (e0 == 0 and tl0)) then
-            continue
-        end
-        if A1 > 0 then
-            xl = max(xl, floor(e1 * n1 - 0.500001))
-        elseif A1 < 0 then
-            xr = min(xr, ceil(e1 * n1 - 0.499999))
-        elseif not (e1 > 0 or (e1 == 0 and tl1)) then
-            continue
-        end
-        if A2 > 0 then
-            xl = max(xl, floor(e2 * n2 - 0.500001))
-        elseif A2 < 0 then
-            xr = min(xr, ceil(e2 * n2 - 0.499999))
-        elseif not (e2 > 0 or (e2 == 0 and tl2)) then
-            continue
-        end
-        if A3 > 0 then
-            xl = max(xl, floor(e3 * n3 - 0.500001))
-        elseif A3 < 0 then
-            xr = min(xr, ceil(e3 * n3 - 0.499999))
-        elseif not (e3 > 0 or (e3 == 0 and tl3)) then
-            continue
-        end
+        local f1, f2, f3 = L1B * py + L1C, L2B * py + L2C, L3B * py + L3C
+        local g1, g2, g3 = R1B * py + R1C, R2B * py + R2C, R3B * py + R3C
+        local xl = max(minx, floor(f1 * L1N - 0.500001), floor(f2 * L2N - 0.500001), floor(f3 * L3N - 0.500001))
+        local xr = min(maxx, ceil(g1 * R1N - 0.499999), ceil(g2 * R2N - 0.499999), ceil(g3 * R3N - 0.499999))
         if xl > minx and xl <= xr then xl += 1 end -- (an estimate is never in the span: see DrawTriangle)
         while xl <= xr do
             local px = xl + 0.5
-            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
-            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
-                and (w3 > 0 or (w3 == 0 and tl3)) then
-                break
-            end
+            if L1A * px + f1 >= 0 and L2A * px + f2 >= 0 and L3A * px + f3 >= 0 then break end
             xl += 1
         end
         if xr < maxx and xr > xl then xr -= 1 end
-        while xr > xl do
+        while xr >= xl do
             local px = xr + 0.5
-            local w0, w1, w2, w3 = A0 * px + e0, A1 * px + e1, A2 * px + e2, A3 * px + e3
-            if (w0 > 0 or (w0 == 0 and tl0)) and (w1 > 0 or (w1 == 0 and tl1)) and (w2 > 0 or (w2 == 0 and tl2))
-                and (w3 > 0 or (w3 == 0 and tl3)) then
-                break
-            end
+            if R1A * px + g1 > 0 and R2A * px + g2 > 0 and R3A * px + g3 > 0 then break end
             xr -= 1
         end
         if xl > xr then continue end
@@ -1045,35 +1119,30 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 if ty < 0 then ty = 0 elseif ty >= th then ty = th - 1 end
                 tv = readu32(tbuf, (ty * tw + tx) * 4)
             end
-            if tv ~= last_tv then
-                last_tv = tv
-                sa = rshift(tv, 24) * a255
-                sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
-                s_opaque = floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
-                fa = sa / 255
-                fn = 1 - fa
-                fk = (1 - fa) / 255
-            end
-            -- BlendPixel inlined (same math)
-            if sa >= 255 then
-                writeu32(dbuf, o, s_opaque + 4278190080)
-            elseif sa > 0 then
+            -- BlendPixel inlined (same math; an opaque texel over a colour gives fa = 1, fn = 0, k = 0: the same values
+            -- as its opaque branch, so no branch on it: every unpredictable branch costs more than the math)
+            local ta = rshift(tv, 24)
+            if ta > 0 then
+                local sa = ta * a255
+                local sr, sg, sb = band(tv, 255) * r255, band(rshift(tv, 8), 255) * g255, band(rshift(tv, 16), 255) * b255
+                local fa = sa / 255
                 local d = readu32(dbuf, o)
-                if d < 16777216 then
-                    writeu32(dbuf, o, s_opaque + floor(sa + 0.5) * 16777216)
+                if d >= 4278190080 then
+                    local fn = 1 - fa
+                    writeu32(dbuf, o, floor(sr * fa + band(d, 255) * fn + 0.5)
+                        + floor(sg * fa + band(rshift(d, 8), 255) * fn + 0.5) * 256
+                        + floor(sb * fa + band(rshift(d, 16), 255) * fn + 0.5) * 65536 + 4278190080)
+                elseif d < 16777216 then
+                    writeu32(dbuf, o, floor(sr + 0.5) + floor(sg + 0.5) * 256 + floor(sb + 0.5) * 65536
+                        + floor(sa + 0.5) * 16777216)
                 else
                     local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
-                    if d >= 4278190080 then
-                        writeu32(dbuf, o, floor(sr * fa + dr * fn + 0.5) + floor(sg * fa + dg * fn + 0.5) * 256
-                            + floor(sb * fa + db * fn + 0.5) * 65536 + 4278190080)
-                    else
-                        local k = rshift(d, 24) * fk
-                        local oa = fa + k
-                        local inv2 = 1 / oa
-                        writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
-                            + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
-                            + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
-                    end
+                    local k = rshift(d, 24) * ((1 - fa) / 255)
+                    local oa = fa + k
+                    local inv2 = 1 / oa
+                    writeu32(dbuf, o, floor((sr * fa + dr * k) * inv2 + 0.5)
+                        + floor((sg * fa + dg * k) * inv2 + 0.5) * 256
+                        + floor((sb * fa + db * k) * inv2 + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216)
                 end
             end
             o += 4
