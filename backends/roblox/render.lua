@@ -864,6 +864,13 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         local p = n0 + m
         if PrimA[p] ~= SigA[m] or PrimD[p] ~= SigD[m] then return false end
     end
+    -- the listed vertices' byte offset range
+    local Drift, lo, hi = Layers.Drift, math.huge, -1
+    for k = 1, Layers.DriftCount do
+        local v = Drift[k]
+        if v < lo then lo = v end
+        if v > hi then hi = v end
+    end
     local np = 0
     for kind = 1, 3 do
         local layer = set[kind]
@@ -890,10 +897,15 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         local TileCounts, Tiles = layer.TileCounts, layer.Tiles
         for m = 1, count do
             local p = plist[m]
-            local vd = PrimD[p]
+            local va, vb, vc, vd = PrimA[p], PrimB[p], PrimC[p], PrimD[p]
+            -- (most primitives use no vertex in the listed ones' range: two compares per vertex, no lookups)
+            if (va < lo or va > hi) and (vb < lo or vb > hi) and (vc < lo or vc > hi)
+                and (not vd or vd < lo or vd > hi) then
+                continue
+            end
             if (PrimFlat[p] and not recolor)
-                or not (DriftSet[PrimA[p] // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
-                    or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
+                or not (DriftSet[va // VTX_STRIDE + 1] or DriftSet[vb // VTX_STRIDE + 1]
+                    or DriftSet[vc // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
                 continue
             end
             if recolor then
