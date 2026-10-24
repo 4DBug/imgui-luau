@@ -114,12 +114,14 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
         if FlatRect then
             FlatSig = ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
         else
-            h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
-            h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+            -- the kind (gk: 0 triangle / plain quad, 1 / 2 gradient, 3 line quad) mixed into the bounds: no extra %
+            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+            local g = gk or 0
+            h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
+            h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
             local vax, vay = lx0 + ox, ly0 + oy
             -- vertices: triangle a, b, c; axis aligned quad a, c (CollectPrims checked that b, d follow from them + kind);
-            -- line quad (any shape) a, c, b, d. The kind is mixed in after the second vertex.
-            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+            -- line quad (any shape) a, c, b, d
             if vd then
                 nv = gk == 3 and 4 or 2
             else
@@ -135,10 +137,6 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                 local c = readu32(vbuf, v + 32)
                 h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
                 h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
-                if k == 2 and gk then
-                    h1 = (h1 * 48271 + gk) % P1
-                    h2 = (h2 * 16807 + gk * 3) % P2
-                end
             end
             if DriftOn and (DriftSet[va // VTX_STRIDE + 1] or DriftSet[PrimB[p] // VTX_STRIDE + 1]
                 or DriftSet[PrimC[p] // VTX_STRIDE + 1] or (vd and DriftSet[vd // VTX_STRIDE + 1])) then
