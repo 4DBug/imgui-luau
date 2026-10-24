@@ -46132,6 +46132,53 @@ local function PairF64(v: number): number | false
     writeu32(PairScratch, 4, v)
     return readf64(PairScratch, 0)
 end
+-- Solid span [o, o1] (byte offsets of its first and last pixel) of value packed (pair: PairF64(packed) or false). A
+-- native loop iteration costs more than a few writes: 8 (pairs) or 4 pixels per iteration.
+@native
+local function FillRow(buf: buffer, o: number, o1: number, packed: number, pair: number | false)
+    if pair then
+        while o + 24 < o1 do
+            writef64(buf, o, pair)
+            writef64(buf, o + 8, pair)
+            writef64(buf, o + 16, pair)
+            writef64(buf, o + 24, pair)
+            o += 32
+        end
+        while o < o1 do
+            writef64(buf, o, pair)
+            o += 8
+        end
+        if o == o1 then writeu32(buf, o, packed) end
+        return
+    end
+    while o + 12 <= o1 do
+        writeu32(buf, o, packed)
+        writeu32(buf, o + 4, packed)
+        writeu32(buf, o + 8, packed)
+        writeu32(buf, o + 12, packed)
+        o += 16
+    end
+    while o <= o1 do
+        writeu32(buf, o, packed)
+        o += 4
+    end
+end
+-- Rows 1 .. n - 1 below the span at o (len bytes) get its pixels. A span as wide as the target: the rows are
+-- contiguous, copied in doubling blocks (log2 n calls instead of n).
+@native
+local function CopyRows(buf: buffer, o: number, len: number, n: number)
+    local stride = TargetWidth * 4
+    if len == stride then
+        local done = 1
+        while done < n do
+            local c = min(done, n - done)
+            buffer.copy(buf, o + done * stride, buf, o, c * stride)
+            done += c
+        end
+    else
+        for k = 1, n - 1 do buffer.copy(buf, o + k * stride, buf, o, len) end
+    end
+end
 local PrevRow = buffer.create(1024)
 
 -- True when TargetBuffer[o, o + len) equals the previous row's destination (so its result can be copied); else
@@ -46241,24 +46288,14 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
     if a >= 255 then
         local packed = floor(r + 0.5) + floor(g + 0.5) * 256 + floor(b + 0.5) * 65536 + 4278190080
         local first = (y0 * TargetWidth + x0) * 4 + TargetBase
-        local pair = span >= 16 and PairF64(packed)
-        if pair then
-            local o, o1 = first, first + w4
-            while o < o1 do
-                writef64(TargetBuffer, o, pair)
-                o += 8
-            end
-            if o == o1 then writeu32(TargetBuffer, o, packed) end
-        else
-            for o = first, first + w4, 4 do writeu32(TargetBuffer, o, packed) end
-        end
+        FillRow(TargetBuffer, first, first + w4, packed, span >= 16 and PairF64(packed))
         if span <= 8 then -- narrow (vertical lines): writes, a call per row costs more
             local stride = TargetWidth * 4
             for o = first + stride, first + (y1 - y0 - 1) * stride, stride do
                 for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, packed) end
             end
         else
-            for y = y0 + 1, y1 - 1 do buffer.copy(TargetBuffer, (y * TargetWidth + x0) * 4 + TargetBase, TargetBuffer, first, w4 + 4) end
+            CopyRows(TargetBuffer, first, w4 + 4, y1 - y0)
         end
         -- now uniform: per row keep whichever piece is larger (the same for following rows with the same piece)
         local y = y0
@@ -46321,17 +46358,7 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             if v == prev_v and span > 8 then -- (a call: slower than a few writes)
                 buffer.copy(TargetBuffer, o0, TargetBuffer, prev_o, w4 + 4)
             else
-                local pair = span >= 16 and PairF64(v)
-                if pair then
-                    local o, o1 = o0, o0 + w4
-                    while o < o1 do
-                        writef64(TargetBuffer, o, pair)
-                        o += 8
-                    end
-                    if o == o1 then writeu32(TargetBuffer, o, v) end
-                else
-                    for o = o0, o0 + w4, 4 do writeu32(TargetBuffer, o, v) end
-                end
+                FillRow(TargetBuffer, o0, o0 + w4, v, span >= 16 and PairF64(v))
             end
             local na, nb, nv = ra, rb, d
             if span >= x0 - ra and span >= rb - x1 then
@@ -46344,16 +46371,21 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
             RowX0[y], RowX1[y], RowV[y] = na, nb, nv
             y += 1
             local stride = TargetWidth * 4
-            local o = o0
+            local n = 1
             while y < y1 and RowX0[y] == ra and RowX1[y] == rb and RowV[y] == d do
-                o += stride
-                if span <= 8 then
-                    for oo = o, o + w4, 4 do writeu32(TargetBuffer, oo, v) end
-                else
-                    buffer.copy(TargetBuffer, o, TargetBuffer, o0, w4 + 4)
-                end
                 RowX0[y], RowX1[y], RowV[y] = na, nb, nv
                 y += 1
+                n += 1
+            end
+            local o = o0 + (n - 1) * stride
+            if n > 1 then
+                if span <= 8 then
+                    for oy = o0 + stride, o, stride do
+                        for oo = oy, oy + w4, 4 do writeu32(TargetBuffer, oo, v) end
+                    end
+                else
+                    CopyRows(TargetBuffer, o0, w4 + 4, n)
+                end
             end
             prev_o, prev_v, has_prev = o, v, false
             continue
@@ -46374,7 +46406,27 @@ local function FillSpan(TargetBuffer: buffer, y0: number, y1: number, x0: number
         prev_o, prev_v = o0, -1
         if black then
             -- (black: rs + x is x, so the opaque case is just the scaled destination; colour picker SV square)
-            for o = o0, o0 + w4, 4 do
+            -- opaque destination pixels four per iteration, computed directly (rarely repeated: no cache)
+            local o, oe = o0, o0 + w4
+            while o + 8 < oe do
+                local d, d2 = readu32(TargetBuffer, o), readu32(TargetBuffer, o + 4)
+                local d3, d4 = readu32(TargetBuffer, o + 8), readu32(TargetBuffer, o + 12)
+                if d < 4278190080 or d2 < 4278190080 or d3 < 4278190080 or d4 < 4278190080 then break end
+                writeu32(TargetBuffer, o,
+                    floor(band(d, 255) * ns + 0.5) + floor(band(rshift(d, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 4,
+                    floor(band(d2, 255) * ns + 0.5) + floor(band(rshift(d2, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d2, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 8,
+                    floor(band(d3, 255) * ns + 0.5) + floor(band(rshift(d3, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d3, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                writeu32(TargetBuffer, o + 12,
+                    floor(band(d4, 255) * ns + 0.5) + floor(band(rshift(d4, 8), 255) * ns + 0.5) * 256
+                    + floor(band(rshift(d4, 16), 255) * ns + 0.5) * 65536 + 4278190080)
+                o += 16
+            end
+            for o = o, oe, 4 do
                 local d = readu32(TargetBuffer, o)
                 if d ~= last_d then
                     last_d = d
@@ -46425,7 +46477,7 @@ end
 
 @native
 local function UnpackColor(col: number)
-    return col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
+    return band(col, 255), band(rshift(col, 8), 255), band(rshift(col, 16), 255), rshift(col, 24)
 end
 
 @native
@@ -46501,7 +46553,7 @@ local function DrawRect(TargetBuffer: buffer, x0: number, y0: number, x1: number
                 continue
             end
             local d, key, al = 0, -1, 0
-            if tv % 16777216 == 16777215 then
+            if band(tv, 16777215) == 16777215 then
                 al = rshift(tv, 24)
                 d = readu32(dbuf, o)
                 key = gen + d
@@ -46588,10 +46640,14 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local n0, n1, n2 = A0 ~= 0 and -1 / A0 or 0, A1 ~= 0 and -1 / A1 or 0, A2 ~= 0 and -1 / A2 or 0
     -- UnpackColor / SampleTexture inlined (a call costs more than the math)
     local ca, cb, cc = readu32(vbuf, va + 32), readu32(vbuf, vb + 32), readu32(vbuf, vc + 32)
-    local ra, ga, ba, aa = ca % 256, floor(ca / 256) % 256, floor(ca / 65536) % 256, floor(ca / 16777216) % 256
+    local ra, ga, ba, aa = band(ca, 255), band(rshift(ca, 8), 255), band(rshift(ca, 16), 255), rshift(ca, 24)
     local rb, gb, bb, ab, rc, gc, bc, ac = ra, ga, ba, aa, ra, ga, ba, aa
-    if cb ~= ca then rb, gb, bb, ab = cb % 256, floor(cb / 256) % 256, floor(cb / 65536) % 256, floor(cb / 16777216) % 256 end
-    if cc ~= ca then rc, gc, bc, ac = cc % 256, floor(cc / 256) % 256, floor(cc / 65536) % 256, floor(cc / 16777216) % 256 end
+    if cb ~= ca then
+        rb, gb, bb, ab = band(cb, 255), band(rshift(cb, 8), 255), band(rshift(cb, 16), 255), rshift(cb, 24)
+    end
+    if cc ~= ca then
+        rc, gc, bc, ac = band(cc, 255), band(rshift(cc, 8), 255), band(rshift(cc, 16), 255), rshift(cc, 24)
+    end
     local ua, vva, ub, vvb, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vb + 16),
         readf64(vbuf, vb + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
 
@@ -46634,6 +46690,10 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     if cconst then r255, g255, b255, a255 = ra / 255, ga / 255, ba / 255, aa / 255 end
     local last_tv, sa, sr, sg, sb, s_opaque, fa, fn, fk = -1, 0, 0, 0, 0, 0, 0, 0, 0
     if textured then tw, th, tbuf = t.Width, t.Height, t.Buffer end
+    -- Interpolated alpha on an edge whose two vertices have alpha 0 (an AA fringe's outer edge, which sits on pixel
+    -- centres) is 0: the edge's own weight is 0 there, so a row / column on it draws nothing
+    local interp = not flat and not cconst
+    local z0, z1, z2 = interp and ab == 0 and ac == 0, interp and aa == 0 and ac == 0, interp and aa == 0 and ab == 0
 
     if not textured and (maxx - minx) * 2 < maxy - miny then
         -- tall sliver (vertical AA fringe): walk columns, same per-pixel edge and colour math as the rows below (each
@@ -46644,9 +46704,32 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
             local px = x + 0.5
             local yt, yb = miny, maxy
             local f0, f1, f2 = A0 * px + C0, A1 * px + C1, A2 * px + C2
-            if B0 > 0 then yt = max(yt, floor(f0 * m0 - 0.500001)) elseif B0 < 0 then yb = min(yb, ceil(f0 * m0 - 0.499999)) end
-            if B1 > 0 then yt = max(yt, floor(f1 * m1 - 0.500001)) elseif B1 < 0 then yb = min(yb, ceil(f1 * m1 - 0.499999)) end
-            if B2 > 0 then yt = max(yt, floor(f2 * m2 - 0.500001)) elseif B2 < 0 then yb = min(yb, ceil(f2 * m2 - 0.499999)) end
+            -- (a vertical edge, B = 0: w is the same on the whole column (B * py is 0), so test it once: an AA fringe's
+            -- column on the wrong side would else be scanned row by row)
+            if B0 > 0 then
+                yt = max(yt, floor(f0 * m0 - 0.500001))
+            elseif B0 < 0 then
+                yb = min(yb, ceil(f0 * m0 - 0.499999))
+            else
+                local w = A0 * px + (B0 * (yt + 0.5) + C0)
+                if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
+            end
+            if B1 > 0 then
+                yt = max(yt, floor(f1 * m1 - 0.500001))
+            elseif B1 < 0 then
+                yb = min(yb, ceil(f1 * m1 - 0.499999))
+            else
+                local w = A1 * px + (B1 * (yt + 0.5) + C1)
+                if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
+            end
+            if B2 > 0 then
+                yt = max(yt, floor(f2 * m2 - 0.500001))
+            elseif B2 < 0 then
+                yb = min(yb, ceil(f2 * m2 - 0.499999))
+            else
+                local w = A2 * px + (B2 * (yt + 0.5) + C2)
+                if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
+            end
             while yt <= yb do
                 local py = yt + 0.5
                 local w0, w1, w2 = A0 * px + (B0 * py + C0), A1 * px + (B1 * py + C1), A2 * px + (B2 * py + C2)
@@ -46669,7 +46752,20 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
                 -- the row path's flat spans (BlendPixel's math, per-span constants, cached per destination value)
                 local o1 = o + (yb - yt) * stride
                 if f_opaque then
-                    for oo = o, o1, stride do writeu32(dbuf, oo, f_packed) end
+                    -- (4 pixels per iteration: a native loop iteration costs more than a few writes)
+                    local s4 = stride * 4
+                    local oo = o
+                    while oo + s4 <= o1 + stride do
+                        writeu32(dbuf, oo, f_packed)
+                        writeu32(dbuf, oo + stride, f_packed)
+                        writeu32(dbuf, oo + stride * 2, f_packed)
+                        writeu32(dbuf, oo + stride * 3, f_packed)
+                        oo += s4
+                    end
+                    while oo <= o1 do
+                        writeu32(dbuf, oo, f_packed)
+                        oo += stride
+                    end
                     continue
                 end
                 local last_d, last_v = -1, 0
@@ -46741,20 +46837,30 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         local xl, xr = minx, maxx
         local e0, e1, e2 = B0 * py + C0, B1 * py + C1, B2 * py + C2
         -- (e * n is -e / A within an ulp; the 1e-6 margin covers that, and the exact tests below decide)
+        -- (a horizontal edge, A = 0: w is e on the whole row, tested once, like the columns above)
         if A0 > 0 then
             xl = max(xl, floor(e0 * n0 - 0.500001))
         elseif A0 < 0 then
             xr = min(xr, ceil(e0 * n0 - 0.499999))
+        else
+            local w = A0 * (xl + 0.5) + e0
+            if not (w > 0 or (w == 0 and tl0)) or (w == 0 and z0) then continue end
         end
         if A1 > 0 then
             xl = max(xl, floor(e1 * n1 - 0.500001))
         elseif A1 < 0 then
             xr = min(xr, ceil(e1 * n1 - 0.499999))
+        else
+            local w = A1 * (xl + 0.5) + e1
+            if not (w > 0 or (w == 0 and tl1)) or (w == 0 and z1) then continue end
         end
         if A2 > 0 then
             xl = max(xl, floor(e2 * n2 - 0.500001))
         elseif A2 < 0 then
             xr = min(xr, ceil(e2 * n2 - 0.499999))
+        else
+            local w = A2 * (xl + 0.5) + e2
+            if not (w > 0 or (w == 0 and tl2)) or (w == 0 and z2) then continue end
         end
 
         -- An estimate inside (minx, maxx) is never in the span: the pixel centre is >= 1e-6 outside the crossing it
@@ -46783,15 +46889,7 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         if flat then
             local o1 = o + (xr - xl) * 4
             if f_opaque then
-                if f_pair then
-                    while o < o1 do
-                        writef64(dbuf, o, f_pair)
-                        o += 8
-                    end
-                    if o == o1 then writeu32(dbuf, o, f_packed) end
-                else
-                    for oo = o, o1, 4 do writeu32(dbuf, oo, f_packed) end
-                end
+                FillRow(dbuf, o, o1, f_packed, f_pair)
                 continue
             end
             local last_d, last_v = -1, 0
@@ -46935,7 +47033,7 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     local miny, maxy = max(floor(min(y0, y1, y2, y3)), cy0), min(ceil(max(y0, y1, y2, y3)), cy1 - 1)
     if minx > maxx or miny > maxy then return end
     local col = readu32(vbuf, va + 32)
-    local ra, ga, ba, aa = col % 256, floor(col / 256) % 256, floor(col / 65536) % 256, floor(col / 16777216) % 256
+    local ra, ga, ba, aa = band(col, 255), band(rshift(col, 8), 255), band(rshift(col, 16), 255), rshift(col, 24)
     if aa <= 0 then return end
     local ua, vva, uc, vvc = readf64(vbuf, va + 16), readf64(vbuf, va + 24), readf64(vbuf, vc + 16), readf64(vbuf, vc + 24)
     -- outer edges P -> Q (quad order, counter-clockwise like DrawTriangle's swap): A = yP - yQ, B = xQ - xP, C from P
@@ -46982,10 +47080,35 @@ local function DrawLineQuad(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
         local py = y + 0.5
         local xl, xr = minx, maxx
         local e0, e1, e2, e3 = B0 * py + C0, B1 * py + C1, B2 * py + C2, B3 * py + C3
-        if A0 > 0 then xl = max(xl, floor(e0 * n0 - 0.500001)) elseif A0 < 0 then xr = min(xr, ceil(e0 * n0 - 0.499999)) end
-        if A1 > 0 then xl = max(xl, floor(e1 * n1 - 0.500001)) elseif A1 < 0 then xr = min(xr, ceil(e1 * n1 - 0.499999)) end
-        if A2 > 0 then xl = max(xl, floor(e2 * n2 - 0.500001)) elseif A2 < 0 then xr = min(xr, ceil(e2 * n2 - 0.499999)) end
-        if A3 > 0 then xl = max(xl, floor(e3 * n3 - 0.500001)) elseif A3 < 0 then xr = min(xr, ceil(e3 * n3 - 0.499999)) end
+        -- (A = 0: tested once per row, see DrawTriangle)
+        if A0 > 0 then
+            xl = max(xl, floor(e0 * n0 - 0.500001))
+        elseif A0 < 0 then
+            xr = min(xr, ceil(e0 * n0 - 0.499999))
+        elseif not (e0 > 0 or (e0 == 0 and tl0)) then
+            continue
+        end
+        if A1 > 0 then
+            xl = max(xl, floor(e1 * n1 - 0.500001))
+        elseif A1 < 0 then
+            xr = min(xr, ceil(e1 * n1 - 0.499999))
+        elseif not (e1 > 0 or (e1 == 0 and tl1)) then
+            continue
+        end
+        if A2 > 0 then
+            xl = max(xl, floor(e2 * n2 - 0.500001))
+        elseif A2 < 0 then
+            xr = min(xr, ceil(e2 * n2 - 0.499999))
+        elseif not (e2 > 0 or (e2 == 0 and tl2)) then
+            continue
+        end
+        if A3 > 0 then
+            xl = max(xl, floor(e3 * n3 - 0.500001))
+        elseif A3 < 0 then
+            xr = min(xr, ceil(e3 * n3 - 0.499999))
+        elseif not (e3 > 0 or (e3 == 0 and tl3)) then
+            continue
+        end
         if xl > minx and xl <= xr then xl += 1 end -- (an estimate is never in the span: see DrawTriangle)
         while xl <= xr do
             local px = xl + 0.5
@@ -47679,7 +47802,8 @@ function M.DestroyTiles(BackendData)
 end
 
 -- Snapshot compared exactly with the next frame's list: 1 = identical (only restack), 2 = moved by whole pixels
--- (only move the layers), 0 = changed. Per command: clip (4 f64), ElemCount, IdxOffset, VtxOffset (u32), tex id
+-- (only move the layers), 3 = moved with drifted vertices, 4 = same positions, a few vertices' uv / colour changed
+-- (both list those in Drift), 0 = changed. Per command: clip (4 f64), ElemCount, IdxOffset, VtxOffset (u32), tex id
 -- (f64), kind (u8), unclipped (u8), bounds of its primitives (4 x i32).
 local CMD_STRIDE = 70
 
@@ -47800,17 +47924,24 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     -- translation from the first vertex: whole pixels only, and only with DisplayPos at 0 (so it stays exact)
     local dx, dy = readf64(vb, 0) - readf64(sv, 0), readf64(vb, 8) - readf64(sv, 8)
     if dx ~= dx or dy ~= dy then return 0 end
+    local nd = 0
     if dx == 0 and dy == 0 then
         -- per vertex: x y u v as f64s + col, not readstring == (that allocated 2 vertex-buffer strings per list per
         -- frame: GC spikes) or 9 u32s (3x slower). Equal f64s have equal bits except +-0: their sign words decide.
+        -- Same position, other uv / colour (hover, a changed colour): listed ("recolored"), up to MAX_DRIFT.
         for v = 0, nv - 36 --[[VTX_STRIDE]], 36 --[[VTX_STRIDE]] do
             local x, y, u, w = readf64(vb, v), readf64(vb, v + 8), readf64(vb, v + 16), readf64(vb, v + 24)
-            if x ~= readf64(sv, v) or y ~= readf64(sv, v + 8) or u ~= readf64(sv, v + 16)
-                or w ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32) then
+            if x ~= readf64(sv, v) or y ~= readf64(sv, v + 8) then return 0 end
+            if (x == 0 or y == 0)
+                and (readu32(vb, v + 4) ~= readu32(sv, v + 4) or readu32(vb, v + 12) ~= readu32(sv, v + 12)) then
                 return 0
             end
-            if x == 0 or y == 0 or u == 0 or w == 0 then
-                for p = v + 4, v + 28, 8 do if readu32(vb, p) ~= readu32(sv, p) then return 0 end end
+            if u ~= readf64(sv, v + 16) or w ~= readf64(sv, v + 24) or readu32(vb, v + 32) ~= readu32(sv, v + 32)
+                or ((u == 0 or w == 0)
+                    and (readu32(vb, v + 20) ~= readu32(sv, v + 20) or readu32(vb, v + 28) ~= readu32(sv, v + 28))) then
+                if nd >= MAX_DRIFT then return 0 end
+                nd += 1
+                Drift[nd] = v
             end
         end
     else
@@ -47870,7 +48001,9 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
             or draw_list._ContentClipY0 ~= set.SnapContentY0 or draw_list._ContentClipX1 ~= set.SnapContentX1
             or draw_list._ContentClipY1 ~= set.SnapContentY1 or draw_list._ScrollOriginX ~= set.SnapScrollX
             or draw_list._ScrollOriginY ~= set.SnapScrollY) then return 0 end
-        return 1
+        if nd == 0 then return 1 end
+        M.DriftCount = nd
+        return 4, 0, 0
     end
     if set.SnapHasContent and not (ShiftedExact(set.SnapContentX0, dx, draw_list._ContentClipX0)
         and ShiftedExact(set.SnapContentY0, dy, draw_list._ContentClipY0)
@@ -47881,7 +48014,7 @@ function M.CompareDrawList(set, draw_list, ox, oy, ScreenWidth, ScreenHeight)
     -- vertices off the exact shift ("drift": trig-generated ones round differently, often when a coordinate crosses a
     -- power of two) are listed. All their floor / ceil / ceil(- 0.5) (CollectPrims' bounds) shifted: 3, only the tiles
     -- of their primitives change; else 0 (the full path still gets the list: tile hashes don't see an ulp)
-    local nd, consistent = 0, true
+    local consistent = true
     for v = 0, nv - 36 --[[VTX_STRIDE]], 36 --[[VTX_STRIDE]] do
         if readf64(vb, v + 16) ~= readf64(sv, v + 16) or readf64(vb, v + 24) ~= readf64(sv, v + 24)
             or readu32(vb, v + 32) ~= readu32(sv, v + 32) then return 0 end
@@ -48077,6 +48210,54 @@ end
 -- their hashes get DriftMark* (new every frame) added, so their tiles are redrawn even when the hash doesn't see the ulp
 local DriftSet, DriftOn, DriftMark1, DriftMark2 = table.create(4096, false), false, 0, 0
 
+-- One primitive's HashTiles entry hash, for PatchDrawList (the same math as HashTiles' inlined copy: keep both equal).
+-- Returns h1, h2 and the flat signature (>= 0: a flat rect, whose per-tile hash is FlatTileHash's)
+@native
+local function PrimHash(p, lx0, ly0, ox, oy)
+    local vbuf, va, vd, tex_id = PrimVtxBuffer[p], PrimA[p], PrimD[p], PrimTexId[p]
+    if PrimFlat[p] then
+        local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
+        return 0, 0, ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
+    end
+    local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
+        PrimBoundsY1[p] - ly0
+    local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+    local g = gk or 0
+    local h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
+    local h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
+    local vax, vay = lx0 + ox, ly0 + oy
+    if vd then
+        nv = gk == 3 and 4 or 2
+    else
+        v2, v3 = v3, v2
+    end
+    local v = va
+    for k = 1, nv do
+        if k == 2 then v = v2 elseif k == 3 then v = v3 elseif k == 4 then v = vd end
+        local x, y = readf64(vbuf, v) - vax, readf64(vbuf, v + 8) - vay
+        local uv = readf64(vbuf, v + 16) * 8192 + readf64(vbuf, v + 24)
+        local c = readu32(vbuf, v + 32)
+        h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
+        h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
+    end
+    return h1, h2, -1
+end
+
+-- A flat rect's hash in tile (tx, ty) (HashTiles' per-tile flat hash)
+@native
+local function FlatTileHash(p, lx0, ly0, tx, ty)
+    local vbuf, va, tex_id = PrimVtxBuffer[p], PrimA[p], PrimTexId[p]
+    local RectColor, RectUV = readu32(vbuf, va + 32), readf64(vbuf, va + 16) * 8192 + readf64(vbuf, va + 24)
+    local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
+        PrimBoundsY1[p] - ly0
+    local px0, py0 = tx * TILE, ty * TILE
+    local ix0, iy0 = max(cx0 - px0, 0), max(cy0 - py0, 0)
+    local ix1, iy1 = min(cx1 - px0, TILE), min(cy1 - py0, TILE)
+    local r = ((ix0 * 131 + iy0) * 131 + ix1) * 131 + iy1
+    return ((r * 48271 + RectColor) % P1 * 48271 + RectUV * 4096 + 7) % P1,
+        ((r * 16807 + RectColor + tex_id) % P2 * 16807 + RectUV * 65521 + 11) % P2
+end
+
 -- HashTiles scratch, per touched tile (slot = its index in layer.Touched): tile key -> slot, its list, count, hashes
 local KeySlot, SlotCount, SlotHash1, SlotHash2 = {}, {}, {}, {}
 local SlotList, SlotListHash1, SlotListHash2, SlotListFlat = {}, {}, {}, {}
@@ -48116,12 +48297,14 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
         if FlatRect then
             FlatSig = ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
         else
-            h1 = ((cx0 * 8191 + cy0) * 8191 + cx1) % P1
-            h2 = ((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) % P2
+            -- the kind (gk: 0 triangle / plain quad, 1 / 2 gradient, 3 line quad) mixed into the bounds: no extra %
+            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+            local g = gk or 0
+            h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
+            h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
             local vax, vay = lx0 + ox, ly0 + oy
             -- vertices: triangle a, b, c; axis aligned quad a, c (CollectPrims checked that b, d follow from them + kind);
-            -- line quad (any shape) a, c, b, d. The kind is mixed in after the second vertex.
-            local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
+            -- line quad (any shape) a, c, b, d
             if vd then
                 nv = gk == 3 and 4 or 2
             else
@@ -48137,10 +48320,6 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
                 local c = readu32(vbuf, v + 32)
                 h1 = (h1 * 48271 + (x * 4096 + y) * 31 + uv * 4096 + c) % P1
                 h2 = (h2 * 16807 + (y * 4093 + x) * 17 + uv * 65521 + c * 3) % P2
-                if k == 2 and gk then
-                    h1 = (h1 * 48271 + gk) % P1
-                    h2 = (h2 * 16807 + gk * 3) % P2
-                end
             end
             if DriftOn and (DriftSet[va // 36 --[[VTX_STRIDE]] + 1] or DriftSet[PrimB[p] // 36 --[[VTX_STRIDE]] + 1]
                 or DriftSet[PrimC[p] // 36 --[[VTX_STRIDE]] + 1] or (vd and DriftSet[vd // 36 --[[VTX_STRIDE]] + 1])) then
@@ -48801,20 +48980,31 @@ local function LayerOrigin(draw_list, kind, ox, oy)
     return floor(draw_list._ScrollOriginX - ox), floor(draw_list._ScrollOriginY - oy)
 end
 
-local PatchLayers, PatchKeys, PatchPrim = {}, {}, {}
+local PatchLayers, PatchKeys, PatchPrim, PatchH1, PatchH2, PatchSig = {}, {}, {}, {}, {}, {}
 
 -- CompareDrawList 3: moved by whole pixels, but a few vertices drifted off the exact shift (same bounds). CollectPrims
 -- ran and gave the primitive sequence the tile lists were built from: the lists stay (indices moved to this frame's)
 -- and every tile keeps its pixels, except those with a primitive using a drifted vertex: those entries' hashes change
 -- (DriftMark), so the tile redraws just them. Changes nothing when it returns false (the caller takes the full path).
+-- recolor (CompareDrawList 4: not moved, a few vertices' uv / colour changed): the same, but those primitives get
+-- their real hashes (PrimHash, flat rects too), so the tiles end up exactly as HashTiles + DrawLayer would leave them.
+-- Their kind must be the same (so the same bounds and tiles; the other primitives' entries are equal by construction).
 @native
-local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1)
+local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy, LimitX0, LimitY0, LimitX1, LimitY1,
+    recolor)
     table.clear(PatchPrim)
-    local SigA, SigD = set.PrimSigA, set.PrimSigD
+    local SigA, SigD, SigG = set.PrimSigA, set.PrimSigD, set.PrimSigG
     if not SigA or set.PrimN ~= n - n0 then return false end
     for m = 1, n - n0 do
         local p = n0 + m
         if PrimA[p] ~= SigA[m] or PrimD[p] ~= SigD[m] then return false end
+    end
+    -- the listed vertices' byte offset range
+    local Drift, lo, hi = Layers.Drift, math.huge, -1
+    for k = 1, Layers.DriftCount do
+        local v = Drift[k]
+        if v < lo then lo = v end
+        if v > hi then hi = v end
     end
     local np = 0
     for kind = 1, 3 do
@@ -48842,11 +49032,20 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         local TileCounts, Tiles = layer.TileCounts, layer.Tiles
         for m = 1, count do
             local p = plist[m]
-            local vd = PrimD[p]
-            if PrimFlat[p]
-                or not (DriftSet[PrimA[p] // 36 --[[VTX_STRIDE]] + 1] or DriftSet[PrimB[p] // 36 --[[VTX_STRIDE]] + 1]
-                    or DriftSet[PrimC[p] // 36 --[[VTX_STRIDE]] + 1] or (vd and DriftSet[vd // 36 --[[VTX_STRIDE]] + 1])) then
+            local va, vb, vc, vd = PrimA[p], PrimB[p], PrimC[p], PrimD[p]
+            -- (most primitives use no vertex in the listed ones' range: two compares per vertex, no lookups)
+            if (va < lo or va > hi) and (vb < lo or vb > hi) and (vc < lo or vc > hi)
+                and (not vd or vd < lo or vd > hi) then
                 continue
+            end
+            if (PrimFlat[p] and not recolor)
+                or not (DriftSet[va // 36 --[[VTX_STRIDE]] + 1] or DriftSet[vb // 36 --[[VTX_STRIDE]] + 1]
+                    or DriftSet[vc // 36 --[[VTX_STRIDE]] + 1] or (vd and DriftSet[vd // 36 --[[VTX_STRIDE]] + 1])) then
+                continue
+            end
+            if recolor then
+                if PrimGradient[p] ~= SigG[p - n0] then return false end
+                PatchH1[p], PatchH2[p], PatchSig[p] = PrimHash(p, lx0, ly0, ox, oy)
             end
             PatchPrim[p] = true
             local cx0, cy0, cx1, cy1 = PrimBoundsX0[p] - lx0, PrimBoundsY0[p] - ly0, PrimBoundsX1[p] - lx0,
@@ -48897,16 +49096,28 @@ local function PatchDrawList(BackendData, set, draw_list, n0, n, dx, dy, ox, oy,
         table.move(tile.DrawnHash1, 1, count, 1, LH1)
         table.move(tile.DrawnHash2, 1, count, 1, LH2)
         table.move(tile.DrawnFlat, 1, count, 1, layer.TileListFlat[key])
+        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
+        local LF = layer.TileListFlat[key]
         local h1, h2 = 0, 0
         for k = 1, count do
-            if PatchPrim[list[k]] then
+            local p = list[k]
+            if not PatchPrim[p] then
+                -- (unchanged entry)
+            elseif not recolor then
                 LH1[k], LH2[k] = (LH1[k] + DriftMark1) % P1, (LH2[k] + DriftMark2) % P2
+            else
+                local sig = PatchSig[p]
+                if sig >= 0 then
+                    LH1[k], LH2[k] = FlatTileHash(p, lx0, ly0, layer.TileX[key], layer.TileY[key])
+                else
+                    LH1[k], LH2[k] = PatchH1[p], PatchH2[p]
+                end
+                LF[k] = sig
             end
             h1 = (h1 * 48271 + LH1[k]) % P1
             h2 = (h2 * 16807 + LH2[k] + k) % P2
         end
         layer.TileHash1[key], layer.TileHash2[key] = h1, h2
-        local lx0, ly0 = LayerOrigin(draw_list, kind, ox, oy)
         local x0, y0 = lx0 + layer.TileX[key] * TILE, ly0 + layer.TileY[key] * TILE
         local vx0, vy0, vx1, vy1 = 0, 0, TILE, TILE
         if layer.Root ~= layer.Frame then
@@ -49006,19 +49217,26 @@ function M.RenderDrawData(draw_data)
         if nd > 0 then
             local Drift = Layers.Drift
             for k = 1, nd do DriftSet[Drift[k] // 36 --[[VTX_STRIDE]] + 1] = true end
-            DriftOn, DriftMark1, DriftMark2 = true, (FrameNo * 7907 + 12345) % P1, (FrameNo * 7919 + 54321) % P2
+            -- (recolored vertices, 4: only for PatchDrawList; the full path hashes them like any other)
+            DriftOn, DriftMark1, DriftMark2 = same == 3, (FrameNo * 7907 + 12345) % P1, (FrameNo * 7919 + 54321) % P2
         end
-        if same == 3 then
+        if same == 3 or same == 4 then
             PB("ImGui drift patch")
             if EditableImages.StageTiming then EditableImages.BeginStage() end
             local patched = PatchDrawList(BackendData, set, draw_list, n0, n, sdx, sdy, ox, oy, LimitX0, LimitY0,
-                LimitX1, LimitY1)
+                LimitX1, LimitY1, same == 4)
             if EditableImages.StageTiming then EditableImages.EndStage("Raster") end
             PE()
             if patched then
                 for k = 1, nd do DriftSet[Layers.Drift[k] // 36 --[[VTX_STRIDE]] + 1] = false end
                 DriftOn = false
-                z = ReuseDrawList(BackendData, set, draw_list, 2, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
+                if same == 4 then
+                    -- the snapshot: only vertex bytes changed
+                    buffer.copy(set.SnapVtx, 0, draw_list.VtxBuffer.Buf, 0, set.SnapVtxBytes)
+                    z = ReuseDrawList(BackendData, set, draw_list, 1, 0, 0, z, ox, oy, ScreenWidth, ScreenHeight)
+                else
+                    z = ReuseDrawList(BackendData, set, draw_list, 2, sdx, sdy, z, ox, oy, ScreenWidth, ScreenHeight)
+                end
                 continue
             end
         end
@@ -49040,6 +49258,7 @@ function M.RenderDrawData(draw_data)
                 set.PrimBase, set.PrimN = n0, n - n0
                 set.PrimSigA = table.move(PrimA, n0 + 1, n, 1, set.PrimSigA or {})
                 set.PrimSigD = table.move(PrimD, n0 + 1, n, 1, set.PrimSigD or {})
+                set.PrimSigG = table.move(PrimGradient, n0 + 1, n, 1, set.PrimSigG or {})
             end
         end
         if ListDeferred then AnyDeferred = true end
