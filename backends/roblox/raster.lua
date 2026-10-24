@@ -9,9 +9,9 @@ local readi32 = buffer.readi32
 local M = {
     TILE = 128,
     -- Packed jobs (parallel executor -> worker), per Actor and flush: P = primitive records, T = tile jobs.
-    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2, 4 line quad), tex id (-1: none),
-    --   clip x0 y0 x1 y1, bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v f64,
-    --   col u32): a at REC_A, c at REC_C, b at REC_B, d at REC_D.
+    -- P record (REC bytes): kind (0 triangle, 1 rect, 2/3 gradient kind 1/2, 4 line quad, 5 triangle pair), tex id
+    --   (-1: none), clip x0 y0 x1 y1, bounds x0 y0 x1 y1 (screen pixels, i32), then raw vertices (VTX bytes: x y u v
+    --   f64, col u32): a at REC_A, c at REC_C, b at REC_B, d at REC_D.
     -- T job: tox toy (f64), x0 y0 nr count (i32), nr x rect x0 y0 x1 y1 (i32, tile pixels), count x P offset (i32).
     VTX = 36, REC = 184, REC_A = 40, REC_C = 76, REC_B = 112, REC_D = 148, JOB = 32,
 }
@@ -999,6 +999,212 @@ local function DrawTriangle(dbuf: buffer, vbuf: buffer, va: number, vb: number, 
     end
 end
 
+-- One triangle's row walk as DrawTriangle sets it up (same edges, orientation, edge slots and row range; see its rows):
+-- clipped bounds, then the L1 L2 R1 R2 slots (A, B, C, n). For flat triangles only (no alpha-0 edge rows).
+@native
+local function TriangleSlots(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, cx0: number,
+    cy0: number, cx1: number, cy1: number)
+    local area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
+    if area < 0 then
+        x1, y1, x2, y2 = x2, y2, x1, y1
+    end
+    local minx, maxx = max(floor(min(x0, x1, x2)), cx0), min(ceil(max(x0, x1, x2)), cx1 - 1)
+    local miny, maxy = max(floor(min(y0, y1, y2)), cy0), min(ceil(max(y0, y1, y2)), cy1 - 1)
+    local A0, B0 = y1 - y2, x2 - x1
+    local C0 = -(A0 * x1 + B0 * y1)
+    local A1, B1 = y2 - y0, x0 - x2
+    local C1 = -(A1 * x2 + B1 * y2)
+    local A2, B2 = y0 - y1, x1 - x0
+    local C2 = -(A2 * x0 + B2 * y0)
+    local L1A, L1B, L1C, L1N, L2A, L2B, L2C, L2N = 0, 0, 1e9, -1, 0, 0, 1e9, -1
+    local R1A, R1B, R1C, R1N, R2A, R2B, R2C, R2N = 0, 0, 1e9, 1, 0, 0, 1e9, 1
+    local HB, HC, Htl = 0, 1e9, false
+    local l1, r1 = false, false
+    if A0 > 0 then
+        L1A, L1B, L1C, L1N, l1 = A0, B0, C0, -1 / A0, true
+    elseif A0 < 0 then
+        R1A, R1B, R1C, R1N, r1 = A0, B0, C0, -1 / A0, true
+    else
+        HB, HC, Htl = B0, C0, B0 > 0
+    end
+    if A1 > 0 then
+        if not l1 then L1A, L1B, L1C, L1N, l1 = A1, B1, C1, -1 / A1, true else L2A, L2B, L2C, L2N = A1, B1, C1, -1 / A1 end
+    elseif A1 < 0 then
+        if not r1 then R1A, R1B, R1C, R1N, r1 = A1, B1, C1, -1 / A1, true else R2A, R2B, R2C, R2N = A1, B1, C1, -1 / A1 end
+    else
+        HB, HC, Htl = B1, C1, B1 > 0
+    end
+    if A2 > 0 then
+        if not l1 then L1A, L1B, L1C, L1N, l1 = A2, B2, C2, -1 / A2, true else L2A, L2B, L2C, L2N = A2, B2, C2, -1 / A2 end
+    elseif A2 < 0 then
+        if not r1 then R1A, R1B, R1C, R1N, r1 = A2, B2, C2, -1 / A2, true else R2A, R2B, R2C, R2N = A2, B2, C2, -1 / A2 end
+    else
+        HB, HC, Htl = B2, C2, B2 > 0
+    end
+    if HB ~= 0 and minx <= maxx then
+        while miny <= maxy do
+            local e = HB * (miny + 0.5) + HC
+            if e > 0 or (e == 0 and Htl) then break end
+            miny += 1
+        end
+        while maxy > miny do
+            local e = HB * (maxy + 0.5) + HC
+            if e > 0 or (e == 0 and Htl) then break end
+            maxy -= 1
+        end
+    end
+    return minx, maxx, miny, maxy, L1A, L1B, L1C, L1N, L2A, L2B, L2C, L2N, R1A, R1B, R1C, R1N, R2A, R2B, R2C, R2N
+end
+
+-- Flat triangle pair a b c + a b d, one colour, constant uv (ImPlot PrimRectFill: heatmap cells, bars). The same pixels
+-- and values as the two DrawTriangle calls: per row each triangle's span exactly as DrawTriangle computes it (a flat
+-- triangle's pixels are the same whether walked by rows or columns: the same per-pixel edge tests), then one fill when
+-- the spans touch (opaque: or overlap; a pixel inside both gets the same value twice), else each span in order (a
+-- translucent pixel inside both is blended twice, first for a b c, as before). Saves the second triangle's setup, a
+-- span fill per row, and the column walk of tall bars.
+@native
+local function DrawTriPair(dbuf: buffer, vbuf: buffer, va: number, vb: number, vc: number, vd: number, t, cx0: number,
+    cy0: number, cx1: number, cy1: number, ox: number, oy: number)
+    local ax, ay = readf64(vbuf, va) - ox, readf64(vbuf, va + 8) - oy
+    local bx, by = readf64(vbuf, vb) - ox, readf64(vbuf, vb + 8) - oy
+    local cx, cy = readf64(vbuf, vc) - ox, readf64(vbuf, vc + 8) - oy
+    local dx, dy = readf64(vbuf, vd) - ox, readf64(vbuf, vd + 8) - oy
+    -- (DrawTriangle walks a tall triangle by columns, whose span estimates may differ from the rows' for an almost
+    -- vertical edge: then the two calls, like a degenerate triangle)
+    if (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) == 0 or (bx - ax) * (dy - ay) - (by - ay) * (dx - ax) == 0
+        or (min(ceil(max(ax, bx, cx)), cx1 - 1) - max(floor(min(ax, bx, cx)), cx0)) * 2
+            < min(ceil(max(ay, by, cy)), cy1 - 1) - max(floor(min(ay, by, cy)), cy0)
+        or (min(ceil(max(ax, bx, dx)), cx1 - 1) - max(floor(min(ax, bx, dx)), cx0)) * 2
+            < min(ceil(max(ay, by, dy)), cy1 - 1) - max(floor(min(ay, by, dy)), cy0) then
+        DrawTriangle(dbuf, vbuf, va, vb, vc, t, cx0, cy0, cx1, cy1, ox, oy)
+        DrawTriangle(dbuf, vbuf, va, vb, vd, t, cx0, cy0, cx1, cy1, ox, oy)
+        return
+    end
+    -- DrawTriangle's flat colour (the texel folded in like there)
+    local col = readu32(vbuf, va + 32)
+    local ra, ga, ba, aa = band(col, 255), band(rshift(col, 8), 255), band(rshift(col, 16), 255), rshift(col, 24)
+    if t then
+        local tw0, th0 = t.Width, t.Height
+        local tx, ty = floor(readf64(vbuf, va + 16) * tw0), floor(readf64(vbuf, va + 24) * th0)
+        if tx < 0 then tx = 0 elseif tx >= tw0 then tx = tw0 - 1 end
+        if ty < 0 then ty = 0 elseif ty >= th0 then ty = th0 - 1 end
+        local to, tb0 = (ty * tw0 + tx) * 4, t.Buffer
+        if readu32(tb0, to) ~= 4294967295 then
+            local tr, tg, tb, ta = readu8(tb0, to), readu8(tb0, to + 1), readu8(tb0, to + 2), readu8(tb0, to + 3)
+            ra, ga, ba, aa = ra * tr / 255, ga * tg / 255, ba * tb / 255, aa * ta / 255
+        end
+    end
+    if aa <= 0 then return end
+    local f_opaque = aa >= 255
+    local f_packed = floor(ra + 0.5) + floor(ga + 0.5) * 256 + floor(ba + 0.5) * 65536
+        + (f_opaque and 4278190080 or floor(aa + 0.5) * 16777216)
+    local f_pair: number | false = f_opaque and PairF64(f_packed)
+    local f_sa, f_ns, f_c1, f_rs, f_gs, f_bs = 0, 0, 0, 0, 0, 0
+    if not f_opaque then
+        f_sa = aa / 255
+        f_ns = 1 - f_sa
+        f_c1 = f_ns / 255
+        f_rs, f_gs, f_bs = ra * f_sa, ga * f_sa, ba * f_sa
+    end
+
+    local minx1, maxx1, miny1, maxy1, P1A, P1B, P1C, P1N, P2A, P2B, P2C, P2N, Q1A, Q1B, Q1C, Q1N, Q2A, Q2B, Q2C, Q2N =
+        TriangleSlots(ax, ay, bx, by, cx, cy, cx0, cy0, cx1, cy1)
+    local minx2, maxx2, miny2, maxy2, S1A, S1B, S1C, S1N, S2A, S2B, S2C, S2N, T1A, T1B, T1C, T1N, T2A, T2B, T2C, T2N =
+        TriangleSlots(ax, ay, bx, by, dx, dy, cx0, cy0, cx1, cy1)
+    if minx1 > maxx1 then miny1 = maxy1 + 1 end -- (empty)
+    if minx2 > maxx2 then miny2 = maxy2 + 1 end
+    local ylo, yhi = miny1, maxy1
+    if miny1 > maxy1 then
+        ylo, yhi = miny2, maxy2
+    elseif miny2 <= maxy2 then
+        ylo, yhi = min(miny1, miny2), max(maxy1, maxy2)
+    end
+    if ylo > yhi then return end
+    Shrink(min(minx1, minx2), ylo, max(maxx1, maxx2) + 1, yhi + 1)
+    for y = ylo, yhi do
+        local py = y + 0.5
+        local l1, r1, l2, r2 = 0, -1, 0, -1
+        if y >= miny1 and y <= maxy1 then
+            local f1, f2, g1, g2 = P1B * py + P1C, P2B * py + P2C, Q1B * py + Q1C, Q2B * py + Q2C
+            local xl = max(minx1, floor(f1 * P1N - 0.500001), floor(f2 * P2N - 0.500001))
+            local xr = min(maxx1, ceil(g1 * Q1N - 0.499999), ceil(g2 * Q2N - 0.499999))
+            if xl > minx1 and xl <= xr then xl += 1 end
+            while xl <= xr do
+                local px = xl + 0.5
+                if P1A * px + f1 >= 0 and P2A * px + f2 >= 0 then break end
+                xl += 1
+            end
+            if xr < maxx1 and xr > xl then xr -= 1 end
+            while xr >= xl do
+                local px = xr + 0.5
+                if Q1A * px + g1 > 0 and Q2A * px + g2 > 0 then break end
+                xr -= 1
+            end
+            l1, r1 = xl, xr
+        end
+        if y >= miny2 and y <= maxy2 then
+            local f1, f2, g1, g2 = S1B * py + S1C, S2B * py + S2C, T1B * py + T1C, T2B * py + T2C
+            local xl = max(minx2, floor(f1 * S1N - 0.500001), floor(f2 * S2N - 0.500001))
+            local xr = min(maxx2, ceil(g1 * T1N - 0.499999), ceil(g2 * T2N - 0.499999))
+            if xl > minx2 and xl <= xr then xl += 1 end
+            while xl <= xr do
+                local px = xl + 0.5
+                if S1A * px + f1 >= 0 and S2A * px + f2 >= 0 then break end
+                xl += 1
+            end
+            if xr < maxx2 and xr > xl then xr -= 1 end
+            while xr >= xl do
+                local px = xr + 0.5
+                if T1A * px + g1 > 0 and T2A * px + g2 > 0 then break end
+                xr -= 1
+            end
+            l2, r2 = xl, xr
+        end
+        if l1 > r1 then
+            if l2 > r2 then continue end
+            l1, r1, l2, r2 = l2, r2, 0, -1
+        elseif l2 <= r2 and (l2 == r1 + 1 or l1 == r2 + 1 or (f_opaque and l2 <= r1 and l1 <= r2)) then
+            l1, r1, l2, r2 = min(l1, l2), max(r1, r2), 0, -1
+        end
+        local row = y * TargetWidth * 4 + TargetBase
+        if f_opaque then
+            FillRow(dbuf, row + l1 * 4, row + r1 * 4, f_packed, f_pair)
+            if l2 <= r2 then FillRow(dbuf, row + l2 * 4, row + r2 * 4, f_packed, f_pair) end
+            continue
+        end
+        -- DrawTriangle's flat translucent span (same math, cached per destination value), per span in order
+        local last_d, last_v = -1, 0
+        for k = 1, 2 do
+            if k == 2 then
+                if l2 > r2 then break end
+                l1, r1 = l2, r2
+            end
+            for oo = row + l1 * 4, row + r1 * 4, 4 do
+                local d = readu32(dbuf, oo)
+                if d == last_d then
+                    writeu32(dbuf, oo, last_v)
+                elseif d < 16777216 then
+                    writeu32(dbuf, oo, f_packed)
+                else
+                    last_d = d
+                    local dr, dg, db = band(d, 255), band(rshift(d, 8), 255), band(rshift(d, 16), 255)
+                    if d >= 4278190080 then
+                        last_v = floor(f_rs + dr * f_ns + 0.5) + floor(f_gs + dg * f_ns + 0.5) * 256
+                            + floor(f_bs + db * f_ns + 0.5) * 65536 + 4278190080
+                    else
+                        local kk = rshift(d, 24) * f_c1
+                        local oa = f_sa + kk
+                        local inv = 1 / oa
+                        last_v = floor((f_rs + dr * kk) * inv + 0.5) + floor((f_gs + dg * kk) * inv + 0.5) * 256
+                            + floor((f_bs + db * kk) * inv + 0.5) * 65536 + floor(oa * 255 + 0.5) * 16777216
+                    end
+                    writeu32(dbuf, oo, last_v)
+                end
+            end
+        end
+    end
+end
+
 -- Textured line quad (triangles a b c + a c d, one colour, uv a = b and c = d: ImPlot PrimLine). Same edge functions as
 -- the two DrawTriangle calls (so the same pixels), uv from triangle a b c's barycentrics over the whole quad.
 @native
@@ -1287,7 +1493,8 @@ function M.ClearRect(rx0: number, ry0: number, rx1: number, ry1: number)
     end
 end
 
--- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2, 4 line quad (va vb vc vd)
+-- kind: 0 triangle (va vb vc), 1 rect (TL va, BR vc), 2/3 gradient kind 1/2, 4 line quad (va vb vc vd), 5 flat
+-- triangle pair (va vb vc + va vb vd)
 @native
 local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, vc: number, vd: number, tox: number,
     toy: number, cx0: number, cy0: number, cx1: number, cy1: number)
@@ -1296,6 +1503,9 @@ local function DrawPrim(kind: number, t, vbuf: buffer, va: number, vb: number, v
         return
     elseif kind == 4 then
         DrawLineQuad(TargetBuffer, vbuf, va, vb, vc, vd, t, cx0, cy0, cx1, cy1, tox, toy)
+        return
+    elseif kind == 5 then
+        DrawTriPair(TargetBuffer, vbuf, va, vb, vc, vd, t, cx0, cy0, cx1, cy1, tox, toy)
         return
     end
     local ax, ay, cx, cy = readf64(vbuf, va) - tox, readf64(vbuf, va + 8) - toy, readf64(vbuf, vc) - tox,

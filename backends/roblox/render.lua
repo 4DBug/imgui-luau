@@ -88,11 +88,11 @@ local function PrimHash(p, lx0, ly0, ox, oy)
         PrimBoundsY1[p] - ly0
     local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
     local g = gk or 0
-    local h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
-    local h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
+    local h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 8 + g) % P1
+    local h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 8 + g) % P2
     local vax, vay = lx0 + ox, ly0 + oy
     if vd then
-        nv = gk == 3 and 4 or 2
+        nv = (gk == 3 or gk == 4) and 4 or 2
     else
         v2, v3 = v3, v2
     end
@@ -162,16 +162,17 @@ local function HashTiles(layer, plist, np, lx0, ly0, ox, oy)
         if FlatRect then
             FlatSig = ((RectColor * 8191 + RectUV * 4096) % P1 * 64 + tex_id) % P1
         else
-            -- the kind (gk: 0 triangle / plain quad, 1 / 2 gradient, 3 line quad) mixed into the bounds: no extra %
+            -- the kind (gk: 0 triangle / plain quad, 1 / 2 gradient, 3 line quad, 4 triangle pair) mixed into the
+            -- bounds: no extra %
             local gk, v2, v3, nv = PrimGradient[p], PrimC[p], PrimB[p], 3
             local g = gk or 0
-            h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 4 + g) % P1
-            h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 4 + g) % P2
+            h1 = (((cx0 * 8191 + cy0) * 8191 + cx1) * 8 + g) % P1
+            h2 = (((cy1 * 8191 + cx1) * 8191 + cy0 + tex_id) * 8 + g) % P2
             local vax, vay = lx0 + ox, ly0 + oy
             -- vertices: triangle a, b, c; axis aligned quad a, c (CollectPrims checked that b, d follow from them + kind);
-            -- line quad (any shape) a, c, b, d
+            -- line quad, triangle pair (any shape) a, c, b, d
             if vd then
-                nv = gk == 3 and 4 or 2
+                nv = (gk == 3 or gk == 4) and 4 or 2
             else
                 v2, v3 = v3, v2
             end
@@ -748,6 +749,23 @@ local function CollectPrims(BackendData, draw_list, n, ox, oy, LimitX0, LimitY0,
                             bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
                             bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
                             by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
+                        end
+                    elseif i + 5 <= last and idx[i + 3] == ia and idx[i + 4] == idx[i + 1] then
+                        -- flat triangle pair a b c + a b d (ImPlot PrimRectFill: heatmap cells, bars): one colour, one
+                        -- uv (or no texture), any shape; the bounds are the two triangles' together
+                        local d = (vo + idx[i + 5] - 1) * VTX_STRIDE
+                        local col = readu32(vbuf, va + 32)
+                        if readu32(vbuf, vb + 32) == col and readu32(vbuf, vc + 32) == col and readu32(vbuf, d + 32) == col then
+                            local tax, tay = readf64(vbuf, va + 16), readf64(vbuf, va + 24)
+                            if not t or (readf64(vbuf, vb + 16) == tax and readf64(vbuf, vb + 24) == tay
+                                and readf64(vbuf, vc + 16) == tax and readf64(vbuf, vc + 24) == tay
+                                and readf64(vbuf, d + 16) == tax and readf64(vbuf, d + 24) == tay) then
+                                local pdx, pdy = readf64(vbuf, d), readf64(vbuf, d + 8)
+                                vd, gk = d, 4
+                                bx0, by0 = floor(min(pax, pbx, pcx, pdx) - ox), floor(min(pay, pby, pcy, pdy) - oy)
+                                bx1 = ceil(max(pax, pbx, pcx, pdx) - ox) + 1
+                                by1 = ceil(max(pay, pby, pcy, pdy) - oy) + 1
+                            end
                         end
                     end
                     if vd then

@@ -180,10 +180,10 @@ function M.Tile(img, list, count: number, x0: number, y0: number, tox: number, t
             local vb = PrimVtxBuffer[p]
             copy(P, pn + REC_A, vb, PrimA[p], VTX)
             copy(P, pn + REC_C, vb, PrimC[p], VTX)
-            if not d or gk == 3 then
+            if not d or gk == 3 or gk == 4 then
                 copy(P, pn + REC_B, vb, PrimB[p], VTX)
             end
-            if gk == 3 then copy(P, pn + REC_D, vb, d, VTX) end
+            if gk == 3 or gk == 4 then copy(P, pn + REC_D, vb, d, VTX) end
             pn += REC
         end
         writei32(T, to, poff[p])
