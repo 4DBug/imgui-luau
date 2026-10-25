@@ -217,8 +217,16 @@ function ImGui_ImplRoblox_Init(parent, render_scale)
         BackendData.HeartbeatCount += 1
     end)
 
-    connect(UserInputService.WindowFocused, function() ImGui.GetIO():AddFocusEvent(true) end)
-    connect(UserInputService.WindowFocusReleased, function() ImGui.GetIO():AddFocusEvent(false) end)
+    -- (losing focus clears imgui's mouse to "unavailable"; NewFrame only resends a moved mouse, so on return forget the
+    -- last position: a click on a field without moving the mouse first would otherwise land nowhere)
+    connect(UserInputService.WindowFocused, function()
+        ImGui.GetIO():AddFocusEvent(true)
+        BackendData.MouseX, BackendData.MouseY = nil, nil
+    end)
+    connect(UserInputService.WindowFocusReleased, function()
+        ImGui.GetIO():AddFocusEvent(false)
+        BackendData.MouseX, BackendData.MouseY = nil, nil
+    end)
 end
 
 -- Text proxy (opt-in): a hidden TextBox holds focus while a text field is active (OS typing, paste, copy/cut)
